@@ -179,16 +179,22 @@ export function describeBasis(basis: EntitlementLine["basis"], currency: string)
       // (story.md:44), so the sentence names the RULE and drops the figure rather
       // than printing a hole. Their own percentage is theirs and is never redacted.
       //
-      // "the door", not "the adjusted net": since #23.1 a percentage is a share of
-      // GROSS ticket revenue, and the old wording told every party that costs had
-      // already come off the number they were being paid a share of.
+      // "the adjusted net", which is what it now is (2026-09-15) and what the
+      // design's own party card says: *"20% of adjusted net"*. Between
+      // 2026-09-13 and 2026-09-15 this read "of the door" and was true; saying it
+      // now would tell a party that no cost had come off the figure they are
+      // being paid a share of, when every cost has.
       return basis.base == null
-        ? `${basisPointsToPercent(basis.basisPoints)}% of the door`
-        : `${basisPointsToPercent(basis.basisPoints)}% of the door ${formatMoney(basis.base, currency)}`;
+        ? `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net`
+        : `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net ${formatMoney(basis.base, currency)}`;
     case "guarantee_vs_door":
+      // "the door share" NAMES THE ARM of the deal, which is the design's own
+      // phrasing ("70% door beats €50,000 gtee") and the industry's. It is not a
+      // claim about the base — that is the adjusted net, and the `door_split`
+      // sentence above says so where the figure itself is being described.
       return basis.won === "door"
-        ? `${basisPointsToPercent(basis.basisPoints)}% of the door beats the ${formatMoney(basis.guarantee, currency)} guarantee`
-        : `The ${formatMoney(basis.guarantee, currency)} guarantee beats ${basisPointsToPercent(basis.basisPoints)}% of the door`;
+        ? `The ${basisPointsToPercent(basis.basisPoints)}% door share beats the ${formatMoney(basis.guarantee, currency)} guarantee`
+        : `The ${formatMoney(basis.guarantee, currency)} guarantee beats the ${basisPointsToPercent(basis.basisPoints)}% door share`;
     default:
       return "A paper agreement — nothing for the settlement to compute";
   }

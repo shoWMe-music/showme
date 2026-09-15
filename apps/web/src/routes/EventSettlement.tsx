@@ -16,7 +16,7 @@ import {
   TextField,
 } from "@showme/design-system";
 import { Link, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { ConfirmDialog, useConfirmDialog } from "../components/ConfirmDialog";
 import { DateText } from "../components/DateText";
 import { SettlementActualsCard } from "../components/SettlementActualsCard";
@@ -27,6 +27,7 @@ import {
 } from "../components/SettlementCurrencyPreview";
 import { SettlementDeliveryCard } from "../components/SettlementDeliveryCard";
 import { SettlementPartyCard } from "../components/SettlementPartyCard";
+import { PartyPositionsCard, TotalSettlementCard } from "../components/SettlementShares";
 import { SettlementStepper } from "../components/SettlementStepper";
 import { UnsignedAgreementsNotice } from "../components/UnsignedAgreementsNotice";
 import { type SettlementLine, WhoOwesWhomBoard } from "../components/WhoOwesWhomBoard";
@@ -51,6 +52,7 @@ import { formatDay, formatMoney } from "../lib/format";
 import { toMinorUnits } from "../lib/moneyUnits";
 import { PRO_FILING_AVAILABLE } from "../lib/proFilingAvailability";
 import { apiStatusToDisplay } from "../lib/status";
+import styles from "./EventSettlement.module.css";
 
 /**
  * The full settlement workspace — its own page, reached from the event's thin
@@ -201,11 +203,22 @@ export function EventSettlement() {
       <Tabs
         value={tab}
         onChange={setTab}
+        /*
+         * THE DESIGN'S SIX, in its order
+         * (`claude-prototype/ran-2026-09-10/renders/`).
+         *
+         * "Comments" is gone as a tab and is not gone as a feature: the design
+         * puts the thread in the Settlement tab's right rail, beside the figures
+         * it is about, which is where a remark on a settlement belongs — answering
+         * one MEANS changing a number, and a tab away from the numbers made the
+         * reader hold both in their head.
+         */
         tabs={[
           { key: "overview", label: "Overview" },
+          { key: "deal-structure", label: "Deal structure" },
           { key: "financials", label: "Financials" },
           { key: "settlement", label: "Settlement" },
-          { key: "comments", label: "Comments" },
+          { key: "collaborators", label: "Collaborators" },
           { key: "payout", label: "Payout" },
         ]}
       />
@@ -216,6 +229,8 @@ export function EventSettlement() {
         <ErrorState error={settlement.error} title="Couldn't load the settlement" />
       ) : tab === "overview" ? (
         <OverviewTab event={event.data} settlement={settlement} />
+      ) : tab === "deal-structure" ? (
+        <DealStructureTab event={event.data} settlement={settlement} />
       ) : tab === "financials" ? (
         <FinancialsTab
           eventId={eventId}
@@ -223,12 +238,12 @@ export function EventSettlement() {
           currency={baseCurrency}
           onGoToSettlement={() => setTab("settlement")}
         />
-      ) : tab === "comments" ? (
-        <CommentsTab settlement={settlement} eventId={eventId} />
+      ) : tab === "collaborators" ? (
+        <CollaboratorsTab settlement={settlement} />
       ) : tab === "payout" ? (
         <PayoutTab settlement={settlement} />
       ) : (
-        <SettlementTab settlement={settlement} />
+        <SettlementTab settlement={settlement} eventId={eventId} />
       )}
     </div>
   );
@@ -257,38 +272,61 @@ function OverviewTab({ event, settlement }: { event: EventData; settlement: Even
   const lines = useSettlementLines(event.id, event.baseCurrency);
   return (
     <div style={CARD_COLUMN}>
+      {/*
+       * The design's Overview reads top to bottom: who and where, then the chain
+       * down to the adjusted net beside the division of it. Event details runs
+       * full width because it is context for both cards under it.
+       */}
+      <div>
+        {/*
+         * The design's Event details: the people and the room, not just the date.
+         * Its grid reads EVENT ID · PERFORMER · VENUE / OPERATOR · TICKETING ·
+         * CAPACITY, and the point of putting the parties HERE is that ClickUp
+         * `86cbcn1ue` asked for exactly that — *"Performer/Promoter or any other
+         * collaborator details must appear in the Overview section"*.
+         *
+         * Names come from the settlement's own roster, so a row is drawn only when
+         * the reader may see that party. "Event ID" is deliberately not drawn: our
+         * id is a uuid, which is the design's field carrying a value nobody can
+         * read out over a phone.
+         */}
+        <Card padding="lg" style={CARD_COLUMN}>
+          <CardTitle>Event details</CardTitle>
+          <DetailGrid
+            cells={[
+              { key: "date", label: "Date", value: <DateText value={event.eventDate} /> },
+              { key: "venue", label: "Venue", value: event.venueName ?? "Not set" },
+              ...settlement.shares.map((share) => ({
+                key: share.key,
+                label: share.role,
+                value: share.name,
+              })),
+              {
+                key: "capacity",
+                label: "Capacity",
+                value: event.capacity != null ? String(event.capacity) : "Not set",
+              },
+              { key: "status", label: "Event status", value: eventStatus.label },
+              { key: "currency", label: "Settles in", value: event.baseCurrency, mono: true },
+            ]}
+          />
+        </Card>
+      </div>
+
+      {/* The design's second row: the chain down to the adjusted net, beside the
+          division of it.
+          The "Your settlement" block that used to hang off the bottom of the
+          waterfall is gone rather than moved — every reader's own figure is in the
+          card beside it now, under their own name and with the rule that produced
+          it, which is strictly more than a bare number under a heading. */}
       <div style={TWO_COLUMN}>
         <Card padding="lg" style={CARD_COLUMN}>
-          <CardTitle>Event Details</CardTitle>
-          <KeyValueRow label="Date" value={<DateText value={event.eventDate} />} />
-          <KeyValueRow label="Venue" value={event.venueName ?? "Not set"} />
-          <KeyValueRow
-            label="Capacity"
-            value={event.capacity != null ? String(event.capacity) : "Not set"}
-          />
-          <KeyValueRow label="Event status" value={eventStatus.label} />
-          <KeyValueRow label="Settles in" value={event.baseCurrency} mono />
-        </Card>
-
-        <Card padding="lg" style={CARD_COLUMN}>
-          <CardTitle>Financial Overview</CardTitle>
+          <CardTitle subtitle="How the box office resolves into the net every share divides.">
+            Financial overview
+          </CardTitle>
           <PoolLadderRows settlement={settlement} />
-          {settlement.ownParty?.entitlement && (
-            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-              <Eyebrow>Your settlement</Eyebrow>
-              <div
-                style={{
-                  fontSize: 26,
-                  fontWeight: 600,
-                  color: "var(--brand-red)",
-                  marginTop: 4,
-                }}
-              >
-                {settlement.ownParty.entitlement}
-              </div>
-            </div>
-          )}
         </Card>
+        <TotalSettlementCard settlement={settlement} />
       </div>
 
       {/*
@@ -301,95 +339,276 @@ function OverviewTab({ event, settlement }: { event: EventData; settlement: Even
        * are read against: a reader checks what the deal says, then what the night
        * took, then who ends up with what. The old order started at the answer.
        */}
-      <AgreementTermsCard agreements={settlement.agreements} />
       <TicketingSummaryCard
         revenue={lines.revenue}
         visible={settlement.ladder != null}
         currency={event.baseCurrency}
       />
 
-      {settlement.parties.length === 0 ? (
-        <NothingSettledYet settlement={settlement} />
-      ) : (
-        /*
-         * THE SAME PARTY CARD THE SETTLEMENT TAB USES, and not a second one.
-         *
-         * ClickUp `86cbcn1ue`: *"Performer/Promoter or any other collaborator
-         * details must appear in the Overview section of the settlement."* The
-         * details he is asking for were already built — `SettlementPartyCard`
-         * draws the party, their role, their entitlement AND the rule sentence
-         * behind every figure in it ("100% of the adjusted net — your share of
-         * SEK 50 000").
-         *
-         * The Overview was drawing a hand-rolled card next to it: a name, a role
-         * and a bare number, with the explanation dropped. So this is a deletion
-         * as much as an addition — one card, one place it is defined, and the
-         * Overview stops being the tab that tells you less.
-         */
-        <div style={CARD_COLUMN}>
-          {settlement.parties.map((party) => (
-            <SettlementPartyCard key={party.settlementId} party={party} />
-          ))}
-        </div>
-      )}
+      {settlement.parties.length === 0 && <NothingSettledYet settlement={settlement} />}
     </div>
   );
 }
 
 /**
- * WHAT EACH AGREEMENT ACTUALLY PAID, and to whom.
+ * THE DESIGN'S EVENT-DETAILS GRID — a bordered cell per fact, label above value,
+ * three across.
  *
- * This had a tab of its own — "Deal Structure" — and it read as a broken second
- * Deals tab (ClickUp 86cbaxvb9). The event already has a Deals tab, and that is
- * where an agreement is authored and confirmed; this is the same agreement AFTER
- * the engine has divided a pool by it, so before anyone reconciles there is
- * nothing here at all. A reader who had just confirmed a Door Split next door
- * opened it and was told "No settled agreement to show".
+ * Not `KeyValueRow`, and the difference is deliberate rather than decorative. A
+ * key-value row is for a COLUMN of related figures the eye runs down — the
+ * waterfall, a party's rule lines. This is a set of unrelated facts the reader
+ * picks one of ("what's the capacity?"), and the design lays those out as cells
+ * precisely because scanning a 3×2 grid for one label beats reading seven rows.
  *
- * So it is folded into the Settlement tab, between the pool it divides and the
- * party cards that carry the result — the one place the reconciliation is
- * already told as a story. Nothing was dropped: every figure the tab drew is
- * drawn here. What is gone is the empty state, which only ever appeared when the
- * answer was "run the settlement first" — and the Settlement tab says that
- * already, once, in its own words.
- *
- * Renders nothing until the engine has recorded a line, because "what the
- * agreement paid" is not a question with an answer before then.
+ * The cell count is not fixed: a night with three acts has three party rows, and
+ * the grid reflows rather than overflowing. `auto-fit` with a `minmax(0, …)` floor
+ * so a long venue name cannot push the card sideways (CLAUDE.md's overflow rule).
  */
-function SettledAgreements({ settlement }: { settlement: EventSettlementData }) {
-  if (settlement.deals.length === 0) return null;
+function DetailGrid({
+  cells,
+}: {
+  cells: { key: string; label: string; value: ReactNode; mono?: boolean }[];
+}) {
+  // Complete the last row so the 1px gap never shows through where a cell is
+  // missing. The count is not fixed — a bill with three acts has three party
+  // cells — so this cannot be solved by choosing the right number of facts.
+  const columns = 3;
+  const fillers = (columns - (cells.length % columns)) % columns;
   return (
-    <>
-      {settlement.deals.map((deal) => (
-        <Card key={deal.dealId} padding="lg" style={CARD_COLUMN}>
-          {/* The deal's own name only. Its STRUCTURE is stated more precisely,
-              and per party, by the rule sentence under each share below. */}
-          <CardTitle subtitle="What the agreement paid, and the share each party took of it.">
-            {deal.name}
-          </CardTitle>
-          <KeyValueRow label="Agreement total" value={deal.dealTotal} mono total />
-          {deal.shares.map((share) => (
-            <KeyValueRow
-              key={share.key}
-              label={
-                <span>
-                  {share.name}
-                  <span style={{ display: "block", color: "var(--muted)", fontSize: 12 }}>
-                    {share.rule}
-                  </span>
-                </span>
-              }
-              value={share.amount}
-              mono
-            />
-          ))}
-        </Card>
+    <div className={styles.detailGrid}>
+      {cells.map((cell) => (
+        <div key={cell.key} className={styles.detailCell}>
+          <Eyebrow>{cell.label}</Eyebrow>
+          <span
+            className={`${styles.detailValue} ${cell.mono ? styles.detailValueMono : ""}`.trim()}
+          >
+            {cell.value}
+          </span>
+        </div>
       ))}
-    </>
+      {/* Blank cells, so they have nothing to key on but their position — which
+          is the one case where an index key is the honest answer rather than a
+          shortcut: these are not data and never reorder. */}
+      {Array.from({ length: fillers }, (_unused, index) => index).map((index) => (
+        <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: position IS the identity of a blank cell
+          key={`filler-${index}`}
+          className={styles.detailCell}
+          aria-hidden="true"
+        />
+      ))}
+    </div>
   );
 }
 
-function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
+/**
+ * DEAL STRUCTURE — what was agreed, and what it paid.
+ *
+ * This tab existed once, was deleted for cause (ClickUp `86cbaxvb9`: it read as a
+ * broken second Deals tab, telling an operator "No settled agreement to show"
+ * moments after they confirmed a Door Split), and is back because the design has
+ * it — but not as the thing that was deleted.
+ *
+ * The difference is what it holds. The old one showed ONLY the settled reading,
+ * so before a reconciliation it was empty and looked broken. This one leads with
+ * the TERMS, which exist the moment an agreement is written, and shows the settled
+ * reading underneath when there is one. It is still read-only and it is still not
+ * where a deal is authored — that is the event's own Deals tab, and there is
+ * exactly one of those.
+ */
+function DealStructureTab({
+  event,
+  settlement,
+}: { event: EventData; settlement: EventSettlementData }) {
+  const lines = useSettlementLines(event.id, event.baseCurrency);
+  if (settlement.agreements.length === 0) {
+    return (
+      <EmptyState
+        icon={<Icon name="file" />}
+        title="No agreements on this event yet"
+        description="Deal terms are written on the event's Deals tab. Once an agreement exists, its structure and what it paid appear here."
+      />
+    );
+  }
+  // What the SETTLEMENT made of each agreement, keyed so a card can show its own
+  // outcome beside its own terms. Empty until the night is reconciled, which is
+  // the state the deleted "Deal Structure" tab could only ever show.
+  const settledByDeal = new Map(settlement.deals.map((deal) => [deal.dealId, deal]));
+  return (
+    <div style={CARD_COLUMN}>
+      {settlement.agreements.map((agreement) => {
+        const settled = settledByDeal.get(agreement.dealId);
+        return (
+          <Card key={agreement.dealId} padding="lg" style={CARD_COLUMN}>
+            <CardTitle subtitle="How the box office splits before anyone is paid. Read from the agreement itself.">
+              {agreement.name}
+            </CardTitle>
+
+            {/* The design's tinted sentence: which arm of the deal won, in words,
+                for each party the agreement paid. Drawn only once the engine has
+                actually compared them — before that there is no winner to name,
+                and asserting one from the terms alone would be a forecast wearing
+                a settled figure's clothes. */}
+            {settled?.shares.map((share) => (
+              <div
+                key={share.key}
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  padding: "12px 14px",
+                  borderRadius: 12,
+                  background: "var(--elevated, var(--surface))",
+                  fontSize: 13.5,
+                  lineHeight: 1.5,
+                }}
+              >
+                <Icon name="music" size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+                <span>
+                  <strong>{share.name}</strong> · {share.rule} — {share.amount}
+                </span>
+              </div>
+            ))}
+
+            <DetailGrid
+              cells={[
+                { key: "kind", label: "Deal type", value: agreement.kind },
+                ...(agreement.fee
+                  ? [{ key: "fee", label: "Guarantee", value: agreement.fee, mono: true }]
+                  : []),
+                ...(agreement.share
+                  ? [{ key: "share", label: "Revenue split", value: agreement.share }]
+                  : []),
+                ...(agreement.paidInAdvance
+                  ? [
+                      {
+                        key: "advance",
+                        label: "Paid in advance",
+                        value: agreement.paidInAdvance,
+                        mono: true,
+                      },
+                    ]
+                  : []),
+                ...(settled
+                  ? [
+                      {
+                        key: "paid",
+                        label: "What it paid",
+                        value: settled.dealTotal,
+                        mono: true,
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          </Card>
+        );
+      })}
+
+      <TicketRevenueSplitCard
+        agreements={settlement.agreements}
+        revenue={lines.revenue}
+        currency={event.baseCurrency}
+        adjustedNet={settlement.adjustedNet}
+      />
+    </div>
+  );
+}
+
+/**
+ * THE TICKET-REVENUE SPLIT — the design's second Deal-structure card, and it is
+ * an ILLUSTRATION, which is the only reason it is allowed to exist beside the
+ * real entitlements.
+ *
+ * The design captions it *"Box office only, before costs and rental. Final
+ * entitlements are on Overview."* and that caption is load-bearing: these are the
+ * percentages applied to the box office, while the settlement applies them to the
+ * adjusted net. The two figures differ by every cost on the night, and the
+ * footnote says so with both numbers rather than leaving the reader to wonder
+ * which of two 70%s they are looking at.
+ *
+ * That gap is exactly what the prototype got wrong — its Deal-structure sentence
+ * states €53,760 (the box-office reading) as the performer's earnings while its
+ * Overview pays €50,750 (the adjusted-net reading). Same deal, same night, two
+ * answers. Here the illustration is labelled as one.
+ */
+function TicketRevenueSplitCard({
+  agreements,
+  revenue,
+  currency,
+  adjustedNet,
+}: {
+  agreements: SettlementAgreementRow[];
+  revenue: SettlementLineRow[];
+  currency: string;
+  adjustedNet: string | null;
+}) {
+  const withSplit = agreements.filter((agreement) => agreement.splitBasisPoints != null);
+  const ticketMinor = revenue
+    .filter((line) => line.details?.basis === "ticket_tier")
+    .reduce((total, line) => total + BigInt(toMinorUnits(line.amount)), 0n);
+  if (withSplit.length === 0 || ticketMinor === 0n) return null;
+  return (
+    <Card padding="lg" style={CARD_COLUMN}>
+      <CardTitle subtitle="Box office only, before costs and rental. Final entitlements are on Overview.">
+        Ticket revenue split
+      </CardTitle>
+      {withSplit.map((agreement) => {
+        const basisPoints = agreement.splitBasisPoints as number;
+        // Integer arithmetic on minor units, as every figure on this screen is
+        // (`docs/money.md`) — a percentage of money through a float is how a
+        // settlement ends up a cent out of balance.
+        const slice = (ticketMinor * BigInt(basisPoints)) / 10_000n;
+        return (
+          <KeyValueRow
+            key={agreement.dealId}
+            label={agreement.name}
+            caption={`${(basisPoints / 100).toFixed(0)}% of the box office`}
+            value={formatMoney(slice.toString(), currency)}
+            mono
+          />
+        );
+      })}
+      <KeyValueRow
+        label="Ticket revenue"
+        value={formatMoney(ticketMinor.toString(), currency)}
+        mono
+        total
+      />
+      {adjustedNet != null && (
+        <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55 }}>
+          These are shares of ticket revenue only. Once deductions and any rental are applied, the
+          adjusted net is {adjustedNet} — and that is what the settlement actually divides.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * COLLABORATORS — each party's position, and sending them their settlement.
+ *
+ * Both halves already existed: the positions were a stack of party cards on the
+ * Settlement tab, and the delivery card sat under the approval roster. The design
+ * gives them a tab together, which is the right pairing — "who is owed what" and
+ * "have they been told" are one question asked twice, and an operator chasing a
+ * signature was previously scrolling between two parts of a long page to ask it.
+ */
+function CollaboratorsTab({ settlement }: { settlement: EventSettlementData }) {
+  if (settlement.parties.length === 0) {
+    return <NothingSettledYet settlement={settlement} />;
+  }
+  return (
+    <div style={CARD_COLUMN}>
+      <PartyPositionsCard settlement={settlement} />
+      <SettlementDeliveryCard settlement={settlement} />
+    </div>
+  );
+}
+
+function SettlementTab({
+  settlement,
+  eventId,
+}: { settlement: EventSettlementData; eventId: string }) {
   const confirmDialog = useConfirmDialog();
   const askToFinalize = () =>
     confirmDialog.ask({
@@ -537,25 +756,33 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
         <NothingSettledYet settlement={settlement} />
       ) : (
         <>
-          {/* Full width. The design splits this row, with the conversation in a
-              sticky rail beside the figures — but the conversation now has a tab
-              of its own, so nothing is competing for the space and the money gets
-              all of it. */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
-            <>
+          {/*
+           * THE DESIGN'S SPLIT ROW: the figures on the left, the conversation and
+           * the revision history in a rail on the right.
+           *
+           * The conversation belongs beside the money and not a tab away from it.
+           * Answering a settlement comment MEANS changing a figure — "production
+           * line looks 500 higher than our copy" is a remark about one row — and a
+           * reader who had to leave the numbers to read it was holding both in
+           * their head. `minmax(0, …)` on both columns because the left one
+           * carries tables: without it the grid sizes to content and the page
+           * scrolls sideways on a laptop (CLAUDE.md, the overflow sweep).
+           */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1.9fr) minmax(0, 1fr)",
+              gap: 20,
+              alignItems: "start",
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
               <Card padding="lg" style={CARD_COLUMN}>
                 <CardTitle subtitle="What the night took, what it cost, and the net every percentage below is a share of.">
                   Revenue &amp; deductions
                 </CardTitle>
                 <PoolLadderRows settlement={settlement} />
               </Card>
-
-              {/* The agreements, between the pool and the parties — this is what
-                  the "Deal Structure" tab used to hold on its own (86cbaxvb9).
-                  Read in order the page now says: here is the pool, here is how
-                  each agreement divided it, here is what that left each party
-                  holding, here is who pays whom. */}
-              <SettledAgreements settlement={settlement} />
 
               {settlement.parties.map((party) => (
                 <SettlementPartyCard key={party.settlementId} party={party} />
@@ -581,7 +808,12 @@ function SettlementTab({ settlement }: { settlement: EventSettlementData }) {
                   Your own line. The other parties' figures on this event aren't shared with you.
                 </span>
               )}
-            </>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
+              <SettlementThread settlement={settlement} />
+              <RevisionHistory eventId={eventId} />
+            </div>
           </div>
 
           {/* Sign-off and what leaves the building, side by side — the design's
@@ -751,66 +983,6 @@ function PoolLadderRows({ settlement }: { settlement: EventSettlementData }) {
   );
 }
 
-/**
- * WHAT WAS AGREED — kind and fee, per agreement.
- *
- * ClickUp `86cbcn1ue`: *"Deal type and Fee must appear in the Overview section of
- * the settlement."*
- *
- * Read off the DEALS, so it is there the moment an agreement is written rather
- * than only after the night is reconciled. That is the difference from
- * `SettledAgreements` further down the Settlement tab, which reports what each
- * deal actually PAID and is correctly empty until there is an answer. Both exist
- * because they answer different questions, and an operator opening the Overview
- * before computing was previously shown neither.
- *
- * Renders nothing on an event with no agreements: an empty "Agreements" card is a
- * heading explaining that there is nothing under it.
- */
-function AgreementTermsCard({ agreements }: { agreements: SettlementAgreementRow[] }) {
-  if (agreements.length === 0) return null;
-  return (
-    <Card padding="lg" style={CARD_COLUMN}>
-      <CardTitle subtitle="What each agreement says it pays, before anything is reconciled.">
-        Agreements
-      </CardTitle>
-      {agreements.map((agreement) => (
-        <div key={agreement.dealId} style={CARD_COLUMN}>
-          <span style={{ fontWeight: 600 }}>{agreement.name}</span>
-          <KeyValueRow label="Kind of deal" value={agreement.kind} />
-          {/* Each row only when the terms actually state it. A guarantee-less door
-              split has no fee, and printing "Fee —" would invite the reader to
-              wonder which of the two it is. */}
-          {agreement.fee && <KeyValueRow label="Fee" value={agreement.fee} mono />}
-          {agreement.share && <KeyValueRow label="Share" value={agreement.share} mono />}
-          {agreement.paidInAdvance && (
-            <KeyValueRow label="Paid in advance" value={agreement.paidInAdvance} mono />
-          )}
-        </div>
-      ))}
-    </Card>
-  );
-}
-
-/**
- * WHAT THE TICKETS DID — name, count, price, and what that came to.
- *
- * ClickUp `86cbcn1ue`: *"Ticketing info must appear in the Overview section of the
- * settlement."* The figures already existed and were already editable one tab
- * over, in "The real numbers"; what was missing is that the Overview — the tab
- * somebody opens to find out how the night went — did not mention tickets at all.
- *
- * `quantity x unitAmount` is drawn from the line's OWN breakdown rather than
- * recomputed here, so this cannot disagree with the card that edits it. A line
- * somebody typed a lump sum into has no breakdown, and shows its amount alone —
- * which is the honest rendering of "we took 4 000 on the door" with no count
- * behind it.
- *
- * GATED on the reader being allowed to see the night's takings. `ladder` is null
- * for anyone without `budget.view` (story.md:44), and that null is the ceiling
- * itself, not a loading state — a performer must not learn the whole gate off
- * their own settlement page.
- */
 function TicketingSummaryCard({
   revenue,
   visible,
@@ -1426,7 +1598,10 @@ function PayoutTab({ settlement }: { settlement: EventSettlementData }) {
   if (!settlement.isFinalized) {
     return (
       <Card padding="lg" style={{ ...CARD_COLUMN, alignItems: "center", textAlign: "center" }}>
-        <Icon name="alert" size={30} style={{ color: "var(--brand-amber)" }} />
+        {/* A LOCK, as the design draws it. An alert triangle says something is
+            wrong; nothing is wrong here — the settlement simply is not final yet,
+            and the difference matters to an operator deciding whether to worry. */}
+        <Icon name="lock" size={30} style={{ color: "var(--brand-amber)" }} />
         <div style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: 18 }}>
           Payouts are locked
         </div>
@@ -1473,14 +1648,3 @@ function PayoutTab({ settlement }: { settlement: EventSettlementData }) {
  * The two belong together — a remark and the revision it caused are one story —
  * so they share the tab rather than becoming two.
  */
-function CommentsTab({
-  settlement,
-  eventId,
-}: { settlement: EventSettlementData; eventId: string }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <SettlementThread settlement={settlement} />
-      <RevisionHistory eventId={eventId} />
-    </div>
-  );
-}

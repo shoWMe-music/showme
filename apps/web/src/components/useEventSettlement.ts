@@ -116,6 +116,17 @@ export interface SettlementParty {
   net: string | null;
   /** Raw minor units — for summing only. Never rendered. */
   netMinor: string | null;
+  /**
+   * The entitlement in raw minor units, for the same reason `netMinor` exists and
+   * under the same rule: summing and proportioning only, never rendered.
+   *
+   * The design's Overview draws a stacked bar of who took what and a percentage
+   * beside every party ("66.3%"). Both need the figures as integers, and both
+   * would otherwise be computed off formatted text — which `docs/money.md`
+   * forbids, and for good reason: "SEK 50 750,00" parses differently in four
+   * locales and silently in none.
+   */
+  entitlementMinor: string | null;
   netTone: "positive" | "negative" | "neutral";
   /**
    * The sentences behind the entitlement ("70% of the adjusted net beats the
@@ -226,14 +237,58 @@ export interface SettlementAgreementRow {
   kind: string;
   /** The headline figure, already formatted. Null for terms that state no amount. */
   fee: string | null;
-  /** "70% of the pool", when that is what it pays. Null otherwise. */
+  /** "70% of the adjusted net", when that is what it pays. Null otherwise. */
   share: string | null;
+  /**
+   * The same percentage as a NUMBER, for the ticket-revenue illustration the
+   * design draws beside the terms. Null when the deal states no percentage.
+   *
+   * Carried as well as the sentence because the two are used for different
+   * things: the sentence is read, the number is multiplied. Re-parsing "70% of
+   * the adjusted net" to get 7000 back would be a second, worse copy of a figure
+   * the API already served.
+   */
+  splitBasisPoints: number | null;
   /** Set only when part of it moved before the night. */
   paidInAdvance: string | null;
 }
 
+/**
+ * ONE PARTY'S SLICE OF THE ADJUSTED NET, ready to draw — the design's
+ * "Entitlement by party" list and the stacked bar above it.
+ *
+ * `fraction` is what the bar is drawn from and `percent` is what is printed
+ * beside the name ("66.3%"). Both come off the same integer division, so the bar
+ * and the number can never disagree — which is the failure mode of computing one
+ * in the hook and the other in the component.
+ */
+export interface EntitlementShare {
+  key: string;
+  name: string;
+  role: string;
+  initials: string;
+  /** Formatted, in the reader's display currency like every other figure. */
+  amount: string;
+  /** "66.3", or null when there is nothing to take a share of. */
+  percent: string | null;
+  /** 0‥1 of the total entitlement — the bar's width. */
+  fraction: number;
+  /** The rule behind the figure, one line, as the design prints it. */
+  rule: string | null;
+  isYours: boolean;
+}
+
 export interface EventSettlement {
   parties: SettlementParty[];
+  /**
+   * Every party's slice of the adjusted net, largest first — the Overview's
+   * "Total settlement" card and the Collaborators tab's positions.
+   */
+  shares: EntitlementShare[];
+  /** Σ of those slices, formatted — what the bar adds up to. */
+  totalEntitlement: string;
+  /** The bottom of the waterfall, formatted. Null behind the pool ceiling. */
+  adjustedNet: string | null;
   /** The agreements' TERMS, readable before anything is reconciled. */
   agreements: SettlementAgreementRow[];
   transfers: Transfer[];
@@ -622,6 +677,54 @@ export function useEventSettlement(
    * and formatted once at the end. The browser never does money arithmetic on
    * formatted text, and never on a float (`docs/money.md`).
    */
+  /**
+   * THE SLICES, largest first.
+   *
+   * Negative entitlements are left out of the BAR rather than drawn as a negative
+   * width: on a night that lost money the operator's slice is below zero, and a
+   * proportion bar has nothing honest to say about that. They still appear in the
+   * list beneath it with their real figure — the card's job is to show who took
+   * what, and "less than nothing" is an answer the list can carry and the bar
+   * cannot.
+   */
+  const shares = useMemo<EntitlementShare[]>(() => {
+    const entitled = parties.filter((party) => party.entitlementMinor != null);
+    const positiveTotal = entitled.reduce((running, party) => {
+      const amount = BigInt(party.entitlementMinor ?? "0");
+      return amount > 0n ? running + amount : running;
+    }, 0n);
+    return entitled
+      .map((party) => {
+        const minor = BigInt(party.entitlementMinor ?? "0");
+        const fraction =
+          positiveTotal > 0n && minor > 0n ? Number((minor * 10_000n) / positiveTotal) / 10_000 : 0;
+        return {
+          key: party.settlementId,
+          name: party.isYours ? `${party.name} (you)` : party.name,
+          role: party.role,
+          initials: party.initials,
+          amount: party.entitlement as string,
+          percent: positiveTotal > 0n && minor > 0n ? (fraction * 100).toFixed(1) : null,
+          fraction,
+          rule: party.rules[0]?.label ?? null,
+          isYours: party.isYours,
+          sortKey: minor,
+        };
+      })
+      .sort((left, right) =>
+        right.sortKey > left.sortKey ? 1 : right.sortKey < left.sortKey ? -1 : 0,
+      )
+      .map(({ sortKey: _sortKey, ...share }) => share);
+  }, [parties]);
+
+  const totalEntitlement = useMemo(() => {
+    const total = parties.reduce(
+      (running, party) => running + BigInt(party.entitlementMinor ?? "0"),
+      0n,
+    );
+    return formatAmount(total.toString());
+  }, [parties, formatAmount]);
+
   const payable = useMemo(() => parties.filter((party) => party.netTone === "positive"), [parties]);
   // Whoever is HOLDING the night's money has a negative net — they are the one who
   // pays everybody else, and their own share is retained rather than transferred.
@@ -719,6 +822,9 @@ export function useEventSettlement(
       commission: formatAmount(commission.commission),
     })),
     ladder: ladder ? ladderRows(ladder, currency, formatAmount) : null,
+    adjustedNet: ladder ? formatAmount(ladder.adjustedNet) : null,
+    shares,
+    totalEntitlement,
     approvals,
     approvedCount: approvals.filter((approval) => approval.approved).length,
     delivery: (settlements.data?.delivery ?? []).map((row) => ({
@@ -858,6 +964,7 @@ function toParty(
     // summed as integers. Nothing renders this — `docs/money.md`: never do money
     // arithmetic on formatted text, and never through a float.
     netMinor: computed?.net ?? null,
+    entitlementMinor: computed?.entitlement ?? null,
     netTone: computed ? netToneOf(computed.net) : "neutral",
     rules: computed ? entitlementRules(computed, currency, formatAmount) : [],
   };
@@ -897,8 +1004,9 @@ function toAgreementRows(
       fee: deal.guaranteeAmount ? formatMoney(deal.guaranteeAmount, currency) : null,
       share:
         deal.splitBasisPoints != null
-          ? `${(deal.splitBasisPoints / 100).toFixed(0)}% of the pool`
+          ? `${(deal.splitBasisPoints / 100).toFixed(0)}% of the adjusted net`
           : null,
+      splitBasisPoints: deal.splitBasisPoints ?? null,
       paidInAdvance: deal.advanceAmount ? formatMoney(deal.advanceAmount, currency) : null,
     };
   });

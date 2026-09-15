@@ -137,7 +137,7 @@ export interface Deal {
   /** `draft` | `confirmed` | `cancelled`. Only a confirmed deal is read in. */
   status?: string;
   guaranteeAmount?: string | null;
-  /** The deal's share of the pool, basis points — 10000 = the whole pool. */
+  /** The deal's share, basis points — 10000 = the whole of what it divides. */
   splitBasisPoints?: number | null;
   parties?: DealParty[];
 }
@@ -339,21 +339,25 @@ export interface DoorForecast {
 }
 
 /**
- * The deal's name plus the rule that produced the figure, in words — "… · 70% of
- * the door beats the 18 000 guarantee".
+ * The deal's name plus the rule that produced the figure, in words — "… · the 70%
+ * door share beats the guarantee".
  *
  * The RULE, not just the percentage, because a derived fee moves when the ticket
  * forecast does and an operator who sees it change is owed the reason. This is the
  * planner's half of the same sentence `settlementDocument.ts` prints afterwards.
  */
 function derivedLabel(deal: Deal, basis: EntitlementBasis): string {
+  // The same vocabulary `settlementDocument.describeBasis` uses, because this is
+  // the planner's half of the sentence the settlement prints afterwards and the
+  // two disagreeing about what the percentage is OF is exactly the confusion the
+  // fee derivation exists to remove.
   if (basis.kind === "door_split") {
-    return `${deal.name} · ${basisPointsToPercent(basis.basisPoints)}% of the door`;
+    return `${deal.name} · ${basisPointsToPercent(basis.basisPoints)}% of the adjusted net`;
   }
   if (basis.kind === "guarantee_vs_door") {
     return basis.won === "door"
-      ? `${deal.name} · ${basisPointsToPercent(basis.basisPoints)}% of the door beats the guarantee`
-      : `${deal.name} · the guarantee beats ${basisPointsToPercent(basis.basisPoints)}% of the door`;
+      ? `${deal.name} · the ${basisPointsToPercent(basis.basisPoints)}% door share beats the guarantee`
+      : `${deal.name} · the guarantee beats the ${basisPointsToPercent(basis.basisPoints)}% door share`;
   }
   return deal.name;
 }
@@ -434,7 +438,15 @@ function ticketSplitOf(deals: Deal[], performers: Set<string>, door: DoorForecas
   };
 }
 
-/** The rule in one sentence, from the operands the engine actually compared. */
+/**
+ * The rule in one sentence, from the operands the engine actually compared.
+ *
+ * "The door" here is LITERAL and stays: this sentence belongs to the ticket-revenue
+ * split card, whose base really is the box office — the design captions that card
+ * *"box office only, before costs and rental"*. The performer fee next to it is a
+ * share of the adjusted net and `derivedLabel` says so. Two different bases, two
+ * different sentences, both true.
+ */
 function splitSummarySentence(basis: EntitlementBasis): string | null {
   if (basis.kind === "door_split") {
     return `${basisPointsToPercent(basis.basisPoints)}% of the door.`;

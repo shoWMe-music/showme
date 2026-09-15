@@ -1,0 +1,53 @@
+/**
+ * The settlement workspace's few layouts that need a media query, which inline
+ * styles cannot express.
+ */
+
+/**
+ * The design's event-details grid: three cells across, hairlines between them.
+ *
+ * The hairlines are the 1px GAP showing the container's background through,
+ * rather than a border on each cell — that way a cell never doubles its line
+ * against its neighbour's, and the outer edge is the container's own border. The
+ * filler cells the component renders keep the last row from showing the gap
+ * colour where a cell is missing.
+ */
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+@media (max-width: 760px) {
+  .detailGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 460px) {
+  .detailGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.detailCell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--card, var(--surface));
+}
+
+.detailValue {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.detailValueMono {
+  font-family: var(--font-mono);
+}

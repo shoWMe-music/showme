@@ -46,14 +46,19 @@ const ROLE_TILE: Record<string, { icon: IconName; color: string }> = {
   crew_lead: { icon: "users", color: "var(--muted)" },
 };
 
-function tileFor(role: string) {
+/**
+ * Exported because the share bars colour their segments by the same role, and
+ * two tables mapping roles to colours would drift the first time one gained a
+ * role. `SettlementShares` reads only `.color`.
+ */
+export function roleTile(role: string) {
   return (
     ROLE_TILE[role.toLowerCase().replace(/\s+/g, "_")] ?? { icon: "user", color: "var(--muted)" }
   );
 }
 
 export function SettlementPartyCard({ party }: { party: SettlementParty }) {
-  const tile = tileFor(party.role);
+  const tile = roleTile(party.role);
   return (
     <Card padding="lg" style={{ display: "flex", flexDirection: "column" }}>
       <div
