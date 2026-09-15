@@ -188,12 +188,108 @@ describe("canUseFeature — send_offer", () => {
     expect(check).toMatchObject({ allowed: true, used: 0, limit: 50 });
   });
 
-  it("gives a paid artist unlimited offers", async () => {
+  /**
+   * Fill a sender's month with `howMany` offers in one statement.
+   *
+   * Distinct `wantedDate`s because `booking_requests_pending_dedup` treats one
+   * night as one offer to a venue — seeding the same date twice would silently
+   * store one row and quietly test a smaller number than the name says.
+   */
+  async function seedOffers(senderUserId: string, targetProfileId: string, howMany: number) {
+    const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
+    await harness.db.insert(schema.bookingRequests).values(
+      Array.from({ length: howMany }, (_unused, index) => ({
+        source: "performer_offer" as const,
+        senderUserId,
+        targetProfileId,
+        // Dates far in the future, one per row, so every offer is its own night.
+        wantedDate: new Date(Date.UTC(2030, 0, 1 + index)).toISOString().slice(0, 10),
+        createdAt: monthStart,
+      })),
+    );
+  }
+
+  /**
+   * THE PRO CEILING (ClickUp `86cbcbh28`).
+   *
+   * This replaces a test called "gives a paid artist unlimited offers", which
+   * asserted the divergence rather than the spec: Ran's rate-limit table has said
+   * freemium 50 / PRO 300 the whole time, and the code metered only the free tier.
+   * A green test over that is the worst kind — it makes the gap look deliberate.
+   */
+  it("meters artist_pro at 300, not unlimited", async () => {
     const performer = await seedProfile("performer");
+    const target = await seedProfile("operator");
     await setTier(performer.profileId, "artist_pro");
+    await seedOffers(performer.ownerUserId, target.profileId, 2);
+
     const check = await canUseFeature(harness.db, performer.profileId, "send_offer");
-    expect(check.allowed).toBe(true);
-    expect(check.limit).toBeUndefined();
+    expect(check).toMatchObject({ allowed: true, used: 2, limit: 300 });
+  });
+
+  /**
+   * The boundary, from both sides. 299 sent is still allowed and 300 is not —
+   * an off-by-one here is invisible in every other test, because they all sit far
+   * from the edge.
+   */
+  it("allows the 300th offer and refuses the 301st", async () => {
+    const performer = await seedProfile("performer");
+    const target = await seedProfile("operator");
+    await setTier(performer.profileId, "artist_pro");
+    await seedOffers(performer.ownerUserId, target.profileId, 299);
+
+    const atTheEdge = await canUseFeature(harness.db, performer.profileId, "send_offer");
+    expect(atTheEdge).toMatchObject({ allowed: true, used: 299, limit: 300 });
+
+    // The 300th, sent one at a time so the crossing is the thing asserted.
+    await harness.db.insert(schema.bookingRequests).values({
+      source: "performer_offer",
+      senderUserId: performer.ownerUserId,
+      targetProfileId: target.profileId,
+      wantedDate: "2031-06-01",
+      createdAt: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)),
+    });
+
+    const full = await canUseFeature(harness.db, performer.profileId, "send_offer");
+    // The refusal SHAPE is what the upgrade prompt renders — the counts must
+    // survive, or the UI can only say "no" where it used to say "300 of 300".
+    expect(full).toMatchObject({
+      allowed: false,
+      used: 300,
+      limit: 300,
+      reason: "Monthly offer limit reached",
+    });
+  });
+
+  it("refuses a free artist at 50, and the two tiers keep their own numbers", async () => {
+    const performer = await seedProfile("performer");
+    const target = await seedProfile("operator");
+    await seedOffers(performer.ownerUserId, target.profileId, 50);
+
+    const free = await canUseFeature(harness.db, performer.profileId, "send_offer");
+    expect(free).toMatchObject({ allowed: false, used: 50, limit: 50 });
+
+    // The SAME sender, upgraded: the count does not move, the ceiling does. This
+    // is the line that fails if the two tiers are ever metered on different counts.
+    await setTier(performer.profileId, "artist_pro");
+    const upgraded = await canUseFeature(harness.db, performer.profileId, "send_offer");
+    expect(upgraded).toMatchObject({ allowed: true, used: 50, limit: 300 });
+  });
+
+  /**
+   * An OPERATOR sends no offers, so there is nothing to count and a limit of zero
+   * would read as a cap of zero. Absent from the table means genuinely unmetered.
+   */
+  it("leaves the operator tiers unmetered", async () => {
+    const operator = await seedProfile("operator");
+    const free = await canUseFeature(harness.db, operator.profileId, "send_offer");
+    expect(free.allowed).toBe(true);
+    expect(free.limit).toBeUndefined();
+
+    await setTier(operator.profileId, "operator_pro");
+    const pro = await canUseFeature(harness.db, operator.profileId, "send_offer");
+    expect(pro.allowed).toBe(true);
+    expect(pro.limit).toBeUndefined();
   });
 });
 

@@ -153,8 +153,30 @@ export { ADMIN_GRADE_CAPABILITIES, confersAdminAuthority };
  * rationing the third booking of somebody's year.
  */
 const FREE_OPERATOR_EVENT_LIMIT: number | null = null;
-/** free_artist may send at most this many offers per calendar month. */
-const FREE_ARTIST_OFFER_LIMIT = 50;
+/**
+ * HOW MANY OFFERS A PERFORMER MAY SEND IN A CALENDAR MONTH, by tier — Ran's
+ * rate-limit table: freemium 50, PRO 300 (ClickUp `86cbcbh28`).
+ *
+ * `artist_pro` used to be unmetered. The code said so in one line — *"only
+ * free_artist is metered; every other tier sends without limit"* — and the spec
+ * had asked for 300 the whole time. A quota that exists on the pricing page and
+ * nowhere in the code is not a generous plan, it is a number nobody can rely on:
+ * the moment it is enforced, whoever had settled into sending 400 a month
+ * discovers a limit they were never shown approaching.
+ *
+ * The two OPERATOR tiers stay absent on purpose. This meters an offer a performer
+ * sends to a promoter; an operator does not send offers, so there is nothing to
+ * count and a zero here would read as a cap of zero.
+ *
+ * IS 300 REAL, OR A PLACEHOLDER? The spec's PRO column says "when PRO launches"
+ * and the row beside it says "TBD higher", so this may yet move. It is written as
+ * a number in one table for exactly that reason — changing it is one line, and
+ * until somebody changes it the spec is the decision.
+ */
+const OFFER_LIMIT_BY_TIER: Partial<Record<PlanTier, number>> = {
+  free_artist: 50,
+  artist_pro: 300,
+};
 /**
  * "2 templates" — the free allowance on both Basic and Performer. Pro's card says
  * "Unlimited templates", which Ran's feedback #10 added deliberately, so the free
@@ -259,8 +281,12 @@ export async function canUseFeature(
     }
 
     case "send_offer": {
-      // Only free_artist is metered; every other tier sends without limit.
-      if (tier !== "free_artist") return { allowed: true };
+      // A tier with no entry in the table is genuinely unmetered — the operator
+      // tiers, which send no offers at all. A tier WITH an entry is counted, and
+      // the count is the same rolling-month one for every tier that has a number,
+      // so the two limits can never drift into being measured differently.
+      const limit = OFFER_LIMIT_BY_TIER[tier];
+      if (limit === undefined) return { allowed: true };
       const [profile] = await db
         .select({ ownerUserId: schema.profiles.ownerUserId })
         .from(schema.profiles)
@@ -280,11 +306,17 @@ export async function canUseFeature(
             )
         : [{ used: 0 }];
       const used = row?.used ?? 0;
-      const limit = FREE_ARTIST_OFFER_LIMIT;
       return {
         allowed: used < limit,
         used,
         limit,
+        // Deliberately the SAME sentence for both tiers, and deliberately without
+        // the numbers in it. `entitlementRequired` puts only `reason` on the wire
+        // — `used`/`limit` are returned to the caller here but never reach the
+        // client — so a message naming 50 would be wrong for a Pro performer and
+        // there is no surface that could correct it. Whoever wires the counts
+        // through to the upgrade prompt gets to write "247 of 300" then; until
+        // that exists, one true sentence beats two, one of which lies.
         reason: used < limit ? undefined : "Monthly offer limit reached",
       };
     }
