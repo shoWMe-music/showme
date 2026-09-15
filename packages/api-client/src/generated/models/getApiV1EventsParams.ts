@@ -19,4 +19,8 @@ limit?: number;
  */
 status?: GetApiV1EventsStatusItem[];
 archived?: GetApiV1EventsArchived;
+/**
+ * @maxLength 200
+ */
+search?: string;
 };

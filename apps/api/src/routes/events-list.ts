@@ -1,5 +1,6 @@
 import { schema } from "@showme/db";
 import {
+  type SQL,
   and,
   asc,
   desc,
@@ -10,8 +11,10 @@ import {
   isNull,
   ne,
   not,
+  or,
   sql,
 } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -80,6 +83,22 @@ const ArchivedFilter = z.enum(["exclude", "include", "only"]);
 const ListQuery = PaginationQuery.extend({
   status: StatusFilter.optional(),
   archived: ArchivedFilter.optional().default("exclude"),
+  /**
+   * FREE-TEXT SEARCH over the things a person actually remembers about a show —
+   * what it was called, where it was, and who played (ClickUp `123qy9rngbp`:
+   * *"allow users to find something fast based on Performer's name, event date,
+   * etc."*).
+   *
+   * SERVER-SIDE, and that is the whole reason this parameter exists rather than a
+   * filter in the browser. This list is keyset-paginated, so a client-side search
+   * would quietly only search the page already loaded — the user types a
+   * performer's name, gets nothing, and concludes the show is not there. A search
+   * that can miss is worse than no search.
+   *
+   * Trimmed, and an empty string means no filter: a cleared box is not a query
+   * for events whose title contains nothing.
+   */
+  search: z.string().trim().max(200).optional(),
 });
 
 const EventResponse = z.object({
@@ -194,7 +213,7 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
       const principal = request.principal;
       if (!principal) throw new Error("principal missing after authentication");
       const { database } = request.server;
-      const { cursor, limit, status, archived } = request.query;
+      const { cursor, limit, status, archived, search } = request.query;
 
       // Correlated EXISTS keeps the result one row per event (a caller may reach
       // an event through several participants) while folding access into the WHERE.
@@ -239,6 +258,46 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
       const archiveScope =
         archived === "only" ? filedAway : archived === "include" ? reachable : reachableAndLive;
 
+      /**
+       * The search predicate: the event's own title or venue, OR the name of
+       * anybody on the bill.
+       *
+       * The performer half is an EXISTS rather than a join, for the same reason
+       * the access check above is: a join would emit one row per matching
+       * participant and turn a page of 20 events into a page of 20-odd rows,
+       * which a keyset cursor cannot paginate.
+       *
+       * `ilike` with the term escaped — `%` and `_` are wildcards in LIKE, and a
+       * venue called "Studio_1" must not match "Studio 1". Postgres takes the
+       * escape character as a literal, so `\` is doubled at the SQL boundary.
+       */
+      const searchScope = search
+        ? (() => {
+            const term = `%${search.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+            const matches = (column: SQL | PgColumn) => sql`${column} ilike ${term} escape '\\'`;
+            return or(
+              matches(schema.events.title),
+              matches(schema.events.venueName),
+              exists(
+                database
+                  .select({ present: sql`1` })
+                  .from(schema.eventParticipants)
+                  .innerJoin(
+                    schema.profiles,
+                    eq(schema.profiles.id, schema.eventParticipants.profileId),
+                  )
+                  .where(
+                    and(
+                      eq(schema.eventParticipants.eventId, schema.events.id),
+                      ne(schema.eventParticipants.status, "removed"),
+                      matches(schema.profiles.name),
+                    ),
+                  ),
+              ),
+            );
+          })()
+        : undefined;
+
       // `created_at` is timestamptz (microsecond) but the cursor round-trips
       // through a JS Date (millisecond) — truncate the column to milliseconds so
       // the keyset stays exact and never re-emits the boundary row. Bind the
@@ -260,6 +319,7 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
           and(
             archiveScope,
             status ? inArray(schema.events.status, status) : undefined,
+            searchScope,
             afterCursor,
           ),
         )

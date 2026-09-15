@@ -1,11 +1,13 @@
 import { type getApiV1Settlements, useGetApiV1Settlements } from "@showme/api-client";
 import {
   Badge,
+  Button,
   Chip,
   DataTable,
   type DataTableColumn,
   EmptyState,
   Icon,
+  SearchInput,
   type Status,
   StatusDot,
 } from "@showme/design-system";
@@ -13,7 +15,11 @@ import { Link } from "@tanstack/react-router";
 import { type ReactNode, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { KpiRow } from "../components";
-import { settlementStatusToDisplay, settlementTotals } from "../components/settlementDocument";
+import {
+  matchingSettlements,
+  settlementStatusToDisplay,
+  settlementTotals,
+} from "../components/settlementDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import { formatAmount, formatDay, formatMoney } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
@@ -142,6 +148,7 @@ function buildColumns(isSingleProfile: boolean): DataTableColumn<SettlementItem>
 export function Settlements() {
   const { data, isPending, isError, error } = useGetApiV1Settlements();
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [search, setSearch] = useState("");
   const { session } = useAuth();
 
   // One profile → the viewer is unambiguously the artist on every row.
@@ -153,7 +160,10 @@ export function Settlements() {
   // does filter the whole list (and the tiles below really do sum it) — there is
   // no server-side filter to push to, and nothing is hidden behind a page.
   const settlements = data?.items ?? [];
-  const rows = settlements.filter((row) => filter === "all" || row.status === filter);
+  const rows = useMemo(
+    () => matchingSettlements(settlements, filter, search),
+    [settlements, filter, search],
+  );
 
   // Tiles summarise the caller's OWN money, so they sum entitlements rather than
   // counting rows — "outstanding" is the number that matters when it is yours. The
@@ -191,28 +201,64 @@ export function Settlements() {
             ]}
           />
 
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {FILTERS.map((option) => (
-              <Chip
-                key={option.key}
-                active={filter === option.key}
-                onClick={() => setFilter(option.key)}
-              >
-                {option.label}
-              </Chip>
-            ))}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {FILTERS.map((option) => (
+                <Chip
+                  key={option.key}
+                  active={filter === option.key}
+                  onClick={() => setFilter(option.key)}
+                >
+                  {option.label}
+                </Chip>
+              ))}
+            </div>
+            {/* ClickUp `123qy9rngbp`. Filtered HERE rather than on the server, and
+                that is correct for this list alone: `GET /settlements` takes no
+                cursor and answers with every settlement the caller is a party to,
+                so the browser genuinely holds all of them. The Events list pages,
+                which is why its search is a server parameter. */}
+            <div style={{ width: 260, maxWidth: "100%" }}>
+              <SearchInput
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by event or date…"
+                aria-label="Search settlements"
+              />
+            </div>
           </div>
 
           {rows.length === 0 ? (
             <EmptyState
-              icon={<Icon name="receipt" />}
+              icon={<Icon name={search.trim() === "" ? "receipt" : "search"} />}
               title={
-                settlements.length === 0 ? "No settlements yet" : "No settlements match this filter"
+                settlements.length === 0
+                  ? "No settlements yet"
+                  : search.trim() !== ""
+                    ? `Nothing matches "${search.trim()}"`
+                    : "No settlements match this filter"
               }
               description={
                 settlements.length === 0
                   ? "They appear once an event's money is reconciled."
-                  : "Try another filter."
+                  : search.trim() !== ""
+                    ? "Searches cover the event's name and its date."
+                    : "Try another filter."
+              }
+              action={
+                search.trim() !== "" ? (
+                  <Button variant="secondary" onClick={() => setSearch("")}>
+                    Clear search
+                  </Button>
+                ) : undefined
               }
             />
           ) : (

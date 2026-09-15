@@ -1,4 +1,12 @@
-import { Avatar, Button, EmptyState, Icon, StatusDot, TabPanels } from "@showme/design-system";
+import {
+  Avatar,
+  Button,
+  EmptyState,
+  Icon,
+  SearchInput,
+  StatusDot,
+  TabPanels,
+} from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -119,6 +127,8 @@ export function Events() {
     view,
     setView,
     items,
+    search,
+    setSearch,
     isPending,
     isError,
     error,
@@ -158,6 +168,17 @@ export function Events() {
           ))}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* ClickUp `123qy9rngbp`. Answered by the SERVER (`useEventList`), so it
+              searches every event the caller has and not the page on screen —
+              which matters here precisely because this list pages. */}
+          <div style={{ width: 240, maxWidth: "100%" }}>
+            <SearchInput
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search events, venues, artists…"
+              aria-label="Search events"
+            />
+          </div>
           <ViewToggle value={view} onChange={setView} />
           {canCreateEvent && (
             <GradientButton onClick={openNewEvent}>
@@ -185,9 +206,11 @@ export function Events() {
               // reads as the screen having blanked.
               <EventsEmptyState
                 filter={filter}
+                search={search}
                 canCreateEvent={canCreateEvent}
                 onCreateEvent={openNewEvent}
                 onShowAll={() => setFilter("all")}
+                onClearSearch={() => setSearch("")}
               />
             ) : (
               <>
@@ -213,15 +236,41 @@ export function Events() {
  * under a chip means "you have none of these", not "you have no events". */
 function EventsEmptyState({
   filter,
+  search,
   canCreateEvent,
   onCreateEvent,
   onShowAll,
+  onClearSearch,
 }: {
   filter: EventFilterKey;
+  search: string;
   canCreateEvent: boolean;
   onCreateEvent: () => void;
   onShowAll: () => void;
+  onClearSearch: () => void;
 }) {
+  /*
+   * A SEARCH THAT FOUND NOTHING IS NOT AN EMPTY ACCOUNT.
+   *
+   * Without this branch, typing a name that does not match drew "No events yet —
+   * events you create or join will show up here", offering to create one. That
+   * tells an operator with forty shows that they have none, which is the worst
+   * thing this screen could say.
+   */
+  if (search.trim() !== "") {
+    return (
+      <EmptyState
+        icon={<Icon name="search" />}
+        title={`Nothing matches "${search.trim()}"`}
+        description="Searches cover the event's name, its venue and everybody on the bill."
+        action={
+          <Button variant="secondary" onClick={onClearSearch}>
+            Clear search
+          </Button>
+        }
+      />
+    );
+  }
   if (filter === "all") {
     return (
       <EmptyState

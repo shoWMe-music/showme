@@ -950,6 +950,15 @@
             "in": "query",
             "name": "archived",
             "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "in": "query",
+            "name": "search",
+            "required": false
           }
         ],
         "responses": {

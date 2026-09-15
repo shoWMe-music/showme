@@ -1,6 +1,7 @@
 import { getApiV1Events, getGetApiV1EventsQueryKey } from "@showme/api-client";
 import { useState } from "react";
 import { type CursorList, infiniteKey, useCursorList } from "./useCursorList";
+import { useDebouncedValue } from "./useDebouncedValue";
 
 export type EventItem = Awaited<ReturnType<typeof getApiV1Events>>["items"][number];
 
@@ -61,6 +62,9 @@ export interface EventListView extends CursorList<EventItem> {
   setFilter: (filter: EventFilterKey) => void;
   view: EventView;
   setView: (view: EventView) => void;
+  /** What the reader typed into the search box, verbatim. */
+  search: string;
+  setSearch: (search: string) => void;
 }
 
 /**
@@ -73,14 +77,25 @@ export interface EventListView extends CursorList<EventItem> {
  * wrong answer here does not throw; it renders a shorter list, which looks exactly
  * like a correct list of a customer with fewer shows.
  */
-export function eventListQuery(filter: EventFilterKey): EventsQuery {
+export function eventListQuery(filter: EventFilterKey, search = ""): EventsQuery {
   const statuses = CHIP_STATUSES[filter];
+  const term = search.trim();
   return {
     limit: PAGE_SIZE,
     // `GET /events?status=` takes a LIST — the "Pending" chip is pending ∪ suggested,
     // and the fetch mutator stringifies the array to `status=pending,suggested`.
     status: statuses.length > 0 ? [...statuses] : undefined,
     archived: filter === ARCHIVED_CHIP ? "only" : undefined,
+    /**
+     * Sent to the SERVER, never filtered here (ClickUp `123qy9rngbp`). The list
+     * is keyset-paginated, so a browser-side filter would search only the page
+     * already loaded and report "not found" for a show on page two.
+     *
+     * Omitted entirely when blank rather than sent as `""` — an empty box is not
+     * a query, and sending it would put an empty string in the query key and
+     * split the cache for no reason.
+     */
+    search: term === "" ? undefined : term,
   };
 }
 
@@ -92,8 +107,17 @@ export function eventListQuery(filter: EventFilterKey): EventsQuery {
 export function useEventList(): EventListView {
   const [filter, setFilter] = useState<EventFilterKey>("all");
   const [view, setView] = useState<EventView>("list");
+  const [search, setSearch] = useState("");
+  /**
+   * The term the QUERY uses, a beat behind the one the box shows.
+   *
+   * Without it every keystroke is a request and a new cache key — eight for
+   * "marlo v" — and the answers can land out of order. 250ms is long enough to
+   * outrun typing and short enough that the list feels answerable.
+   */
+  const term = useDebouncedValue(search.trim(), 250);
 
-  const params = eventListQuery(filter);
+  const params = eventListQuery(filter, term);
 
   const list = useCursorList<EventItem>({
     queryKey: infiniteKey(getGetApiV1EventsQueryKey(params)),
@@ -101,7 +125,7 @@ export function useEventList(): EventListView {
     loadAllPages: view === "board",
   });
 
-  return { ...list, filter, setFilter, view, setView };
+  return { ...list, filter, setFilter, view, setView, search, setSearch };
 }
 
 /**

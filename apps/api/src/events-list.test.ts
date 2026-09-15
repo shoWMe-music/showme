@@ -951,6 +951,101 @@ describe("PATCH /events/:id — a solo operator drives the status themselves", (
  * here: a schema that silently drops a field is invisible until someone reads the
  * screen.
  */
+describe("GET /events — free-text search (ClickUp 123qy9rngbp)", () => {
+  /**
+   * Ran: *"add a search bar … to find something fast based on Performer's name,
+   * event date, etc."* The three things a person remembers about a show are what
+   * it was called, where it was, and who played, so the search covers all three.
+   *
+   * SERVER-SIDE deliberately. This list is keyset-paginated; a filter in the
+   * browser would search only the page already loaded, so a performer on page two
+   * would come back "not found". These assert the whole list is searched.
+   *
+   * Seeded ONCE — `seedMemberWithSet` mints users at fixed ids, so seeding per
+   * test collides on `users_pkey`. Every case below is a read, so one fixture
+   * serves them all.
+   */
+  beforeAll(async () => {
+    const caller = await seedMemberWithSet(
+      "search-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const act = await seedMemberWithSet(
+      "search-act",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const support = await seedMemberWithSet(
+      "search-act-2",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    await harness.db
+      .update(schema.profiles)
+      .set({ name: "Marlo Vance" })
+      .where(eq(schema.profiles.id, act.profileId));
+    await harness.db
+      .update(schema.profiles)
+      .set({ name: "Marlo Support" })
+      .where(eq(schema.profiles.id, support.profileId));
+
+    await seedHostedEvent("Spring Warmup", caller, "search-op", { venueName: "The Lantern Hall" });
+    const withAct = await seedHostedEvent("Album Release", caller, "search-op", {
+      venueName: "Funkhaus",
+    });
+    // TWO participants whose names match "Marlo", on ONE event. A join would emit
+    // the event twice and break the keyset cursor; the EXISTS keeps it at one.
+    await harness.db.insert(schema.eventParticipants).values([
+      { eventId: withAct.id, profileId: act.profileId, role: "performer", status: "confirmed" },
+      { eventId: withAct.id, profileId: support.profileId, role: "support", status: "confirmed" },
+    ]);
+    await seedHostedEvent("Winter Gala", caller, "search-op", { venueName: "Studio_1" });
+  });
+
+  const titlesFor = async (search: string) => {
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events?search=${encodeURIComponent(search)}`,
+      headers: auth("search-op"),
+    });
+    expect(response.statusCode).toBe(200);
+    return (response.json().items as { title: string }[]).map((row) => row.title).sort();
+  };
+
+  it("matches the event's own title", async () => {
+    expect(await titlesFor("warmup")).toEqual(["Spring Warmup"]);
+  });
+
+  it("matches the venue, which is not on the event's title", async () => {
+    expect(await titlesFor("funkhaus")).toEqual(["Album Release"]);
+  });
+
+  it("matches a PERFORMER on the bill — the thing Ran actually asked for", async () => {
+    // "Marlo Vance" appears nowhere in that event's title or venue.
+    expect(await titlesFor("vance")).toEqual(["Album Release"]);
+  });
+
+  it("returns ONE row per event, however many participants match", async () => {
+    expect(await titlesFor("marlo")).toEqual(["Album Release"]);
+  });
+
+  it("is case-insensitive and matches inside a word", async () => {
+    expect(await titlesFor("LANTERN")).toEqual(["Spring Warmup"]);
+  });
+
+  it("treats LIKE wildcards as literal characters", async () => {
+    // "Studio_1" must be findable by its real name, and `_` must not match any
+    // single character — otherwise "Studio 1" and "StudioX1" would match too.
+    expect(await titlesFor("Studio_1")).toEqual(["Winter Gala"]);
+    expect(await titlesFor("%")).toEqual([]);
+  });
+
+  it("an empty search is not a filter", async () => {
+    expect((await titlesFor("")).length).toBe(3);
+  });
+});
+
 describe("GET /events — the facts a row draws", () => {
   it("carries the venue name and the capacity all the way through serialization", async () => {
     const caller = await seedMemberWithSet(

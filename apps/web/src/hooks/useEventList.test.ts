@@ -92,4 +92,27 @@ describe("eventListQuery", () => {
     first?.push("cancelled");
     expect(eventListQuery("pending").status).toEqual(["pending", "suggested"]);
   });
+
+  /**
+   * SEARCH (ClickUp `123qy9rngbp`). Asserted here for the same reason the chips
+   * are: it is a rule, not a rendering, and a wrong answer renders a shorter list
+   * that looks exactly like a correct list.
+   */
+  it("sends the trimmed term, and omits it entirely when blank", () => {
+    expect(eventListQuery("all", "marlo").search).toBe("marlo");
+    expect(eventListQuery("all", "  marlo  ").search).toBe("marlo");
+    // NOT `""` — an empty box is not a query, and sending one would split the
+    // query cache between "no search" and "search for nothing".
+    expect(eventListQuery("all", "").search).toBeUndefined();
+    expect(eventListQuery("all", "   ").search).toBeUndefined();
+    expect(eventListQuery("all").search).toBeUndefined();
+  });
+
+  it("searches WITHIN the chip, never instead of it", () => {
+    // Both parameters travel together: "Draft" + "marlo" means draft events whose
+    // title, venue or bill mentions Marlo — not every event named Marlo.
+    const query = eventListQuery("draft", "marlo");
+    expect(query.status).toEqual(["draft"]);
+    expect(query.search).toBe("marlo");
+  });
 });

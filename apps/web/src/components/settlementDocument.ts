@@ -1,7 +1,7 @@
 import type { getApiV1EventsIdSettlements, getApiV1Settlements } from "@showme/api-client";
 import type { Status } from "@showme/design-system";
 import { basisPointsToPercent } from "@showme/shared";
-import { formatAmount, formatMoney } from "../lib/format";
+import { formatAmount, formatDay, formatMoney } from "../lib/format";
 import type { SettlementStep } from "./SettlementStepper";
 import type { TransferState } from "./WhoOwesWhomBoard";
 
@@ -436,6 +436,42 @@ export interface SettlementTotals {
   pending: string;
   outstanding: string;
   finalized: string;
+}
+
+/**
+ * The rows a filter chip and a search box leave standing (ClickUp `123qy9rngbp`).
+ *
+ * FILTERED IN THE BROWSER, and only here. `GET /settlements` takes no cursor and
+ * answers with every settlement the caller is a party to, so the browser really
+ * does hold the whole list — unlike the Events list, which pages and therefore
+ * searches on the server.
+ *
+ * A DATE IS MATCHED AS IT IS WRITTEN ON THE SCREEN, as well as raw. Somebody
+ * looking for a May show types "May", or "8 May", or the year — none of which
+ * appear in `2026-05-08`. Matching both spellings is the difference between a
+ * search box that works and one that only works for people who know the storage
+ * format.
+ *
+ * Exported and pure so it can be asserted: it is the whole of this screen's
+ * filtering, and a wrong answer here renders a shorter list, which looks exactly
+ * like a correct list of somebody with fewer shows.
+ */
+export function matchingSettlements<
+  Row extends { status: string; event: { title: string; eventDate: string | null } },
+>(rows: Row[], filter: string, search: string): Row[] {
+  const term = search.trim().toLowerCase();
+  return rows.filter((row) => {
+    if (filter !== "all" && row.status !== filter) return false;
+    if (term === "") return true;
+    const haystack = [
+      row.event.title,
+      row.event.eventDate ?? "",
+      row.event.eventDate ? formatDay(row.event.eventDate) : "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(term);
+  });
 }
 
 /**
