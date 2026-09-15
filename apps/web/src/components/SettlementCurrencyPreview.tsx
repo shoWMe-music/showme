@@ -101,20 +101,11 @@ export function SettlementCurrencyControl({ preview }: { preview: CurrencyPrevie
     ...preview.currencies.filter((c) => c !== preview.baseCurrency),
   ];
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <span
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: 11,
-          letterSpacing: "0.06em",
-          textTransform: "uppercase",
-          color: "var(--muted)",
-          whiteSpace: "nowrap",
-        }}
-      >
-        Settles in {preview.baseCurrency}
-      </span>
-      <div style={{ width: 120 }}>
+    // The design puts a bare currency control on the title row — "EUR (€)" and
+    // nothing else. The "Settles in SEK" caption beside it was a third thing
+    // competing for that row, and the select already names the currency.
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ width: 110 }}>
         <Select
           value={preview.previewCurrency}
           onChange={preview.setPreviewCurrency}

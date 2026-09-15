@@ -1,5 +1,5 @@
 import { useGetApiV1EventsIdSettlementPreview } from "@showme/api-client";
-import { Avatar, Badge, Button, Card, Icon } from "@showme/design-system";
+import { Avatar, Badge, Card, Icon, Select } from "@showme/design-system";
 import { useState } from "react";
 import { formatMoney } from "../lib/format";
 import { Eyebrow } from "./primitives";
@@ -60,19 +60,23 @@ export function SettlementViewingAs({
             </div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <Button variant={viewing ? "secondary" : "primary"} onClick={() => setViewingId(null)}>
-            You
-          </Button>
-          {parties.map((party) => (
-            <Button
-              key={party.participantId}
-              variant={party.participantId === viewingId ? "primary" : "secondary"}
-              onClick={() => setViewingId(party.participantId)}
-            >
-              {party.name}
-            </Button>
-          ))}
+        {/* A SELECT, as the design draws it — "Operator (you)" in a control on
+            the right. A row of buttons was the first attempt and it grows with
+            the bill: five parties made a second line of chrome above the card
+            that actually does the work. */}
+        <div style={{ width: 240, maxWidth: "100%" }}>
+          <Select
+            value={viewingId ?? ""}
+            onChange={(next) => setViewingId(next === "" ? null : next)}
+            options={[
+              { value: "", label: "Operator (you)" },
+              ...parties.map((party) => ({
+                value: party.participantId,
+                label: `${party.name} — ${party.role}`,
+              })),
+            ]}
+            aria-label="View this settlement as another party"
+          />
         </div>
       </div>
 
@@ -89,7 +93,8 @@ export function SettlementViewingAs({
         >
           <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
             <Icon name="eye" size={15} />
-            Every figure {viewing.name} can see on this settlement, straight from the server.
+            This is what {viewing.name} sees. Figures are read-only for them; they can comment on
+            any line and approve or request changes.
           </span>
           {preview.isPending ? (
             <span className="muted" style={{ fontSize: 12.5 }}>

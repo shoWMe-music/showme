@@ -86,11 +86,25 @@ test("a remark can be attached to one line, and shows under that line", async ({
  * said — otherwise the operator reading the Comments tab is quietly missing the
  * objections that were raised where the numbers are.
  */
-test("a line remark is still part of the settlement's own thread", async ({ page }) => {
+/**
+ * A LINE REMARK LIVES ON ITS LINE, and not also in the general thread.
+ *
+ * Both used to list it, and this spec caught that by resolving one sentence to
+ * two elements a few hundred pixels apart. The Settlement tab's read-only preview
+ * carries each figure's own thread on its row (Ran's design draws the bubble
+ * there); the Comments panel beside it is for what was said about the settlement
+ * as a whole.
+ */
+test("a line remark shows on its line, and not twice", async ({ page }) => {
   await page.goto(`/events/${ALBUM_RELEASE}/settlement`);
-  // The thread moved out of a tab of its own and into the Settlement tab's right
-  // rail on 2026-09-15, where Ran's design puts it — beside the figures it is
-  // about, because answering a settlement comment means changing one of them.
   await page.getByRole("tab", { name: "Settlement" }).click();
-  await expect(page.getByText(/Should be 168, not 260/)).toBeVisible();
+
+  // Exactly one place on the page says it.
+  await expect(page.getByText(/Should be 168, not 260/)).toHaveCount(1);
+  // …and that place is inside the line it is about. Walked UP from the remark
+  // rather than down from the label: "Advance ticket sales" also names a chip in
+  // the curation card above, so starting at the label resolves to two elements.
+  await expect(page.getByText(/Should be 168, not 260/).locator("xpath=..")).toContainText(
+    "Advance ticket sales",
+  );
 });

@@ -1,5 +1,4 @@
-import { Button, Card, Icon } from "@showme/design-system";
-import { SettlementViewingAs } from "./SettlementViewingAs";
+import { Card, Icon } from "@showme/design-system";
 import { CardTitle, Eyebrow } from "./primitives";
 import { type CurationChip, useSettlementCuration } from "./useSettlementCuration";
 
@@ -21,10 +20,7 @@ import { type CurationChip, useSettlementCuration } from "./useSettlementCuratio
  * asserted in `settlement.test.ts`). A curated party never sees this card, and —
  * more to the point — never learns from their own settlement that it exists.
  */
-export function SettlementCurationCard({
-  eventId,
-  currency,
-}: { eventId: string; currency: string }) {
+export function SettlementCurationCard({ eventId }: { eventId: string }) {
   const curation = useSettlementCuration(eventId);
 
   // Nothing to curate is not an empty state to draw — it is a card with no job.
@@ -36,21 +32,20 @@ export function SettlementCurationCard({
   const withheld = curation.chips.filter((chip) => !chip.included);
 
   return (
-    <>
-      {/* The two halves of one decision, in the design's order: choose what they
-          see, then look at what they will get. One party list feeds both, so the
-          tabs can never offer a name the preview cannot show. */}
-      <SettlementViewingAs eventId={eventId} parties={curation.parties} currency={currency} />
-      <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "space-between",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
+    <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        {/* The title block takes the space that is left; the chips keep theirs.
+            Without the basis the title grew to the full row and pushed the chips
+            onto a line of their own, which is not where the design puts them. */}
+        <div style={{ flex: "1 1 280px", minWidth: 0 }}>
           <CardTitle
             subtitle={
               curation.selected
@@ -60,65 +55,67 @@ export function SettlementCurationCard({
           >
             Curate what each collaborator sees
           </CardTitle>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {curation.parties.map((party) => (
-              <Button
+        </div>
+        {/* SMALL OUTLINE CHIPS beside the title, as the design draws them. Filled
+            buttons on their own row read as the card's primary action, which they
+            are not — they choose whose view you are editing. */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flexShrink: 0 }}>
+          {curation.parties.map((party) => {
+            const active = party.participantId === curation.selected?.participantId;
+            return (
+              <button
                 key={party.participantId}
-                variant={
-                  party.participantId === curation.selected?.participantId ? "primary" : "secondary"
-                }
+                type="button"
+                aria-pressed={active}
                 onClick={() => curation.select(party.participantId)}
+                style={{
+                  padding: "5px 11px",
+                  borderRadius: 8,
+                  border: `1px solid ${active ? "var(--brand-red)" : "var(--border)"}`,
+                  background: active
+                    ? "color-mix(in srgb, var(--brand-red) 9%, transparent)"
+                    : "var(--surface)",
+                  color: active ? "var(--brand-red)" : "var(--text)",
+                  font: "inherit",
+                  fontSize: 12.5,
+                  fontWeight: 500,
+                  whiteSpace: "nowrap",
+                  cursor: "pointer",
+                }}
               >
                 {party.name}
-              </Button>
-            ))}
-          </div>
+              </button>
+            );
+          })}
         </div>
+      </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 260px), 1fr))",
-            gap: 12,
-            alignItems: "start",
-          }}
-        >
-          <ChipList
-            tone="included"
-            title="In their settlement"
-            empty="Nothing yet — this party sees no figures at all."
-            chips={included}
-            isBusy={curation.isBusy}
-            onToggle={curation.toggle}
-          />
-          <ChipList
-            tone="withheld"
-            title="Not shown to them"
-            empty="They can see every line on this settlement."
-            chips={withheld}
-            isBusy={curation.isBusy}
-            onToggle={curation.toggle}
-          />
-        </div>
-
-        {/*
-         * THE ONE THING THIS CARD CANNOT DO, said out loud.
-         *
-         * Curation widens the line list and never the totals — the waterfall stays
-         * behind `budget.view` whatever is disclosed here. An operator who ticks
-         * every line and expects the party to see the night's takings would
-         * otherwise discover the limit by being contradicted by their own screen.
-         */}
-        <span
-          className="muted"
-          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}
-        >
-          <Icon name="eye-off" size={13} />
-          Whatever you include, the event's totals stay yours — a collaborator never sees what the
-          night took overall.
-        </span>
-      </Card>
-    </>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 260px), 1fr))",
+          gap: 12,
+          alignItems: "start",
+        }}
+      >
+        <ChipList
+          tone="included"
+          title="In their settlement"
+          empty="Nothing yet — this party sees no figures at all."
+          chips={included}
+          isBusy={curation.isBusy}
+          onToggle={curation.toggle}
+        />
+        <ChipList
+          tone="withheld"
+          title="Not shown to them"
+          empty="They can see every line on this settlement."
+          chips={withheld}
+          isBusy={curation.isBusy}
+          onToggle={curation.toggle}
+        />
+      </div>
+    </Card>
   );
 }
 

@@ -29,9 +29,11 @@ import {
   useCurrencyPreview,
 } from "../components/SettlementCurrencyPreview";
 import { SettlementDeliveryCard } from "../components/SettlementDeliveryCard";
+import { SettlementLinePreview } from "../components/SettlementLinePreview";
 import { SettlementPartyCard } from "../components/SettlementPartyCard";
 import { PartyPositionsCard, TotalSettlementCard } from "../components/SettlementShares";
 import { SettlementStepper } from "../components/SettlementStepper";
+import { SettlementViewingAs } from "../components/SettlementViewingAs";
 import { UnsignedAgreementsNotice } from "../components/UnsignedAgreementsNotice";
 import { type SettlementLine, WhoOwesWhomBoard } from "../components/WhoOwesWhomBoard";
 import { describeActivity } from "../components/eventHistory";
@@ -49,6 +51,7 @@ import {
   type SettlementAgreementRow,
   useEventSettlement,
 } from "../components/useEventSettlement";
+import { useSettlementCuration } from "../components/useSettlementCuration";
 import { type SettlementLineRow, useSettlementLines } from "../components/useSettlementLines";
 import { useDisplayCurrency } from "../hooks/useDisplayCurrency";
 import { formatDay, formatMoney } from "../lib/format";
@@ -107,7 +110,6 @@ export function EventSettlement() {
   if (event.isPending) return <LoadingState label="Loading settlement" />;
   if (event.isError) return <ErrorState error={event.error} title="Couldn't load this event" />;
 
-  const eventStatus = apiStatusToDisplay(event.data.status);
   const status = settlementStatusToDisplay(settlement.status);
 
   return (
@@ -176,9 +178,10 @@ export function EventSettlement() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <Badge status={eventStatus.status} dot>
-            {eventStatus.label}
-          </Badge>
+          {/* ONE PILL, the settlement's own. The design puts a single status here
+              and the event's own state belongs to the event screen — carrying both
+              pushed the row onto a third line and made the reader work out which
+              of two words described the money. */}
           <Badge status={status.status} dot>
             {status.label}
           </Badge>
@@ -618,6 +621,10 @@ function SettlementTab({
   // three decisions — everyone or one party, which party, and whether they may
   // see the whole thing (#24.2). A bare button could only ever mean the first.
   const [sendOpen, setSendOpen] = useState(false);
+  // One party list feeds both "Viewing as" and the curation card, so the two can
+  // never offer a name the other cannot show.
+  const curation = useSettlementCuration(eventId);
+  const editor = useSettlementLines(eventId, currency);
   const askToFinalize = () =>
     confirmDialog.ask({
       title: "Finalize this settlement?",
@@ -633,40 +640,31 @@ function SettlementTab({
       onConfirm: settlement.finalize,
     });
 
-  const lines: SettlementLine[] = settlement.parties
-    .filter((party) => party.entitlement != null)
-    .map((party) => ({
-      id: party.settlementId,
-      party: party.isYours ? `${party.name} (you)` : party.name,
-      initials: party.initials,
-      owed: party.entitlement as string,
-      collected: party.collected as string,
-      paid: party.paid as string,
-      prepaid: party.prepaid,
-      prepaidLabel: party.prepaidLabel,
-      net: party.net as string,
-      netTone: party.netTone,
-    }));
-
   return (
     <div style={CARD_COLUMN}>
-      <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {/* The design runs the rail the full width of the card. Seven stops need
-            it — the stepper grows its connectors to fill whatever it is given. */}
-        <div>
-          <SettlementStepper steps={settlementSteps(settlement.status)} />
-        </div>
+      {/* The design runs the rail the full width of its own card, with nothing
+          else in it. Seven stops need the room — the stepper grows its connectors
+          to fill whatever it is given. */}
+      <Card padding="lg">
+        <SettlementStepper steps={settlementSteps(settlement.status)} />
+      </Card>
+
+      {/* Then whose eyes you are reading through, then what you can do about it —
+          the design's order, and the sensible one: the actions send a document,
+          so you check the document first. */}
+      {settlement.authority.canCompute && (
+        <SettlementViewingAs eventId={eventId} parties={curation.parties} currency={currency} />
+      )}
+
+      <div>
         {/*
          * The design shows THREE actions, chosen by status, not every action at
          * once — "Add revision · Mark finalized · Flag dispute" on a settlement
          * under review. A row of five buttons asks the reader to work out which
          * one they want; a row of two or three tells them.
          *
-         * So: re-issuing is offered only while the figures can still move, and
-         * finalize and dispute keep their own conditions. Recalculating stays
-         * available for as long as the API will honour it — right up to finalize
-         * — because answering a comment MEANS changing a figure, and a review
-         * loop whose last step is missing is not a loop.
+         * A bare row on the page background, not a card: they act on everything
+         * below, and boxing them made them look like the stepper's controls.
          */}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {settlement.authority.canCompute && !settlement.isFinalized && (
@@ -762,15 +760,9 @@ function SettlementTab({
               notice={settlement.unsignedAgreementsNotice}
             />
           )}
-      </Card>
+      </div>
 
-      {/* The design puts curation directly under the action row and above the
-          figures — you decide who is reading before you read it yourself. Renders
-          nothing for anyone who cannot edit the settlement, and nothing at all
-          until there are lines to curate. */}
-      {settlement.authority.canCompute && (
-        <SettlementCurationCard eventId={eventId} currency={currency} />
-      )}
+      {settlement.authority.canCompute && <SettlementCurationCard eventId={eventId} />}
 
       {settlement.parties.length === 0 ? (
         <NothingSettledYet settlement={settlement} />
@@ -798,36 +790,30 @@ function SettlementTab({
           >
             <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
               <Card padding="lg" style={CARD_COLUMN}>
-                <CardTitle subtitle="What the night took, what it cost, and the net every percentage below is a share of.">
+                <CardTitle subtitle="Read-only preview of the figures entered on Financials. Edit them there.">
                   Revenue &amp; deductions
                 </CardTitle>
+                {/* EVERY LINE, then the totals — the design's order, and the half
+                    that was missing: this card stated that the night deducted
+                    33 000 without ever saying what of. */}
+                <SettlementLinePreview
+                  lines={editor.lines}
+                  currency={currency}
+                  thread={{
+                    forLine: (settlementLineId) =>
+                      settlement.comments.filter(
+                        (comment) => comment.settlementLineId === settlementLineId,
+                      ),
+                    post: (message, settlementLineId) =>
+                      settlement.postComment(message, settlementLineId),
+                  }}
+                />
                 <PoolLadderRows settlement={settlement} />
               </Card>
 
               {settlement.parties.map((party) => (
                 <SettlementPartyCard key={party.settlementId} party={party} />
               ))}
-
-              <WhoOwesWhomBoard
-                participants={lines}
-                transfers={settlement.transfers}
-                variant={lines.length > 1 ? "full" : "slice"}
-                // Claimed only when the visible lines really do sum to zero: a
-                // party-scoped slice is short by the lines the caller may not see,
-                // and "Not balanced" over a redaction reports authorization as an
-                // accounting error.
-                balanced={settlement.isWholeBoard ? true : undefined}
-                onMark={settlement.isBusy ? undefined : settlement.markTransfer}
-              />
-              {!settlement.isWholeBoard && (
-                <span
-                  className="muted"
-                  style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}
-                >
-                  <Icon name="eye-off" size={13} />
-                  Your own line. The other parties' figures on this event aren't shared with you.
-                </span>
-              )}
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
@@ -884,13 +870,6 @@ function SettlementTab({
  * `POST …/confirm` has no inverse, so offering one would be a button that 404s.
  */
 function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
-  // Every signature this reader may give, which is usually just their own. An
-  // agent holding a delegated performer's authority (decisions.md #14) can have
-  // two, so the button lives on the ROSTER ROW rather than once at the foot — a
-  // single "sign off on my settlement" cannot say which line it means.
-  const signable = settlement.approvals.filter(
-    (approval) => approval.signableSettlementId != null && !approval.approved,
-  );
   return (
     <Card padding="lg" style={CARD_COLUMN}>
       <div
@@ -905,47 +884,58 @@ function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
           {settlement.approvedCount}/{settlement.approvals.length}
         </Badge>
       </div>
+      {/*
+       * THE APPROVE BUTTON SITS ON ITS OWN ROW, as the design draws it — a row
+       * per party, each with its own control, rather than a badge column and one
+       * button underneath.
+       *
+       * What the design cannot have, and we must: the button is only THERE for a
+       * signature this reader may give. The API refuses the rest — *"you can only
+       * confirm your own settlement"* — so an Approve on every row would be six
+       * buttons of which five 403. An agent holding a delegated performer's
+       * authority (decisions.md #14) legitimately has two, which is exactly why
+       * the control belongs on the row and not at the foot of the card.
+       */}
       {settlement.approvals.map((approval) => (
-        <KeyValueRow
+        <div
           key={approval.participantId}
-          label={
-            <span>
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+            padding: "10px 14px",
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 13.5 }}>
               {approval.isYours ? `${approval.name} (you)` : approval.name}
-              <span style={{ display: "block", color: "var(--muted)", fontSize: 12 }}>
-                {approval.role}
-              </span>
+            </div>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {approval.role}
             </span>
-          }
-          value={
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Badge status={approval.approved ? "confirmed" : "pending"} dot>
               {approval.approved ? "Signed off" : "Pending"}
             </Badge>
-          }
-        />
-      ))}
-      {settlement.authority.canConfirm && signable.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <span style={{ color: "var(--text)", fontSize: 13 }}>
-            Do these figures match your books?
-          </span>
-          {signable.map((approval) => (
-            <div
-              key={approval.participantId}
-              style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}
-            >
-              <span style={{ flex: 1 }} />
-              <Button
-                variant="primary"
-                disabled={settlement.isBusy}
-                leftIcon={<Icon name="check" size={14} />}
-                onClick={() => settlement.confirmOwn(approval.signableSettlementId as string)}
-              >
-                {approval.isYours ? "Sign off on my settlement" : `Sign off for ${approval.name}`}
-              </Button>
-            </div>
-          ))}
+            {settlement.authority.canConfirm &&
+              approval.signableSettlementId != null &&
+              !approval.approved && (
+                <Button
+                  variant="secondary"
+                  disabled={settlement.isBusy}
+                  onClick={() => settlement.confirmOwn(approval.signableSettlementId as string)}
+                >
+                  Approve
+                </Button>
+              )}
+          </div>
         </div>
-      )}
+      ))}
     </Card>
   );
 }
@@ -1068,6 +1058,20 @@ function NothingSettledYet({ settlement }: { settlement: EventSettlementData }) 
  * there is no "mark as reviewed" button beside it.
  */
 function SettlementThread({ settlement }: { settlement: EventSettlementData }) {
+  /*
+   * THE SETTLEMENT-WIDE REMARKS ONLY.
+   *
+   * Since the line preview above carries each figure's own thread on its row, a
+   * panel that also listed them printed the same sentence twice within a few
+   * hundred pixels — which an e2e spec caught by resolving one remark to two
+   * elements. A comment anchored to a line belongs beside the line; this panel is
+   * for what was said about the settlement as a whole.
+   *
+   * A comment whose line was later deleted comes back here rather than
+   * disappearing: `settlement_line_id` is `set null` on delete precisely so that
+   * deleting the figure somebody questioned does not delete the question.
+   */
+  const general = settlement.comments.filter((comment) => comment.settlementLineId == null);
   const [draft, setDraft] = useState("");
   const send = () => {
     const message = draft.trim();
@@ -1079,13 +1083,13 @@ function SettlementThread({ settlement }: { settlement: EventSettlementData }) {
   return (
     <Card padding="lg" style={{ ...CARD_COLUMN, gap: 12 }}>
       <CardTitle size={17}>Comments</CardTitle>
-      {settlement.comments.length === 0 ? (
+      {general.length === 0 ? (
         <span className="muted" style={{ fontSize: 13 }}>
           No comments yet. If a figure looks wrong, this is where to say so.
         </span>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {settlement.comments.map((comment) => (
+          {general.map((comment) => (
             <div key={comment.id} style={{ display: "flex", gap: 10 }}>
               <Avatar initials={initialsOf(comment.author)} size={30} />
               <div style={{ minWidth: 0 }}>
@@ -1680,6 +1684,21 @@ function VarianceCell({
  * nothing.
  */
 function PayoutTab({ settlement }: { settlement: EventSettlementData }) {
+  const lines: SettlementLine[] = settlement.parties
+    .filter((party) => party.entitlement != null)
+    .map((party) => ({
+      id: party.settlementId,
+      party: party.isYours ? `${party.name} (you)` : party.name,
+      initials: party.initials,
+      owed: party.entitlement as string,
+      collected: party.collected as string,
+      paid: party.paid as string,
+      prepaid: party.prepaid,
+      prepaidLabel: party.prepaidLabel,
+      net: party.net as string,
+      netTone: party.netTone,
+    }));
+
   if (!settlement.isComputed) return <NothingSettledYet settlement={settlement} />;
 
   if (!settlement.isFinalized) {
@@ -1704,8 +1723,38 @@ function PayoutTab({ settlement }: { settlement: EventSettlementData }) {
   }
 
   return (
-    <div style={{ ...CARD_COLUMN, maxWidth: 660 }}>
+    <div style={{ ...CARD_COLUMN, maxWidth: 900 }}>
       <TotalPayouts settlement={settlement} />
+      {/*
+       * WHO OWES WHOM, and the transfers themselves — moved here on 2026-09-15.
+       *
+       * It used to sit on the Settlement tab, which the design keeps for what the
+       * night came to and who agreed it. This is the paying: a board of net
+       * positions and a row per transfer with "mark as paid" on it, which is what
+       * this tab is named after. The design has no equivalent card, and the
+       * mechanism is ours rather than an invention — the transfers are what moves
+       * a settlement to partly paid and then paid.
+       */}
+      <WhoOwesWhomBoard
+        participants={lines}
+        transfers={settlement.transfers}
+        variant={lines.length > 1 ? "full" : "slice"}
+        // Claimed only when the visible lines really do sum to zero: a
+        // party-scoped slice is short by the lines the caller may not see,
+        // and "Not balanced" over a redaction reports authorization as an
+        // accounting error.
+        balanced={settlement.isWholeBoard ? true : undefined}
+        onMark={settlement.isBusy ? undefined : settlement.markTransfer}
+      />
+      {!settlement.isWholeBoard && (
+        <span
+          className="muted"
+          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}
+        >
+          <Icon name="eye-off" size={13} />
+          Your own line. The other parties' figures on this event aren't shared with you.
+        </span>
+      )}
       <Card padding="lg" style={CARD_COLUMN}>
         <CardTitle>Process Payouts</CardTitle>
         <p className="muted" style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55 }}>
