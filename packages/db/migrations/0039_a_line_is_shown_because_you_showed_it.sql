@@ -1,0 +1,57 @@
+-- A LINE IS SHOWN BECAUSE YOU SHOWED IT.
+--
+-- Ran's settlement design, §5, and the card on its Settlement tab: *"Curate what
+-- each collaborator sees — drag a line between the two lists, or click it, to
+-- include or hide it from the Performer settlement. **Only you see every figure by
+-- default.**"* Its spec is explicit that a withheld line is ABSENT rather than
+-- masked: *"no placeholder is shown, because the existence of, say, a venue's own
+-- cost is not the performer's business."*
+--
+-- Nothing in the schema could express it. `serialize(capabilities)` hides FIELDS by
+-- capability — the pool ladder, a basis operand — and there was no per-line rule
+-- anywhere, so the settlement's line list was all-or-nothing: `budget.view`, which
+-- `POOL_CAPABILITIES` makes ungrantable to any arm's-length party, or silence.
+--
+-- THE POLARITY IS `visible_to` AND NOT `hidden_from`, and the difference is the
+-- whole safety of the feature. Stored as "hidden from", a NULL would mean "hidden
+-- from nobody" — and the day this shipped, every cost line on every event would
+-- become readable by every performer on the bill, which is the exact inverse of
+-- story.md:44. Stored as "visible to", NULL means "shown to nobody", which is
+-- precisely what is true today: the line list has never been served to a party
+-- without `budget.view`. The column can therefore ship into a live table and change
+-- nothing at all until an operator makes a choice.
+--
+-- It is also the design's own default, said in its own words: *only you see every
+-- figure by default*. Disclosure is the act; concealment is the resting state.
+--
+-- PER PARTICIPANT, NOT PER ROLE, which is the one place this knowingly builds
+-- something the design draws differently. Its curation card has a tab per role
+-- (Performer / Venue / Promoter) because its prototype has exactly one of each. A
+-- real bill has two performers, and a rule stored against "performer" would show the
+-- support act the headliner's fee the moment either was curated. The ROLE TABS STAY
+-- — they are how an operator thinks — and resolve to the participants holding that
+-- role when the choice is saved.
+--
+-- jsonb, not a join table, by the same normalize-vs-embed rule `cost_split` and
+-- `revenue_shares` were decided under: it is read with its line, and nothing joins,
+-- filters or aggregates across it. The read path already loads every line of the
+-- event in order to serialize it, so applying this is an array membership test
+-- rather than a query.
+--
+--   ["<participant uuid>", "<participant uuid>"]
+--
+-- ONLY ON `settlement_lines`. The budget is the operator's forecast and is not
+-- served to arm's-length parties at all, so there is nothing there to curate. The
+-- settlement is the document that goes OUT, which is what makes curation mean
+-- anything.
+--
+-- CURATION ONLY EVER WIDENS THE LINE LIST, AND NEVER THE TOTALS. The waterfall
+-- stays governed by `budget.view`, because the design's own performer view hides six
+-- of eight lines and then prints Total revenue, Adjusted net and the venue's payout
+-- — handing back by derivation exactly what the curation withheld.
+--
+-- Additive and nullable. NULL means "shown to nobody beyond those who could already
+-- read every line", which is what every existing row means today, so nothing
+-- recomputes and no backfill is owed.
+ALTER TABLE "settlement_lines"
+  ADD COLUMN IF NOT EXISTS "visible_to" jsonb;

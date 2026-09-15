@@ -33,5 +33,7 @@ export type PatchApiV1EventsIdSettlementLinesLid200 = {
   originBudgetLineId: string | null;
   /** @nullable */
   details: PatchApiV1EventsIdSettlementLinesLid200Details;
+  /** @nullable */
+  visibleTo?: string[] | null;
   version: number;
 };

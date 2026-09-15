@@ -385,6 +385,243 @@ describe("settlement — an unreconciled event (empty is 'not yet', not 'not you
   });
 });
 
+describe("settlement — curating what each collaborator sees (Ran's §5)", () => {
+  /**
+   * The feature's whole point is that there is a READER on the other side of a
+   * curation. Before this, `GET …/settlement/lines` answered 403 to anyone
+   * without `budget.view`, so "hide this line from the performer" had nothing to
+   * hide it from.
+   */
+  const linesAs = (eventId: string, userId: string) =>
+    app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/settlement/lines`,
+      headers: auth(userId),
+    });
+
+  const curate = (eventId: string, userId: string, participantId: string, lineIds: string[]) =>
+    app.inject({
+      method: "PUT",
+      url: `/api/v1/events/${eventId}/settlement/curation`,
+      headers: auth(userId),
+      payload: { participantId, lineIds },
+    });
+
+  it("shows a party nothing at all until the operator discloses something", async () => {
+    const seed = await seedWorkedExample("curate-default");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const asOperator = await linesAs(seed.event.id, seed.operator.userId);
+    expect(asOperator.statusCode).toBe(200);
+    expect(asOperator.json().length).toBeGreaterThan(0);
+
+    // THE DEFAULT, and the reason the column is `visible_to` and not
+    // `hidden_from`: an operator who has never opened the curation card has
+    // disclosed nothing, and a stored NULL says exactly that.
+    const asBand = await linesAs(seed.event.id, seed.band.userId);
+    expect(asBand.statusCode).toBe(200);
+    expect(asBand.json()).toEqual([]);
+  });
+
+  it("shows exactly the lines disclosed to that party, and no others", async () => {
+    const seed = await seedWorkedExample("curate-subset");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const all = (await linesAs(seed.event.id, seed.operator.userId)).json();
+    expect(all.length).toBeGreaterThan(1);
+    const disclosed = all[0];
+
+    const put = await curate(seed.event.id, seed.operator.userId, seed.bPart, [disclosed.id]);
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toEqual({ participantId: seed.bPart, visibleLineCount: 1 });
+
+    const asBand = (await linesAs(seed.event.id, seed.band.userId)).json();
+    expect(asBand).toHaveLength(1);
+    expect(asBand[0].id).toBe(disclosed.id);
+
+    // A HIDDEN LINE IS ABSENT, not masked — the spec's own word. Nothing in the
+    // payload hints that the other lines exist.
+    expect(JSON.stringify(asBand)).not.toContain(all[1].id);
+
+    // …and the curation is not itself disclosed. Telling a performer which other
+    // parties can see a line is a second disclosure on top of the one curated.
+    expect(asBand[0].visibleTo).toBeUndefined();
+    const asOperator = (await linesAs(seed.event.id, seed.operator.userId)).json();
+    expect(asOperator.find((line: { id: string }) => line.id === disclosed.id).visibleTo).toEqual([
+      seed.bPart,
+    ]);
+  });
+
+  it("is EXACTLY these lines — a second call withdraws what the first disclosed", async () => {
+    const seed = await seedWorkedExample("curate-exact");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const all = (await linesAs(seed.event.id, seed.operator.userId)).json();
+
+    await curate(seed.event.id, seed.operator.userId, seed.bPart, [all[0].id, all[1].id]);
+    expect((await linesAs(seed.event.id, seed.band.userId)).json()).toHaveLength(2);
+
+    // The second call names one line, so the other is withdrawn. A route that
+    // merged additions instead would leave the first disclosure standing, and an
+    // operator correcting a mistake would not have corrected it.
+    await curate(seed.event.id, seed.operator.userId, seed.bPart, [all[1].id]);
+    const after = (await linesAs(seed.event.id, seed.band.userId)).json();
+    expect(after).toHaveLength(1);
+    expect(after[0].id).toBe(all[1].id);
+
+    // And an empty list means what it says.
+    await curate(seed.event.id, seed.operator.userId, seed.bPart, []);
+    expect((await linesAs(seed.event.id, seed.band.userId)).json()).toEqual([]);
+  });
+
+  it("curates per PARTY, so one act on the bill is not curated by the other", async () => {
+    const seed = await seedWorkedExample("curate-per-party");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const all = (await linesAs(seed.event.id, seed.operator.userId)).json();
+
+    // Two performers on one bill — the case the design's per-ROLE curation cannot
+    // express, and the reason the column is keyed on the participant.
+    await curate(seed.event.id, seed.operator.userId, seed.bPart, [all[0].id]);
+    expect((await linesAs(seed.event.id, seed.band.userId)).json()).toHaveLength(1);
+    expect((await linesAs(seed.event.id, seed.venue.userId)).json()).toEqual([]);
+  });
+
+  /**
+   * THE LEAK THE PROTOTYPE HAS, asserted so we cannot ship it.
+   *
+   * Switch its "Viewing as" to Performer and the curation correctly drops six of
+   * eight lines — and the page then prints Total revenue, Total deductions,
+   * Venue rental, Adjusted net and a Total Payouts card naming the venue's
+   * payout. Every one of those is derived from the lines it just withheld.
+   *
+   * Curation widens the LINE LIST. It does not touch the waterfall, which stays
+   * governed by `budget.view` / `POOL_CAPABILITIES`.
+   */
+  it("discloses lines without ever disclosing the totals derived from them", async () => {
+    const seed = await seedWorkedExample("curate-no-ladder");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const all = (await linesAs(seed.event.id, seed.operator.userId)).json();
+    // Disclose EVERY line — the most generous curation an operator can make.
+    await curate(
+      seed.event.id,
+      seed.operator.userId,
+      seed.bPart,
+      all.map((line: { id: string }) => line.id),
+    );
+    expect((await linesAs(seed.event.id, seed.band.userId)).json()).toHaveLength(all.length);
+
+    const asBand = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(seed.band.userId),
+    });
+    expect(asBand.statusCode).toBe(200);
+    // Still null. Being shown every line is not being shown what they add up to.
+    expect(asBand.json().ladder).toBeNull();
+  });
+
+  it("refuses a party who is not on the event, and a line that is not on it", async () => {
+    const seed = await seedWorkedExample("curate-refuse");
+    const other = await seedWorkedExample("curate-refuse-other");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${other.event.id}/settlement/compute`,
+      headers: auth(other.operator.userId),
+    });
+    const mine = (await linesAs(seed.event.id, seed.operator.userId)).json();
+    const theirs = (await linesAs(other.event.id, other.operator.userId)).json();
+
+    expect(
+      (await curate(seed.event.id, seed.operator.userId, other.bPart, [mine[0].id])).statusCode,
+    ).toBe(400);
+    expect(
+      (await curate(seed.event.id, seed.operator.userId, seed.bPart, [theirs[0].id])).statusCode,
+    ).toBe(400);
+    // Nothing was half-applied by either refusal.
+    expect((await linesAs(seed.event.id, seed.band.userId)).json()).toEqual([]);
+  });
+
+  /**
+   * THE PREVIEW IS THE SAME ANSWER, not a second opinion about it.
+   *
+   * The prototype's "Viewing as" filters a list the browser already holds, which
+   * cannot detect a curation the server would apply differently. This asserts the
+   * only property that makes the control worth having: what the operator is shown
+   * in preview is byte-for-byte what the party's own read returns.
+   */
+  it("previews exactly what that party's own read returns", async () => {
+    const seed = await seedWorkedExample("curate-preview");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const all = (await linesAs(seed.event.id, seed.operator.userId)).json();
+    await curate(seed.event.id, seed.operator.userId, seed.bPart, [all[1].id]);
+
+    const preview = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlement/preview?participantId=${seed.bPart}`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(preview.statusCode).toBe(200);
+    const theirOwnRead = (await linesAs(seed.event.id, seed.band.userId)).json();
+    expect(preview.json().lines).toEqual(theirOwnRead);
+    expect(theirOwnRead).toHaveLength(1);
+  });
+
+  it("refuses a party trying to preview another party's view", async () => {
+    const seed = await seedWorkedExample("curate-preview-authority");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const attempt = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlement/preview?participantId=${seed.vPart}`,
+      headers: auth(seed.band.userId),
+    });
+    expect(attempt.statusCode).toBe(403);
+  });
+
+  it("refuses a party trying to curate their own view", async () => {
+    const seed = await seedWorkedExample("curate-authority");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const all = (await linesAs(seed.event.id, seed.operator.userId)).json();
+    const attempt = await curate(seed.event.id, seed.band.userId, seed.bPart, [all[0].id]);
+    expect(attempt.statusCode).toBe(403);
+    expect((await linesAs(seed.event.id, seed.band.userId)).json()).toEqual([]);
+  });
+});
+
 describe("settlement — visibility (decisions #4)", () => {
   it("shows the paying operator every line it funds but a performer only their own", async () => {
     const seed = await seedWorkedExample("vis");

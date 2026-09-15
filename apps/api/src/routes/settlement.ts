@@ -2417,10 +2417,26 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     /** The forecast line this came from. Null = added here, never budgeted. */
     originBudgetLineId: z.string().nullable(),
     details: SettlementLineDetails.nullable(),
+    /**
+     * WHO THE OPERATOR HAS DISCLOSED THIS LINE TO (Ran's §5 curation).
+     *
+     * Served ONLY to a caller holding `budget.view` — it is the curation itself,
+     * and telling a performer which other parties can see a line is a second
+     * disclosure on top of the one being curated. A curated reader gets the line
+     * or does not; they are never told who else got it.
+     */
+    visibleTo: z.array(z.string()).nullable().optional(),
     version: z.number(),
   });
 
-  const serializeLine = (row: typeof schema.settlementLines.$inferSelect) => ({
+  /** The participant ids an operator has disclosed a line to. Null = nobody. */
+  const visibleToOf = (row: typeof schema.settlementLines.$inferSelect): string[] | null =>
+    (row.visibleTo as string[] | null) ?? null;
+
+  const serializeLine = (
+    row: typeof schema.settlementLines.$inferSelect,
+    { includeCuration = false }: { includeCuration?: boolean } = {},
+  ) => ({
     id: row.id,
     kind: row.kind,
     label: row.label,
@@ -2442,6 +2458,10 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     attributedDealId: row.attributedDealId,
     originBudgetLineId: row.originBudgetLineId,
     details: (row.details as z.infer<typeof SettlementLineDetails> | null) ?? null,
+    // Defaults to OMITTED, on the same reasoning as `serializeSettlement`'s
+    // `includePool`: a caller who forgets to think about this leaks nothing, and
+    // the one route that may show the curation has to say so.
+    ...(includeCuration ? { visibleTo: visibleToOf(row) } : {}),
     version: row.version,
   });
 
@@ -2453,16 +2473,106 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     async (request) => {
       const { database } = request.server;
       const { id } = request.params;
-      // `budget.view` — the same capability the pool ceiling already uses to mean
-      // "may read the night's money" (`POOL_CAPABILITIES`). A performer reading
-      // their own settlement never reaches here, which is the point.
-      await requireEventCapability(request, id, "budget.view");
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+      /*
+       * TWO READERS, ONE ROUTE.
+       *
+       * `budget.view` still means "may read the night's money" — the ceiling
+       * `POOL_CAPABILITIES` makes ungrantable to any arm's-length party — and a
+       * holder of it gets every line plus the curation itself.
+       *
+       * Everyone else used to get a 403 here, which is why curating a line meant
+       * nothing: there was no reader on the other side of it. Now a party to the
+       * event gets exactly the lines the operator has DISCLOSED to them, and
+       * nothing when that is nothing (Ran's §5: *"only you see every figure by
+       * default"*). The event itself is still gated — `event.view` or 404 — so
+       * this is not a new door, it is a narrower one beside the existing door.
+       *
+       * The filter is applied in TypeScript rather than SQL deliberately: the
+       * whole line list of one event is already loaded to serialize it, and a
+       * jsonb containment predicate here would put the access rule in a place the
+       * next reader of this route would not think to look.
+       */
+      const capabilities = await requireEventCapability(request, id, "event.view");
+      const mayReadEverything = capabilities.has("budget.view");
       const rows = await database
         .select()
         .from(schema.settlementLines)
         .where(eq(schema.settlementLines.eventId, id))
         .orderBy(asc(schema.settlementLines.createdAt));
-      return rows.map(serializeLine);
+      if (mayReadEverything) {
+        return rows.map((row) => serializeLine(row, { includeCuration: true }));
+      }
+      const mine = await participantIdsOf(
+        database,
+        id,
+        principal.memberships.map((membership) => membership.profileId),
+      );
+      return rows
+        .filter((row) => (visibleToOf(row) ?? []).some((participantId) => mine.has(participantId)))
+        .map((row) => serializeLine(row));
+    },
+  );
+
+  /**
+   * WHAT ONE PARTY WOULD SEE — the design's "Viewing as" control, answered by the
+   * server rather than acted out by the browser.
+   *
+   * The prototype simulates this client-side, filtering a list it already holds.
+   * That proves nothing: the question an operator is asking before they press
+   * send is *"what will actually reach them"*, and only the thing that decides
+   * that can answer it. So this route runs the SAME filter the party's own read
+   * runs, against the same column, and returns the same shape — which means a
+   * curation bug shows up in the preview instead of hiding behind it.
+   *
+   * Lines only, deliberately. Curation governs the line list and nothing else:
+   * the party's own settlement figure and the rule behind it are always theirs to
+   * see, and the event's totals never are (`POOL_CAPABILITIES`, story.md:44). A
+   * preview that re-rendered the whole page would have to restate both of those
+   * rules in a second place to do it.
+   */
+  app.get(
+    "/events/:id/settlement/preview",
+    {
+      schema: {
+        params: EventParams,
+        querystring: z.object({ participantId: z.string().uuid() }),
+        response: {
+          200: z.object({ participantId: z.string(), lines: z.array(SettlementLineResponse) }),
+        },
+      },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      const { participantId } = request.query;
+      // The same authority that CURATES, because previewing a party's view is
+      // reading the curation — and only the operator holds it.
+      await requireEventCapability(request, id, "settlement.edit");
+
+      const [party] = await database
+        .select({ id: schema.eventParticipants.id })
+        .from(schema.eventParticipants)
+        .where(
+          and(
+            eq(schema.eventParticipants.id, participantId),
+            eq(schema.eventParticipants.eventId, id),
+          ),
+        );
+      if (!party) throw badRequest("That party is not on this event");
+
+      const rows = await database
+        .select()
+        .from(schema.settlementLines)
+        .where(eq(schema.settlementLines.eventId, id))
+        .orderBy(asc(schema.settlementLines.createdAt));
+      return {
+        participantId,
+        lines: rows
+          .filter((row) => ((row.visibleTo as string[] | null) ?? []).includes(participantId))
+          .map((row) => serializeLine(row)),
+      };
     },
   );
 
@@ -2587,6 +2697,99 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         return row;
       });
       return serializeLine(updated);
+    },
+  );
+
+  /**
+   * CURATE WHAT ONE COLLABORATOR SEES — Ran's §5, as one atomic choice.
+   *
+   * `{ participantId, lineIds }` reads "this party sees exactly these lines, and
+   * none of the others". A PATCH-per-line was the obvious alternative and is the
+   * wrong shape twice over: the design's card moves several chips at once, so a
+   * curation would arrive as N requests that can half-fail, and "exactly these"
+   * is the only phrasing that cannot drift — a caller sending only the additions
+   * would silently leave earlier disclosures standing.
+   *
+   * Authorized on `settlement.edit`, because curating IS editing the document
+   * that goes out, and refused once the settlement is finalized: the figures are
+   * an immutable legal record and who was shown them is part of that record.
+   */
+  app.put(
+    "/events/:id/settlement/curation",
+    {
+      schema: {
+        params: EventParams,
+        body: z.object({
+          /** The party whose view is being set. */
+          participantId: z.string().uuid(),
+          /** Exactly the lines they may see. Empty = they see none. */
+          lineIds: z.array(z.string().uuid()),
+        }),
+        response: { 200: z.object({ participantId: z.string(), visibleLineCount: z.number() }) },
+      },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      const { participantId, lineIds } = request.body;
+      await requireEventCapability(request, id, "settlement.edit");
+      assertNotFinalized(await settlementRowsOf(database, id));
+
+      // A party who is not on this event cannot be shown anything on it. Refused
+      // rather than ignored: silently accepting would report a disclosure that
+      // never happened, which is the worst answer of the three.
+      const [party] = await database
+        .select({ id: schema.eventParticipants.id })
+        .from(schema.eventParticipants)
+        .where(
+          and(
+            eq(schema.eventParticipants.id, participantId),
+            eq(schema.eventParticipants.eventId, id),
+          ),
+        );
+      if (!party) throw badRequest("That party is not on this event");
+
+      const chosen = new Set(lineIds);
+      const updated = await database.transaction(async (tx) => {
+        const rows = await tx
+          .select()
+          .from(schema.settlementLines)
+          .where(eq(schema.settlementLines.eventId, id));
+        // Every id sent must be a line on THIS event, for the same reason the
+        // party is checked: a curation that silently dropped half its subject
+        // would be reported as having been applied in full.
+        const known = new Set(rows.map((row) => row.id));
+        for (const lineId of chosen) {
+          if (!known.has(lineId)) throw badRequest("One of those lines is not on this event");
+        }
+        let visible = 0;
+        for (const row of rows) {
+          const current = ((row.visibleTo as string[] | null) ?? []).filter(
+            (id) => id !== participantId,
+          );
+          const next = chosen.has(row.id) ? [...current, participantId] : current;
+          if (chosen.has(row.id)) visible += 1;
+          // Only the rows whose answer actually changed. A no-op UPDATE would take
+          // a version off every line in the event and 409 a co-operator who was
+          // merely reading (the collateral-write defect `useBudgetEditor` fixed).
+          const before = ((row.visibleTo as string[] | null) ?? []).includes(participantId);
+          if (before === chosen.has(row.id)) continue;
+          await tx
+            .update(schema.settlementLines)
+            .set({ visibleTo: next.length > 0 ? next : null, updatedAt: new Date() })
+            .where(eq(schema.settlementLines.id, row.id));
+        }
+        await writeAudit(tx, request, {
+          capability: "settlement.edit",
+          action: "settlement.curation.set",
+          targetKind: "event_participant",
+          targetId: participantId,
+          eventId: id,
+          after: { visibleLineCount: visible },
+        });
+        return visible;
+      });
+      return { participantId, visibleLineCount: updated };
     },
   );
 

@@ -33,5 +33,7 @@ export type GetApiV1EventsIdSettlementLines200Item = {
   originBudgetLineId: string | null;
   /** @nullable */
   details: GetApiV1EventsIdSettlementLines200ItemDetails;
+  /** @nullable */
+  visibleTo?: string[] | null;
   version: number;
 };

@@ -20,6 +20,7 @@ import { type ReactNode, useState } from "react";
 import { ConfirmDialog, useConfirmDialog } from "../components/ConfirmDialog";
 import { DateText } from "../components/DateText";
 import { SettlementActualsCard } from "../components/SettlementActualsCard";
+import { SettlementCurationCard } from "../components/SettlementCurationCard";
 import {
   CurrencyPreviewNotice,
   SettlementCurrencyControl,
@@ -243,7 +244,7 @@ export function EventSettlement() {
       ) : tab === "payout" ? (
         <PayoutTab settlement={settlement} />
       ) : (
-        <SettlementTab settlement={settlement} eventId={eventId} />
+        <SettlementTab settlement={settlement} eventId={eventId} currency={baseCurrency} />
       )}
     </div>
   );
@@ -608,7 +609,8 @@ function CollaboratorsTab({ settlement }: { settlement: EventSettlementData }) {
 function SettlementTab({
   settlement,
   eventId,
-}: { settlement: EventSettlementData; eventId: string }) {
+  currency,
+}: { settlement: EventSettlementData; eventId: string; currency: string }) {
   const confirmDialog = useConfirmDialog();
   const askToFinalize = () =>
     confirmDialog.ask({
@@ -752,6 +754,14 @@ function SettlementTab({
           )}
       </Card>
 
+      {/* The design puts curation directly under the action row and above the
+          figures — you decide who is reading before you read it yourself. Renders
+          nothing for anyone who cannot edit the settlement, and nothing at all
+          until there are lines to curate. */}
+      {settlement.authority.canCompute && (
+        <SettlementCurationCard eventId={eventId} currency={currency} />
+      )}
+
       {settlement.parties.length === 0 ? (
         <NothingSettledYet settlement={settlement} />
       ) : (
@@ -823,11 +833,10 @@ function SettlementTab({
             <TotalPayouts settlement={settlement} />
           </div>
 
-          {/* Sending it out sits directly under the sign-off roster, because it
-              answers the question the roster raises: somebody is still Pending —
-              have they even been told? Renders for the operator only; the API
-              returns an empty delivery list to everyone else. */}
-          <SettlementDeliveryCard settlement={settlement} />
+          {/* "Sending it out" used to sit here, under the roster. It is on the
+              Collaborators tab now, where the design puts it and where it sits
+              beside each party's position — one copy, because two would be two
+              places to change the same list. */}
         </>
       )}
 

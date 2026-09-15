@@ -274,6 +274,13 @@
       "when": 1788912245007,
       "tag": "0038_a_revenue_line_can_name_whose_it_is",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1788912245008,
+      "tag": "0039_a_line_is_shown_because_you_showed_it",
+      "breakpoints": true
     }
   ]
 }

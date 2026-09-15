@@ -8533,6 +8533,13 @@
                         "additionalProperties": false,
                         "nullable": true
                       },
+                      "visibleTo": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "nullable": true
+                      },
                       "version": {
                         "type": "number"
                       }
@@ -8789,6 +8796,13 @@
                       "additionalProperties": false,
                       "nullable": true
                     },
+                    "visibleTo": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     }
@@ -8810,6 +8824,194 @@
                     "details",
                     "version"
                   ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/settlement/preview": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "query",
+            "name": "participantId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "participantId": {
+                      "type": "string"
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "amount": {
+                            "type": "string"
+                          },
+                          "currency": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "collectedBy": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "paidBy": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "payeeParticipantId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "costSplit": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "number"
+                            },
+                            "nullable": true
+                          },
+                          "revenueShares": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "toParticipantId": {
+                                  "type": "string"
+                                },
+                                "basisPoints": {
+                                  "type": "number"
+                                },
+                                "amount": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["toParticipantId"],
+                              "additionalProperties": false
+                            },
+                            "nullable": true
+                          },
+                          "dealId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "attributedDealId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "originBudgetLineId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "details": {
+                            "type": "object",
+                            "properties": {
+                              "basis": {
+                                "type": "string",
+                                "enum": [
+                                  "ticket_tier",
+                                  "bar_spend",
+                                  "merch_spend",
+                                  "other_revenue",
+                                  "custom_revenue",
+                                  "custom_cost",
+                                  "percentage_of"
+                                ],
+                                "default": "ticket_tier"
+                              },
+                              "unitAmount": {
+                                "type": "string",
+                                "pattern": "^-?\\d+$"
+                              },
+                              "quantity": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "ofKey": {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              "ofLabel": {
+                                "type": "string",
+                                "maxLength": 200
+                              },
+                              "basisPoints": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000
+                              }
+                            },
+                            "required": ["unitAmount", "quantity"],
+                            "additionalProperties": false,
+                            "nullable": true
+                          },
+                          "visibleTo": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "nullable": true
+                          },
+                          "version": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "label",
+                          "amount",
+                          "currency",
+                          "collectedBy",
+                          "paidBy",
+                          "payeeParticipantId",
+                          "costSplit",
+                          "revenueShares",
+                          "dealId",
+                          "attributedDealId",
+                          "originBudgetLineId",
+                          "details",
+                          "version"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["participantId", "lines"],
                   "additionalProperties": false
                 }
               }
@@ -9058,6 +9260,13 @@
                       "additionalProperties": false,
                       "nullable": true
                     },
+                    "visibleTo": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "nullable": true
+                    },
                     "version": {
                       "type": "number"
                     }
@@ -9123,6 +9332,68 @@
                     }
                   },
                   "required": ["id", "deleted"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/settlement/curation": {
+      "put": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "participantId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "lineIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                },
+                "required": ["participantId", "lineIds"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "participantId": {
+                      "type": "string"
+                    },
+                    "visibleLineCount": {
+                      "type": "number"
+                    }
+                  },
+                  "required": ["participantId", "visibleLineCount"],
                   "additionalProperties": false
                 }
               }

@@ -397,6 +397,33 @@ export const settlementLines = pgTable(
     costSplit: jsonb("cost_split"),
     /** The same shares the forecast carried, corrected after the show (#23.2). */
     revenueShares: jsonb("revenue_shares"),
+    /**
+     * WHO THIS LINE IS SHOWN TO, beyond the operators who can already read every
+     * one of them — the participant ids the operator has disclosed it to.
+     *
+     * Ran's design §5, the "Curate what each collaborator sees" card. A line that
+     * is not disclosed is *ABSENT* from that party's settlement, not masked,
+     * *"because the existence of, say, a venue's own cost is not the performer's
+     * business."*
+     *
+     * **`visible_to`, not `hidden_from`**, and the polarity is the safety of the
+     * whole feature. "Hidden from" would make NULL mean "hidden from nobody", and
+     * every cost on every event would become readable by every performer the day
+     * it shipped — the inverse of story.md:44. "Visible to" makes NULL mean "shown
+     * to nobody", which is exactly what is true today. It is also the design's own
+     * default, in its own words: *only you see every figure by default*.
+     *
+     * PER PARTICIPANT, not per role, which is the one place this knowingly differs
+     * from the design. Its curation card has a tab per role because its prototype
+     * has one performer; a real bill has two, and a rule stored against "performer"
+     * would show the support act the headliner's fee. The role tabs stay in the UI
+     * and resolve to participants on save.
+     *
+     * `["<participant uuid>", …]`. It widens the LINE LIST only: the event's
+     * totals stay governed by `budget.view` / `POOL_CAPABILITIES`, or a curated
+     * view would hand back by derivation exactly what the curation withheld.
+     */
+    visibleTo: jsonb("visible_to"),
     details: jsonb("details"),
     dealId: uuid("deal_id").references(() => deals.id),
     attributedDealId: uuid("attributed_deal_id").references(() => deals.id),

@@ -33,5 +33,7 @@ export type PostApiV1EventsIdSettlementLines201 = {
   originBudgetLineId: string | null;
   /** @nullable */
   details: PostApiV1EventsIdSettlementLines201Details;
+  /** @nullable */
+  visibleTo?: string[] | null;
   version: number;
 };
