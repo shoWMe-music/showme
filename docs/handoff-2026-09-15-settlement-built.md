@@ -50,9 +50,14 @@ the owner's answer is that they may. story.md is amended in place and points at
 
 ## 3. What is now true of the screen
 
-Six tabs, in the design's order: **Overview · Deal structure · Financials ·
-Settlement · Collaborators · Payout**. "Comments" is no longer a tab; the thread is
-in the Settlement tab's right rail, beside the figures it is about.
+Seven tabs: **Overview · Deal structure · Financials · Settlement · Comments ·
+Collaborators · Payout** — the design's six, plus **Comments**, which is the
+product owner's call and not the design's. The prototype keeps the thread in the
+Settlement tab's right rail; a remark about a FIGURE still lives on the figure
+(every row of the read-only preview carries its own bubble), and the tab is the
+whole conversation plus the revision history, read without scrolling a long page.
+An anchored remark names its figure there, which is what
+`settlement_comments.settlement_line_id` was always for.
 
 Two mechanisms govern what a collaborator sees, and they are **different things**:
 
