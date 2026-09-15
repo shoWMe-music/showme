@@ -52,19 +52,44 @@ const EVERY_KIND = ACCOUNT_KINDS;
  *
  * What `kinds` encodes is the honest question "can this kind ever have anything
  * on this screen, and is the screen's purpose theirs?" — grounded in docs/story.md
- * (purpose + boundary) and checked against the route behind each item. Order is
- * the render order (screen-specs §0.1); the operator set is unchanged.
+ * (purpose + boundary) and checked against the route behind each item.
+ *
+ * ## The order is Ran's, verbatim (ClickUp `123qy9rnfz3`)
+ *
+ * Dashboard · Requests · Calendar · Events · Settlements · Performance Reports ·
+ * Tasks · Team · Contacts · Audience · Financial Projections · Bills & Invoices.
+ * It is a running order rather than a taxonomy — what he reaches for first is
+ * first — so it is not to be "tidied" into groups.
+ *
+ * THREE ITEMS HE DID NOT NAME, and where they went:
+ *
+ *  - `Setlists` sits immediately after `Performance Reports` because it is the
+ *    other half of that same module, and the two `kinds` sets are DISJOINT —
+ *    reports is operator-only, setlists performer-only, so no user is ever
+ *    offered both. Sharing one slot means every kind's sidebar reads as exactly
+ *    the list above with the one entry that is theirs in the sixth position.
+ *  - `My Profiles` and `Settings` stay last. They are account furniture rather
+ *    than places work happens, and Ran was listing the work.
  */
 export const NAV: readonly NavItem[] = [
   { label: "Dashboard", icon: "grid", to: "/", kinds: EVERY_KIND },
+  // "Requests", not "Incoming Requests" — the page carries both directions and
+  // names the active one itself; a fixed "Incoming" here contradicts the Outgoing
+  // view. Membership-scoped both ways: an operator triages, a performer sends
+  // offers, an agent sends them on behalf of an act, and a team_and_crew profile
+  // is a valid target of the public form (and the front door of the future
+  // team-and-crew marketplace, story.md).
+  { label: "Requests", icon: "inbox", to: "/requests", badge: "requests", kinds: EVERY_KIND },
   // Personal calendar items (`GET /calendar`, owner-scoped) over the events the
   // caller participates in — everyone has a schedule.
   { label: "Calendar", icon: "calendar", to: "/calendar", kinds: EVERY_KIND },
   // `GET /events` is participant-reachable (events ⋈ event_participants ⋈
   // profile_members), so every kind sees the events it is actually on.
   { label: "Events", icon: "calendar-check", to: "/events", kinds: EVERY_KIND },
-  // `GET /tasks` = the caller's own + their profiles' + an event's shared to-do.
-  { label: "Tasks", icon: "check", to: "/tasks", kinds: EVERY_KIND },
+  // `GET /settlements` is party-scoped: one settlement row per participant, so a
+  // performer's payouts, a crew fee and an agent's net-0 line all live here. This
+  // is the money screen for everyone — never cut it for looking operator-ish.
+  { label: "Settlements", icon: "receipt", to: "/settlements", kinds: EVERY_KIND },
   // Operator only, and NAMED for what it is. This screen is the PRO filing desk:
   // the performed-works report for a night, the society that covers the
   // territory, the royalty estimate and the record of the filing. It carried the
@@ -92,28 +117,8 @@ export const NAV: readonly NavItem[] = [
   //   · team_and_crew / agent — see the reasons on the item above; a crew member
   //     reaches a shared set on the event itself, which is the only door.
   { label: "Setlists", icon: "music", to: "/setlists", kinds: ["performer"] },
-  // `GET /settlements` is party-scoped: one settlement row per participant, so a
-  // performer's payouts, a crew fee and an agent's net-0 line all live here. This
-  // is the money screen for everyone — never cut it for looking operator-ish.
-  { label: "Settlements", icon: "receipt", to: "/settlements", kinds: EVERY_KIND },
-  // Operator only. `GET /insights/profiles/:id/{summary,revenue}` aggregates over
-  // `events.host_profile_id` and the event budget, and `POST /events` refuses any
-  // non-operator profile ("Only operator profiles can create events") — so a
-  // performer / crew / agent profile hosts nothing and this screen is 0 forever.
-  // story.md also forbids it: a performer "never sees the event budget/pool", and
-  // crew "see the schedule and their own deal, never the budget".
-  { label: "Financial Projections", icon: "trending-up", to: "/projections", kinds: ["operator"] },
-  // "Requests", not "Incoming Requests" — the page carries both directions and
-  // names the active one itself; a fixed "Incoming" here contradicts the Outgoing
-  // view. Membership-scoped both ways: an operator triages, a performer sends
-  // offers, an agent sends them on behalf of an act, and a team_and_crew profile
-  // is a valid target of the public form (and the front door of the future
-  // team-and-crew marketplace, story.md).
-  { label: "Requests", icon: "inbox", to: "/requests", badge: "requests", kinds: EVERY_KIND },
-  // Invoices are owner-profile-scoped with a direction (`issued` | `received`):
-  // a performer bills their fee, crew bills labor, an agent bills commission.
-  // The money-out layer belongs to whoever is paid (decisions.md #5).
-  { label: "Bills & Invoices", icon: "file", to: "/invoices", kinds: EVERY_KIND },
+  // `GET /tasks` = the caller's own + their profiles' + an event's shared to-do.
+  { label: "Tasks", icon: "check", to: "/tasks", kinds: EVERY_KIND },
   // Groups are user-owned and cross-profile, and "anyone may bring crew, not just
   // the operator" (decisions.md #12) — `POST /events/:id/groups` accepts the
   // `crew.submit` floor held by performer / support / agent / crew_lead.
@@ -131,6 +136,17 @@ export const NAV: readonly NavItem[] = [
   // (It is empty for operator and performer too, but for a different reason: no
   // audience read endpoint exists yet. That is a missing screen, not a kind rule.)
   { label: "Audience", icon: "users", to: "/audience", kinds: ["operator", "performer"] },
+  // Operator only. `GET /insights/profiles/:id/{summary,revenue}` aggregates over
+  // `events.host_profile_id` and the event budget, and `POST /events` refuses any
+  // non-operator profile ("Only operator profiles can create events") — so a
+  // performer / crew / agent profile hosts nothing and this screen is 0 forever.
+  // story.md also forbids it: a performer "never sees the event budget/pool", and
+  // crew "see the schedule and their own deal, never the budget".
+  { label: "Financial Projections", icon: "trending-up", to: "/projections", kinds: ["operator"] },
+  // Invoices are owner-profile-scoped with a direction (`issued` | `received`):
+  // a performer bills their fee, crew bills labor, an agent bills commission.
+  // The money-out layer belongs to whoever is paid (decisions.md #5).
+  { label: "Bills & Invoices", icon: "file", to: "/invoices", kinds: EVERY_KIND },
   { label: "My Profiles", icon: "user", to: "/profiles", kinds: EVERY_KIND },
   { label: "Settings", icon: "settings", to: "/settings", kinds: EVERY_KIND },
 ];

@@ -26,27 +26,32 @@ const ALL_EVENTS = Object.values(EVENT);
  * rather than imported from `src/shell/navigation.ts` on purpose — a test that
  * re-derives its expectation from the code under test asserts nothing.
  *
+ * The order is the one Ran gave in ClickUp `123qy9rnfz3`, copied out by hand for
+ * the reason above. It is a running order — what he reaches for first is first —
+ * not a taxonomy, so it will not be re-derivable from anything.
+ *
  * Hidden ≠ forbidden: every route stays registered and reachable by URL. What
  * this asserts is that the navigation stops offering a venue operator's screens
  * to accounts that can never fill them (see the reasons in `navigation.ts`).
  */
 const EVERY_NAV_ITEM = [
   "Dashboard",
+  "Requests",
   "Calendar",
   "Events",
-  "Tasks",
+  "Settlements",
   // The two halves of the setlist module, in `navigation.ts` order and NEVER
   // both: the operator files the performed-works report, the act writes the
-  // setlist it is derived from (decisions.md "Setlists"). No kind holds both.
+  // setlist it is derived from (decisions.md "Setlists"). No kind holds both,
+  // which is why they share one slot in Ran's running order.
   "Performance Reports",
   "Setlists",
-  "Settlements",
-  "Financial Projections",
-  "Requests",
-  "Bills & Invoices",
+  "Tasks",
   "Team",
   "Contacts",
   "Audience",
+  "Financial Projections",
+  "Bills & Invoices",
   "My Profiles",
   "Settings",
 ] as const;
