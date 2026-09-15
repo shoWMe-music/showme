@@ -3,6 +3,7 @@ import {
   Button,
   EmptyState,
   Icon,
+  STATUS_COLOR,
   SearchInput,
   StatusDot,
   TabPanels,
@@ -19,6 +20,7 @@ import { ErrorState, LoadMore, LoadingState } from "../components/states";
 import { useEventArchive } from "../hooks/useEventArchive";
 import { type EventFilterKey, type EventItem, useEventList } from "../hooks/useEventList";
 import { useEventsViewMotion } from "../hooks/useEventsViewMotion";
+import { eventDisplayStatus } from "../lib/status";
 import { useNewEvent } from "../shell/NewEventProvider";
 import styles from "./Events.module.css";
 
@@ -95,8 +97,27 @@ function dotStyle(color: string): CSSProperties {
   return { width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0 };
 }
 
-function eventMeta(status: string): { color: string; label: string } {
-  return EV_META[status] ?? { color: "#8C7A6C", label: "Draft" };
+/**
+ * The chip for one event's status.
+ *
+ * Takes the EVENT and not the status string because one of the answers is not in
+ * the stored status at all: a confirmed show on its own local date reads "Show
+ * day" (ClickUp `123qy9rng4z`). Deriving it here rather than at the call site is
+ * what stops this list and the calendar disagreeing about which night is tonight.
+ */
+function eventMeta(event: {
+  status: string;
+  eventDate?: string | null;
+  timezone?: string | null;
+}): {
+  color: string;
+  label: string;
+} {
+  const display = eventDisplayStatus(event);
+  if (display.status === "showday") {
+    return { color: STATUS_COLOR.showday.fg, label: display.label };
+  }
+  return EV_META[event.status] ?? { color: "#8C7A6C", label: "Draft" };
 }
 
 /** The last track is the overflow menu's — fixed, because it holds one 28px
@@ -513,7 +534,7 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
         <span />
       </div>
       {rows.map((event) => {
-        const meta = eventMeta(event.status);
+        const meta = eventMeta(event);
         // No settlement row yet means nobody has run one — the absence is the
         // answer, so the cell says so rather than borrowing a stage from the
         // ladder. Everything else goes through the shared reader, so this cell and

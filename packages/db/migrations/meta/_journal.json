@@ -295,6 +295,13 @@
       "when": 1788912245010,
       "tag": "0041_a_task_can_say_how_much_it_matters",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1788912245011,
+      "tag": "0042_a_show_day_rings_once",
+      "breakpoints": true
     }
   ]
 }

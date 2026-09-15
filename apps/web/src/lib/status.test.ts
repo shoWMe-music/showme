@@ -12,7 +12,7 @@
  */
 import { STATUSES, STATUS_LABEL } from "@showme/design-system";
 import { describe, expect, it } from "vitest";
-import { apiStatusToDisplay } from "./status";
+import { apiStatusToDisplay, eventDisplayStatus } from "./status";
 
 /** Every value `events.status` can hold, straight from the API's enum. */
 const API_EVENT_STATUSES = [
@@ -77,5 +77,111 @@ describe("apiStatusToDisplay", () => {
     for (const apiStatus of [...API_EVENT_STATUSES, "unknown"]) {
       expect(apiStatusToDisplay(apiStatus).label.length).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * SHOW DAY (ClickUp `123qy9rng4z`).
+ *
+ * Every assertion here pins a decision that is invisible from the rendered chip:
+ * a wrong one does not throw or look broken, it just lights up the wrong night —
+ * which reads exactly like the feature working.
+ */
+describe("eventDisplayStatus", () => {
+  /** 2026-10-02, 21:00 in Stockholm — the evening of a Stockholm show. */
+  const duringTheShow = new Date("2026-10-02T19:00:00Z");
+  const stockholmShow = {
+    status: "confirmed",
+    eventDate: "2026-10-02",
+    timezone: "Europe/Stockholm",
+  };
+
+  it("promotes a confirmed show to Show day on its own date", () => {
+    expect(eventDisplayStatus(stockholmShow, duringTheShow)).toEqual({
+      status: "showday",
+      label: "Show day",
+    });
+  });
+
+  it("is plain Confirmed the day before and the day after", () => {
+    expect(eventDisplayStatus(stockholmShow, new Date("2026-10-01T19:00:00Z")).status).toBe(
+      "confirmed",
+    );
+    expect(eventDisplayStatus(stockholmShow, new Date("2026-10-03T19:00:00Z")).status).toBe(
+      "confirmed",
+    );
+  });
+
+  /**
+   * The boundary is LOCAL midnight in the venue's zone. At 22:30 UTC on the 1st
+   * it is already 00:30 on the 2nd in Stockholm, so the show day has started —
+   * and at 22:30 UTC on the 2nd it has ended. A comparison done in UTC, or in the
+   * reader's zone, gets both of these wrong by two hours.
+   */
+  it("starts and ends at local midnight where the show is", () => {
+    expect(eventDisplayStatus(stockholmShow, new Date("2026-10-01T22:30:00Z")).status).toBe(
+      "showday",
+    );
+    expect(eventDisplayStatus(stockholmShow, new Date("2026-10-02T22:30:00Z")).status).toBe(
+      "confirmed",
+    );
+  });
+
+  /**
+   * The case the event-zone rule exists for, written as a PAIR because a single
+   * assertion cannot express it: whichever zone the reader happens to sit in, it
+   * is one zone, so it cannot give two same-dated shows different answers.
+   *
+   * At this instant Sydney is ten hours into the 2nd while Honolulu is still on
+   * the 1st. The Sydney date is therefore lit and the Honolulu date is not, and
+   * any implementation that asks the READER what day it is must fail one of these
+   * two lines no matter where the reader is. Written first as a single Sydney
+   * assertion, which passed happily against a deliberately broken implementation.
+   */
+  it("uses the event's zone, not the reader's", () => {
+    const sameInstant = new Date("2026-10-01T23:00:00Z");
+    const show = (timezone: string) => ({
+      status: "confirmed",
+      eventDate: "2026-10-02",
+      timezone,
+    });
+    // 2026-10-02 10:00 in Sydney — the show day is under way.
+    expect(eventDisplayStatus(show("Australia/Sydney"), sameInstant).status).toBe("showday");
+    // 2026-10-01 13:00 in Honolulu — still the day before.
+    expect(eventDisplayStatus(show("Pacific/Honolulu"), sameInstant).status).toBe("confirmed");
+  });
+
+  /**
+   * The whole point of deriving rather than storing: nobody sets this, so no other
+   * status may be dragged along by the date arriving. A cancelled show on its own
+   * date is cancelled — lighting it up would be actively misleading.
+   */
+  it("promotes confirmed and nothing else", () => {
+    for (const status of ["draft", "suggested", "pending", "on_hold", "concluded", "cancelled"]) {
+      const display = eventDisplayStatus({ ...stockholmShow, status }, duringTheShow);
+      expect(display.status).not.toBe("showday");
+      expect(display).toEqual(apiStatusToDisplay(status));
+    }
+  });
+
+  it("leaves a dateless event alone", () => {
+    expect(eventDisplayStatus({ status: "confirmed", eventDate: null }, duringTheShow).status).toBe(
+      "confirmed",
+    );
+  });
+
+  /** A full timestamp in `eventDate` must compare as the date it starts with. */
+  it("accepts a datetime as well as a date", () => {
+    expect(
+      eventDisplayStatus({ ...stockholmShow, eventDate: "2026-10-02T20:00:00Z" }, duringTheShow)
+        .status,
+    ).toBe("showday");
+  });
+
+  /** A junk zone must not throw in the middle of rendering a calendar. */
+  it("survives a zone Intl has never heard of", () => {
+    expect(() =>
+      eventDisplayStatus({ ...stockholmShow, timezone: "Middle/Earth" }, duringTheShow),
+    ).not.toThrow();
   });
 });

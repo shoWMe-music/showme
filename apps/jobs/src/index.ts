@@ -7,6 +7,7 @@ import {
   reapExpiredShares,
   reapUnclaimedStubs,
 } from "./reapers";
+import { concludeFinishedShowDays, ringStartedShowDays } from "./show-days";
 import { sweepDueTaskReminders } from "./task-reminders";
 
 /**
@@ -32,6 +33,10 @@ export interface JobRunResult {
   stubsSkipped: { profileId: string; name: string; reason: string }[];
   /** Tasks whose `remind_at` came due and were rung (`task-reminders.ts`). */
   taskReminders: number;
+  /** Confirmed shows whose local show day began and were announced (`show-days.ts`). */
+  showDaysRung: number;
+  /** Confirmed shows whose local show day ended, moved to `concluded`. */
+  showsConcluded: number;
   exchangeRates: number;
   /**
    * Why a job did not run at all, as opposed to running and failing.
@@ -54,7 +59,7 @@ function describeError(error: unknown): string {
 }
 
 /**
- * Orchestrator for the scheduled jobs. Runs all seven, each isolated in its
+ * Orchestrator for the scheduled jobs. Runs all nine, each isolated in its
  * own try/catch so one failure never aborts the others — a failed job leaves its
  * count at 0 and pushes a short message to `errors`.
  */
@@ -70,6 +75,8 @@ export async function runScheduledJobs(
     stubsPurged: 0,
     stubsSkipped: [],
     taskReminders: 0,
+    showDaysRung: 0,
+    showsConcluded: 0,
     exchangeRates: 0,
     skipped: [],
     errors: [],
@@ -111,6 +118,24 @@ export async function runScheduledJobs(
     result.taskReminders = await sweepDueTaskReminders(db, now);
   } catch (error) {
     result.errors.push(`taskReminders: ${describeError(error)}`);
+  }
+
+  // RING BEFORE CONCLUDING, and the order is load-bearing rather than tidy. Both
+  // read `status = 'confirmed'`; concluding first would take a show that began its
+  // day and ended it between two sweeps out of the ring set before it was ever
+  // announced. A missed run — a scheduler outage, a cold morning — would silently
+  // eat that day's bells. This way the bell is claimed first and the conclusion
+  // finds the row on the next pass.
+  try {
+    result.showDaysRung = await ringStartedShowDays(db, now);
+  } catch (error) {
+    result.errors.push(`showDaysRung: ${describeError(error)}`);
+  }
+
+  try {
+    result.showsConcluded = await concludeFinishedShowDays(db, now);
+  } catch (error) {
+    result.errors.push(`showsConcluded: ${describeError(error)}`);
   }
 
   // THE ONLY JOB WITH AN EXTERNAL DEPENDENCY, and the only one that can be

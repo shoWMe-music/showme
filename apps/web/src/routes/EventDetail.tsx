@@ -74,7 +74,7 @@ import { useEventCollaborators } from "../hooks/useEventCollaborators";
 import { useEventPermissionSets } from "../hooks/useEventPermissionSets";
 import { formatDay } from "../lib/format";
 import { toMinorUnits } from "../lib/moneyUnits";
-import { apiStatusToDisplay } from "../lib/status";
+import { eventDisplayStatus } from "../lib/status";
 
 type EventDetailData = Awaited<ReturnType<typeof getApiV1EventsId>>;
 type Participant = Awaited<ReturnType<typeof getApiV1EventsIdParticipants>>[number];
@@ -140,7 +140,12 @@ export function EventDetail() {
   if (isPending) return <LoadingState label="Loading event" />;
   if (isError) return <ErrorState error={error} title="Couldn't load this event" />;
 
-  const display = apiStatusToDisplay(event.status);
+  // ClickUp `123qy9rng4z`: the header chip reads "Show day" and glows for the 24h
+  // of the event's own local date. The INLINE status field below deliberately does
+  // not — it is an editable control, and offering a value nobody can pick (or
+  // showing one that changes back to "Confirmed" the moment you open the select)
+  // would read as a bug.
+  const display = eventDisplayStatus(event);
   /**
    * THE EVENT'S OWN CURRENCY, and there is no picker any more.
    *

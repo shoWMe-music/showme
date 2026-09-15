@@ -69,6 +69,19 @@ export const events = pgTable("events", {
   extras: jsonb("extras"), // amenities / catering / ticket links, read with the event
   holdRank: integer("hold_rank"),
   holdAutoPromote: boolean("hold_auto_promote").notNull().default(false),
+  /**
+   * When the show-day bell rang for this event (migration 0042, ClickUp
+   * `123qy9rng4z`). NULL means it has not.
+   *
+   * The twin of `tasks.reminded_at`, and for the same reason: the stamp is
+   * written inside the same UPDATE whose WHERE requires it to be null, which is
+   * what makes the sweep at-most-once rather than at-least-once.
+   *
+   * There is no matching column for "show day" itself. That is derived from
+   * `event_date` + `timezone` wherever it is drawn, because it is true for a
+   * local day and false either side of it with nobody pressing anything.
+   */
+  showDayNotifiedAt: timestamp("show_day_notified_at", { withTimezone: true }),
   version: integer("version").notNull().default(1), // optimistic lock (decisions #8)
   createdBy: text("created_by")
     .notNull()

@@ -13,3 +13,25 @@
 }
 .neutral { background: var(--border); color: var(--muted); }
 .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* SHOW DAY BREATHES (ClickUp 123qy9rng4z). A halo in the status hue rather than
+   a change in the chip itself, so the badge keeps the exact catalog geometry and
+   nothing below it reflows while it pulses.
+
+   `--glow` is set inline by the component from the status hue, so this rule
+   works for any status added to GLOWING_STATUSES without editing the CSS. */
+.glow {
+  animation: badgeGlow 2.4s var(--ease-inout) infinite;
+}
+@keyframes badgeGlow {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 10px 1px var(--glow); }
+}
+
+/* A pulsing chip is exactly the motion a vestibular disorder reacts to, and the
+   information — the label and the hue — is already fully present without it. The
+   global token override cannot reach this one, because an infinite animation is
+   duration-driven, not transition-driven. */
+@media (prefers-reduced-motion: reduce) {
+  .glow { animation: none; }
+}

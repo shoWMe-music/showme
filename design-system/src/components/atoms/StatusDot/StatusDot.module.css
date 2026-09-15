@@ -3,3 +3,17 @@
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+/* The dot's half of the show-day glow (ClickUp 123qy9rng4z) — the calendar draws
+   a dot where a list draws a badge, and the two must not disagree about whether
+   tonight is lit up. Same keyframe shape, scaled to the smaller mark. */
+.glow {
+  animation: statusDotGlow 2.4s var(--ease-inout) infinite;
+}
+@keyframes statusDotGlow {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 8px 1px var(--glow); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .glow { animation: none; }
+}

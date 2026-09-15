@@ -105,7 +105,7 @@ export type { SpinnerProps } from "@/components/atoms/Spinner/Spinner";
 export { Icon } from "@/icons";
 export type { IconName, IconProps } from "@/icons";
 
-export { STATUSES, STATUS_LABEL, STATUS_COLOR } from "@/lib/status";
+export { STATUSES, STATUS_LABEL, STATUS_COLOR, GLOWING_STATUSES } from "@/lib/status";
 export type { Status } from "@/lib/status";
 
 /* ── Layout ──

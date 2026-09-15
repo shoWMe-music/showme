@@ -1,0 +1,33 @@
+-- A SHOW DAY RINGS ONCE.
+--
+-- Ran, ClickUp `123qy9rng4z`: *"show-day status missing — with its glowing
+-- animation and show-day notification. Show day is not just a status but also
+-- marks the 24h of the event date and after it the event moves to concluded."*
+--
+-- THE STATUS ITSELF IS NOT HERE, and deliberately so. "Show day" is a fact about
+-- the calendar rather than about the booking: a confirmed show becomes one at
+-- local midnight and stops being one at the next, with nobody pressing anything.
+-- A seventh `event_status` member would need a job to keep it honest and would be
+-- wrong in between — so it is derived where it is drawn
+-- (`apps/web/src/lib/status.ts`) and stored nowhere.
+--
+-- What DOES need a column is the bell. The notification half is at-most-once, and
+-- the only way to be at-most-once is to write down that it rang — exactly the
+-- argument migration 0028 makes for `tasks.reminded_at`, and this column is its
+-- twin. The stamp goes inside the same UPDATE whose WHERE requires it to be null,
+-- so an overlapping sweep, a retried one, or simply the next one five minutes
+-- later finds nothing left to take.
+--
+-- NULLABLE with no default and no backfill: every event that already exists has
+-- not been rung about, which is what NULL says. A `now()` default would tell the
+-- sweep that every show in the table had already had its morning, and a backfill
+-- of past dates would either ring for a year of history or silently mark it read.
+-- Neither is better than the empty column.
+--
+-- The 24 hours are measured in the EVENT's zone (`events.timezone`, snapshotted
+-- per decisions #10 / docs/timezones.md), never the server's — a Sydney date
+-- starts when Sydney gets there. That is a fact about the sweep's WHERE clause
+-- rather than about this column, but it is the reason the column cannot simply be
+-- a boolean: the instant is worth keeping for the same reason `reminded_at` is.
+ALTER TABLE "events"
+  ADD COLUMN IF NOT EXISTS "show_day_notified_at" timestamptz;

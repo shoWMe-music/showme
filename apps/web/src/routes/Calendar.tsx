@@ -48,7 +48,7 @@ import { type EventItem, useAllEvents } from "../hooks/useEventList";
 import { calendarEventLabel } from "../lib/calendarEventLabel";
 import { buildCalendarInventory, placeEvents } from "../lib/calendarInventory";
 import { formatDay, parseDayLocal } from "../lib/format";
-import { apiStatusToDisplay } from "../lib/status";
+import { eventDisplayStatus } from "../lib/status";
 import { useNewEvent } from "../shell/NewEventProvider";
 import styles from "./Calendar.module.css";
 
@@ -97,11 +97,19 @@ const TYPE_LABEL: Record<string, string> = {
 
 /** The legend, verbatim from the prototype (§2): the six event statuses plus
  * the three calendar-item kinds (task | appointment | note). It describes the
- * palette — it is not calendar data — so the labels/colours are static. */
+ * palette — it is not calendar data — so the labels/colours are static.
+ *
+ * `Show day` is the ONE entry the prototype does not have, added because Ran
+ * asked for the status directly (ClickUp `123qy9rng4z`). It is listed rather than
+ * left to the filter — the treatment `Draft` and `External` get below — precisely
+ * because it was asked for: those two are rows the design never contemplated,
+ * this one is a row the design is being told to contemplate. */
 const LEGEND: { label: string; color: string }[] = [
   { label: "Suggested", color: "#B58BE0" },
   { label: "Pending", color: "#F4A046" },
   { label: "Confirmed", color: "#6FC97A" },
+  // Directly after Confirmed because that is what it is: confirmed, tonight.
+  { label: "Show day", color: "#FF4FA3" },
   { label: "On hold", color: "#FFC266" },
   { label: "Concluded", color: "#B8A99B" },
   { label: "Cancelled", color: "#EE5746" },
@@ -521,8 +529,10 @@ export function Calendar() {
         // its VENUE, because an operator names a show after the act and a
         // performer reading that back sees a calendar of their own name.
         eventName: calendarEventLabel(event, myProfileIds),
-        status: apiStatusToDisplay(event.status).status,
-        statusLabel: apiStatusToDisplay(event.status).label,
+        // ClickUp `123qy9rng4z`: a confirmed show reads "Show day" and glows for
+        // the 24h of its own local date. Derived, never stored — see `lib/status`.
+        status: eventDisplayStatus(event).status,
+        statusLabel: eventDisplayStatus(event).label,
       }));
     return [...items, ...dated];
   }, [calendar.data, events.items, myProfileIds]);
