@@ -1,3 +1,89 @@
+# Deployed — 2026-09-16 (the overnight small-tasks run)
+
+| | |
+|---|---|
+| **Database** | migrations **0041** (`tasks.priority` + `task_priority` enum) and **0042** (`events.show_day_notified_at`). 41 applied → **43**. |
+| **API** | `showme-api-00035-xvf` (was `00034-mz6`), 100% of traffic. Routine `--source` deploy; configuration untouched. |
+| **Web app** | `showme-app.web.app` — bundle `index-CxrKEXeq.js`, served copy matches the local build byte for byte (sha256 `ce55715c…`). |
+| **Marketing** | **Untouched.** Zero `apps/marketing` changes in the 27 commits, so the gmail-owned `showme-production` site was never a target. |
+| **Infrastructure** | Untouched. No terraform. |
+
+Eleven tickets — see `handoff-2026-09-15-small-tasks-run.md` for what each one got.
+
+## The order was forced again, for a new reason
+
+Columns first, then the API, then the web app. The API half is not optional this
+time even though nothing *serializes* the new columns: Drizzle's `select()` builds
+an explicit column list from the schema, so `select().from(schema.events)` names
+`show_day_notified_at` in the SQL. Deployed ahead of the migration, **every event
+read 500s** — including the public event page.
+
+**The migration moved schema and not data**, verified either side:
+
+```
+tasks 2 · events 30 · settlements 11 · settlement_lines 1
+notifications 58 · profiles 8 · users 6      ← identical before and after
+tasks.priority NOT NULL: 0 · events.show_day_notified_at NOT NULL: 0
+```
+
+Both columns nullable with no default, `task_priority` in the order Ran wrote it
+(`urgent, high, normal, low`). No backfill owed.
+
+**`show_day_notified_at` arriving empty on 30 existing events is safe by design.**
+The bell's sweep is bounded at BOTH ends — it claims only show days that have
+started *and not yet ended* — precisely so arming the column on a table of history
+does not ring for every show the workspace has ever played. That bound is tested
+(`apps/jobs/src/show-days.test.ts`, "stays silent about a show day that is already
+over").
+
+## The API was verified by CONTENT
+
+CLAUDE.md's rule that a post-deploy check can be answered by the revision you just
+replaced. Live `GET /openapi.json`, 158 paths:
+
+- `venueLocation` ×10 and `venueSlug` ×10 — the venue address/country work
+- `priority` ×25, and `GET /api/v1/tasks` now advertises `order: [created, priority]`
+- `GET /api/v1/events` carries a `search` parameter
+
+`show_day` ×0 is correct rather than a miss: show day is **derived in the client**
+from `event_date` + `timezone` and is never a value on the wire.
+
+Then the routes themselves: `/health` 200, the public event page 200 (it reads
+`events`, so it would 500 if 0042 had been skipped), and `/api/v1/tasks` **401**
+rather than 500 without a token.
+
+## The web app was verified from the deployed origin
+
+Not curl: the real browser on `https://showme-app.web.app` loads
+`index-CxrKEXeq.js`, and `fetch` from that origin returns 200 on `/health` and 401
+on `/tasks` — which is also the CORS check, since a wrong origin throws instead of
+answering.
+
+The bundle was checked for what it must NOT contain as well: **0 occurrences of
+`demo-showme`**. Playwright builds to `dist-e2e` and this build to `dist`, which is
+the separation that makes the 2026-08-27 accident (an emulator bundle shipped live)
+impossible rather than unlikely.
+
+## Credentials
+
+Only **one** of the four had expired this time: the ADC, which
+`cloud-sql-proxy` uses. `gcloud` CLI and `firebase` were both still valid, and
+`firebase login:list` still showed a single account.
+
+The ADC login overwrites the Firebase-admin impersonation credential local dev
+needs for Storage signing. The backup was confirmed **byte-identical** to the live
+file before overwriting (same sha256), so the restore afterwards was exact.
+
+## One correction to how I checked
+
+The first credential check reported `gcloud EXPIRED` and `ADC EXPIRED` — both
+false. The commands were wrapped in `timeout`, which macOS does not ship, so the
+check failed on a missing binary rather than on the credentials. Ask what a check
+CAN fail on: this one could fail for a reason that had nothing to do with its
+subject.
+
+---
+
 # Deployed — 2026-09-15 (the settlement surface, built from Ran's design)
 
 | | |
