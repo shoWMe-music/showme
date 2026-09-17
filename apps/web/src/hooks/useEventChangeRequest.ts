@@ -8,6 +8,7 @@ import {
 import { useToast } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
+import { messagesKey, threadsKey } from "../components/useEventMessageThreads";
 import { errorMessage } from "../lib/errors";
 
 /**
@@ -80,6 +81,19 @@ export function useEventChangeRequest(eventId: string): EventChangeRequestView {
           }),
           queryClient.invalidateQueries({ queryKey: getGetApiV1EventsIdQueryKey(eventId) }),
           queryClient.invalidateQueries({ queryKey: getGetApiV1EventsQueryKey() }),
+          // The THREAD too: answering writes the answer into the event
+          // conversation (86cbcftg3), and this control is rendered inside the
+          // Messages tab. Without this the reader answers, watches the banner
+          // vanish, and sees the conversation still showing only the question —
+          // which reads as the answer having gone nowhere.
+          //
+          // `messagesKey`, NOT orval's `getGetApiV1EventsIdMessagesQueryKey`:
+          // the tab keys its own queries and the generated key matches none of
+          // them. The first version of this line used the generated one and was
+          // a silent no-op — caught by pressing Confirm and watching the thread
+          // not move, which no test was asking about.
+          queryClient.invalidateQueries({ queryKey: messagesKey(eventId) }),
+          queryClient.invalidateQueries({ queryKey: threadsKey(eventId) }),
         ]);
       } catch (cause) {
         toast.error(errorMessage(cause, "Couldn't send your answer. Try again."));

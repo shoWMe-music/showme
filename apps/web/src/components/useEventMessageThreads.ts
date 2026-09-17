@@ -53,8 +53,25 @@ export interface MessagesTabParty {
   name: string;
 }
 
-const threadsKey = (eventId: string) => ["event-message-threads", eventId];
-const messagesKey = (eventId: string, threadKey: string) => ["event-messages", eventId, threadKey];
+/**
+ * THE MESSAGE QUERY KEYS, exported so nothing has to guess them.
+ *
+ * These are hand-rolled rather than orval's, because a thread is chosen by a
+ * `threadKey` this hook computes rather than by a path parameter. That is fine —
+ * but it means `getGetApiV1EventsIdMessagesQueryKey(...)` matches NOTHING here,
+ * and anything invalidating with it is a no-op that looks like a refresh.
+ *
+ * Two places had that bug (86cbcftg3): answering a change request from the
+ * Messages tab, and — older and worse — the realtime stream's handler for
+ * `event.message_posted`, which is why a message arriving over SSE did not
+ * appear until something else happened to refetch. Both import these now.
+ *
+ * `messagesKey` without a thread is the PREFIX of every thread's key, which is
+ * what a caller who knows the event but not which conversation is open needs.
+ */
+export const threadsKey = (eventId: string) => ["event-message-threads", eventId];
+export const messagesKey = (eventId: string, threadKey?: string) =>
+  threadKey === undefined ? ["event-messages", eventId] : ["event-messages", eventId, threadKey];
 
 export function useEventMessageThreads(eventId: string, roster: MessagesTabParty[]) {
   const queryClient = useQueryClient();

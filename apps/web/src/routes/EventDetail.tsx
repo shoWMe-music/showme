@@ -318,8 +318,13 @@ export function EventDetail() {
     <>
       {/* ABOVE everything, including the breadcrumb: it is the one thing on this
           page that is a question rather than information — everything below
-          describes a booking that may be about to change. */}
-      {changeRequest.proposal && (
+          describes a booking that may be about to change.
+
+          NOT on the Messages tab, which draws its own copy next to the thread
+          the negotiation is recorded in (86cbcftg3). Two identical banners on one
+          screen is not twice the prompt — it reads as a rendering bug and makes
+          the reader wonder whether there are two changes pending. */}
+      {changeRequest.proposal && activeTab !== "messages" && (
         <EventChangeRequestBanner
           proposal={changeRequest.proposal}
           isAnswering={changeRequest.isAnswering}
@@ -1255,11 +1260,38 @@ function participantStatusLabel(raw: string): string {
  * thread) is the server's, in `apps/api/src/lib/message-threads.ts`.
  */
 function MessagesTab({ eventId, roster }: { eventId: string; roster: Participant[] }) {
+  /**
+   * The negotiation belongs where the conversation is (ClickUp 86cbcftg3, Ran:
+   * *"such things and UI should also be in the messages box as well"*).
+   *
+   * Two halves, deliberately different. The RECORD is a real message in the
+   * thread, written by the API when a change is proposed and again when it is
+   * answered — so scrolling this conversation back in six months shows what was
+   * actually agreed, not just "can we move it?" / "sure". The ACTION is this
+   * banner, which reads the live proposal.
+   *
+   * The buttons are not rendered inside a message on purpose: `CommentThread` is
+   * shared with the settlement line comments, and teaching it about one screen's
+   * controls would put this feature inside a component that has nothing to do
+   * with it.
+   */
+  const changeRequest = useEventChangeRequest(eventId);
+
   return (
-    <EventMessagesTab
-      eventId={eventId}
-      roster={roster.map((party) => ({ id: party.id, name: participantName(party) }))}
-    />
+    <>
+      {changeRequest.proposal && (
+        <EventChangeRequestBanner
+          proposal={changeRequest.proposal}
+          isAnswering={changeRequest.isAnswering}
+          onConfirm={changeRequest.confirm}
+          onDecline={changeRequest.decline}
+        />
+      )}
+      <EventMessagesTab
+        eventId={eventId}
+        roster={roster.map((party) => ({ id: party.id, name: participantName(party) }))}
+      />
+    </>
   );
 }
 
