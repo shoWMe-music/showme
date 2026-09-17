@@ -1,3 +1,80 @@
+# Deployed — 2026-09-18 (a room can be shut without the building)
+
+| | |
+|---|---|
+| **Database** | migration **0045** — `profile_unavailability.stage_id`, nullable. 45 applied → **46**. |
+| **API** | `showme-api-00037-f76` (was `00036-26c`), 100% of traffic. Routine `--source` deploy; configuration untouched. |
+| **Web app** | `showme-app.web.app` — bundle `index-B919Nzzt.js`, served copy matches the local build byte for byte (sha256 `d3692cbb…`). |
+| **Marketing** | **Untouched.** `--only hosting:web`. |
+| **Infrastructure** | Untouched. No terraform. |
+
+Closes the third box of `86cbceux0` — blocking a date used to shut the whole
+building, so a refit in one room took every other room off sale with it.
+
+## The migration added a column and touched no data
+
+```
+BEFORE  45 migrations · 6 unavailability rows
+AFTER   46 migrations · 6 rows — 0 room-scoped, 6 whole-venue
+```
+
+NULL is the whole profile, which is what all six rows already meant, so there was
+nothing to backfill and no row changed. Events, participants and settlements
+identical either side.
+
+## Use `--gcloud-auth` on the proxy and stop fighting the ADC
+
+The previous two deploys both burned a round trip on
+`gcloud auth application-default login`, because `cloud-sql-proxy` authorizes
+with the ADC — and this machine's ADC is the **firebase-admin impersonation**
+credential local dev needs for Storage signing. The two are mutually exclusive:
+refreshing one for Cloud SQL breaks the other, and restoring the other breaks
+Cloud SQL.
+
+`cloud-sql-proxy --gcloud-auth` uses the **gcloud CLI** credential instead, which
+is a separate login and was already valid. No ADC login, no overwrite, no
+restore, nothing to verify afterwards:
+
+```bash
+cloud-sql-proxy --gcloud-auth prod-showme:europe-north2:showme-production-db --port 55433
+```
+
+The ADC was `impersonated_service_account` before this deploy and still is.
+
+## Production had moved since yesterday, and that is the point
+
+35 events / 55 participants against the 34 / 53 left after the 2026-09-17
+verification. **Three events created by Ran between 17:01 and 22:46 that
+evening** — the invitation gate and the booking ladder are being used by a real
+person, not only by a test harness.
+
+Checked before migrating that none of it was mine (`title ilike '%claude%'` → 0).
+
+## Verified by CONTENT again
+
+`GET /openapi.json` is the honest check on this API — every route answers 401
+without a token, including ones that do not exist. The live spec now shows
+`stageId` on both halves of the unavailability endpoint:
+
+```
+PUT  /api/v1/profiles/{id}/unavailability  accepts: endDate, reason, stageId, startDate
+GET  /api/v1/profiles/{id}/unavailability  returns stageId
+```
+
+## What is live, and what is not proven
+
+Live: a room can be blocked on its own; the conflict warning answers per room;
+the public availability page ignores room blocks, so one room closing never tells
+the world the venue is shut; and marking on the calendar shuts the room you are
+looking at.
+
+**Not proven on production: the room-scoped gesture with real rooms.** It was
+driven locally end to end (and caught two bugs doing so — a dropped `stageId` on
+the write, and a room filter that did not mean what it looked like). On
+production it is verified by shape only: the column, the spec, the bundle.
+
+---
+
 # Deployed — 2026-09-17 (the invitation gate, the booking ladder, one rule for "taken")
 
 | | |
