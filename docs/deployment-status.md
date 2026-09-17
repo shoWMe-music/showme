@@ -1,3 +1,96 @@
+# Deployed — 2026-09-17 (the invitation gate, the booking ladder, one rule for "taken")
+
+| | |
+|---|---|
+| **Database** | migrations **0043** (grandfather every `invited` collaborator) and **0044** (`event_change_requests` + responses). 43 applied → **45**. |
+| **API** | `showme-api-00036-26c` (was `00035-xvf`), 100% of traffic. Routine `--source` deploy; configuration untouched. |
+| **Web app** | `showme-app.web.app` — bundle `index-LsDzjIlW.js`, served copy matches the local build byte for byte (sha256 `5aa310d2…`). |
+| **Marketing** | **Untouched.** Deployed `--only hosting:web`, so the gmail-owned `showme-production` site was never a target. |
+| **Infrastructure** | Untouched. No terraform. |
+
+Fourteen commits, merged to `main` first so `main` is what production runs.
+
+## 0043 moved DATA, and seventeen real people depended on it
+
+This is the migration worth reading twice. `event_participants.status` had never
+decided anything — authorization asked only `status <> 'removed'` — and the API in
+this deploy makes `invited` grant **nothing** until the person accepts.
+
+Production held **17 collaborators sitting at `invited`**, on live events,
+mid-booking. Deploying the gate without the backfill would have locked all
+seventeen out of events they are working on, with no way back in: the Accept
+button did not exist in the version they were invited under.
+
+Measured either side, on production:
+
+```
+BEFORE   confirmed 34 · invited 17 · removed 2      (53 participants, 34 events, 11 settlements)
+AFTER    confirmed 34 · accepted 17 · removed 2     (53 participants, 34 events, 11 settlements)
+```
+
+Only the 17 moved. Nothing else did. `event_change_requests` and
+`event_change_request_responses` arrived empty, as a new table should.
+
+**It is deliberately not reversible in data terms.** Rolling the API back restores
+the old behaviour for everybody (the old predicate ignores the column), but the
+column cannot remember which rows were `invited` because nobody had answered
+versus because nobody *could*. Down-migrating 0043 is a no-op by design.
+
+## The order was forced, and in both directions
+
+Migrations, then API, then web.
+
+- **Web before API** would have shown an Accept button to people the API had not
+  yet gated — a control that does nothing.
+- **API before 0044** would have 500'd every event read that touches a change
+  request, because the table would not exist.
+
+## 401 is not a content check — the spec is
+
+Every route on this API answers `401` without a token, **including one that does
+not exist**: authentication is a global `preHandler`, so it runs before routing.
+A post-deploy check of "does `/me/event-invitations` answer 401" therefore proves
+nothing at all — it would have passed against the old revision, and against a
+typo.
+
+`GET /openapi.json` is public (`app.ts:256`) and is the honest check. The live
+spec carries **163 routes**, including all five this deploy was for:
+
+```
+/api/v1/me/event-invitations
+/api/v1/events/{id}/participation/accept
+/api/v1/events/{id}/participation/decline
+/api/v1/events/{id}/change-request
+/api/v1/events/{id}/change-request/{crid}/{answer}
+```
+
+## Credentials — all three had expired, again
+
+`gcloud`, the ADC and `firebase` were every one of them stale, and each fails in a
+way that does not say "your login expired". They were refreshed by hand at the
+terminal; none of the three can be completed by a background process.
+
+The ADC login **overwrites the firebase-admin impersonation credential** local dev
+needs to sign Storage URLs. The existing backup was confirmed byte-identical to
+the live file first (same sha256), a second dated backup was taken, and the
+impersonation credential was restored afterwards — verified back to
+`impersonated_service_account`.
+
+## What is live, and what still is not proven
+
+Live: an invitation grants nothing until it is answered; the booking ladder
+(draft → suggested → pending → confirmed) moving by itself; invitations in the
+Requests inbox and on the calendar; changing a booked night asks the other side;
+the negotiation recorded in the event conversation; and one shared rule for when a
+night is taken — the act accepting it.
+
+**Not proven on production: any of it, by a real user.** Every check above was
+driven locally against the real stack and then verified on production by shape —
+the spec, the bundle hash, the row counts. The acceptance test is one real
+invitation accepted by a real act on the live site.
+
+---
+
 # Deployed — 2026-09-16 (the overnight small-tasks run)
 
 | | |
