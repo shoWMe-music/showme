@@ -1,4 +1,5 @@
-import { Button, Icon } from "@showme/design-system";
+import { Button, Icon, Modal, TextField } from "@showme/design-system";
+import { useState } from "react";
 import type { EventInvitation } from "../hooks/useEventInvitations";
 import { DateText } from "./DateText";
 
@@ -25,7 +26,8 @@ export interface PendingInvitationsCardProps {
   /** The event id currently being answered, so its buttons can go quiet. */
   answering: string | null;
   onAccept: (invitation: EventInvitation) => void;
-  onDecline: (invitation: EventInvitation) => void;
+  /** The note is Ran's: a refusal is far more useful when it says why. */
+  onDecline: (invitation: EventInvitation, note?: string) => void;
 }
 
 export function PendingInvitationsCard({
@@ -34,6 +36,35 @@ export function PendingInvitationsCard({
   onAccept,
   onDecline,
 }: PendingInvitationsCardProps) {
+  /**
+   * Which invitation is being declined, and the reason typed so far.
+   *
+   * ClickUp 86cbcehmp: *"Declining requests should come with a 'Note' input model
+   * popup - so that the decliner can say if it is a date issue or if they simply
+   * don't want to be booked by this operator."*
+   *
+   * Local VIEW state, which is why it lives here and not in the hook: nothing is
+   * fetched, nothing is mutated until the dialog is submitted, and the hook stays
+   * the one place that talks to the server.
+   *
+   * Accepting has no dialog on purpose. A yes needs no explanation, and a
+   * confirmation step on the wanted answer is friction for its own sake.
+   */
+  const [declining, setDeclining] = useState<EventInvitation | null>(null);
+  const [note, setNote] = useState("");
+
+  const closeDecline = () => {
+    setDeclining(null);
+    setNote("");
+  };
+
+  const submitDecline = () => {
+    if (!declining) return;
+    const trimmed = note.trim();
+    onDecline(declining, trimmed.length > 0 ? trimmed : undefined);
+    closeDecline();
+  };
+
   if (invitations.length === 0) return null;
 
   return (
@@ -102,7 +133,11 @@ export function PendingInvitationsCard({
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, flex: "0 0 auto" }}>
-                <Button variant="secondary" disabled={busy} onClick={() => onDecline(invitation)}>
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => setDeclining(invitation)}
+                >
                   Decline
                 </Button>
                 <Button disabled={busy} onClick={() => onAccept(invitation)}>
@@ -113,6 +148,37 @@ export function PendingInvitationsCard({
           );
         })}
       </ul>
+
+      <Modal
+        open={declining !== null}
+        onClose={closeDecline}
+        title={`Decline ${declining?.title ?? "this invitation"}?`}
+        // Holds typed input, so a click a millimetre outside must not discard it
+        // (ClickUp 123qy9rnfyw). Escape, the X and Cancel all still close it.
+        dismissOnScrim={false}
+        footer={
+          <>
+            <Button variant="ghost" onClick={closeDecline}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={submitDecline}>
+              Decline invitation
+            </Button>
+          </>
+        }
+      >
+        <p style={{ margin: "0 0 14px", fontSize: 14, color: "var(--muted)" }}>
+          {declining?.hostName ?? "The operator"} will be told you can't make it. Adding a reason
+          helps them decide whether to offer you another date.
+        </p>
+        <TextField
+          label="Reason (optional)"
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Already booked that night"
+          maxLength={2000}
+        />
+      </Modal>
     </section>
   );
 }
