@@ -1057,3 +1057,203 @@ describe("participants — a removal remembers what it undid", () => {
     expect(row.statusBeforeRemoval).toBeNull();
   });
 });
+
+/**
+ * ── THE INVITATION GATE (ClickUp 86cbcehmp, symptom 123qy9rnf87) ────────────
+ *
+ * Ran: *"Invited users should first have the option to 'Accept invite' -
+ * currently the invited party gets invited to an event → gets access to the
+ * event manager as a collaborator immediately → stays as 'Invited'."*
+ *
+ * `event_participants.status` existed and advanced nowhere; authorization asked
+ * only `status <> 'removed'`. These tests pin the rule in BOTH directions,
+ * because a suite that only proves "an accepted participant can read the event"
+ * stays green with the gate deleted — which is precisely the shape of bug this
+ * repo keeps finding (CLAUDE.md, "Green is not the same as correct").
+ */
+describe("participants — an invitation must be answered", () => {
+  it("gives an invited participant NOTHING until they answer, then everything", async () => {
+    const { operator, performer, event } = await seedEventWithHost("gate");
+
+    // Added through the real route, so the status is whatever production writes.
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("gate-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    expect(added.statusCode).toBe(201);
+    expect(added.json().status).toBe("invited");
+
+    // ── Half one: invited reads nothing. Delete the gate and this goes red. ──
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("gate-perf"),
+    });
+    expect(before.statusCode).toBe(404);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("gate-perf"),
+      payload: {},
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json().status).toBe("accepted");
+
+    // ── Half two: answered reads the event. Over-tighten and this goes red. ──
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("gate-perf"),
+    });
+    expect(after.statusCode).toBe(200);
+
+    // The operator never lost their own event to the gate — the host row is
+    // `confirmed` from creation, which is the reason this is safe to ship.
+    const asOperator = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("gate-op"),
+    });
+    expect(asOperator.statusCode).toBe(200);
+    expect(operator.profileId).toBeTruthy();
+  });
+
+  it("closes the event again when the invitation is declined, and records the note", async () => {
+    const { db } = harness;
+    const { performer, event } = await seedEventWithHost("decl");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("decl-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+
+    const declined = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/decline`,
+      headers: auth("decl-perf"),
+      payload: { note: "Already booked that night" },
+    });
+    expect(declined.statusCode).toBe(200);
+    expect(declined.json().status).toBe("declined");
+
+    // Declined is outside the standing set too — saying no must not leave the
+    // books open. (The row stays, so the operator can see who said no.)
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("decl-perf"),
+    });
+    expect(after.statusCode).toBe(404);
+
+    const [row] = await db
+      .select()
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, event.id),
+          eq(schema.eventParticipants.profileId, performer.profileId),
+        ),
+      );
+    expect(row?.status).toBe("declined");
+
+    // Ran asked for the reason to be capturable — it reaches the activity feed,
+    // which is where the operator finds out WHY rather than merely that.
+    const [activity] = await db
+      .select()
+      .from(schema.activityLog)
+      .where(eq(schema.activityLog.type, "participant.declined"));
+    expect((activity?.summary as { note?: string } | null)?.note).toBe("Already booked that night");
+  });
+
+  it("refuses to answer twice, and refuses a stranger with 404 rather than 403", async () => {
+    const { performer, event } = await seedEventWithHost("twice");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("twice-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("twice-perf"),
+      payload: {},
+    });
+    expect(first.statusCode).toBe(200);
+
+    const second = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("twice-perf"),
+      payload: {},
+    });
+    expect(second.statusCode).toBe(409);
+
+    // Somebody with no invitation must not learn the event exists from the
+    // shape of the refusal.
+    const stranger = await seedMemberWithSet(
+      "twice-stranger",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    expect(stranger.profileId).toBeTruthy();
+    const asStranger = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("twice-stranger"),
+      payload: {},
+    });
+    expect(asStranger.statusCode).toBe(404);
+  });
+
+  it("lists an unanswered invitation, and drops it the moment it is answered", async () => {
+    const { performer, event } = await seedEventWithHost("list");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("list-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+
+    const pending = await app.inject({
+      method: "GET",
+      url: "/api/v1/me/event-invitations",
+      headers: auth("list-perf"),
+    });
+    expect(pending.statusCode).toBe(200);
+    const items = pending.json() as Array<{ eventId: string; title: string | null }>;
+    expect(items.map((one) => one.eventId)).toEqual([event.id]);
+    expect(items[0]?.title).toBe("Roster Night");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("list-perf"),
+      payload: {},
+    });
+
+    const after = await app.inject({
+      method: "GET",
+      url: "/api/v1/me/event-invitations",
+      headers: auth("list-perf"),
+    });
+    expect(after.json()).toEqual([]);
+
+    // The operator is not "invited" to their own event, so nothing lands here
+    // for them — this list is unanswered invitations, not a second events feed.
+    const forOperator = await app.inject({
+      method: "GET",
+      url: "/api/v1/me/event-invitations",
+      headers: auth("list-op"),
+    });
+    expect(forOperator.json()).toEqual([]);
+  });
+});

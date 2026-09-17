@@ -1,7 +1,8 @@
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import { isRepresentationActiveAt } from "@showme/shared";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { STANDING_PARTICIPANT_STATUSES } from "./presets";
 
 /**
  * Which delegations on one event are LIVE right now.
@@ -78,7 +79,12 @@ export async function liveEventDelegationsForEvents(
     .where(
       and(
         inArray(schema.eventParticipants.eventId, [...eventIds]),
-        ne(schema.eventParticipants.status, "removed"),
+        // The SAME standing rule as `authorize.ts` — a delegation projected onto
+        // a participant who has not accepted yet is not live, because the person
+        // delegating has not agreed to be here at all. Importing the constant
+        // rather than restating the list: two copies of "who stands on an event"
+        // is the drift this module exists to prevent (86cbcehmp).
+        inArray(schema.eventParticipants.status, [...STANDING_PARTICIPANT_STATUSES]),
         // The SQL prefilter only — a row can be `active` and already past its
         // agreed effective moment. `isRepresentationActiveAt` is the answer.
         eq(schema.representations.status, "active"),

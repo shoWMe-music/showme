@@ -132,12 +132,14 @@ describe("events — authorize + serialize + audit", () => {
         eventId: event.id,
         profileId: operator.profileId,
         role: "host",
+        status: "confirmed",
         permissionSetId: operator.permissionSetId,
       },
       {
         eventId: event.id,
         profileId: performer.profileId,
         role: "performer",
+        status: "confirmed",
         permissionSetId: performer.permissionSetId,
       },
     ]);
@@ -182,6 +184,7 @@ describe("events — authorize + serialize + audit", () => {
       eventId: event.id,
       profileId: operator.profileId,
       role: "host",
+      status: "confirmed",
       permissionSetId: operator.permissionSetId,
     });
 
@@ -220,12 +223,14 @@ describe("events — authorize + serialize + audit", () => {
         eventId: event.id,
         profileId: operator.profileId,
         role: "host",
+        status: "confirmed",
         permissionSetId: operator.permissionSetId,
       },
       {
         eventId: event.id,
         profileId: performer.profileId,
         role: "performer",
+        status: "confirmed",
         permissionSetId: performer.permissionSetId,
       },
     ]);

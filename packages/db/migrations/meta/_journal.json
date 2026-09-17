@@ -302,6 +302,13 @@
       "when": 1788912245011,
       "tag": "0042_a_show_day_rings_once",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1788912245012,
+      "tag": "0043_an_invitation_must_be_answered",
+      "breakpoints": true
     }
   ]
 }

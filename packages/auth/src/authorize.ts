@@ -1,10 +1,11 @@
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import type { Capability } from "@showme/shared";
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, notInArray } from "drizzle-orm";
 import { liveEventDelegationsForEvents } from "./delegation";
 import {
   type EventRole,
+  NON_STANDING_PARTICIPANT_STATUSES,
   type ProfileRole,
   baselineCapabilities,
   isGrantable,
@@ -92,7 +93,7 @@ export async function effectiveEventCapabilitiesForEvents(
         inArray(schema.eventParticipants.eventId, [...eventIds]),
         eq(schema.profileMembers.userId, principal.userId),
         eq(schema.profileMembers.status, "active"),
-        ne(schema.eventParticipants.status, "removed"),
+        notInArray(schema.eventParticipants.status, [...NON_STANDING_PARTICIPANT_STATUSES]),
       ),
     );
 
