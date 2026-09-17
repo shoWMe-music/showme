@@ -1,6 +1,12 @@
 import { useGetApiV1ProfilesIdAvailability } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
-import { type RoomBooking, WHOLE_VENUE, occupiedDates } from "@showme/shared";
+import {
+  type RoomBooking,
+  WHOLE_VENUE,
+  isDateHeld,
+  isDateTaken,
+  occupiedDates,
+} from "@showme/shared";
 import { useMemo, useState } from "react";
 import { dayKey } from "../components/calendarGrid";
 import { getActiveProfileId } from "../lib/activeProfile";
@@ -30,8 +36,10 @@ import type { EventItem } from "./useEventList";
 /** How far a share window may reach, so a hand-typed year can't build a 100k-date link. */
 const MAX_WINDOW_DAYS = 366;
 
-/** Statuses that make a night busy, keyed by the modal's two "show as unavailable"
- * toggles — "Confirmed events" and "Dates on hold". */
+/** What the modal's two "show as unavailable" toggles mean. `confirmed` is the
+ * BOOKED set — every night an act has accepted, not only the signed ones — and
+ * the label was renamed with it so the control cannot claim to be narrower than
+ * it is. `held` is the separate pencil question. */
 type BusyToggles = { confirmed: boolean; held: boolean };
 
 /** Monday = 0 … Sunday = 6, matching the modal's weekday pills. */
@@ -79,9 +87,21 @@ function bookingsFor(
   toggles: BusyToggles,
 ): RoomBooking[] {
   return events.map((event) => {
+    // THE SHARED RULE, not a second opinion (86cbceux0 / 123qy9rnjck). Ran:
+    // *"the date is taken when it is moved from suggested to pending. I.e. the
+    // performer accepts the date."*
+    //
+    // This used to read `status === "confirmed"`, which published a night an act
+    // had already ACCEPTED to a promoter as free — the way to get genuinely
+    // double-booked. The booking warning meanwhile counted drafts, so the two
+    // screens disagreed about the same night. One rule now answers both.
+    //
+    // The hold toggle stays a choice, because it is one: a pencilled night is
+    // busy for one venue and offerable for another, and that is the sharer's
+    // call rather than a rule.
     const occupies =
-      (toggles.confirmed && event.status === "confirmed") ||
-      (toggles.held && event.status === "on_hold");
+      (toggles.confirmed && isDateTaken(event.status)) ||
+      (toggles.held && isDateHeld(event.status));
     if (!source.isVenue) {
       return {
         date: event.eventDate,

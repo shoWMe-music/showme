@@ -140,7 +140,12 @@ export function AvailabilityShareModal({
             checked={showConfirmed}
             onChange={onShowConfirmedChange}
             tone="brand"
-            label="Confirmed events"
+            // "Booked", not "Confirmed": since 86cbceux0 this hides every night
+            // an act has ACCEPTED, signed or not. A box labelled "Confirmed
+            // events" that also hides pending ones is a control lying about what
+            // it does, on the screen where the cost of being wrong is a promoter
+            // being offered a night that is gone.
+            label="Booked dates"
           />
           <Checkbox
             checked={showHeld}

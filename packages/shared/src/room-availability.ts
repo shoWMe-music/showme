@@ -129,3 +129,59 @@ export function occupiedDates(
 export function hasSeparableRooms(rooms: readonly RoomId[]): boolean {
   return rooms.length > 1;
 }
+
+/**
+ * IS THIS NIGHT TAKEN? — the one answer, for every surface that asks.
+ *
+ * ClickUp 86cbceux0 · 123qy9rp9rx · 123qy9rnjck. Three tickets, one cause: two
+ * screens asked this question and answered it differently, so the same night
+ * could be "already taken" on the booking form and "free" on the availability
+ * you shared with a promoter an hour later.
+ *
+ *   - the booking warning counted EVERYTHING except a cancellation, drafts
+ *     included, so it fired on a night nobody had been asked about;
+ *   - the share counted ONLY confirmed shows, so a night an act had already
+ *     accepted went out to a promoter as free.
+ *
+ * `occupiedDates` above owns which ROOM a booking fills. It never owned which
+ * bookings count, and each caller quietly invented that for itself. This is
+ * that missing half.
+ *
+ * ── RAN'S RULE, IN HIS WORDS ───────────────────────────────────────────────
+ * *"When is the date taken? When it is moved from suggested to pending. I.e.
+ * the performer accepts the date."*
+ *
+ * So the line is ACCEPTANCE, and it falls exactly where the booking ladder
+ * already puts it (86cbcehmp):
+ *
+ *   draft      nobody has been asked          → free
+ *   suggested  asked, not answered            → free
+ *   pending    THE ACT SAID YES               → TAKEN
+ *   confirmed  the deal is signed             → taken
+ *   concluded  the show happened              → taken
+ *   cancelled  called off                     → free
+ *
+ * `on_hold` is deliberately NOT here. A hold is a pencil, not a yes — it sits
+ * before acceptance, not after it — and the share modal has carried a user
+ * toggle for it since it was designed, because a held date is busy for one
+ * venue and merely pencilled for another. That choice stays the sharer's, so
+ * this rule must not make it for them.
+ */
+export const TAKEN_EVENT_STATUSES = ["pending", "confirmed", "concluded"] as const;
+
+/** Has this night been accepted by somebody? See the note above for the rule. */
+export function isDateTaken(eventStatus: string): boolean {
+  return (TAKEN_EVENT_STATUSES as readonly string[]).includes(eventStatus);
+}
+
+/**
+ * A hold, which is a pencil rather than a yes.
+ *
+ * Separate from `isDateTaken` on purpose: every caller has to decide for itself
+ * whether a pencilled night counts, and the honest answer differs by surface.
+ * The share modal asks the sharer; the booking warning mentions it without
+ * calling it a clash.
+ */
+export function isDateHeld(eventStatus: string): boolean {
+  return eventStatus === "on_hold";
+}

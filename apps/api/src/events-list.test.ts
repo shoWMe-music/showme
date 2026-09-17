@@ -1713,6 +1713,9 @@ describe("GET /events/date-conflicts — warning before the booking", () => {
     const { operator, main } = await seedVenueWithRooms("dc-taken");
     await seedHostedEvent("Neon Tide", operator, "dc-taken-op", {
       eventDate: NIGHT,
+      // A BOOKED night — these assert the room maths, not the status rule,
+      // and a draft no longer takes a room (123qy9rp9rx).
+      status: "pending",
       venueProfileId: operator.profileId,
       stageId: main.id,
     });
@@ -1740,6 +1743,9 @@ describe("GET /events/date-conflicts — warning before the booking", () => {
     const { operator, main, basement } = await seedVenueWithRooms("dc-rooms");
     await seedHostedEvent("Neon Tide", operator, "dc-rooms-op", {
       eventDate: NIGHT,
+      // A BOOKED night — these assert the room maths, not the status rule,
+      // and a draft no longer takes a room (123qy9rp9rx).
+      status: "pending",
       venueProfileId: operator.profileId,
       stageId: main.id,
     });
@@ -1766,6 +1772,8 @@ describe("GET /events/date-conflicts — warning before the booking", () => {
     const { operator, main, basement } = await seedVenueWithRooms("dc-full");
     await seedHostedEvent("Main show", operator, "dc-full-op", {
       eventDate: NIGHT,
+      // Booked, not drafted — this asserts the room maths (123qy9rp9rx).
+      status: "pending",
       venueProfileId: operator.profileId,
       stageId: main.id,
     });
@@ -1775,6 +1783,8 @@ describe("GET /events/date-conflicts — warning before the booking", () => {
 
     await seedHostedEvent("Cellar show", operator, "dc-full-op", {
       eventDate: NIGHT,
+      // Booked, not drafted — this asserts the room maths (123qy9rp9rx).
+      status: "pending",
       venueProfileId: operator.profileId,
       stageId: basement.id,
     });
@@ -1791,6 +1801,9 @@ describe("GET /events/date-conflicts — warning before the booking", () => {
     const { operator, basement } = await seedVenueWithRooms("dc-unassigned");
     await seedHostedEvent("Room TBC", operator, "dc-unassigned-op", {
       eventDate: NIGHT,
+      // A BOOKED night — these assert the room maths, not the status rule,
+      // and a draft no longer takes a room (123qy9rp9rx).
+      status: "pending",
       venueProfileId: operator.profileId,
     });
 
@@ -1819,9 +1832,19 @@ describe("GET /events/date-conflicts — warning before the booking", () => {
     expect(response.json()).toMatchObject({ roomIsBusy: false, events: [] });
   });
 
-  /** A DRAFT counts. It is somebody's intention to use the night, and noticing
-   *  early is the entire point of warning rather than blocking. */
-  it("counts a draft as holding the room", async () => {
+  /**
+   * A DRAFT DOES NOT HOLD THE ROOM — and this test used to assert the opposite.
+   *
+   * It was written on the reasoning that a draft is somebody's intention and
+   * noticing early is the point. Ran overturned it (123qy9rp9rx): *"when is the
+   * date taken? When it is moved from suggested to pending. I.e. the performer
+   * accepts the date."* Counting drafts is what made the warning fire on nights
+   * nobody had been asked about.
+   *
+   * The show is still LISTED, so the screen can say a draft is there without
+   * calling the room busy — the distinction the old rule could not make.
+   */
+  it("does not let a draft hold the room, but still mentions it", async () => {
     const { operator, main } = await seedVenueWithRooms("dc-draft");
     await seedHostedEvent("Pencilled in", operator, "dc-draft-op", {
       eventDate: NIGHT,
@@ -1835,6 +1858,48 @@ describe("GET /events/date-conflicts — warning before the booking", () => {
       date: NIGHT,
       stageId: main.id,
     });
+    expect(response.json().roomIsBusy).toBe(false);
+    expect(response.json().events).toHaveLength(1);
+    expect(response.json().events[0]).toMatchObject({ title: "Pencilled in", status: "draft" });
+  });
+
+  /** An unanswered OFFER is not a booking either — it is a question. */
+  it("does not let a suggested night hold the room", async () => {
+    const { operator, main } = await seedVenueWithRooms("dc-sugg");
+    await seedHostedEvent("Offered, unanswered", operator, "dc-sugg-op", {
+      eventDate: NIGHT,
+      venueProfileId: operator.profileId,
+      stageId: main.id,
+      status: "suggested",
+    });
+
+    const response = await ask("dc-sugg-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+      stageId: main.id,
+    });
+    expect(response.json().roomIsBusy).toBe(false);
+  });
+
+  /**
+   * THE LINE ITSELF. `pending` means the act accepted — this is the first status
+   * that takes the night, and the assertion that fails if anybody narrows the
+   * rule back to signed deals only.
+   */
+  it("holds the room from the moment the act accepts, before anything is signed", async () => {
+    const { operator, main } = await seedVenueWithRooms("dc-pending");
+    await seedHostedEvent("They said yes", operator, "dc-pending-op", {
+      eventDate: NIGHT,
+      venueProfileId: operator.profileId,
+      stageId: main.id,
+      status: "pending",
+    });
+
+    const response = await ask("dc-pending-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+      stageId: main.id,
+    });
     expect(response.json().roomIsBusy).toBe(true);
   });
 
@@ -1843,6 +1908,9 @@ describe("GET /events/date-conflicts — warning before the booking", () => {
     const { operator, main } = await seedVenueWithRooms("dc-self");
     const event = await seedHostedEvent("The one being edited", operator, "dc-self-op", {
       eventDate: NIGHT,
+      // A BOOKED night — these assert the room maths, not the status rule,
+      // and a draft no longer takes a room (123qy9rp9rx).
+      status: "pending",
       venueProfileId: operator.profileId,
       stageId: main.id,
     });

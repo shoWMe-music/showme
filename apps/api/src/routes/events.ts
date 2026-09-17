@@ -8,6 +8,7 @@ import {
   basisPointsToPercent,
   dealDraftProblems,
   guestListProblem,
+  isDateTaken,
   minorToDecimalString,
   occupiedDates,
 } from "@showme/shared";
@@ -1727,9 +1728,11 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
             and(
               eq(schema.events.venueProfileId, venueProfileId),
               eq(schema.events.eventDate, date),
-              // A cancelled show is not holding a room. Everything else is —
-              // including a draft, because a draft is somebody's intention to
-              // use the night and the whole point is to notice it early.
+              // Everything still standing on the night, INCLUDING the ones that
+              // do not take it. `isDateTaken` below decides which of these is a
+              // clash and which is only worth mentioning — the room maths needs
+              // the whole picture to do that, so the filter here is just
+              // "not called off".
               ne(schema.events.status, "cancelled"),
             ),
           ),
@@ -1753,11 +1756,15 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
           date,
           venueProfileId,
           stageId: event.stageId,
-          // Every non-cancelled show counts. The `occupies` flag exists for the
-          // share modal, where a user chooses whether held dates read as busy;
-          // a warning to the operator making the booking wants to know about
-          // all of it.
-          occupies: true,
+          // ONLY AN ACCEPTED NIGHT FILLS THE ROOM (Ran, 86cbceux0: *"when it is
+          // moved from suggested to pending. I.e. the performer accepts the
+          // date"*). A draft or an unanswered offer is somebody thinking, not a
+          // booking, and treating it as one is what made this warning fire on
+          // empty nights (123qy9rp9rx).
+          //
+          // The others are still carried to `events` below, so the message can
+          // say a draft is there without calling the room busy.
+          occupies: isDateTaken(event.status),
         })),
       );
 
