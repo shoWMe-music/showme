@@ -10,7 +10,7 @@ import {
   useToast,
 } from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import {
   DateText,
@@ -19,11 +19,13 @@ import {
   type RequestCardData,
   SegmentedToggle,
 } from "../components";
+import { EventInvitationsCard } from "../components/EventInvitationsCard";
 import { RequestTriageDialogs } from "../components/RequestTriageDialogs";
 import { dayKey } from "../components/calendarGrid";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { useRequestTriage } from "../components/useRequestTriage";
+import { useEventInvitations } from "../hooks/useEventInvitations";
 import {
   type RequestItem,
   type RequestViewMode,
@@ -229,6 +231,39 @@ export function Requests() {
     if (isOperator && direction !== "incoming") setDirection("incoming");
   }, [isOperator, direction, setDirection]);
 
+  /**
+   * EVENT INVITATIONS, IN THE SAME INBOX (ClickUp 86cbcehmp).
+   *
+   * Ran: a suggested event should *"arrive as requests in the incoming requests
+   * ('Pending')"*, and once answered *"stays in the 'Accepted' tab ... until
+   * Expired"*.
+   *
+   * They are NOT `booking_requests` rows and deliberately are not written as
+   * any. A booking request is an enquiry coming TOWARD a venue; this is an
+   * operator offering a night to an act, and the record of it is already the
+   * `event_participants` row. Mirroring that into a second table would be the
+   * fan-out this rebuild exists to delete (CLAUDE.md, core architecture #1):
+   * two rows for one fact, free to disagree the moment somebody answers.
+   *
+   * So they are merged HERE, at read time. The inbox loads every page and
+   * filters client-side, so sharing its `filter` and `selectedDay` state is all
+   * it takes for the tabs to work on both kinds at once.
+   */
+  const invitations = useEventInvitations();
+  const visibleInvitations = useMemo(
+    () =>
+      invitations.all.filter((invitation) => {
+        // "Unread" is a booking-request notion — somebody's team has or has not
+        // opened the row. An invitation addressed to you personally has no such
+        // state, so it stays out of that bucket rather than claiming a false one.
+        if (filter === UNREAD_FILTER) return false;
+        if (filter !== "all" && invitation.requestStatus !== filter) return false;
+        if (selectedDay && invitation.eventDate !== selectedDay) return false;
+        return true;
+      }),
+    [invitations.all, filter, selectedDay],
+  );
+
   const navigate = useNavigate();
   const triage = useRequestTriage({
     requests,
@@ -391,7 +426,24 @@ export function Requests() {
               // in a table.
               style={{ display: "flex", flexDirection: "column", gap: 16 }}
             >
-              {visible.length === 0 ? (
+              {visibleInvitations.length > 0 && (
+                <EventInvitationsCard
+                  invitations={visibleInvitations}
+                  answering={invitations.answering}
+                  onAccept={invitations.accept}
+                  onDecline={invitations.decline}
+                  heading={
+                    visibleInvitations.length === 1
+                      ? "1 event invitation"
+                      : `${visibleInvitations.length} event invitations`
+                  }
+                  // Only an unanswered one can still be answered. On the other
+                  // tabs the row is a record, and a button that would 409 is
+                  // worse than no button.
+                  actionable={filter === "pending"}
+                />
+              )}
+              {visible.length === 0 && visibleInvitations.length === 0 ? (
                 <Card padding="lg">
                   <div style={{ textAlign: "center", color: "var(--muted)", padding: "24px 0" }}>
                     <Icon name="inbox" size={28} />

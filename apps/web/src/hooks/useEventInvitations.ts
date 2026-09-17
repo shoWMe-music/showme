@@ -45,10 +45,22 @@ export interface EventInvitation {
   eventDate: string | null;
   venueName: string | null;
   hostName: string | null;
+  /** The participation's own state: `invited` until it is answered. */
+  status: string;
+  /** Which inbox tab this belongs in — `expired` is derived from the date. */
+  requestStatus: "pending" | "accepted" | "declined" | "expired";
 }
 
 export interface EventInvitationsView {
+  /**
+   * UNANSWERED ones only — what "you have an invitation" means on the Events
+   * card and on the calendar. The endpoint returns answered ones too (the
+   * Requests inbox needs an Accepted tab), so the narrowing happens here rather
+   * than in two screens that would each have to remember to do it.
+   */
   invitations: EventInvitation[];
+  /** Every invitation addressed to this user, whatever its state. */
+  all: EventInvitation[];
   isLoading: boolean;
   /** The event id currently being answered, so one card can show a pending state. */
   answering: string | null;
@@ -95,8 +107,11 @@ export function useEventInvitations(): EventInvitationsView {
     [queryClient, toast],
   );
 
+  const all = (query.data ?? []) as EventInvitation[];
+
   return {
-    invitations: (query.data ?? []) as EventInvitation[],
+    invitations: all.filter((one) => one.requestStatus === "pending"),
+    all,
     isLoading: query.isLoading,
     answering,
     accept: useCallback((invitation: EventInvitation) => answer(invitation, "accept"), [answer]),

@@ -44,6 +44,7 @@ import {
 import { useAvailabilityShare } from "../hooks/useAvailabilityShare";
 import { useCalendarSources } from "../hooks/useCalendarSources";
 import { useCalendarVenueFilter } from "../hooks/useCalendarVenueFilter";
+import { useEventInvitations } from "../hooks/useEventInvitations";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
 import { calendarEventLabel } from "../lib/calendarEventLabel";
 import { buildCalendarInventory, placeEvents } from "../lib/calendarInventory";
@@ -476,6 +477,24 @@ export function Calendar() {
   const calendar = useGetApiV1Calendar({ from, to });
   // Every event: the grid is a month of the whole schedule, not of page one.
   const events = useAllEvents();
+  /**
+   * NIGHTS SOMEBODY HAS ASKED FOR, which are not events yet.
+   *
+   * ClickUp 86cbcehmp. Ran asked for two things that pull against each other: an
+   * invited performer must ANSWER before they get the event ("Invited users
+   * should first have the option to 'Accept invite'"), and the offer should still
+   * "appear as a 'Suggested' event in the performer's calendar" while it is
+   * unanswered. The gate won the first one — `GET /events` no longer returns an
+   * event you have not accepted — which silently lost the second, because this
+   * grid is drawn from that list.
+   *
+   * So the date comes from the INVITATION instead. What lands on the grid is a
+   * marker, not an event: the night, the venue, and that somebody is asking. It
+   * carries no `eventId`, which is what makes it un-clickable — following it
+   * would open an event the reader is not allowed to read, and a chip that 404s
+   * is worse than one that does not move.
+   */
+  const invitations = useEventInvitations();
   // The calendars this user actually has — their venues, and the rooms inside
   // them. Replaces three hard-coded prototype labels that named a ROLE, not a
   // calendar (see `useCalendarSources`).
@@ -537,8 +556,24 @@ export function Calendar() {
         // a touring act reads most.
         country: event.venueLocation?.country ?? null,
       }));
-    return [...items, ...dated];
-  }, [calendar.data, events.items, myProfileIds]);
+    // Third source: unanswered invitations. Placed last so that if an event and
+    // an invitation ever named the same night, the real event draws over it.
+    const invited: CalendarEvent[] = invitations.invitations
+      .filter((invitation) => invitation.eventDate)
+      .map((invitation) => ({
+        // Namespaced: this is not the event's id, and nothing should treat it as
+        // one. React only needs it to be distinct.
+        id: `invitation:${invitation.participantId}`,
+        date: toDayKey(invitation.eventDate as string),
+        eventName: invitation.title ?? "Invitation",
+        performer: invitation.hostName ?? undefined,
+        status: "suggested",
+        statusLabel: "Invitation",
+        // NO `eventId` — see the note where `invitations` is read.
+      }));
+
+    return [...items, ...dated, ...invited];
+  }, [calendar.data, events.items, invitations.invitations, myProfileIds]);
 
   // Who is playing: only for the events on screen, since it costs one request each.
   const visibleEventIds = useMemo(

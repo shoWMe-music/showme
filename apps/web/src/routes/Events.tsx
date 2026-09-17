@@ -13,8 +13,8 @@ import type { CSSProperties } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CountryTag } from "../components/CountryTag";
 import { DateText } from "../components/DateText";
+import { EventInvitationsCard } from "../components/EventInvitationsCard";
 import { type EventMenuItem, EventRowMenu, rowClickTargetStyle } from "../components/EventRowMenu";
-import { PendingInvitationsCard } from "../components/PendingInvitationsCard";
 import { GradientButton } from "../components/eventUi";
 import ledgerTable from "../components/ledgerTable.module.css";
 import { initialsOf, settlementStatusToDisplay } from "../components/settlementDocument";
@@ -175,7 +175,7 @@ export function Events() {
 
   return (
     <div style={{ width: "100%", maxWidth: 1180, margin: "0 auto" }}>
-      <PendingInvitationsCard
+      <EventInvitationsCard
         invitations={invitations.invitations}
         answering={invitations.answering}
         onAccept={invitations.accept}

@@ -4,8 +4,14 @@ import type { EventInvitation } from "../hooks/useEventInvitations";
 import { DateText } from "./DateText";
 
 /**
- * "You have been asked to play these nights." — the handle on the door the
- * invitation gate created (ClickUp 86cbcehmp).
+ * INVITATIONS ADDRESSED TO THIS USER — the handle on the door the invitation
+ * gate created (ClickUp 86cbcehmp).
+ *
+ * Rendered in two places, which is why it takes a heading and an `actionable`
+ * flag rather than hard-coding either: on the Events page it leads with the
+ * unanswered ones, and in the Requests inbox it sits inside whichever tab the
+ * reader has chosen (Pending, Accepted, Declined, Expired) where only the first
+ * of those can still be answered.
  *
  * An `invited` participation grants no capabilities, so these shows are NOT in
  * the events list below and opening one answers 404. Without this card an
@@ -21,21 +27,36 @@ import { DateText } from "./DateText";
  * event. The fetching, the two mutations, the toast and the cache invalidation
  * all live in `useEventInvitations`.
  */
-export interface PendingInvitationsCardProps {
+export interface EventInvitationsCardProps {
   invitations: EventInvitation[];
   /** The event id currently being answered, so its buttons can go quiet. */
   answering: string | null;
+  /**
+   * The heading above the list. Defaults to the Events page's own wording; the
+   * Requests inbox passes its own, because there the tab already says which
+   * bucket these are and "You have an invitation" would be wrong on three of the
+   * four tabs.
+   */
+  heading?: string;
+  /**
+   * Whether the rows offer Accept / Decline. False for an invitation that has
+   * already been answered (or expired) — showing buttons that would 409 is worse
+   * than showing none.
+   */
+  actionable?: boolean;
   onAccept: (invitation: EventInvitation) => void;
   /** The note is Ran's: a refusal is far more useful when it says why. */
   onDecline: (invitation: EventInvitation, note?: string) => void;
 }
 
-export function PendingInvitationsCard({
+export function EventInvitationsCard({
   invitations,
   answering,
   onAccept,
   onDecline,
-}: PendingInvitationsCardProps) {
+  heading,
+  actionable = true,
+}: EventInvitationsCardProps) {
   /**
    * Which invitation is being declined, and the reason typed so far.
    *
@@ -84,9 +105,10 @@ export function PendingInvitationsCard({
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
         <Icon name="mail" />
         <h2 id="pending-invitations-heading" style={{ margin: 0, fontSize: 14.5, fontWeight: 600 }}>
-          {invitations.length === 1
-            ? "You have an invitation"
-            : `You have ${invitations.length} invitations`}
+          {heading ??
+            (invitations.length === 1
+              ? "You have an invitation"
+              : `You have ${invitations.length} invitations`)}
         </h2>
       </div>
 
@@ -132,18 +154,20 @@ export function PendingInvitationsCard({
                   {invitation.hostName ? ` · from ${invitation.hostName}` : ""}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 8, flex: "0 0 auto" }}>
-                <Button
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() => setDeclining(invitation)}
-                >
-                  Decline
-                </Button>
-                <Button disabled={busy} onClick={() => onAccept(invitation)}>
-                  {busy ? "Sending…" : "Accept"}
-                </Button>
-              </div>
+              {actionable && (
+                <div style={{ display: "flex", gap: 8, flex: "0 0 auto" }}>
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => setDeclining(invitation)}
+                  >
+                    Decline
+                  </Button>
+                  <Button disabled={busy} onClick={() => onAccept(invitation)}>
+                    {busy ? "Sending…" : "Accept"}
+                  </Button>
+                </div>
+              )}
             </li>
           );
         })}
