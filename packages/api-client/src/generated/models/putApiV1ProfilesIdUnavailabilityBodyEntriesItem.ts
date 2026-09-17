@@ -12,4 +12,6 @@ export type PutApiV1ProfilesIdUnavailabilityBodyEntriesItem = {
   endDate: string;
   /** @nullable */
   reason?: string | null;
+  /** @nullable */
+  stageId?: string | null;
 };

@@ -4,6 +4,7 @@ import {
   useGetApiV1Calendar,
 } from "@showme/api-client";
 import { Icon, Select, type Status, useToast } from "@showme/design-system";
+import { WHOLE_VENUE } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -42,6 +43,7 @@ import { useCalendarSources } from "../hooks/useCalendarSources";
 import { useCalendarVenueFilter } from "../hooks/useCalendarVenueFilter";
 import { useEventInvitations } from "../hooks/useEventInvitations";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
+import { getActiveProfileId } from "../lib/activeProfile";
 import { calendarEventLabel } from "../lib/calendarEventLabel";
 import { buildCalendarInventory, placeEvents } from "../lib/calendarInventory";
 import { formatDay, parseDayLocal } from "../lib/format";
@@ -609,6 +611,32 @@ export function Calendar() {
     calendarInventory,
   );
 
+  /**
+   * THE ROOM MARKING WILL SHUT — or null for the whole place (86cbceux0).
+   *
+   * Derived from what is actually ON THE GRID, not from the room select alone.
+   * `venueFilter.roomKey` is only set once a VENUE has been chosen and then
+   * narrowed, but the Rooms chip can leave a single room showing without any of
+   * that — and then the reader is looking at one room, marking nights on it, and
+   * would have shut the whole building. That gap is the trap this avoids: what
+   * you can see is what you are marking.
+   *
+   * Only the ACTING profile's rooms count, because that is whose blocks the write
+   * replaces. Exactly one of them visible means the gesture is about that room;
+   * anything else — several rooms, another venue's, none — is the building.
+   */
+  const markingStageId = useMemo(() => {
+    const acting = getActiveProfileId();
+    if (!acting) return null;
+    const shown = new Set(venueFilter.roomFilterSelected);
+    const mine = calendarSources.sources.filter(
+      (source) => source.profileId === acting && source.room !== WHOLE_VENUE,
+    );
+    if (mine.length === 0) return null;
+    const visible = mine.filter((source) => shown.has(source.value));
+    return visible.length === 1 ? (visible[0]?.room ?? null) : null;
+  }, [calendarSources.sources, venueFilter.roomFilterSelected]);
+
   const performerNeedle = performerFilter.trim().toLowerCase();
   const hiddenStatusSet = new Set(hiddenStatuses);
   const visibleEvents: CalendarEvent[] = namedEvents.filter((event) => {
@@ -642,6 +670,15 @@ export function Calendar() {
   // picking nights straight off the grid. Read on every render so the rail can
   // name what is blocked in this period even when nobody is marking.
   const markUnavailable = useMarkUnavailable({
+    /**
+     * Marking shuts the room the calendar is NARROWED TO (ClickUp 86cbceux0).
+     *
+     * `roomKey` is a `CalendarSource.value` — `profileId:room` — so the room is
+     * its tail, and `WHOLE_VENUE` or an empty key both mean the building. No new
+     * control: the room picker that was already on this screen now decides what
+     * marking means, which is how Ran described it working in V2.
+     */
+    stageId: markingStageId,
     onSaved: (blocked, freed) => {
       const parts = [];
       if (blocked > 0) parts.push(`${blocked} blocked`);

@@ -1,6 +1,6 @@
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
-import { and, eq, gte, isNotNull, lte, or } from "drizzle-orm";
+import { and, eq, gte, isNotNull, isNull, lte, or } from "drizzle-orm";
 
 /**
  * WHEN IS A PROFILE BUSY — one answer, computed from two sources.
@@ -173,6 +173,20 @@ export async function readProfileBusyTime(
     .where(
       and(
         eq(schema.profileUnavailability.profileId, profileId),
+        // WHOLE-PROFILE BLOCKS ONLY (ClickUp 86cbceux0).
+        //
+        // This function answers "is this PROFILE bookable", and its two callers
+        // are the public availability page and the profile's own availability
+        // read. Neither has a room to ask about — `BusyTime` carries dates and
+        // hours, and no room column, because a stranger reading a venue's public
+        // page is asking whether the building can have them.
+        //
+        // So a room-scoped block must not appear here. Including it would let a
+        // refit in the Back Room tell the world the venue is shut, which is the
+        // exact failure this column was added to stop — turning away bookings the
+        // Main Room could take. The per-room question is answered where rooms
+        // exist: the conflict route, through `occupiedDates`.
+        isNull(schema.profileUnavailability.stageId),
         // Two inclusive ranges overlap iff each starts on or before the other ends.
         filter.to ? lte(schema.profileUnavailability.startDate, filter.to) : undefined,
         filter.from ? gte(schema.profileUnavailability.endDate, filter.from) : undefined,

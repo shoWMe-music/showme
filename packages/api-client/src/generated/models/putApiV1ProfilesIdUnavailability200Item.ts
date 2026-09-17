@@ -6,6 +6,8 @@
  */
 
 export type PutApiV1ProfilesIdUnavailability200Item = {
+  /** @nullable */
+  stageId?: string | null;
   id: string;
   profileId: string;
   startDate: string;
