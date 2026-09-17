@@ -1,0 +1,600 @@
+import { liveEventDelegationsForEvents } from "@showme/auth";
+import { schema } from "@showme/db";
+import { notifyProfileMembers } from "@showme/db/notify";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import type { FastifyRequest } from "fastify";
+import { writeActivity } from "./activity";
+
+/**
+ * CHANGING A NIGHT SOMEBODY HAS ALREADY AGREED TO.
+ *
+ * ClickUp 86cbcftg3. Ran: *"When trying to change the date for an event the
+ * other side must be notified."* — then three different behaviours by status,
+ * and a line widening it past the date: *"In general such logic should apply
+ * across changes to date, venue, room/space."*
+ *
+ * ── The one distinction the whole feature turns on ─────────────────────────
+ *
+ * Below `pending`, nobody has agreed to anything. A `draft` is private and a
+ * `suggested` event is an unanswered offer, so the operator moving the date is
+ * editing their own proposal — no permission needed, nothing to confirm. What it
+ * DOES need is for the question to be asked again, which is Ran's *"Edits the
+ * date on the old Incoming request and sends it back into the list as 'Pending'
+ * (unread)"*.
+ *
+ * From `pending` upward, somebody has said yes to a particular night in a
+ * particular room. Moving it under them is a NEW QUESTION, and the event has to
+ * go on saying what was agreed until it is answered.
+ *
+ * ── Which fields count ─────────────────────────────────────────────────────
+ *
+ * The three Ran named: the date, the venue, the room. Everything else about an
+ * event — the title, the door time, the notes, the poster — is the operator's to
+ * change, and putting a confirm step in front of renaming a show would make the
+ * mechanism hated rather than respected.
+ */
+
+export const NEGOTIATED_FIELDS = ["eventDate", "venueProfileId", "stageId"] as const;
+export type NegotiatedField = (typeof NEGOTIATED_FIELDS)[number];
+
+/** What a proposal can move, and what it moved from. */
+export type NegotiatedValues = Partial<Record<NegotiatedField, string | null>>;
+
+/**
+ * Statuses at which the night is somebody else's business too.
+ *
+ * `on_hold` is in: a hold is a date held FOR somebody, and moving it is the same
+ * question even though the booking is pencilled. `concluded` and `cancelled` are
+ * out because there is nothing left to renegotiate, and an edit to either is
+ * record-keeping rather than a booking change.
+ */
+const AGREED_STATUSES = new Set(["pending", "confirmed", "on_hold"]);
+
+/** Does a change to this event have to be ASKED rather than simply made? */
+export function changeNeedsAgreement(eventStatus: string): boolean {
+  return AGREED_STATUSES.has(eventStatus);
+}
+
+/**
+ * The negotiated fields this patch actually moves — ignoring keys it does not
+ * mention, and keys whose value is what the event already says.
+ *
+ * The second half matters more than it looks: a form that submits every field it
+ * rendered will "change" the date to the date it already had on every save, and
+ * without this each of those saves would raise a proposal and ask an act to
+ * confirm a change to nothing.
+ */
+export function negotiatedChanges(
+  patch: Record<string, unknown>,
+  current: NegotiatedValues,
+): { changes: NegotiatedValues; previous: NegotiatedValues } {
+  const changes: NegotiatedValues = {};
+  const previous: NegotiatedValues = {};
+  for (const field of NEGOTIATED_FIELDS) {
+    if (!(field in patch)) continue;
+    const next = (patch[field] ?? null) as string | null;
+    const now = current[field] ?? null;
+    if (next === now) continue;
+    changes[field] = next;
+    previous[field] = now;
+  }
+  return { changes, previous };
+}
+
+/** True when the patch moves nothing that has to be negotiated. */
+export function isEmptyChange(changes: NegotiatedValues): boolean {
+  return Object.keys(changes).length === 0;
+}
+
+/**
+ * WHERE A PROPOSAL GETS TO once one more answer is in.
+ *
+ * Unanimous or nothing, and a single refusal settles it — the same shape
+ * `confirmDealIfComplete` uses for signatures, and for the same reason: a night
+ * two acts are booked on cannot move because one of them was quicker to answer
+ * than the other.
+ *
+ * `required` is the count of participants who must answer, derived at call time
+ * rather than stored. A participation removed since the proposal was raised
+ * therefore stops holding the change up, without anything having to reap a row.
+ */
+export function resolveProposal(input: {
+  required: number;
+  confirmed: number;
+  declined: number;
+}): "pending" | "confirmed" | "declined" {
+  if (input.declined > 0) return "declined";
+  // `required === 0` means there is nobody left to ask — every counterpart has
+  // gone. Treating that as confirmed is right: the change is being made to an
+  // event nobody else is standing on any more, which is the same position the
+  // operator is in below `pending`.
+  if (input.confirmed >= input.required) return "confirmed";
+  return "pending";
+}
+
+/** "the date", "the venue and the room" — for a notification a person reads. */
+export function describeChange(changes: NegotiatedValues): string {
+  const names: Record<NegotiatedField, string> = {
+    eventDate: "the date",
+    venueProfileId: "the venue",
+    stageId: "the room",
+  };
+  const moved = NEGOTIATED_FIELDS.filter((field) => field in changes).map((field) => names[field]);
+  if (moved.length === 0) return "this event";
+  if (moved.length === 1) return moved[0] as string;
+  const last = moved[moved.length - 1];
+  return `${moved.slice(0, -1).join(", ")} and ${last}`;
+}
+
+/**
+ * The participations that must answer a proposal — everyone standing on the
+ * event except the profile proposing it.
+ *
+ * `STANDING` rather than "not removed": somebody who has not accepted their own
+ * invitation has no say in moving a night they have not agreed to, and a
+ * declined participation is gone. Same set the authorization module uses, so a
+ * change cannot be blocked by a party who cannot even read the event.
+ */
+async function counterparts(
+  // biome-ignore lint/suspicious/noExplicitAny: Drizzle db/tx handle.
+  tx: any,
+  eventId: string,
+  proposerUserId: string | null,
+): Promise<{ id: string; profileId: string | null }[]> {
+  const rows = await tx
+    .select({
+      id: schema.eventParticipants.id,
+      profileId: schema.eventParticipants.profileId,
+    })
+    .from(schema.eventParticipants)
+    .where(
+      and(
+        eq(schema.eventParticipants.eventId, eventId),
+        inArray(schema.eventParticipants.status, ["accepted", "confirmed"]),
+      ),
+    );
+
+  // A DELEGATED PERFORMER DOES NOT ANSWER — THEIR AGENT DOES (decisions #14).
+  //
+  // Adding a represented act to an event auto-assigns their agent as a
+  // participant, so the naive set counts both and demands two answers for one
+  // party's interest — from a performer who has handed the action capabilities
+  // (confirm / approve) to that very agent. Driving it live is what showed this:
+  // the seeded booking asked for two confirmations where there is one decision.
+  //
+  // `liveEventDelegationsForEvents` is the same resolver `authorize` uses, so a
+  // delegation that has lapsed stops standing in immediately rather than waiting
+  // for the sweep — and the performer gets their own say back the moment it does.
+  const delegations = await liveEventDelegationsForEvents(tx, [eventId]);
+  const delegatedParticipantIds = new Set(
+    (delegations.get(eventId) ?? []).map((delegation) => delegation.performerParticipantId),
+  );
+  const standing = (rows as { id: string; profileId: string | null }[]).filter(
+    (row) => !delegatedParticipantIds.has(row.id),
+  );
+
+  if (!proposerUserId) return standing;
+
+  // EXCLUDE BY USER, not by acting profile.
+  //
+  // The obvious version of this asked `profile_id <> actingProfileId`, and it is
+  // wrong in two ways that both let an operator wave their own proposal through:
+  // `X-Profile-Id` is optional, so `actingProfileId` is frequently null and then
+  // nothing is excluded at all; and an operator holding two profiles on one event
+  // (host with one, co-host with another) would still be a counterpart through
+  // the second. The honest question is "does this participation belong to the
+  // person who asked", which is a membership lookup.
+  const mine = await tx
+    .select({ profileId: schema.profileMembers.profileId })
+    .from(schema.profileMembers)
+    .where(
+      and(
+        eq(schema.profileMembers.userId, proposerUserId),
+        eq(schema.profileMembers.status, "active"),
+      ),
+    );
+  const ownProfileIds = new Set(mine.map((row: { profileId: string }) => row.profileId));
+  return standing.filter((row) => !row.profileId || !ownProfileIds.has(row.profileId));
+}
+
+/**
+ * Raise a proposal and tell the people who have to answer it.
+ *
+ * ── An open proposal is REPLACED, not stacked ─────────────────────────────
+ * An operator who moves the date twice before anyone answers has changed their
+ * mind, not asked two questions. The earlier request becomes `superseded` so the
+ * act is never looking at two live proposals for the same night with no way to
+ * know which one matters.
+ */
+export async function proposeEventChange(
+  request: FastifyRequest,
+  input: { eventId: string; changes: NegotiatedValues; previous: NegotiatedValues },
+): Promise<void> {
+  const { database } = request.server;
+  const principal = request.principal;
+  if (!principal) throw new Error("principal missing after authentication");
+  const proposerProfileId = principal.actingProfileId ?? null;
+
+  const [event] = await database
+    .select({ title: schema.events.title })
+    .from(schema.events)
+    .where(eq(schema.events.id, input.eventId));
+
+  const parties = await counterparts(database, input.eventId, principal.userId);
+
+  const created = await database.transaction(async (tx) => {
+    await tx
+      .update(schema.eventChangeRequests)
+      .set({ status: "superseded", resolvedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.eventChangeRequests.eventId, input.eventId),
+          eq(schema.eventChangeRequests.status, "pending"),
+        ),
+      );
+
+    const [row] = await tx
+      .insert(schema.eventChangeRequests)
+      .values({
+        eventId: input.eventId,
+        proposedByProfileId: proposerProfileId,
+        proposedByUserId: principal.userId,
+        changes: input.changes,
+        previous: input.previous,
+      })
+      .returning();
+    if (!row) throw new Error("change request create failed");
+
+    await writeActivity(tx, request, {
+      eventId: input.eventId,
+      type: "event.change_requested",
+      targetKind: "event",
+      targetId: input.eventId,
+      summary: { changes: input.changes, previous: input.previous },
+    });
+    return row;
+  });
+
+  const what = describeChange(input.changes);
+  for (const party of parties) {
+    if (!party.profileId) continue;
+    try {
+      await notifyProfileMembers(database, party.profileId, principal.userId, {
+        type: "event.change_requested",
+        title: `A change to ${event?.title ?? "an event"}`,
+        body: `Somebody has asked to change ${what}. Confirm or decline it on the event.`,
+        eventId: input.eventId,
+        link: `/events/${input.eventId}`,
+        metadata: { changeRequestId: created.id, changes: input.changes },
+      });
+    } catch (cause) {
+      request.log.warn({ err: cause, eventId: input.eventId }, "change-request notify failed");
+    }
+  }
+}
+
+/**
+ * Below `pending`: the change already happened, so re-ask the offer.
+ *
+ * Ran, on a `suggested` event: *"Edits the date on the old Incoming request and
+ * sends it back into the list as 'Pending' (unread)"* — and, on a refusal, that
+ * the operator *"can ... edit it to change the date → which will trigger a new
+ * incoming request with a new date"*.
+ *
+ * So a `declined` participation goes back to `invited`. That is deliberately not
+ * "pestering somebody who said no": they said no to a different night. The
+ * invitation they now hold names the new one.
+ */
+export async function reopenInvitationsAfterChange(
+  request: FastifyRequest,
+  input: { eventId: string; changes: NegotiatedValues },
+): Promise<void> {
+  const { database } = request.server;
+  const principal = request.principal;
+  if (!principal) throw new Error("principal missing after authentication");
+
+  const reopened = await database
+    .update(schema.eventParticipants)
+    .set({ status: "invited", updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.eventParticipants.eventId, input.eventId),
+        eq(schema.eventParticipants.status, "declined"),
+      ),
+    )
+    .returning({ id: schema.eventParticipants.id, profileId: schema.eventParticipants.profileId });
+
+  const [event] = await database
+    .select({ title: schema.events.title })
+    .from(schema.events)
+    .where(eq(schema.events.id, input.eventId));
+
+  // Everyone holding an unanswered invitation is told the question moved —
+  // including the ones just reopened, which is the whole point of the reopening.
+  const invited = await database
+    .select({ profileId: schema.eventParticipants.profileId })
+    .from(schema.eventParticipants)
+    .where(
+      and(
+        eq(schema.eventParticipants.eventId, input.eventId),
+        eq(schema.eventParticipants.status, "invited"),
+      ),
+    );
+
+  const what = describeChange(input.changes);
+  for (const party of invited) {
+    if (!party.profileId) continue;
+    try {
+      await notifyProfileMembers(database, party.profileId, principal.userId, {
+        type: "event.invitation_updated",
+        title: `${event?.title ?? "An invitation"} — ${what} changed`,
+        body: "The invitation you have not answered yet now names a different night.",
+        eventId: input.eventId,
+        link: "/requests",
+        metadata: { changes: input.changes, reopened: reopened.length },
+      });
+    } catch (cause) {
+      request.log.warn({ err: cause, eventId: input.eventId }, "invitation-update notify failed");
+    }
+  }
+}
+
+/** The open proposal on an event, with the answers so far. Null when there is none. */
+export async function openChangeRequest(
+  // biome-ignore lint/suspicious/noExplicitAny: Drizzle db/tx handle.
+  database: any,
+  eventId: string,
+): Promise<{
+  id: string;
+  changes: NegotiatedValues;
+  previous: NegotiatedValues;
+  reason: string | null;
+  proposedByProfileId: string | null;
+  proposedByUserId: string | null;
+  /** Participations that must answer — the route gates the caller on this. */
+  partyIds: string[];
+  createdAt: Date;
+  required: number;
+  confirmed: number;
+  declined: number;
+} | null> {
+  const [row] = await database
+    .select()
+    .from(schema.eventChangeRequests)
+    .where(
+      and(
+        eq(schema.eventChangeRequests.eventId, eventId),
+        eq(schema.eventChangeRequests.status, "pending"),
+      ),
+    );
+  if (!row) return null;
+
+  const parties = await counterparts(database, eventId, row.proposedByUserId);
+  const answers = await database
+    .select({
+      participantId: schema.eventChangeRequestResponses.participantId,
+      response: schema.eventChangeRequestResponses.response,
+    })
+    .from(schema.eventChangeRequestResponses)
+    .where(eq(schema.eventChangeRequestResponses.changeRequestId, row.id));
+
+  // Only answers from people who ARE still counterparts count — see the note on
+  // the responses table about why the required set is derived rather than stored.
+  const partyIds = new Set(parties.map((party) => party.id));
+  const live = answers.filter((answer: { participantId: string }) =>
+    partyIds.has(answer.participantId),
+  );
+
+  return {
+    id: row.id,
+    changes: row.changes as NegotiatedValues,
+    previous: row.previous as NegotiatedValues,
+    reason: row.reason,
+    proposedByProfileId: row.proposedByProfileId,
+    proposedByUserId: row.proposedByUserId,
+    partyIds: parties.map((party) => party.id),
+    createdAt: row.createdAt,
+    required: parties.length,
+    confirmed: live.filter((one: { response: string }) => one.response === "confirmed").length,
+    declined: live.filter((one: { response: string }) => one.response === "declined").length,
+  };
+}
+
+/**
+ * One counterpart answers — and, if that was the last answer needed, the change
+ * is APPLIED here.
+ *
+ * Applying it here rather than leaving the operator to re-save is the whole
+ * point of the mechanism: the act agreed to a specific new night, and a flow
+ * that then required the operator to type it again would leave a window in which
+ * everyone has agreed and the event still says the old date.
+ */
+export async function answerChangeRequest(
+  request: FastifyRequest,
+  input: {
+    eventId: string;
+    changeRequestId: string;
+    participantId: string;
+    response: "confirmed" | "declined";
+    note?: string;
+  },
+): Promise<{ status: "pending" | "confirmed" | "declined" }> {
+  const { database } = request.server;
+  const principal = request.principal;
+  if (!principal) throw new Error("principal missing after authentication");
+
+  // biome-ignore lint/suspicious/noExplicitAny: Drizzle tx handle, as elsewhere here.
+  return await database.transaction(async (tx: any) => {
+    const [row] = await tx
+      .select()
+      .from(schema.eventChangeRequests)
+      .where(eq(schema.eventChangeRequests.id, input.changeRequestId));
+    if (!row || row.eventId !== input.eventId || row.status !== "pending") {
+      throw new Error("no open change request");
+    }
+
+    await tx.insert(schema.eventChangeRequestResponses).values({
+      changeRequestId: input.changeRequestId,
+      participantId: input.participantId,
+      response: input.response,
+      note: input.note ?? null,
+      respondedByUserId: principal.userId,
+    });
+
+    const parties = await counterparts(tx, input.eventId, row.proposedByUserId);
+    const partyIds = new Set(parties.map((party) => party.id));
+    const answers = await tx
+      .select({
+        participantId: schema.eventChangeRequestResponses.participantId,
+        response: schema.eventChangeRequestResponses.response,
+      })
+      .from(schema.eventChangeRequestResponses)
+      .where(eq(schema.eventChangeRequestResponses.changeRequestId, input.changeRequestId));
+    const live = answers.filter((answer: { participantId: string }) =>
+      partyIds.has(answer.participantId),
+    );
+
+    const outcome = resolveProposal({
+      required: parties.length,
+      confirmed: live.filter((one: { response: string }) => one.response === "confirmed").length,
+      declined: live.filter((one: { response: string }) => one.response === "declined").length,
+    });
+
+    if (outcome === "pending") return { status: outcome };
+
+    await tx
+      .update(schema.eventChangeRequests)
+      .set({ status: outcome, resolvedAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.eventChangeRequests.id, input.changeRequestId));
+
+    if (outcome === "confirmed") {
+      const changes = row.changes as NegotiatedValues;
+      await tx
+        .update(schema.events)
+        .set({
+          ...changes,
+          version: sql`${schema.events.version} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.events.id, input.eventId));
+    }
+
+    await writeActivity(tx, request, {
+      eventId: input.eventId,
+      type: outcome === "confirmed" ? "event.change_confirmed" : "event.change_declined",
+      targetKind: "event",
+      targetId: input.eventId,
+      summary: {
+        changes: row.changes,
+        previous: row.previous,
+        ...(input.note ? { note: input.note } : {}),
+      },
+    });
+
+    return { status: outcome };
+  });
+}
+
+/** Tell the proposer what came back. Outside the transaction, as everywhere else. */
+export async function notifyProposer(
+  request: FastifyRequest,
+  input: {
+    eventId: string;
+    proposerProfileId: string | null;
+    outcome: "confirmed" | "declined";
+    changes: NegotiatedValues;
+    note?: string;
+  },
+): Promise<void> {
+  if (!input.proposerProfileId) return;
+  const { database } = request.server;
+  const principal = request.principal;
+  if (!principal) return;
+
+  const [event] = await database
+    .select({ title: schema.events.title })
+    .from(schema.events)
+    .where(eq(schema.events.id, input.eventId));
+
+  const what = describeChange(input.changes);
+  // `describeChange` is written for the middle of a sentence ("asked to change
+  // the date"), so it starts lowercase. A title starts a sentence.
+  const Sentence = what.charAt(0).toUpperCase() + what.slice(1);
+  try {
+    await notifyProfileMembers(database, input.proposerProfileId, principal.userId, {
+      type: `event.change_${input.outcome}`,
+      title:
+        input.outcome === "confirmed"
+          ? `${Sentence} moved — ${event?.title ?? "your event"}`
+          : `${Sentence} stays — ${event?.title ?? "your event"}`,
+      body:
+        input.outcome === "confirmed"
+          ? "Everyone agreed, and the event has been updated."
+          : input.note || "The change was declined.",
+      eventId: input.eventId,
+      link: `/events/${input.eventId}`,
+      metadata: { changes: input.changes, ...(input.note ? { note: input.note } : {}) },
+    });
+  } catch (cause) {
+    request.log.warn({ err: cause, eventId: input.eventId }, "change-outcome notify failed");
+  }
+}
+
+/**
+ * The caller's own participation on this event, or null.
+ *
+ * Deliberately NOT scoped to standing statuses: an `invited` participant is not
+ * a counterpart and the routes refuse them anyway, but they refuse them with a
+ * message about who may answer rather than with "you are not on this event",
+ * which would be a lie.
+ */
+export async function callerParticipantOrNull(
+  request: FastifyRequest,
+  eventId: string,
+): Promise<{ id: string; profileId: string | null } | null> {
+  const principal = request.principal;
+  if (!principal) return null;
+  const rows = await request.server.database
+    .select({
+      id: schema.eventParticipants.id,
+      profileId: schema.eventParticipants.profileId,
+      status: schema.eventParticipants.status,
+    })
+    .from(schema.eventParticipants)
+    .innerJoin(
+      schema.profileMembers,
+      eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
+    )
+    .where(
+      and(
+        eq(schema.eventParticipants.eventId, eventId),
+        eq(schema.profileMembers.userId, principal.userId),
+        eq(schema.profileMembers.status, "active"),
+        inArray(schema.eventParticipants.status, ["accepted", "confirmed"]),
+      ),
+    );
+  // Prefer the profile the caller is acting as — somebody holding two profiles on
+  // one event answers as the one the sidebar says they are.
+  const acting = rows.find((row) => row.profileId === principal.actingProfileId);
+  const chosen = acting ?? rows[0];
+  return chosen ? { id: chosen.id, profileId: chosen.profileId } : null;
+}
+
+/** Has this participant already answered this proposal? */
+export async function hasAnswered(
+  // biome-ignore lint/suspicious/noExplicitAny: Drizzle db/tx handle.
+  database: any,
+  changeRequestId: string,
+  participantId: string,
+): Promise<boolean> {
+  const [row] = await database
+    .select({ id: schema.eventChangeRequestResponses.id })
+    .from(schema.eventChangeRequestResponses)
+    .where(
+      and(
+        eq(schema.eventChangeRequestResponses.changeRequestId, changeRequestId),
+        eq(schema.eventChangeRequestResponses.participantId, participantId),
+      ),
+    );
+  return Boolean(row);
+}
