@@ -1747,6 +1747,64 @@ describe("events — a change to a booked night is a question", () => {
     expect(rows.filter((row) => row.status === "superseded")).toHaveLength(1);
   });
 
+  it("writes the negotiation into the event conversation, both halves", async () => {
+    const { db } = harness;
+    const { event } = await bookedEvent("thread");
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("thread-op"),
+      payload: { eventDate: "2026-09-19" },
+    });
+
+    const bodies = async () =>
+      (
+        await db
+          .select({ body: schema.eventMessages.body, visibility: schema.eventMessages.visibility })
+          .from(schema.eventMessages)
+          .where(eq(schema.eventMessages.eventId, event.id))
+      ).map((row) => row.body);
+
+    // The ASK is in the thread, with both values — a conversation that only
+    // records the outcome reads "can we move it?" / "sure" six months later.
+    expect(await bodies()).toEqual([
+      "Asked to change the date from 2026-09-12 to 2026-09-19. Waiting on the other side to confirm.",
+    ]);
+
+    const crid = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/change-request`,
+        headers: auth("thread-perf"),
+      })
+    ).json().request.id;
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${crid}/decline`,
+      headers: auth("thread-perf"),
+      payload: { note: "We fly out that morning" },
+    });
+
+    // And the ANSWER, carrying the reason.
+    expect(await bodies()).toEqual([
+      "Asked to change the date from 2026-09-12 to 2026-09-19. Waiting on the other side to confirm.",
+      "Declined the change to the date from 2026-09-12 to 2026-09-19. Reason: We fly out that morning",
+    ]);
+
+    // The event room, not a private thread: a night moving is not a matter
+    // between two parties — the crew's call time depends on it.
+    const rows = await db
+      .select({
+        visibility: schema.eventMessages.visibility,
+        threadParticipantId: schema.eventMessages.threadParticipantId,
+      })
+      .from(schema.eventMessages)
+      .where(eq(schema.eventMessages.eventId, event.id));
+    expect(rows.every((row) => row.visibility === "all")).toBe(true);
+    expect(rows.every((row) => row.threadParticipantId === null)).toBe(true);
+  });
+
   it("asks the AGENT, not the performer they represent", async () => {
     const { db } = harness;
     const { performer, event } = await bookedEvent("delegated");

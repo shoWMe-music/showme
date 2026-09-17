@@ -198,6 +198,88 @@ async function counterparts(
 }
 
 /**
+ * PUT THE NEGOTIATION IN THE CONVERSATION (ClickUp 86cbcftg3).
+ *
+ * Ran: *"such things and UI should also be in the messages box as well in my
+ * opinion."*
+ *
+ * A proposal, and its answer, are written into the event room thread as ordinary
+ * messages. That is not a second copy of the proposal — the live state stays in
+ * `event_change_requests`, and the banner reads it from there. This is the
+ * HISTORY: "we moved this once, and they agreed" is exactly the kind of fact a
+ * thread exists to keep, and without it a conversation reads "can we move it?" /
+ * "sure" with no record of what was actually agreed.
+ *
+ * ── Attributed to the person who did it, because they did ──────────────────
+ * `event_messages.sender_user_id` is NOT NULL and there is no system user, which
+ * turns out to be the right constraint rather than an obstacle: an operator DID
+ * ask, and a performer DID answer. The wording is a record rather than speech —
+ * "Asked to change the date…", not "I'd like to move this" — so it never puts
+ * words in somebody's mouth.
+ *
+ * ── `all`, not `party` ─────────────────────────────────────────────────────
+ * The event room, where everyone on the bill reads it. A night moving is not a
+ * private matter between two of them: the crew's call time depends on it. Same
+ * reasoning as the banner, which also draws for people who cannot answer it.
+ *
+ * ── ISO dates on purpose ───────────────────────────────────────────────────
+ * This is stored text, read later by people in several countries, and it is not
+ * re-rendered by the client the way a `DateText` is. `2026-10-15` carries its
+ * year and cannot be read month-first by mistake (ClickUp 86cbaxud0), which a
+ * prettier format written into a permanent row could.
+ */
+async function postChangeMessage(
+  // biome-ignore lint/suspicious/noExplicitAny: Drizzle db/tx handle.
+  tx: any,
+  request: FastifyRequest,
+  input: { eventId: string; body: string },
+): Promise<void> {
+  const principal = request.principal;
+  if (!principal) return;
+
+  // Their own participation, so the thread shows who spoke. Null is survivable —
+  // the message still posts, attributed to the user.
+  const [participant] = await tx
+    .select({ id: schema.eventParticipants.id })
+    .from(schema.eventParticipants)
+    .innerJoin(
+      schema.profileMembers,
+      eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
+    )
+    .where(
+      and(
+        eq(schema.eventParticipants.eventId, input.eventId),
+        eq(schema.profileMembers.userId, principal.userId),
+        eq(schema.profileMembers.status, "active"),
+      ),
+    );
+
+  await tx.insert(schema.eventMessages).values({
+    eventId: input.eventId,
+    senderUserId: principal.userId,
+    senderParticipantId: participant?.id ?? null,
+    body: input.body,
+    visibility: "all",
+  });
+}
+
+/** "the date from 2026-09-24 to 2026-10-15" — the sentence the message is built on. */
+export function describeMove(changes: NegotiatedValues, previous: NegotiatedValues): string {
+  const parts: string[] = [];
+  if ("eventDate" in changes) {
+    parts.push(
+      `the date from ${previous.eventDate ?? "no date"} to ${changes.eventDate ?? "no date"}`,
+    );
+  }
+  if ("venueProfileId" in changes) parts.push("the venue");
+  if ("stageId" in changes) parts.push("the room");
+  if (parts.length === 0) return "this event";
+  if (parts.length === 1) return parts[0] as string;
+  const last = parts[parts.length - 1];
+  return `${parts.slice(0, -1).join(", ")} and ${last}`;
+}
+
+/**
  * Raise a proposal and tell the people who have to answer it.
  *
  * ── An open proposal is REPLACED, not stacked ─────────────────────────────
@@ -251,6 +333,12 @@ export async function proposeEventChange(
       targetKind: "event",
       targetId: input.eventId,
       summary: { changes: input.changes, previous: input.previous },
+    });
+    // …and into the conversation, so the thread carries the negotiation and not
+    // just its outcome (86cbcftg3).
+    await postChangeMessage(tx, request, {
+      eventId: input.eventId,
+      body: `Asked to change ${describeMove(input.changes, input.previous)}. Waiting on the other side to confirm.`,
     });
     return row;
   });
@@ -489,6 +577,15 @@ export async function answerChangeRequest(
         previous: row.previous,
         ...(input.note ? { note: input.note } : {}),
       },
+    });
+
+    const moved = describeMove(row.changes as NegotiatedValues, row.previous as NegotiatedValues);
+    await postChangeMessage(tx, request, {
+      eventId: input.eventId,
+      body:
+        outcome === "confirmed"
+          ? `Confirmed the change to ${moved}. The event has been updated.`
+          : `Declined the change to ${moved}.${input.note ? ` Reason: ${input.note}` : ""}`,
     });
 
     return { status: outcome };
