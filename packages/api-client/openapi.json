@@ -692,6 +692,30 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "venueLocation": {
+                      "type": "object",
+                      "properties": {
+                        "street": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "city": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "country": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": ["street", "city", "country"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "venueSlug": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "capacity": {
                       "type": "number",
                       "nullable": true
@@ -885,6 +909,8 @@
                     "hostProfileId",
                     "venueProfileId",
                     "venueName",
+                    "venueLocation",
+                    "venueSlug",
                     "capacity",
                     "stageId",
                     "notes",
@@ -1008,6 +1034,30 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "venueLocation": {
+                            "type": "object",
+                            "properties": {
+                              "street": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "city": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "country": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": ["street", "city", "country"],
+                            "additionalProperties": false,
+                            "nullable": true
+                          },
+                          "venueSlug": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "capacity": {
                             "type": "number",
                             "nullable": true
@@ -1053,6 +1103,8 @@
                           "hostProfileId",
                           "venueProfileId",
                           "venueName",
+                          "venueLocation",
+                          "venueSlug",
                           "capacity",
                           "stageId",
                           "version",
@@ -1146,6 +1198,30 @@
                       "nullable": true
                     },
                     "venueName": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "venueLocation": {
+                      "type": "object",
+                      "properties": {
+                        "street": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "city": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "country": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": ["street", "city", "country"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "venueSlug": {
                       "type": "string",
                       "nullable": true
                     },
@@ -1342,6 +1418,8 @@
                     "hostProfileId",
                     "venueProfileId",
                     "venueName",
+                    "venueLocation",
+                    "venueSlug",
                     "capacity",
                     "stageId",
                     "notes",
@@ -1667,6 +1745,30 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "venueLocation": {
+                      "type": "object",
+                      "properties": {
+                        "street": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "city": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "country": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": ["street", "city", "country"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "venueSlug": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "capacity": {
                       "type": "number",
                       "nullable": true
@@ -1860,6 +1962,8 @@
                     "hostProfileId",
                     "venueProfileId",
                     "venueName",
+                    "venueLocation",
+                    "venueSlug",
                     "capacity",
                     "stageId",
                     "notes",
@@ -2206,6 +2310,30 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "venueLocation": {
+                      "type": "object",
+                      "properties": {
+                        "street": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "city": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "country": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": ["street", "city", "country"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "venueSlug": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "capacity": {
                       "type": "number",
                       "nullable": true
@@ -2236,6 +2364,8 @@
                     "hostProfileId",
                     "venueProfileId",
                     "venueName",
+                    "venueLocation",
+                    "venueSlug",
                     "capacity",
                     "stageId",
                     "version"
@@ -2958,6 +3088,187 @@
                     "status",
                     "performerTag"
                   ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/event-invitations": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "eventId": {
+                        "type": "string"
+                      },
+                      "participantId": {
+                        "type": "string"
+                      },
+                      "profileId": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "role": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "eventDate": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "venueName": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "hostName": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "invitedAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "eventId",
+                      "participantId",
+                      "profileId",
+                      "role",
+                      "title",
+                      "eventDate",
+                      "venueName",
+                      "hostName",
+                      "invitedAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/participation/accept": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "note": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "eventId": {
+                      "type": "string"
+                    },
+                    "participantId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["accepted", "declined"]
+                    }
+                  },
+                  "required": ["eventId", "participantId", "status"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/participation/decline": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "note": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "eventId": {
+                      "type": "string"
+                    },
+                    "participantId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["accepted", "declined"]
+                    }
+                  },
+                  "required": ["eventId", "participantId", "status"],
                   "additionalProperties": false
                 }
               }

@@ -8,7 +8,7 @@
 /**
  * @nullable
  */
-export type GetApiV1Events200ItemsItemVenueLocation = {
+export type PostApiV1Events201VenueLocation = {
   /** @nullable */
   street: string | null;
   /** @nullable */

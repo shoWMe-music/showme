@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+
 export * from './deleteApiV1CalendarId200';
 export * from './deleteApiV1DealsDidBody';
 export * from './deleteApiV1EventsId200';
@@ -195,6 +196,7 @@ export * from './getApiV1Me200';
 export * from './getApiV1Me200MembershipsItem';
 export * from './getApiV1Me200MembershipsItemKind';
 export * from './getApiV1Me200MembershipsItemRole';
+export * from './getApiV1MeEventInvitations200Item';
 export * from './getApiV1MeExport200';
 export * from './getApiV1MeExport200Data';
 export * from './getApiV1MeExport200DataItem';
@@ -506,6 +508,7 @@ export * from './postApiV1Events201ExtrasGuestListGuestsItem';
 export * from './postApiV1Events201ExtrasTicketTiersItem';
 export * from './postApiV1Events201ExtrasTicketing';
 export * from './postApiV1Events201ExtrasVenueCarryOver';
+export * from './postApiV1Events201VenueLocation';
 export * from './postApiV1EventsBody';
 export * from './postApiV1EventsBodyDeal';
 export * from './postApiV1EventsBodyDealPartiesItem';
@@ -595,6 +598,12 @@ export * from './postApiV1EventsIdParticipantsOffPlatform201PermissionSet';
 export * from './postApiV1EventsIdParticipantsOffPlatformBody';
 export * from './postApiV1EventsIdParticipantsOffPlatformBodyPerformerTag';
 export * from './postApiV1EventsIdParticipantsOffPlatformBodyRole';
+export * from './postApiV1EventsIdParticipationAccept200';
+export * from './postApiV1EventsIdParticipationAccept200Status';
+export * from './postApiV1EventsIdParticipationAcceptBody';
+export * from './postApiV1EventsIdParticipationDecline200';
+export * from './postApiV1EventsIdParticipationDecline200Status';
+export * from './postApiV1EventsIdParticipationDeclineBody';
 export * from './postApiV1EventsIdPerformanceReport200';
 export * from './postApiV1EventsIdPerformanceReport200Report';
 export * from './postApiV1EventsIdPerformanceReport200ReportWorksItem';
@@ -603,6 +612,7 @@ export * from './postApiV1EventsIdPerformanceReport200Tariff';
 export * from './postApiV1EventsIdPerformanceReport200WorksItem';
 export * from './postApiV1EventsIdPerformanceReportBody';
 export * from './postApiV1EventsIdPublish200';
+export * from './postApiV1EventsIdPublish200VenueLocation';
 export * from './postApiV1EventsIdPublishBody';
 export * from './postApiV1EventsIdPublishBodyAnyOf';
 export * from './postApiV1EventsIdRiders201';
