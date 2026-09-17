@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1Events201VenueLocation } from './postApiV1Events201VenueLocation';
 import type { PostApiV1Events201Extras } from './postApiV1Events201Extras';
 
 export type PostApiV1Events201 = {
@@ -29,6 +30,10 @@ export type PostApiV1Events201 = {
   venueProfileId: string | null;
   /** @nullable */
   venueName: string | null;
+  /** @nullable */
+  venueLocation: PostApiV1Events201VenueLocation;
+  /** @nullable */
+  venueSlug: string | null;
   /** @nullable */
   capacity: number | null;
   /** @nullable */

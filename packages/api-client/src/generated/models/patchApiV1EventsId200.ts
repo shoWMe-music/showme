@@ -4,7 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
-import type { PatchApiV1EventsId200VenueLocation } from "./patchApiV1EventsId200VenueLocation";
+import type { PatchApiV1EventsId200VenueLocation } from './patchApiV1EventsId200VenueLocation';
 import type { PatchApiV1EventsId200Extras } from './patchApiV1EventsId200Extras';
 
 export type PatchApiV1EventsId200 = {
@@ -31,9 +31,8 @@ export type PatchApiV1EventsId200 = {
   /** @nullable */
   venueName: string | null;
   /** @nullable */
-  venueLocation: PatchApiV1EventsId200VenueLocation | null;
-  /** The venue's public slug, so "Go to profile" has an address.
-   * @nullable */
+  venueLocation: PatchApiV1EventsId200VenueLocation;
+  /** @nullable */
   venueSlug: string | null;
   /** @nullable */
   capacity: number | null;

@@ -392,3 +392,35 @@ export function isGrantable(capability: Capability, role: EventRole): boolean {
   }
   return !POOL_CAPABILITIES.has(capability);
 }
+
+/**
+ * WHICH PARTICIPANT STATUSES ACTUALLY STAND ON AN EVENT.
+ *
+ * ClickUp 86cbcehmp / 123qy9rnf87. `event_participants.status` has carried
+ * `invited | accepted | declined | confirmed | removed` since the schema was
+ * written, and until now authorization asked only `status <> 'removed'` — so
+ * four of the five values meant exactly the same thing and the column decided
+ * nothing. Ran: *"the invited party gets invited to an event → gets access to
+ * the event manager as a collaborator immediately → stays as 'Invited' in the
+ * collaborators tab."* That is this predicate, not a UI oversight.
+ *
+ * `invited` is now OUTSIDE the set: being named on a bill somebody else is
+ * drawing up is not the same as having agreed to play it, and it must not read
+ * the deal, the budget or the rider until it is. `declined` is outside for the
+ * same reason from the other end.
+ *
+ * ── This is the ONE definition. Do not restate it in a route. ───────────────
+ * Both keyed queries in this package filter on it (`authorize.ts` for standing,
+ * `delegation.ts` for which delegations are live). A second copy is a future
+ * disagreement about who can read an event, which is the worst class of drift
+ * this module exists to prevent.
+ *
+ * ── What still reaches an invited participant ──────────────────────────────
+ * The invitation itself, and nothing else. `pendingEventInvitations` below is
+ * the whole of it: enough to show who is asking and about which night, so the
+ * person can answer. Answering is `POST /events/:id/participation/accept`.
+ */
+export const STANDING_PARTICIPANT_STATUSES = ["accepted", "confirmed"] as const;
+
+/** The inverse, as the SQL filter both queries use. Kept adjacent so they move together. */
+export const NON_STANDING_PARTICIPANT_STATUSES = ["invited", "declined", "removed"] as const;

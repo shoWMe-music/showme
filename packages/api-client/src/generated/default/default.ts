@@ -62,6 +62,7 @@ import type {
   GetApiV1EventsId200,
   GetApiV1EventsIdBudgets200Item,
   GetApiV1EventsIdBudgetsBidLines200Item,
+  GetApiV1EventsIdChangeRequest200,
   GetApiV1EventsIdDeals200Item,
   GetApiV1EventsIdHold200,
   GetApiV1EventsIdInvitations200Item,
@@ -100,6 +101,7 @@ import type {
   GetApiV1InvitationsToken200,
   GetApiV1InvoicesIid200,
   GetApiV1Me200,
+  GetApiV1MeEventInvitations200Item,
   GetApiV1MeExport200,
   GetApiV1Notifications200,
   GetApiV1NotificationsParams,
@@ -213,6 +215,8 @@ import type {
   PostApiV1EventsIdBudgetsBidLines201,
   PostApiV1EventsIdBudgetsBidLinesBody,
   PostApiV1EventsIdBudgetsBody,
+  PostApiV1EventsIdChangeRequestCridAnswer200,
+  PostApiV1EventsIdChangeRequestCridAnswerBody,
   PostApiV1EventsIdDeals201,
   PostApiV1EventsIdDealsBody,
   PostApiV1EventsIdGroups200,
@@ -233,6 +237,10 @@ import type {
   PostApiV1EventsIdParticipantsBody,
   PostApiV1EventsIdParticipantsOffPlatform201,
   PostApiV1EventsIdParticipantsOffPlatformBody,
+  PostApiV1EventsIdParticipationAccept200,
+  PostApiV1EventsIdParticipationAcceptBody,
+  PostApiV1EventsIdParticipationDecline200,
+  PostApiV1EventsIdParticipationDeclineBody,
   PostApiV1EventsIdPerformanceReport200,
   PostApiV1EventsIdPerformanceReportBody,
   PostApiV1EventsIdPublish200,
@@ -1232,6 +1240,153 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
+    export const getApiV1EventsIdChangeRequest = (
+    id: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1EventsIdChangeRequest200>(
+      {url: `/api/v1/events/${id}/change-request`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1EventsIdChangeRequestQueryKey = (id?: string,) => {
+    return [
+    `/api/v1/events/${id}/change-request`
+    ] as const;
+    }
+
+    
+export const getGetApiV1EventsIdChangeRequestQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>, TError = unknown>(id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1EventsIdChangeRequestQueryKey(id);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>> = ({ signal }) => getApiV1EventsIdChangeRequest(id, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1EventsIdChangeRequestQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>>
+export type GetApiV1EventsIdChangeRequestQueryError = unknown
+
+
+export function useGetApiV1EventsIdChangeRequest<TData = Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>, TError = unknown>(
+ id: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdChangeRequest<TData = Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsIdChangeRequest<TData = Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1EventsIdChangeRequest<TData = Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>, TError = unknown>(
+ id: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsIdChangeRequest>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1EventsIdChangeRequestQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const postApiV1EventsIdChangeRequestCridAnswer = (
+    id: string,
+    crid: string,
+    answer: 'confirm' | 'decline',
+    postApiV1EventsIdChangeRequestCridAnswerBody: PostApiV1EventsIdChangeRequestCridAnswerBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1EventsIdChangeRequestCridAnswer200>(
+      {url: `/api/v1/events/${id}/change-request/${crid}/${answer}`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1EventsIdChangeRequestCridAnswerBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1EventsIdChangeRequestCridAnswerMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdChangeRequestCridAnswer>>, TError,{id: string;crid: string;answer: 'confirm' | 'decline';data: PostApiV1EventsIdChangeRequestCridAnswerBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdChangeRequestCridAnswer>>, TError,{id: string;crid: string;answer: 'confirm' | 'decline';data: PostApiV1EventsIdChangeRequestCridAnswerBody}, TContext> => {
+
+const mutationKey = ['postApiV1EventsIdChangeRequestCridAnswer'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdChangeRequestCridAnswer>>, {id: string;crid: string;answer: 'confirm' | 'decline';data: PostApiV1EventsIdChangeRequestCridAnswerBody}> = (props) => {
+          const {id,crid,answer,data} = props ?? {};
+
+          return  postApiV1EventsIdChangeRequestCridAnswer(id,crid,answer,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1EventsIdChangeRequestCridAnswerMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1EventsIdChangeRequestCridAnswer>>>
+    export type PostApiV1EventsIdChangeRequestCridAnswerMutationBody = PostApiV1EventsIdChangeRequestCridAnswerBody
+    export type PostApiV1EventsIdChangeRequestCridAnswerMutationError = unknown
+
+    export const usePostApiV1EventsIdChangeRequestCridAnswer = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdChangeRequestCridAnswer>>, TError,{id: string;crid: string;answer: 'confirm' | 'decline';data: PostApiV1EventsIdChangeRequestCridAnswerBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1EventsIdChangeRequestCridAnswer>>,
+        TError,
+        {id: string;crid: string;answer: 'confirm' | 'decline';data: PostApiV1EventsIdChangeRequestCridAnswerBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1EventsIdChangeRequestCridAnswerMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
     export const getApiV1EventsDateConflicts = (
     params: GetApiV1EventsDateConflictsParams,
  signal?: AbortSignal
@@ -1836,6 +1991,210 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getDeleteApiV1EventsIdParticipantsPidMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const getApiV1MeEventInvitations = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1MeEventInvitations200Item[]>(
+      {url: `/api/v1/me/event-invitations`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1MeEventInvitationsQueryKey = () => {
+    return [
+    `/api/v1/me/event-invitations`
+    ] as const;
+    }
+
+    
+export const getGetApiV1MeEventInvitationsQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1MeEventInvitations>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1MeEventInvitations>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1MeEventInvitationsQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1MeEventInvitations>>> = ({ signal }) => getApiV1MeEventInvitations(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1MeEventInvitations>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1MeEventInvitationsQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1MeEventInvitations>>>
+export type GetApiV1MeEventInvitationsQueryError = unknown
+
+
+export function useGetApiV1MeEventInvitations<TData = Awaited<ReturnType<typeof getApiV1MeEventInvitations>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1MeEventInvitations>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1MeEventInvitations>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1MeEventInvitations>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1MeEventInvitations<TData = Awaited<ReturnType<typeof getApiV1MeEventInvitations>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1MeEventInvitations>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1MeEventInvitations>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1MeEventInvitations>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1MeEventInvitations<TData = Awaited<ReturnType<typeof getApiV1MeEventInvitations>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1MeEventInvitations>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1MeEventInvitations<TData = Awaited<ReturnType<typeof getApiV1MeEventInvitations>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1MeEventInvitations>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1MeEventInvitationsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const postApiV1EventsIdParticipationAccept = (
+    id: string,
+    postApiV1EventsIdParticipationAcceptBody: PostApiV1EventsIdParticipationAcceptBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1EventsIdParticipationAccept200>(
+      {url: `/api/v1/events/${id}/participation/accept`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1EventsIdParticipationAcceptBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1EventsIdParticipationAcceptMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdParticipationAccept>>, TError,{id: string;data: PostApiV1EventsIdParticipationAcceptBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdParticipationAccept>>, TError,{id: string;data: PostApiV1EventsIdParticipationAcceptBody}, TContext> => {
+
+const mutationKey = ['postApiV1EventsIdParticipationAccept'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdParticipationAccept>>, {id: string;data: PostApiV1EventsIdParticipationAcceptBody}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  postApiV1EventsIdParticipationAccept(id,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1EventsIdParticipationAcceptMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1EventsIdParticipationAccept>>>
+    export type PostApiV1EventsIdParticipationAcceptMutationBody = PostApiV1EventsIdParticipationAcceptBody
+    export type PostApiV1EventsIdParticipationAcceptMutationError = unknown
+
+    export const usePostApiV1EventsIdParticipationAccept = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdParticipationAccept>>, TError,{id: string;data: PostApiV1EventsIdParticipationAcceptBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1EventsIdParticipationAccept>>,
+        TError,
+        {id: string;data: PostApiV1EventsIdParticipationAcceptBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1EventsIdParticipationAcceptMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const postApiV1EventsIdParticipationDecline = (
+    id: string,
+    postApiV1EventsIdParticipationDeclineBody: PostApiV1EventsIdParticipationDeclineBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1EventsIdParticipationDecline200>(
+      {url: `/api/v1/events/${id}/participation/decline`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1EventsIdParticipationDeclineBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1EventsIdParticipationDeclineMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdParticipationDecline>>, TError,{id: string;data: PostApiV1EventsIdParticipationDeclineBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdParticipationDecline>>, TError,{id: string;data: PostApiV1EventsIdParticipationDeclineBody}, TContext> => {
+
+const mutationKey = ['postApiV1EventsIdParticipationDecline'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdParticipationDecline>>, {id: string;data: PostApiV1EventsIdParticipationDeclineBody}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  postApiV1EventsIdParticipationDecline(id,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1EventsIdParticipationDeclineMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1EventsIdParticipationDecline>>>
+    export type PostApiV1EventsIdParticipationDeclineMutationBody = PostApiV1EventsIdParticipationDeclineBody
+    export type PostApiV1EventsIdParticipationDeclineMutationError = unknown
+
+    export const usePostApiV1EventsIdParticipationDecline = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdParticipationDecline>>, TError,{id: string;data: PostApiV1EventsIdParticipationDeclineBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1EventsIdParticipationDecline>>,
+        TError,
+        {id: string;data: PostApiV1EventsIdParticipationDeclineBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1EventsIdParticipationDeclineMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

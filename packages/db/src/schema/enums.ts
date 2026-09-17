@@ -338,3 +338,21 @@ export const representationParty = pgEnum("representation_party", ["agent", "per
  * a job nobody has triaged should not outrank one somebody called unimportant.
  */
 export const taskPriority = pgEnum("task_priority", ["urgent", "high", "normal", "low"]);
+
+/**
+ * A proposed change to a booked night, and where it got to.
+ *
+ * ClickUp 86cbcftg3. `pending` until every counterpart has answered; `confirmed`
+ * the moment the last one agrees (which is when the change is actually applied);
+ * `declined` the moment any one refuses; `superseded` when the proposer replaces
+ * it with another proposal rather than waiting for this one.
+ */
+export const eventChangeRequestStatus = pgEnum("event_change_request_status", [
+  "pending",
+  "confirmed",
+  "declined",
+  "superseded",
+]);
+
+/** One counterpart's answer to a proposed change. */
+export const eventChangeResponse = pgEnum("event_change_response", ["confirmed", "declined"]);

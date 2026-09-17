@@ -155,8 +155,26 @@ describe("activity feed — target-scoped visibility", () => {
     // Performer A is a party on the deal → sees both.
     expect(await types("act-a")).toEqual(["deal.created", "participant.added"]);
 
-    // Performer B is NOT a party → sees the event-level item, not the deal.
-    expect(await types("act-b")).toEqual(["participant.added"]);
+    // Performer B was added through the real route, so they are `invited` and
+    // have not answered. An unanswered invitation grants nothing — not even the
+    // feed (86cbcehmp). This is the half that would stay green if the gate were
+    // deleted, so it is asserted explicitly rather than assumed.
+    expect(await types("act-b")).toEqual([]);
+
+    const accept = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("act-b"),
+      payload: {},
+    });
+    expect(accept.statusCode).toBe(200);
+    expect(accept.json().status).toBe("accepted");
+
+    // Answered → standing on the event. Performer B is NOT a party on the deal,
+    // so they see the event-level items and not the deal one. Their own answer is
+    // one of those items: accepting writes `participant.accepted`, which is the
+    // thing the operator is waiting to see.
+    expect(await types("act-b")).toEqual(["participant.accepted", "participant.added"]);
   });
 
   it("returns an empty feed for a user with no reachable events", async () => {

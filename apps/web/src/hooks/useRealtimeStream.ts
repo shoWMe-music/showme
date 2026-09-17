@@ -1,10 +1,8 @@
-import {
-  getGetApiV1EventsIdMessagesQueryKey,
-  getGetApiV1NotificationsQueryKey,
-} from "@showme/api-client";
+import { getGetApiV1NotificationsQueryKey } from "@showme/api-client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { auth } from "../auth/firebase";
+import { messagesKey, threadsKey } from "../components/useEventMessageThreads";
 import { playNotificationSound } from "../lib/notificationSound";
 
 /**
@@ -92,9 +90,13 @@ export function useRealtimeStream(streamUrl: string | undefined): void {
       if (event.type === "event.message_posted" && event.eventId) {
         // Refetch through the authorized endpoint — the frame deliberately carries
         // no message body, so the server re-applies visibility on the way out.
-        void client.invalidateQueries({
-          queryKey: getGetApiV1EventsIdMessagesQueryKey(event.eventId),
-        });
+        // `messagesKey`, not the generated key: the Messages tab keys its own
+        // queries (see `useEventMessageThreads`), so the generated one matched
+        // nothing and this invalidation had never actually refreshed a thread —
+        // a message arriving over SSE sat unseen until something else refetched.
+        // Found while fixing the same mistake in the change-request hook.
+        void client.invalidateQueries({ queryKey: messagesKey(event.eventId) });
+        void client.invalidateQueries({ queryKey: threadsKey(event.eventId) });
       }
     };
 

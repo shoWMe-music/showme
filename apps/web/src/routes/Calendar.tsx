@@ -3,7 +3,7 @@ import {
   getGetApiV1CalendarQueryKey,
   useGetApiV1Calendar,
 } from "@showme/api-client";
-import { Card, Icon, Select, type Status, useToast } from "@showme/design-system";
+import { Icon, Select, type Status, useToast } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -18,8 +18,6 @@ import { CalendarItemCreateModal } from "../components/CalendarItemCreateModal";
 import { CalendarJumpToDate } from "../components/CalendarJumpToDate";
 import { CalendarWeekGrid } from "../components/CalendarWeekGrid";
 import { ExternalCalendarCard } from "../components/ExternalCalendarCard";
-import { MarkUnavailableModal } from "../components/MarkUnavailableModal";
-import { MyCalendarsCard } from "../components/MyCalendarsCard";
 import { TaskFormModal } from "../components/TaskFormModal";
 import {
   type CalendarView,
@@ -30,20 +28,19 @@ import {
   viewTitle,
 } from "../components/calendarGrid";
 import { useCalendarPerformerNames } from "../components/calendarPerformers";
-import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { useCalendarIcsExport } from "../components/useCalendarIcsExport";
 import { type CalendarItemKind, useCalendarItemCreate } from "../components/useCalendarItemCreate";
 import { useExternalCalendarEntries } from "../components/useExternalCalendarEntries";
 import {
   type UnavailableDays,
-  blocksOverlappingRange,
   unavailableDaysInRange,
   useMarkUnavailable,
 } from "../components/useMarkUnavailable";
 import { useAvailabilityShare } from "../hooks/useAvailabilityShare";
 import { useCalendarSources } from "../hooks/useCalendarSources";
 import { useCalendarVenueFilter } from "../hooks/useCalendarVenueFilter";
+import { useEventInvitations } from "../hooks/useEventInvitations";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
 import { calendarEventLabel } from "../lib/calendarEventLabel";
 import { buildCalendarInventory, placeEvents } from "../lib/calendarInventory";
@@ -476,6 +473,24 @@ export function Calendar() {
   const calendar = useGetApiV1Calendar({ from, to });
   // Every event: the grid is a month of the whole schedule, not of page one.
   const events = useAllEvents();
+  /**
+   * NIGHTS SOMEBODY HAS ASKED FOR, which are not events yet.
+   *
+   * ClickUp 86cbcehmp. Ran asked for two things that pull against each other: an
+   * invited performer must ANSWER before they get the event ("Invited users
+   * should first have the option to 'Accept invite'"), and the offer should still
+   * "appear as a 'Suggested' event in the performer's calendar" while it is
+   * unanswered. The gate won the first one — `GET /events` no longer returns an
+   * event you have not accepted — which silently lost the second, because this
+   * grid is drawn from that list.
+   *
+   * So the date comes from the INVITATION instead. What lands on the grid is a
+   * marker, not an event: the night, the venue, and that somebody is asking. It
+   * carries no `eventId`, which is what makes it un-clickable — following it
+   * would open an event the reader is not allowed to read, and a chip that 404s
+   * is worse than one that does not move.
+   */
+  const invitations = useEventInvitations();
   // The calendars this user actually has — their venues, and the rooms inside
   // them. Replaces three hard-coded prototype labels that named a ROLE, not a
   // calendar (see `useCalendarSources`).
@@ -537,8 +552,24 @@ export function Calendar() {
         // a touring act reads most.
         country: event.venueLocation?.country ?? null,
       }));
-    return [...items, ...dated];
-  }, [calendar.data, events.items, myProfileIds]);
+    // Third source: unanswered invitations. Placed last so that if an event and
+    // an invitation ever named the same night, the real event draws over it.
+    const invited: CalendarEvent[] = invitations.invitations
+      .filter((invitation) => invitation.eventDate)
+      .map((invitation) => ({
+        // Namespaced: this is not the event's id, and nothing should treat it as
+        // one. React only needs it to be distinct.
+        id: `invitation:${invitation.participantId}`,
+        date: toDayKey(invitation.eventDate as string),
+        eventName: invitation.title ?? "Invitation",
+        performer: invitation.hostName ?? undefined,
+        status: "suggested",
+        statusLabel: "Invitation",
+        // NO `eventId` — see the note where `invitations` is read.
+      }));
+
+    return [...items, ...dated, ...invited];
+  }, [calendar.data, events.items, invitations.invitations, myProfileIds]);
 
   // Who is playing: only for the events on screen, since it costs one request each.
   const visibleEventIds = useMemo(
@@ -621,12 +652,6 @@ export function Calendar() {
   // The imported entries that touch what is on screen, plus the two writes the
   // rail card offers on each of them.
   const externalEntries = useExternalCalendarEntries(calendar.data ?? [], visibleRange);
-
-  const blockedInView = blocksOverlappingRange(
-    markUnavailable.savedBlocks,
-    visibleRange.from,
-    visibleRange.to,
-  );
 
   // The same blocks, one entry per day, so a grid cell can ask about ITSELF
   // instead of scanning every range on every render.
@@ -1027,77 +1052,28 @@ export function Calendar() {
             />
           )}
 
+          {/* ── THE RAIL, CUT DOWN TO WHAT IT ALONE CAN SAY (86cbcn189) ──────
+              Ran named four cards and why each was redundant, and three of them
+              were: the status legend (the chips are already labelled), the
+              blocked-dates read-out (unavailability is drawn on the dates now)
+              and "My calendars" (its own comment admitted its checkboxes
+              filtered nothing, and the Rooms chip in the filter row is the real
+              filter).
+
+              "From your calendar" STAYS, against the list, and this is the one
+              place to argue with. Ran's reason was that it "can be marked in the
+              calendar itself" — but it is not a read-out. It carries the only two
+              controls for an imported entry anywhere in the app: turn it into a
+              show, and decide whether it blocks your public availability. The
+              grid chip has neither. Deleting the card would delete both features
+              rather than tidy a duplicate, so it is left for him to decide with
+              that on the table. */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <Eyebrow>Status legend</Eyebrow>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {LEGEND.map((entry) => (
-                  <span
-                    key={entry.label}
-                    style={{ display: "flex", alignItems: "center", gap: 10 }}
-                  >
-                    <span
-                      style={{
-                        width: 11,
-                        height: 11,
-                        borderRadius: 3,
-                        background: entry.color,
-                      }}
-                    />
-                    <span style={{ fontSize: 12.5, color: "var(--text)" }}>{entry.label}</span>
-                  </span>
-                ))}
-              </div>
-            </Card>
-
-            {/* What marking mode actually wrote, for the period on screen.
-                Read-only on purpose: it used to be the way IN to the editor, and
-                a side box is exactly the wrong place to pick dates from when the
-                dates are already drawn two columns to the left. It survives only
-                as the read-out — a block outside the visible month is otherwise
-                invisible, and a rule you cannot see is a rule you re-break. */}
-            <Card padding="md" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <Eyebrow>Unavailable</Eyebrow>
-              {blockedInView.length === 0 ? (
-                <p style={{ margin: 0, fontSize: 12.5, color: "var(--muted)" }}>
-                  {markUnavailable.savedBlocks.length === 0
-                    ? "Nothing blocked."
-                    : `Nothing blocked in ${periodTitle}.`}
-                </p>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                  {blockedInView.map((block) => (
-                    <span
-                      key={block.id ?? `${block.startDate}-${block.endDate}`}
-                      style={{ display: "flex", flexDirection: "column", gap: 2 }}
-                    >
-                      <span style={{ fontSize: 12.5, color: "var(--text)" }}>
-                        {block.startDate === block.endDate
-                          ? block.startDate
-                          : `${block.startDate} → ${block.endDate}`}
-                      </span>
-                      {block.reason && (
-                        <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
-                          {block.reason}
-                        </span>
-                      )}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </Card>
-
             <ExternalCalendarCard
               view={externalEntries}
               periodTitle={periodTitle}
               canCreateEvent={canCreateEvent}
               onOpenEvent={(eventId) => navigate({ to: "/events/$eventId", params: { eventId } })}
-            />
-
-            <MyCalendarsCard
-              groups={calendarInventory}
-              periodTitle={periodTitle}
-              onManageRooms={() => navigate({ to: "/profiles" })}
             />
           </div>
         </div>
@@ -1125,8 +1101,6 @@ export function Calendar() {
         shareLink={share.shareLink}
         onCopyLink={share.copyLink}
       />
-
-      <MarkUnavailableModal view={markUnavailable} />
 
       <CalendarIcsImportModal open={importOpen} onClose={() => setImportOpen(false)} />
 

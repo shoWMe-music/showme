@@ -1003,6 +1003,18 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
                 "performer") as (typeof schema.eventParticipants.$inferInsert)["role"],
               permissionSetId: invitation.permissionSetId,
               addedBy: principal.userId,
+              // ACCEPTED, not the column's `invited` default (86cbcehmp). Reaching
+              // this line means the person opened the invitation and pressed
+              // Accept — this route IS the acceptance. Landing them on `invited`
+              // would show them an "Accept invite" prompt for the invitation they
+              // just accepted, and (since `invited` now grants nothing) leave them
+              // locked out of the event they were let into.
+              //
+              // The stub-CLAIM path is deliberately different: signing up with an
+              // address an operator happened to type is agreeing to have an
+              // account, not agreeing to play the show, so those rows stay
+              // `invited` and still need answering. See `off-platform.test.ts`.
+              status: "accepted",
             });
           } else {
             throw badRequest("This invitation cannot be accepted directly");

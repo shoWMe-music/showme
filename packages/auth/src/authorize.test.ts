@@ -351,8 +351,20 @@ describe("effectiveEventCapabilities & authorizeEvent", () => {
     const setA = await seedPermissionSet(owner.profile.id, "a", ["schedule.view", "schedule.edit"]);
     const setB = await seedPermissionSet(secondProfile.id, "b", ["budget.view"]);
     await db.insert(schema.eventParticipants).values([
-      { eventId: event.id, profileId: owner.profile.id, role: "host", permissionSetId: setA.id },
-      { eventId: event.id, profileId: secondProfile.id, role: "co_host", permissionSetId: setB.id },
+      {
+        eventId: event.id,
+        profileId: owner.profile.id,
+        role: "host",
+        status: "confirmed",
+        permissionSetId: setA.id,
+      },
+      {
+        eventId: event.id,
+        profileId: secondProfile.id,
+        role: "co_host",
+        status: "confirmed",
+        permissionSetId: setB.id,
+      },
     ]);
 
     const principal = await resolvePrincipal(db, owner.user.id);
@@ -454,6 +466,7 @@ describe("decisions #4 — floor and ceiling", () => {
       eventId: event.id,
       profileId: performer.profile.id,
       role: "performer",
+      status: "confirmed",
       permissionSetId: emptySet.id,
     });
 
@@ -483,6 +496,7 @@ describe("decisions #4 — floor and ceiling", () => {
       eventId: event.id,
       profileId: performer.profile.id,
       role: "performer",
+      status: "confirmed",
       permissionSetId: richSet.id,
     });
 
@@ -536,6 +550,10 @@ describe("decisions #4 — floor and ceiling", () => {
         profileId: member.profile.id,
         role,
         permissionSetId: set.id,
+        // This test is about the CEILING, not about standing: an unanswered
+        // invitation grants nothing at all (86cbcehmp), which would make every
+        // assertion below pass for the wrong reason.
+        status: "confirmed",
       });
       const principal = await resolvePrincipal(db, member.user.id);
       if (!principal) throw new Error("principal not resolved");
@@ -579,6 +597,7 @@ describe("decisions #4 — floor and ceiling", () => {
       eventId: event.id,
       profileId: operator.profile.id,
       role: "host",
+      status: "confirmed",
       permissionSetId: fullSet.id,
     });
 

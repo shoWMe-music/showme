@@ -175,6 +175,9 @@ export {
   WHOLE_VENUE,
   hasSeparableRooms,
   occupiedDates,
+  TAKEN_EVENT_STATUSES,
+  isDateTaken,
+  isDateHeld,
 } from "./room-availability";
 export {
   type AmenityOption,

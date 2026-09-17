@@ -96,18 +96,6 @@ export interface MarkUnavailableView {
    * nothing was picked. */
   finishMarking: () => void;
 
-  /** The confirm step — where the reason is asked for, once, for the lot. */
-  isConfirmOpen: boolean;
-  /** Back to marking with the selection intact. */
-  closeConfirm: () => void;
-  /** What the commit will block, and what it will free, as inclusive ranges so
-   * the dialog can name them the way the calendar does. */
-  blockRanges: UnavailabilityBlock[];
-  freeRanges: UnavailabilityBlock[];
-  daysToBlockCount: number;
-  daysToFreeCount: number;
-  reason: string;
-  setReason: (value: string) => void;
   commit: () => void;
   isSaving: boolean;
   /** A refusal from the API (403, validation), verbatim. */
@@ -144,8 +132,6 @@ export function useMarkUnavailable(handlers: MarkUnavailableHandlers): MarkUnava
   const [selectedDays, setSelectedDays] = useState<ReadonlySet<string>>(() => new Set());
   /** The day a shift-click extends FROM: the last one a plain gesture touched. */
   const [anchorDay, setAnchorDay] = useState<string | null>(null);
-  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const [reason, setReason] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const serverBlocks = useMemo<UnavailabilityBlock[]>(
@@ -166,7 +152,6 @@ export function useMarkUnavailable(handlers: MarkUnavailableHandlers): MarkUnava
   const startMarking = useCallback(() => {
     setSelectedDays(new Set());
     setAnchorDay(null);
-    setReason("");
     setSaveError(null);
     setIsMarking(true);
     // The PUT replaces the whole set, so it has to be built on what is stored
@@ -176,10 +161,8 @@ export function useMarkUnavailable(handlers: MarkUnavailableHandlers): MarkUnava
 
   const cancelMarking = useCallback(() => {
     setIsMarking(false);
-    setIsConfirmOpen(false);
     setSelectedDays(new Set());
     setAnchorDay(null);
-    setReason("");
     setSaveError(null);
   }, []);
 
@@ -241,31 +224,37 @@ export function useMarkUnavailable(handlers: MarkUnavailableHandlers): MarkUnava
       return;
     }
     setSaveError(null);
-    if (daysToBlock.length === 0) {
-      commit();
-      return;
-    }
-    setIsConfirmOpen(true);
+    // STRAIGHT TO THE WRITE — no dialog (ClickUp 86cbcn189). Ran: *"no need for
+    // the model that comes after marking - a simple marking on/off would do."*
+    //
+    // It used to stop here and ask WHY, once, for the whole selection. That was
+    // already the better half of an older fix (86cbaxwb5 replaced a date-picking
+    // modal with marking on the grid); this finishes the job. Marking is now one
+    // gesture: turn it on, pick nights, press Done.
+    //
+    // The consequence, stated because it is a real one: `reason` no longer has an
+    // input anywhere. Existing reasons are preserved by `applyDaySelection` and
+    // still render wherever they are shown, but new blocks carry none. If that is
+    // missed, the cheap version is an edit on an already-marked date rather than
+    // a gate in front of every save.
+    commit();
   };
 
-  // Escape abandons marking without writing. Not while the confirm dialog is up —
-  // the Modal's own Escape closes that first, which puts the reader back on the
-  // grid with the selection still in hand rather than throwing it away.
+  // Escape abandons marking without writing. There is no dialog to defer to any
+  // more (86cbcn189) — marking is the only mode Escape can be in.
   useEffect(() => {
-    if (!isMarking || isConfirmOpen) return;
+    if (!isMarking) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") cancelMarking();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isMarking, isConfirmOpen, cancelMarking]);
-
-  const noReason = () => null;
+  }, [isMarking, cancelMarking]);
 
   const commit = () => {
     if (!activeProfileId) return;
     setSaveError(null);
-    const next = applyDaySelection(serverBlocks, sortedSelection, reason.trim() || null);
+    const next = applyDaySelection(serverBlocks, sortedSelection, null);
     replaceUnavailability.mutate(
       {
         id: activeProfileId,
@@ -307,14 +296,6 @@ export function useMarkUnavailable(handlers: MarkUnavailableHandlers): MarkUnava
     markDays,
     finishMarking,
 
-    isConfirmOpen,
-    closeConfirm: () => setIsConfirmOpen(false),
-    blockRanges: collapseDays(daysToBlock, noReason),
-    freeRanges: collapseDays(daysToFree, noReason),
-    daysToBlockCount: daysToBlock.length,
-    daysToFreeCount: daysToFree.length,
-    reason,
-    setReason,
     commit,
     isSaving: replaceUnavailability.isPending,
     saveError,

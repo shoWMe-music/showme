@@ -131,6 +131,7 @@ async function seedEvent(hostProfileId: string, permissionSetId: string, created
     eventId: event.id,
     profileId: hostProfileId,
     role: "host",
+    status: "confirmed",
     permissionSetId,
   });
   return event;

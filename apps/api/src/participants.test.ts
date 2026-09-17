@@ -5,6 +5,8 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import { eventRoutes } from "./routes/events";
+import { eventListRoutes } from "./routes/events-list";
 import { participantRoutes } from "./routes/participants";
 import { buildTestApp } from "./testing";
 
@@ -20,7 +22,14 @@ let app: FastifyInstance;
 
 beforeAll(async () => {
   harness = await startTestDatabase();
-  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [participantRoutes]);
+  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [
+    participantRoutes,
+    // `GET /events` resolves reachability with its OWN sql, so the leak test
+    // below needs the real list route rather than a stand-in.
+    eventListRoutes,
+    // `PATCH /events/:id` is where a date change becomes a question (86cbcftg3).
+    eventRoutes,
+  ]);
   await app.ready();
 });
 
@@ -1055,5 +1064,829 @@ describe("participants — a removal remembers what it undid", () => {
     ).json();
     const row = rows.find((one: { id: string }) => one.id === participant.id);
     expect(row.statusBeforeRemoval).toBeNull();
+  });
+});
+
+/**
+ * ── THE INVITATION GATE (ClickUp 86cbcehmp, symptom 123qy9rnf87) ────────────
+ *
+ * Ran: *"Invited users should first have the option to 'Accept invite' -
+ * currently the invited party gets invited to an event → gets access to the
+ * event manager as a collaborator immediately → stays as 'Invited'."*
+ *
+ * `event_participants.status` existed and advanced nowhere; authorization asked
+ * only `status <> 'removed'`. These tests pin the rule in BOTH directions,
+ * because a suite that only proves "an accepted participant can read the event"
+ * stays green with the gate deleted — which is precisely the shape of bug this
+ * repo keeps finding (CLAUDE.md, "Green is not the same as correct").
+ */
+describe("participants — an invitation must be answered", () => {
+  it("gives an invited participant NOTHING until they answer, then everything", async () => {
+    const { operator, performer, event } = await seedEventWithHost("gate");
+
+    // Added through the real route, so the status is whatever production writes.
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("gate-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    expect(added.statusCode).toBe(201);
+    expect(added.json().status).toBe("invited");
+
+    // ── Half one: invited reads nothing. Delete the gate and this goes red. ──
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("gate-perf"),
+    });
+    expect(before.statusCode).toBe(404);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("gate-perf"),
+      payload: {},
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json().status).toBe("accepted");
+
+    // ── Half two: answered reads the event. Over-tighten and this goes red. ──
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("gate-perf"),
+    });
+    expect(after.statusCode).toBe(200);
+
+    // The operator never lost their own event to the gate — the host row is
+    // `confirmed` from creation, which is the reason this is safe to ship.
+    const asOperator = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("gate-op"),
+    });
+    expect(asOperator.statusCode).toBe(200);
+    expect(operator.profileId).toBeTruthy();
+  });
+
+  it("closes the event again when the invitation is declined, and records the note", async () => {
+    const { db } = harness;
+    const { performer, event } = await seedEventWithHost("decl");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("decl-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+
+    const declined = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/decline`,
+      headers: auth("decl-perf"),
+      payload: { note: "Already booked that night" },
+    });
+    expect(declined.statusCode).toBe(200);
+    expect(declined.json().status).toBe("declined");
+
+    // Declined is outside the standing set too — saying no must not leave the
+    // books open. (The row stays, so the operator can see who said no.)
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("decl-perf"),
+    });
+    expect(after.statusCode).toBe(404);
+
+    const [row] = await db
+      .select()
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, event.id),
+          eq(schema.eventParticipants.profileId, performer.profileId),
+        ),
+      );
+    expect(row?.status).toBe("declined");
+
+    // Ran asked for the reason to be capturable — it reaches the activity feed,
+    // which is where the operator finds out WHY rather than merely that.
+    const [activity] = await db
+      .select()
+      .from(schema.activityLog)
+      .where(eq(schema.activityLog.type, "participant.declined"));
+    expect((activity?.summary as { note?: string } | null)?.note).toBe("Already booked that night");
+  });
+
+  it("refuses to answer twice, and refuses a stranger with 404 rather than 403", async () => {
+    const { performer, event } = await seedEventWithHost("twice");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("twice-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("twice-perf"),
+      payload: {},
+    });
+    expect(first.statusCode).toBe(200);
+
+    const second = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("twice-perf"),
+      payload: {},
+    });
+    expect(second.statusCode).toBe(409);
+
+    // Somebody with no invitation must not learn the event exists from the
+    // shape of the refusal.
+    const stranger = await seedMemberWithSet(
+      "twice-stranger",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    expect(stranger.profileId).toBeTruthy();
+    const asStranger = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("twice-stranger"),
+      payload: {},
+    });
+    expect(asStranger.statusCode).toBe(404);
+  });
+
+  it("lists an unanswered invitation, and keeps it under Accepted once answered", async () => {
+    const { performer, event } = await seedEventWithHost("list");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("list-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+
+    const pending = await app.inject({
+      method: "GET",
+      url: "/api/v1/me/event-invitations",
+      headers: auth("list-perf"),
+    });
+    expect(pending.statusCode).toBe(200);
+    const items = pending.json() as Array<{ eventId: string; title: string | null }>;
+    expect(items.map((one) => one.eventId)).toEqual([event.id]);
+    expect(items[0]?.title).toBe("Roster Night");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("list-perf"),
+      payload: {},
+    });
+
+    // The row STAYS, re-tagged — the Requests inbox needs an Accepted tab, and
+    // the screens that only want unanswered ones (the Events card, the calendar
+    // marker) filter on `requestStatus` rather than on the row's absence.
+    const after = await app.inject({
+      method: "GET",
+      url: "/api/v1/me/event-invitations",
+      headers: auth("list-perf"),
+    });
+    expect(after.json()).toMatchObject([{ requestStatus: "accepted" }]);
+
+    // The operator is not "invited" to their own event, so nothing lands here
+    // for them — this list is invitations addressed to you, not a second events
+    // feed. Their participation is `host`, which is outside INVITABLE_ROLES.
+    const forOperator = await app.inject({
+      method: "GET",
+      url: "/api/v1/me/event-invitations",
+      headers: auth("list-op"),
+    });
+    expect(forOperator.json()).toEqual([]);
+  });
+
+  it("keeps an answered invitation, tagged for the tab it belongs in", async () => {
+    const { performer, event } = await seedEventWithHost("tabs");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("tabs-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+
+    const read = async () =>
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/v1/me/event-invitations",
+          headers: auth("tabs-perf"),
+        })
+      ).json() as Array<{ status: string; requestStatus: string }>;
+
+    expect(await read()).toMatchObject([{ status: "invited", requestStatus: "pending" }]);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("tabs-perf"),
+      payload: {},
+    });
+
+    // Still listed, now under Accepted — Ran: it "stays in the 'Accepted' tab of
+    // the incoming requests until Expired". Dropping it on accept is the obvious
+    // wrong thing, and this is the assertion that stops it.
+    expect(await read()).toMatchObject([{ status: "accepted", requestStatus: "accepted" }]);
+  });
+
+  it("calls an invitation expired once its night has passed, without a sweep", async () => {
+    const { db } = harness;
+    const { performer, event } = await seedEventWithHost("expiry");
+
+    await db
+      .update(schema.events)
+      .set({ eventDate: "2020-01-01" })
+      .where(eq(schema.events.id, event.id));
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("expiry-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+
+    const rows = (
+      await app.inject({
+        method: "GET",
+        url: "/api/v1/me/event-invitations",
+        headers: auth("expiry-perf"),
+      })
+    ).json() as Array<{ status: string; requestStatus: string }>;
+
+    // Unanswered, but the night is gone. Derived from the date rather than stored,
+    // so the inbox is truthful without a job having run.
+    expect(rows).toMatchObject([{ status: "invited", requestStatus: "expired" }]);
+  });
+});
+
+/**
+ * ── THE BOOKING LADDER, THROUGH THE REAL ROUTES (86cbcehmp) ────────────────
+ *
+ * `event-status-ladder.test.ts` asserts the RULE exhaustively and without a
+ * database. This asserts the WIRING: that the routes actually call it, on the
+ * right roles, and that nothing else moves.
+ */
+describe("participants — the booking ladder", () => {
+  /** Read an event's status straight from the table. */
+  async function statusOf(eventId: string): Promise<string> {
+    const [row] = await harness.db
+      .select({ status: schema.events.status })
+      .from(schema.events)
+      .where(eq(schema.events.id, eventId));
+    return row?.status ?? "";
+  }
+
+  it("draft → suggested when an act is invited, → pending when they accept", async () => {
+    const { performer, event } = await seedEventWithHost("ladder");
+    expect(await statusOf(event.id)).toBe("draft");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("ladder-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    expect(await statusOf(event.id)).toBe("suggested");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("ladder-perf"),
+      payload: {},
+    });
+    expect(await statusOf(event.id)).toBe("pending");
+  });
+
+  it("does NOT move the event when the invitee is crew, not an act", async () => {
+    const { event } = await seedEventWithHost("crewladder");
+    const crew = await seedMemberWithSet("crewladder-crew", "team_and_crew", [
+      "event.view",
+      "schedule.view",
+    ]);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("crewladder-op"),
+      payload: { profileId: crew.profileId, role: "crew" },
+    });
+
+    // Booking a sound engineer is not suggesting the night to anybody. This is
+    // the assertion that would stay green if the role filter were dropped and
+    // every crew add started moving the booking, so it is stated on its own.
+    expect(await statusOf(event.id)).toBe("draft");
+  });
+
+  it("leaves the event alone when the invitation is declined", async () => {
+    const { performer, event } = await seedEventWithHost("declladder");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("declladder-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    expect(await statusOf(event.id)).toBe("suggested");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/decline`,
+      headers: auth("declladder-perf"),
+      payload: { note: "no" },
+    });
+
+    // Ran's spec for a refusal is a notification and the operator deciding what
+    // to do next, NOT a status change. Reverting to `draft` here would be an
+    // invented rule, and it would fight "the operator can edit it to change the
+    // date" — which is an action on a suggested event.
+    expect(await statusOf(event.id)).toBe("suggested");
+  });
+
+  it("does not drag a live booking backwards when a second act is added", async () => {
+    const { performer, event } = await seedEventWithHost("second");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("second-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("second-perf"),
+      payload: {},
+    });
+    expect(await statusOf(event.id)).toBe("pending");
+
+    const support = await seedMemberWithSet("second-support", "performer", [
+      ...PRESET_PERMISSION_SETS.performer,
+    ]);
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("second-op"),
+      payload: { profileId: support.profileId, role: "support" },
+    });
+
+    // Still pending — adding a support act to a night an act has already agreed
+    // to must not reopen the question.
+    expect(await statusOf(event.id)).toBe("pending");
+  });
+});
+
+/**
+ * THE LEAK THE BROWSER FOUND (86cbcehmp).
+ *
+ * `GET /events` resolves reachability with its own SQL rather than through
+ * `effectiveEventCapabilities`, so when `invited` stopped granting capabilities
+ * that copy did not hear about it: the invited performer got a 404 opening the
+ * event and still saw its title, venue, date, capacity and co-billing on their
+ * events list. Four green full-suite runs did not catch it, because nothing
+ * asserted the list and the gate agree.
+ *
+ * That is the assertion here — not "the list is filtered", but "the list and the
+ * door give the same answer". A test of either alone would have stayed green.
+ */
+describe("participants — the events list and the gate must agree", () => {
+  it("hides an unanswered invitation from GET /events, and reveals it on accept", async () => {
+    const { performer, event } = await seedEventWithHost("leak");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("leak-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+
+    const titles = async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/events",
+        headers: auth("leak-perf"),
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      const items = (Array.isArray(body) ? body : body.items) as Array<{ id: string }>;
+      return items.map((one) => one.id);
+    };
+    const canOpen = async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/participants`,
+        headers: auth("leak-perf"),
+      });
+      return response.statusCode;
+    };
+
+    // Invited: absent from the list AND shut out. The two halves together are
+    // the point — either one alone passes with the bug present.
+    expect(await titles()).not.toContain(event.id);
+    expect(await canOpen()).toBe(404);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("leak-perf"),
+      payload: {},
+    });
+
+    // Answered: present in the list AND open. Same two halves.
+    expect(await titles()).toContain(event.id);
+    expect(await canOpen()).toBe(200);
+  });
+});
+
+/**
+ * ── CHANGING A NIGHT SOMEBODY AGREED TO (ClickUp 86cbcftg3) ────────────────
+ *
+ * Driven through the real PATCH, so what is asserted is the behaviour an
+ * operator actually gets from saving the event form — not a helper called
+ * directly.
+ */
+describe("events — a change to a booked night is a question", () => {
+  async function eventRow(eventId: string) {
+    const [row] = await harness.db
+      .select({ status: schema.events.status, eventDate: schema.events.eventDate })
+      .from(schema.events)
+      .where(eq(schema.events.id, eventId));
+    return row;
+  }
+
+  /** Operator invites the performer, performer accepts → a `pending` booking. */
+  async function bookedEvent(prefix: string) {
+    const seeded = await seedEventWithHost(prefix);
+    await harness.db
+      .update(schema.events)
+      .set({ eventDate: "2026-09-12" })
+      .where(eq(schema.events.id, seeded.event.id));
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seeded.event.id}/participants`,
+      headers: auth(`${prefix}-op`),
+      payload: { profileId: seeded.performer.profileId, role: "performer" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seeded.event.id}/participation/accept`,
+      headers: auth(`${prefix}-perf`),
+      payload: {},
+    });
+    return seeded;
+  }
+
+  it("moves the date freely while the offer is unanswered, and re-asks it", async () => {
+    const { performer, event } = await seedEventWithHost("freemove");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("freemove-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    // They say no to THAT night.
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/decline`,
+      headers: auth("freemove-perf"),
+      payload: { note: "busy" },
+    });
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("freemove-op"),
+      payload: { eventDate: "2026-10-01" },
+    });
+    expect(patched.statusCode).toBe(200);
+
+    // Applied immediately — nobody had agreed to anything.
+    expect((await eventRow(event.id))?.eventDate).toBe("2026-10-01");
+
+    // And the refusal is reopened: Ran's "edit it to change the date -> which
+    // will trigger a new incoming request with a new date". They said no to a
+    // different night.
+    const invitations = await app.inject({
+      method: "GET",
+      url: "/api/v1/me/event-invitations",
+      headers: auth("freemove-perf"),
+    });
+    expect(invitations.json()).toMatchObject([{ status: "invited", requestStatus: "pending" }]);
+  });
+
+  it("turns the same edit into a proposal once the act has accepted", async () => {
+    const { event } = await bookedEvent("ask");
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("ask-op"),
+      payload: { title: "Renamed too", eventDate: "2026-09-19" },
+    });
+    expect(patched.statusCode).toBe(200);
+
+    // The DATE did not move…
+    expect((await eventRow(event.id))?.eventDate).toBe("2026-09-12");
+    // …but the rest of the edit did. Refusing the whole PATCH would make
+    // renaming a show impossible while a date question was open.
+    expect(patched.json().title).toBe("Renamed too");
+
+    const open = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/change-request`,
+      headers: auth("ask-perf"),
+    });
+    expect(open.json().request).toMatchObject({
+      changes: { eventDate: "2026-09-19" },
+      previous: { eventDate: "2026-09-12" },
+      required: 1,
+      confirmed: 0,
+      answerable: true,
+    });
+  });
+
+  it("applies the change when the act confirms it", async () => {
+    const { event } = await bookedEvent("yes");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("yes-op"),
+      payload: { eventDate: "2026-09-19" },
+    });
+    const crid = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/change-request`,
+        headers: auth("yes-perf"),
+      })
+    ).json().request.id;
+
+    const answered = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${crid}/confirm`,
+      headers: auth("yes-perf"),
+      payload: {},
+    });
+    expect(answered.statusCode).toBe(200);
+    expect(answered.json().status).toBe("confirmed");
+
+    // Applied HERE, not left for the operator to re-save — otherwise there is a
+    // window in which everyone has agreed and the event still says the old date.
+    expect((await eventRow(event.id))?.eventDate).toBe("2026-09-19");
+
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/change-request`,
+      headers: auth("yes-perf"),
+    });
+    expect(after.json().request).toBeNull();
+  });
+
+  it("leaves the night alone when the act declines, and keeps the reason", async () => {
+    const { db } = harness;
+    const { event } = await bookedEvent("no");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("no-op"),
+      payload: { eventDate: "2026-09-19" },
+    });
+    const crid = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/change-request`,
+        headers: auth("no-perf"),
+      })
+    ).json().request.id;
+
+    const answered = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${crid}/decline`,
+      headers: auth("no-perf"),
+      payload: { note: "We fly out that morning" },
+    });
+    expect(answered.json().status).toBe("declined");
+    expect((await eventRow(event.id))?.eventDate).toBe("2026-09-12");
+
+    const [activity] = await db
+      .select()
+      .from(schema.activityLog)
+      .where(eq(schema.activityLog.type, "event.change_declined"));
+    expect((activity?.summary as { note?: string } | null)?.note).toBe("We fly out that morning");
+  });
+
+  it("refuses to let the proposer answer their own proposal", async () => {
+    const { event } = await bookedEvent("self");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("self-op"),
+      payload: { eventDate: "2026-09-19" },
+    });
+    const crid = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/change-request`,
+        headers: auth("self-perf"),
+      })
+    ).json().request.id;
+
+    // Otherwise the whole mechanism is decorative: the operator could raise a
+    // proposal and immediately wave it through.
+    const own = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${crid}/confirm`,
+      headers: auth("self-op"),
+      payload: {},
+    });
+    expect(own.statusCode).toBe(403);
+    expect((await eventRow(event.id))?.eventDate).toBe("2026-09-12");
+  });
+
+  it("replaces an open proposal rather than stacking a second one", async () => {
+    const { event } = await bookedEvent("twice2");
+    for (const date of ["2026-09-19", "2026-09-26"]) {
+      await app.inject({
+        method: "PATCH",
+        url: `/api/v1/events/${event.id}`,
+        headers: auth("twice2-op"),
+        payload: { eventDate: date },
+      });
+    }
+
+    // An operator who changes their mind has asked one question, not two — the
+    // act must never face two live proposals for the same night.
+    const open = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/change-request`,
+        headers: auth("twice2-perf"),
+      })
+    ).json().request;
+    expect(open.changes).toEqual({ eventDate: "2026-09-26" });
+
+    const rows = await harness.db
+      .select()
+      .from(schema.eventChangeRequests)
+      .where(eq(schema.eventChangeRequests.eventId, event.id));
+    expect(rows.filter((row) => row.status === "pending")).toHaveLength(1);
+    expect(rows.filter((row) => row.status === "superseded")).toHaveLength(1);
+  });
+
+  it("writes the negotiation into the event conversation, both halves", async () => {
+    const { db } = harness;
+    const { event } = await bookedEvent("thread");
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("thread-op"),
+      payload: { eventDate: "2026-09-19" },
+    });
+
+    const bodies = async () =>
+      (
+        await db
+          .select({ body: schema.eventMessages.body, visibility: schema.eventMessages.visibility })
+          .from(schema.eventMessages)
+          .where(eq(schema.eventMessages.eventId, event.id))
+      ).map((row) => row.body);
+
+    // The ASK is in the thread, with both values — a conversation that only
+    // records the outcome reads "can we move it?" / "sure" six months later.
+    expect(await bodies()).toEqual([
+      "Asked to change the date from 2026-09-12 to 2026-09-19. Waiting on the other side to confirm.",
+    ]);
+
+    const crid = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/change-request`,
+        headers: auth("thread-perf"),
+      })
+    ).json().request.id;
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${crid}/decline`,
+      headers: auth("thread-perf"),
+      payload: { note: "We fly out that morning" },
+    });
+
+    // And the ANSWER, carrying the reason.
+    expect(await bodies()).toEqual([
+      "Asked to change the date from 2026-09-12 to 2026-09-19. Waiting on the other side to confirm.",
+      "Declined the change to the date from 2026-09-12 to 2026-09-19. Reason: We fly out that morning",
+    ]);
+
+    // The event room, not a private thread: a night moving is not a matter
+    // between two parties — the crew's call time depends on it.
+    const rows = await db
+      .select({
+        visibility: schema.eventMessages.visibility,
+        threadParticipantId: schema.eventMessages.threadParticipantId,
+      })
+      .from(schema.eventMessages)
+      .where(eq(schema.eventMessages.eventId, event.id));
+    expect(rows.every((row) => row.visibility === "all")).toBe(true);
+    expect(rows.every((row) => row.threadParticipantId === null)).toBe(true);
+  });
+
+  it("asks the AGENT, not the performer they represent", async () => {
+    const { db } = harness;
+    const { performer, event } = await bookedEvent("delegated");
+
+    // Stand the performer's participation down in favour of an agent, exactly as
+    // `autoAssignAgentOnPerformerJoin` does when a represented act is added.
+    const agent = await seedMemberWithSet("delegated-agent", "operator", [
+      ...PRESET_PERMISSION_SETS.operator_full,
+    ]);
+    const [rep] = await db
+      .insert(schema.representations)
+      .values({
+        agentProfileId: agent.profileId,
+        performerProfileId: performer.profileId,
+        status: "active",
+        region: ["SE"],
+        proposedBy: "agent",
+      })
+      .returning();
+    expect(rep).toBeTruthy();
+    await db
+      .update(schema.eventParticipants)
+      .set({ details: { delegatedToAgentProfileId: agent.profileId } })
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, event.id),
+          eq(schema.eventParticipants.profileId, performer.profileId),
+        ),
+      );
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: agent.profileId,
+      role: "agent",
+      status: "accepted",
+    });
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("delegated-op"),
+      payload: { eventDate: "2026-09-19" },
+    });
+
+    // ONE answer, not two. Counting both would demand two confirmations for one
+    // party's interest — from a performer who has handed the action capabilities
+    // to that very agent (decisions #14).
+    const open = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/change-request`,
+        headers: auth("delegated-agent"),
+      })
+    ).json().request;
+    expect(open.required).toBe(1);
+    expect(open.answerable).toBe(true);
+
+    const answered = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${open.id}/confirm`,
+      headers: auth("delegated-agent"),
+      payload: {},
+    });
+    expect(answered.json().status).toBe("confirmed");
+    expect((await eventRow(event.id))?.eventDate).toBe("2026-09-19");
+  });
+
+  it("does not ask anybody about a title, or about a date that did not move", async () => {
+    const { event } = await bookedEvent("quiet");
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("quiet-op"),
+      // The web app saves the whole form: the date arrives unchanged every time.
+      payload: { title: "Just a rename", eventDate: "2026-09-12" },
+    });
+
+    const open = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/change-request`,
+      headers: auth("quiet-perf"),
+    });
+    expect(open.json().request).toBeNull();
   });
 });

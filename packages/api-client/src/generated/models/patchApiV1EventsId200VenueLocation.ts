@@ -6,7 +6,6 @@
  */
 
 /**
- * The venue profile's primary location — the address and country the event shows.
  * @nullable
  */
 export type PatchApiV1EventsId200VenueLocation = {

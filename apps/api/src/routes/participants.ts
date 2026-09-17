@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
+import { PERFORMING_EVENT_ROLES } from "@showme/auth";
 import { schema } from "@showme/db";
 import { notifyProfileMembers } from "@showme/db/notify";
-import { and, asc, eq, isNull, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -12,6 +14,7 @@ import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { renderOffPlatformPerformerEmail } from "../lib/email-templates";
 import { assertGrantAdminAllows } from "../lib/entitlements";
+import { advanceEventStatus } from "../lib/event-status-ladder";
 import { loadEventSummary } from "../lib/event-summary";
 import { createPerformerStub } from "../lib/off-platform";
 import { signProfileImageUrls } from "../lib/profile-media";
@@ -327,6 +330,13 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
                 })
                 .returning();
               if (!participant) throw new Error("participant create failed");
+              // RUNG 1 of the booking ladder (86cbcehmp): putting an act on the
+              // bill makes a draft a `suggested` event. Only a PERFORMING role
+              // does — booking a sound engineer is not suggesting the night to
+              // anybody, and the ladder is about the act's answer.
+              if (PERFORMING_EVENT_ROLES.has(request.body.role)) {
+                await advanceEventStatus(tx, { eventId: id, trigger: "performer_invited" });
+              }
               await writeAudit(tx, request, {
                 capability: "participants.manage",
                 action: "participant.add",
@@ -466,6 +476,11 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           })
           .returning();
         if (!participant) throw new Error("participant create failed");
+        // Same rung, the other door — Ran: *"Same when inviting external
+        // performers via email using the invite collaborator button."*
+        if (PERFORMING_EVENT_ROLES.has(request.body.role)) {
+          await advanceEventStatus(tx, { eventId: id, trigger: "performer_invited" });
+        }
 
         const [invitation] = await tx
           .insert(schema.invitations)
@@ -695,5 +710,307 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
 
       return serializeParticipant(updated, capabilities);
     },
+  );
+
+  /**
+   * ── ANSWERING AN INVITATION ────────────────────────────────────────────────
+   *
+   * ClickUp 86cbcehmp, and the symptom reported separately as 123qy9rnf87.
+   * Ran: *"Invited users should first have the option to 'Accept invite' -
+   * currently the invited party gets invited to an event → gets access to the
+   * event manager as a collaborator immediately → stays as 'Invited'."*
+   *
+   * That was exact. `event_participants.status` has held `invited | accepted |
+   * declined | confirmed | removed` since the schema was written and NOTHING
+   * ever advanced it — no route set `accepted`, and authorization asked only
+   * `status <> 'removed'`, so all four non-removed values meant the same thing.
+   * The column was decorative. These two routes are what makes it real, and
+   * `NON_STANDING_PARTICIPANT_STATUSES` in `@showme/auth` is what makes it
+   * matter.
+   *
+   * ── Why these do NOT call `requireEventCapability` ─────────────────────────
+   * They cannot. `invited` now grants no capabilities, so gating the answer on a
+   * capability would mean only people who had already accepted could accept.
+   * The authorization here is the invitation itself: you hold an `invited`
+   * participant row on this event, through a profile you are an active member
+   * of. That is narrower than the old rule, not wider — it authorizes exactly
+   * one action on exactly one row, and cannot be used to read the event.
+   *
+   * ── One participation, answered once ──────────────────────────────────────
+   * The unique index on `(event_id, profile_id)` means a profile has at most one
+   * row here, so "the caller's participation" is unambiguous. Answering twice is
+   * a 409 rather than a silent no-op: an operator watching the collaborators tab
+   * should not see a decline quietly overwrite an accept.
+   */
+  const AnswerBody = z.object({
+    /** Ran asked for this on decline: *"so that the decliner can say if it is a
+     * date issue or if they simply don't want to be booked by this operator"*.
+     * Optional — a refusal nobody explains is still a refusal. */
+    note: z.string().trim().max(2000).optional(),
+  });
+
+  const AnswerResponse = z.object({
+    eventId: z.string(),
+    participantId: z.string(),
+    status: z.enum(["accepted", "declined"]),
+  });
+
+  /**
+   * The caller's own unanswered participation on this event, or a 404.
+   *
+   * 404 and not 403 throughout: to somebody with no invitation, an event they
+   * cannot otherwise read must not be confirmed to exist by the shape of the
+   * refusal. Same reasoning as the holds routes.
+   */
+  async function resolvePendingParticipation(
+    request: Parameters<typeof requireEventCapability>[0],
+    eventId: string,
+  ): Promise<{ id: string; profileId: string | null; status: string }> {
+    const principal = request.principal;
+    if (!principal) throw new Error("principal missing after authentication");
+
+    const [participation] = await request.server.database
+      .select({
+        id: schema.eventParticipants.id,
+        profileId: schema.eventParticipants.profileId,
+        status: schema.eventParticipants.status,
+      })
+      .from(schema.eventParticipants)
+      .innerJoin(
+        schema.profileMembers,
+        eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
+      )
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, eventId),
+          eq(schema.profileMembers.userId, principal.userId),
+          eq(schema.profileMembers.status, "active"),
+        ),
+      );
+
+    if (!participation) throw notFound("Event not found");
+    if (participation.status !== "invited") {
+      throw conflict(
+        participation.status === "declined"
+          ? "You already declined this invitation"
+          : "You have already answered this invitation",
+      );
+    }
+    return participation;
+  }
+
+  /** Answer an invitation — the one write both routes share. */
+  async function answerInvitation(
+    request: Parameters<typeof requireEventCapability>[0],
+    eventId: string,
+    answer: "accepted" | "declined",
+    note: string | undefined,
+  ) {
+    const { database } = request.server;
+    const principal = request.principal;
+    if (!principal) throw new Error("principal missing after authentication");
+
+    const participation = await resolvePendingParticipation(request, eventId);
+    // Read directly rather than through `loadEventSummary`, which carries the
+    // display fields and not `host_profile_id` — the one column this needs.
+    const [event] = await database
+      .select({ title: schema.events.title, hostProfileId: schema.events.hostProfileId })
+      .from(schema.events)
+      .where(eq(schema.events.id, eventId));
+
+    const updated = await database.transaction(async (tx) => {
+      const [after] = await tx
+        .update(schema.eventParticipants)
+        .set({ status: answer, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.eventParticipants.id, participation.id),
+            // Answered under the row we checked, or not at all — two tabs must
+            // not both win. The 409 above is the friendly path; this is the race.
+            eq(schema.eventParticipants.status, "invited"),
+          ),
+        )
+        .returning();
+      if (!after) throw conflict("You have already answered this invitation");
+
+      // RUNG 2: an act has said yes, so the booking is no longer merely
+      // suggested. Declining moves nothing — Ran's spec for a refusal is a
+      // notification and the operator's choice of what to do next ("delete the
+      // event or edit it to change the date"), not a status change, and
+      // inventing a revert would fight that.
+      if (answer === "accepted") {
+        await advanceEventStatus(tx, { eventId, trigger: "invitation_accepted" });
+      }
+
+      await writeAudit(tx, request, {
+        capability: "event.view",
+        action: `participant.${answer === "accepted" ? "accept" : "decline"}`,
+        targetKind: "event_participant",
+        targetId: participation.id,
+        eventId,
+        before: participation,
+        after,
+      });
+      // The bill changing is what the other participants are watching for, and
+      // a decline is the one that needs acting on.
+      await writeActivity(tx, request, {
+        eventId,
+        type: `participant.${answer === "accepted" ? "accepted" : "declined"}`,
+        targetKind: "event",
+        targetId: eventId,
+        summary: { profileId: participation.profileId, ...(note ? { note } : {}) },
+      });
+      return after;
+    });
+
+    // The operator who sent it is the one who needs to know — outside the
+    // transaction, because a notification failing must not roll back an answer
+    // the person has already given. Same pattern as the invite itself.
+    if (event?.hostProfileId) {
+      try {
+        await notifyProfileMembers(database, event.hostProfileId, principal.userId, {
+          type: `event.invitation_${answer}`,
+          title:
+            answer === "accepted"
+              ? `Invitation accepted${event.title ? ` — ${event.title}` : ""}`
+              : `Invitation declined${event.title ? ` — ${event.title}` : ""}`,
+          body: note || undefined,
+          eventId,
+          link: `/events/${eventId}`,
+          metadata: { participantId: participation.id, ...(note ? { note } : {}) },
+        });
+      } catch (cause) {
+        request.log.warn({ err: cause, eventId }, "invitation-answer notification failed");
+      }
+    }
+
+    return { eventId, participantId: updated.id, status: answer };
+  }
+
+  /**
+   * EVERY INVITATION THIS CALLER HAS NOT ANSWERED — across all their profiles.
+   *
+   * The gate above creates a door that needs a handle. `invited` now grants no
+   * capabilities, so an invited performer cannot reach the event, cannot see it
+   * in `GET /events`, and would have nothing to press: the invitation would be a
+   * notification pointing at a 404. This read is the handle.
+   *
+   * It is deliberately NOT `GET /events?status=invited`. That route serializes
+   * events through the capability layer, and the whole point here is that the
+   * caller holds no capabilities on these events yet. So this returns the thin
+   * slice an invitation legitimately reveals — who is asking, which night, where
+   * — and nothing else. No budget, no deal, no roster, no participant list.
+   * Enough to answer with, which is all an unanswered invitation has earned.
+   */
+  const PendingInvitationsResponse = z.array(
+    z.object({
+      eventId: z.string(),
+      participantId: z.string(),
+      profileId: z.string().nullable(),
+      role: z.string(),
+      title: z.string().nullable(),
+      eventDate: z.string().nullable(),
+      venueName: z.string().nullable(),
+      hostName: z.string().nullable(),
+      invitedAt: z.string(),
+      /** The participation's own state: `invited` until answered. */
+      status: z.string(),
+      /**
+       * WHERE THIS SITS IN THE INBOX — the participation's state crossed with the
+       * calendar, in the vocabulary the Requests screen already uses.
+       *
+       * Ran (86cbcehmp): an invitation arrives as **pending**, and once answered
+       * *"stays in the 'Accepted' tab of the incoming requests until Expired"*.
+       * Expiry is not a stored state and must not become one: it is simply the
+       * night having passed, so it is derived here rather than swept by a job
+       * that would have to run to make the inbox truthful.
+       */
+      requestStatus: z.enum(["pending", "accepted", "declined", "expired"]),
+    }),
+  );
+
+  /** `invited` → pending, and anything whose night is past → expired. */
+  function inboxStatusFor(
+    status: string,
+    eventDate: string | null,
+    today: string,
+  ): "pending" | "accepted" | "declined" | "expired" {
+    if (eventDate && eventDate < today) return "expired";
+    if (status === "accepted") return "accepted";
+    if (status === "declined") return "declined";
+    return "pending";
+  }
+
+  /**
+   * Roles that are INVITED to somebody else's event. The host and a co-host are
+   * running it — nobody invited them to it — and an `agent` row is the projection
+   * of a representation rather than an invitation anybody answers (decisions #14).
+   */
+  const INVITABLE_ROLES = ["performer", "support", "crew_lead", "crew"] as const;
+
+  app.get(
+    "/me/event-invitations",
+    { schema: { response: { 200: PendingInvitationsResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      const host = alias(schema.profiles, "host_profile");
+      const rows = await database
+        .select({
+          eventId: schema.eventParticipants.eventId,
+          participantId: schema.eventParticipants.id,
+          profileId: schema.eventParticipants.profileId,
+          role: schema.eventParticipants.role,
+          status: schema.eventParticipants.status,
+          title: schema.events.title,
+          eventDate: schema.events.eventDate,
+          venueName: schema.events.venueName,
+          hostName: host.name,
+          invitedAt: schema.eventParticipants.createdAt,
+        })
+        .from(schema.eventParticipants)
+        .innerJoin(
+          schema.profileMembers,
+          eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
+        )
+        .innerJoin(schema.events, eq(schema.events.id, schema.eventParticipants.eventId))
+        .leftJoin(host, eq(host.id, schema.events.hostProfileId))
+        .where(
+          and(
+            eq(schema.profileMembers.userId, principal.userId),
+            eq(schema.profileMembers.status, "active"),
+            // Answered ones stay, so the inbox can show an Accepted tab — a
+            // `removed` participation is gone and has nothing to say.
+            inArray(schema.eventParticipants.status, ["invited", "accepted", "declined"]),
+            inArray(schema.eventParticipants.role, [...INVITABLE_ROLES]),
+          ),
+        )
+        .orderBy(asc(schema.events.eventDate));
+
+      // One "today", read once: deriving expiry per row against a moving clock
+      // could put two rows on opposite sides of midnight in the same response.
+      const today = new Date().toISOString().slice(0, 10);
+
+      return rows.map((row) => ({
+        ...row,
+        eventDate: row.eventDate ?? null,
+        invitedAt: row.invitedAt.toISOString(),
+        requestStatus: inboxStatusFor(row.status, row.eventDate ?? null, today),
+      }));
+    },
+  );
+
+  app.post(
+    "/events/:id/participation/accept",
+    { schema: { params: EventParams, body: AnswerBody, response: { 200: AnswerResponse } } },
+    async (request) => answerInvitation(request, request.params.id, "accepted", request.body.note),
+  );
+
+  app.post(
+    "/events/:id/participation/decline",
+    { schema: { params: EventParams, body: AnswerBody, response: { 200: AnswerResponse } } },
+    async (request) => answerInvitation(request, request.params.id, "declined", request.body.note),
   );
 }

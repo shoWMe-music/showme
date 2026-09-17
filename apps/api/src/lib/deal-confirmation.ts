@@ -1,6 +1,7 @@
 import { schema } from "@showme/db";
 import { eq } from "drizzle-orm";
 import { conflict } from "../errors";
+import { advanceEventStatus } from "./event-status-ladder";
 
 type DealRow = typeof schema.deals.$inferSelect;
 type DealPartyRow = typeof schema.dealParties.$inferSelect;
@@ -159,6 +160,23 @@ export async function confirmDealIfComplete(
     })
     .where(eq(schema.deals.id, deal.id))
     .returning();
+
+  // RUNG 3 of the booking ladder (ClickUp 86cbcehmp) — Ran: *"If the deal is
+  // accepted the event status changes to 'Confirmed'."*
+  //
+  // Here rather than in the two routes that call this, because this function is
+  // already "the only place in the product that moves `deals.status` forward"
+  // and the event's status is the same fact seen from the event's side. Putting
+  // it in the routes would give the rule two homes and one of them would rot.
+  //
+  // A CANCELLED deal does not confirm its event. The freeze above deliberately
+  // still happens (the terms somebody signed are worth keeping), but a withdrawn
+  // agreement must not book the night — the same reasoning the line above
+  // applies to `deals.status`.
+  if (deal.status !== "cancelled" && deal.eventId) {
+    await advanceEventStatus(tx, { eventId: deal.eventId, trigger: "deal_confirmed" }, now);
+  }
+
   return (frozen as DealRow | undefined) ?? deal;
 }
 

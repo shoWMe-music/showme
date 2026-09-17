@@ -180,6 +180,32 @@ describe("off-platform performers → stub → claim", () => {
       );
     expect(reachable.map((row) => row.eventId)).toContain(eventId);
 
+    // ── But claiming the account is NOT accepting the booking (86cbcehmp) ──
+    //
+    // The row she inherited is `invited`, and an unanswered invitation grants
+    // nothing. This is the distinction the gate turns on: signing up with an
+    // address an operator happened to type is agreeing to HAVE AN ACCOUNT, not
+    // agreeing to play the show. Someone who accepts an invitation *token* has
+    // said yes to the booking and lands on `accepted` (`routes/invitations.ts`);
+    // someone auto-claimed by an email match has said nothing yet.
+    //
+    // Asserted in BOTH directions on purpose. A test that only checked the roster
+    // opens after accepting would stay green if the gate were deleted entirely.
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/participants`,
+      headers: opHeaders(performerUid, claimedProfileId ?? ""),
+    });
+    expect(before.statusCode).toBe(404);
+
+    const accept = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/participation/accept`,
+      headers: opHeaders(performerUid, claimedProfileId ?? ""),
+      payload: {},
+    });
+    expect(accept.statusCode).toBe(200);
+
     // And end-to-end through the real pipeline: she can now view the roster.
     const roster = await app.inject({
       method: "GET",
@@ -187,6 +213,16 @@ describe("off-platform performers → stub → claim", () => {
       headers: opHeaders(performerUid, claimedProfileId ?? ""),
     });
     expect(roster.statusCode).toBe(200);
+
+    // Answering twice is refused rather than silently ignored — an operator
+    // watching the collaborators tab must not see a decline overwrite an accept.
+    const again = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/participation/decline`,
+      headers: opHeaders(performerUid, claimedProfileId ?? ""),
+      payload: { note: "changed my mind" },
+    });
+    expect(again.statusCode).toBe(409);
   });
 
   it("does NOT claim when the email is unverified", async () => {

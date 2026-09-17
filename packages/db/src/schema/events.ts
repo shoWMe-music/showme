@@ -14,7 +14,14 @@ import {
 } from "drizzle-orm/pg-core";
 import { permissionSets } from "./authorization";
 import { files } from "./content";
-import { eventParticipantRole, eventParticipantStatus, eventStatus, performerTag } from "./enums";
+import {
+  eventChangeRequestStatus,
+  eventChangeResponse,
+  eventParticipantRole,
+  eventParticipantStatus,
+  eventStatus,
+  performerTag,
+} from "./enums";
 import { profiles, users } from "./identity";
 
 /**
@@ -250,5 +257,90 @@ export const eventParticipants = pgTable(
     // and by profile (list a profile's events).
     index("event_participants_event_id_idx").on(table.eventId),
     index("event_participants_profile_id_idx").on(table.profileId),
+  ],
+);
+
+/**
+ * A PROPOSED CHANGE TO A BOOKED NIGHT — the date, the venue, or the room.
+ *
+ * ClickUp 86cbcftg3. Ran: *"When trying to change the date for an event the
+ * other side must be notified... '{operator} has requested changing the date of
+ * this event' - 'Confirm/Decline'... In general such logic should apply across
+ * changes to date, venue, room/space."*
+ *
+ * ── Why a table rather than just editing the event ────────────────────────
+ * Below `pending` nobody has agreed to anything, so the operator simply edits
+ * and the invitation is re-asked. From `pending` upward somebody HAS agreed —
+ * to a specific night, at a specific room — and changing it under them is a new
+ * question, not an edit. The proposed values therefore have to live somewhere
+ * that is not the event, because the event must keep saying what was agreed
+ * until the change is accepted.
+ *
+ * ── The proposed values are a patch, not a copy of the event ──────────────
+ * `changes` holds only the fields being changed (`eventDate`, `venueProfileId`,
+ * `stageId`), so a proposal cannot silently carry a stale value for a field
+ * nobody touched. It is `jsonb` by the normalize-vs-embed rule: nothing joins or
+ * aggregates across it — it is read with its request, shown, and applied.
+ */
+export const eventChangeRequests = pgTable(
+  "event_change_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    /** The profile asking — normally the host, but a co-host may ask too. */
+    proposedByProfileId: uuid("proposed_by_profile_id").references(() => profiles.id, {
+      onDelete: "set null",
+    }),
+    proposedByUserId: text("proposed_by_user_id").references(() => users.id),
+    /** Only the fields being changed. See the note above. */
+    changes: jsonb("changes").notNull(),
+    /** What the event said when this was proposed — so a card can draw "12 Sept → 19 Sept". */
+    previous: jsonb("previous").notNull(),
+    status: eventChangeRequestStatus("status").notNull().default("pending"),
+    /** Why the proposer wants it, in their words. Optional. */
+    reason: text("reason"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("event_change_requests_event_id_idx").on(table.eventId),
+    index("event_change_requests_status_idx").on(table.status),
+  ],
+);
+
+/**
+ * ONE COUNTERPART'S ANSWER to a proposed change.
+ *
+ * Only ANSWERS are stored. Who is *required* to answer is derived at read time —
+ * the participants standing on the event, minus the proposer — because that set
+ * moves: an act added after the proposal was raised is on the bill and has a
+ * stake in the night, and a materialised list written at proposal time would not
+ * know about them. Deriving it also means a participation removed in the
+ * meantime stops blocking the change without anything having to reap a row.
+ */
+export const eventChangeRequestResponses = pgTable(
+  "event_change_request_responses",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    changeRequestId: uuid("change_request_id")
+      .notNull()
+      .references(() => eventChangeRequests.id, { onDelete: "cascade" }),
+    participantId: uuid("participant_id")
+      .notNull()
+      .references(() => eventParticipants.id, { onDelete: "cascade" }),
+    response: eventChangeResponse("response").notNull(),
+    /** Ran asked for a reason on a refusal, as he did on declining an invitation. */
+    note: text("note"),
+    respondedByUserId: text("responded_by_user_id").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // One answer per participant per request — answering twice is a 409, not a
+    // second row that would double-count toward "everybody has confirmed".
+    unique().on(table.changeRequestId, table.participantId),
+    index("event_change_request_responses_request_idx").on(table.changeRequestId),
   ],
 );

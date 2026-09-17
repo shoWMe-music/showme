@@ -8,6 +8,7 @@ import {
   basisPointsToPercent,
   dealDraftProblems,
   guestListProblem,
+  isDateTaken,
   minorToDecimalString,
   occupiedDates,
 } from "@showme/shared";
@@ -22,6 +23,19 @@ import type { Transaction } from "../lib/audit";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import { assertEventCapAllows } from "../lib/entitlements";
+import {
+  NEGOTIATED_FIELDS,
+  answerChangeRequest,
+  callerParticipantOrNull,
+  changeNeedsAgreement,
+  hasAnswered,
+  isEmptyChange,
+  negotiatedChanges,
+  notifyProposer,
+  openChangeRequest,
+  proposeEventChange,
+  reopenInvitationsAfterChange,
+} from "../lib/event-change-requests";
 import { resolveEventTimezone } from "../lib/event-timezone";
 import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
 import { withIdempotency } from "../plugins/idempotency";
@@ -496,6 +510,36 @@ const CreateEventBody = z.object({
   participants: z.array(CreateEventParticipant).optional(),
   /** The agreement stated while creating the event — see the block above. */
   deal: CreateEventDeal.optional(),
+});
+
+const ChangeAnswerParams = z.object({
+  id: z.string().uuid(),
+  crid: z.string().uuid(),
+  answer: z.enum(["confirm", "decline"]),
+});
+
+const ChangeAnswerBody = z.object({ note: z.string().trim().max(2000).optional() });
+
+const ChangeAnswerResponse = z.object({
+  status: z.enum(["pending", "confirmed", "declined"]),
+});
+
+const ChangeRequestResponse = z.object({
+  request: z
+    .object({
+      id: z.string(),
+      changes: z.record(z.string(), z.string().nullable()),
+      previous: z.record(z.string(), z.string().nullable()),
+      reason: z.string().nullable(),
+      createdAt: z.string(),
+      /** How many counterparts must answer, and how many have. */
+      required: z.number(),
+      confirmed: z.number(),
+      declined: z.number(),
+      /** Whether THIS caller still has an answer to give. */
+      answerable: z.boolean(),
+    })
+    .nullable(),
 });
 
 const UpdateEventBody = z.object({
@@ -1243,6 +1287,35 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         if (!nextDate) throw badRequest("An event needs a date before it can be published");
       }
 
+      /**
+       * ── IS THIS AN EDIT, OR A QUESTION? (ClickUp 86cbcftg3) ──────────────
+       *
+       * Ran: *"When trying to change the date for an event the other side must
+       * be notified"* — with Confirm/Decline once the booking is `pending` or
+       * beyond, and the same treatment for the venue and the room.
+       *
+       * Below `pending` nobody has agreed to anything, so this falls through and
+       * the PATCH applies as it always did — the re-asking of the invitation is
+       * handled after the write, where the new date is known.
+       *
+       * From `pending` up, the negotiated fields are diverted into a proposal
+       * and REMOVED from this patch, so the rest of the edit (a title, a door
+       * time) still lands. Half-applying is the right answer here: refusing the
+       * whole PATCH would make renaming a show impossible while a date question
+       * was open.
+       */
+      const negotiated = negotiatedChanges(fields as Record<string, unknown>, {
+        eventDate: before.eventDate,
+        venueProfileId: before.venueProfileId,
+        stageId: before.stageId,
+      });
+      const mustAsk = changeNeedsAgreement(before.status) && !isEmptyChange(negotiated.changes);
+      if (mustAsk) {
+        for (const field of NEGOTIATED_FIELDS) {
+          delete (fields as Record<string, unknown>)[field];
+        }
+      }
+
       const where =
         expectedVersion != null
           ? and(eq(schema.events.id, id), eq(schema.events.version, expectedVersion))
@@ -1343,6 +1416,29 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         }
         return after;
       });
+
+      // The negotiated half, AFTER the ordinary edit has landed (86cbcftg3).
+      //
+      // Outside the transaction on purpose: both branches notify people, and a
+      // notification that cannot be taken back must not sit inside a write that
+      // might still roll back. It is the same rule the invitation answer follows.
+      if (mustAsk) {
+        await proposeEventChange(request, {
+          eventId: id,
+          changes: negotiated.changes,
+          previous: negotiated.previous,
+        });
+      } else if (!isEmptyChange(negotiated.changes)) {
+        // Below `pending`: the change simply happened. Ran still wants the offer
+        // re-asked — *"Edits the date on the old Incoming request and sends it
+        // back into the list as 'Pending' (unread)"* — which for us means the
+        // invitations on this event become unanswered again. A new night is a
+        // new question, including for somebody who had already said no.
+        await reopenInvitationsAfterChange(request, {
+          eventId: id,
+          changes: negotiated.changes,
+        });
+      }
 
       const imageUrls = await signProfileImageUrls(database, request.server.storageSigner, [
         updated.imageFileId,
@@ -1464,6 +1560,114 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   /**
+   * ── THE OPEN CHANGE PROPOSAL ON THIS EVENT (ClickUp 86cbcftg3) ───────────
+   *
+   * `null` when there is none, which is the ordinary case — the card only draws
+   * when there is a question outstanding.
+   *
+   * Gated on `event.view` rather than anything narrower: everyone standing on the
+   * event has an interest in knowing the night is being moved, even the parties
+   * who are not the ones being asked (a crew member's call time depends on it).
+   */
+  app.get(
+    "/events/:id/change-request",
+    { schema: { params: EventParams, response: { 200: ChangeRequestResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      await requireEventCapability(request, id, "event.view");
+
+      const open = await openChangeRequest(database, id);
+      if (!open) return { request: null };
+
+      // Can the CALLER answer it? The card needs this to decide between buttons
+      // and a "waiting for them" line, and the answer is per-viewer: the operator
+      // who proposed it sees the same row and must not be offered Confirm.
+      // Gated on the derived counterpart set, not on a profile comparison: that
+      // set already means "standing on the event and not the person who asked".
+      const participant = await callerParticipantOrNull(request, id);
+      const answerable =
+        participant !== null &&
+        open.partyIds.includes(participant.id) &&
+        (await hasAnswered(database, open.id, participant.id)) === false;
+
+      return {
+        request: {
+          id: open.id,
+          changes: open.changes as Record<string, string | null>,
+          previous: open.previous as Record<string, string | null>,
+          reason: open.reason,
+          createdAt: open.createdAt.toISOString(),
+          required: open.required,
+          confirmed: open.confirmed,
+          declined: open.declined,
+          answerable,
+        },
+      };
+    },
+  );
+
+  /**
+   * Answer it. One route, two verbs — the only difference is the word, and
+   * splitting them would duplicate the whole resolution path for that word.
+   *
+   * Authorized by STANDING on the event, not by a capability: the person being
+   * asked is a performer, and no performer preset carries `event.edit`. What
+   * makes them entitled to answer is that they are on the bill and did not
+   * propose it, which is exactly what `counterparts` already means.
+   */
+  app.post(
+    "/events/:id/change-request/:crid/:answer",
+    {
+      schema: {
+        params: ChangeAnswerParams,
+        body: ChangeAnswerBody,
+        response: { 200: ChangeAnswerResponse },
+      },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { id, crid, answer } = request.params;
+      await requireEventCapability(request, id, "event.view");
+
+      const open = await openChangeRequest(database, id);
+      if (!open || open.id !== crid) throw notFound("No open change request");
+
+      const participant = await callerParticipantOrNull(request, id);
+      if (!participant) throw forbidden("You are not on this event");
+      if (!open.partyIds.includes(participant.id)) {
+        // Either they asked for it, or they are on the event without standing to
+        // answer. Both are "somebody else decides", and the message says so
+        // rather than pretending they are not here.
+        throw forbidden("You proposed this change; somebody else has to answer it");
+      }
+      if (await hasAnswered(database, open.id, participant.id)) {
+        throw conflict("You have already answered this change");
+      }
+
+      const outcome = await answerChangeRequest(request, {
+        eventId: id,
+        changeRequestId: crid,
+        participantId: participant.id,
+        response: answer === "confirm" ? "confirmed" : "declined",
+        note: request.body.note,
+      });
+
+      if (outcome.status !== "pending") {
+        await notifyProposer(request, {
+          eventId: id,
+          proposerProfileId: open.proposedByProfileId,
+          outcome: outcome.status,
+          changes: open.changes,
+          note: request.body.note,
+        });
+      }
+
+      return { status: outcome.status };
+    },
+  );
+
+  /**
    * IS THIS NIGHT ALREADY TAKEN? — asked BEFORE a booking is made, not after.
    *
    * ClickUp 86cbceux0: *"The system is not warning about double booking a date"*
@@ -1524,9 +1728,11 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
             and(
               eq(schema.events.venueProfileId, venueProfileId),
               eq(schema.events.eventDate, date),
-              // A cancelled show is not holding a room. Everything else is —
-              // including a draft, because a draft is somebody's intention to
-              // use the night and the whole point is to notice it early.
+              // Everything still standing on the night, INCLUDING the ones that
+              // do not take it. `isDateTaken` below decides which of these is a
+              // clash and which is only worth mentioning — the room maths needs
+              // the whole picture to do that, so the filter here is just
+              // "not called off".
               ne(schema.events.status, "cancelled"),
             ),
           ),
@@ -1550,11 +1756,15 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
           date,
           venueProfileId,
           stageId: event.stageId,
-          // Every non-cancelled show counts. The `occupies` flag exists for the
-          // share modal, where a user chooses whether held dates read as busy;
-          // a warning to the operator making the booking wants to know about
-          // all of it.
-          occupies: true,
+          // ONLY AN ACCEPTED NIGHT FILLS THE ROOM (Ran, 86cbceux0: *"when it is
+          // moved from suggested to pending. I.e. the performer accepts the
+          // date"*). A draft or an unanswered offer is somebody thinking, not a
+          // booking, and treating it as one is what made this warning fire on
+          // empty nights (123qy9rp9rx).
+          //
+          // The others are still carried to `events` below, so the message can
+          // say a draft is there without calling the room busy.
+          occupies: isDateTaken(event.status),
         })),
       );
 
