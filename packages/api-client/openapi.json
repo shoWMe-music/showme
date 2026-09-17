@@ -3139,6 +3139,13 @@
                       },
                       "invitedAt": {
                         "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "requestStatus": {
+                        "type": "string",
+                        "enum": ["pending", "accepted", "declined", "expired"]
                       }
                     },
                     "required": [
@@ -3150,7 +3157,9 @@
                       "eventDate",
                       "venueName",
                       "hostName",
-                      "invitedAt"
+                      "invitedAt",
+                      "status",
+                      "requestStatus"
                     ],
                     "additionalProperties": false
                   }

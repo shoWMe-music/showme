@@ -197,6 +197,7 @@ export * from './getApiV1Me200MembershipsItem';
 export * from './getApiV1Me200MembershipsItemKind';
 export * from './getApiV1Me200MembershipsItemRole';
 export * from './getApiV1MeEventInvitations200Item';
+export * from './getApiV1MeEventInvitations200ItemRequestStatus';
 export * from './getApiV1MeExport200';
 export * from './getApiV1MeExport200Data';
 export * from './getApiV1MeExport200DataItem';

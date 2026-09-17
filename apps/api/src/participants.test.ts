@@ -1219,7 +1219,7 @@ describe("participants — an invitation must be answered", () => {
     expect(asStranger.statusCode).toBe(404);
   });
 
-  it("lists an unanswered invitation, and drops it the moment it is answered", async () => {
+  it("lists an unanswered invitation, and keeps it under Accepted once answered", async () => {
     const { performer, event } = await seedEventWithHost("list");
 
     await app.inject({
@@ -1246,21 +1246,88 @@ describe("participants — an invitation must be answered", () => {
       payload: {},
     });
 
+    // The row STAYS, re-tagged — the Requests inbox needs an Accepted tab, and
+    // the screens that only want unanswered ones (the Events card, the calendar
+    // marker) filter on `requestStatus` rather than on the row's absence.
     const after = await app.inject({
       method: "GET",
       url: "/api/v1/me/event-invitations",
       headers: auth("list-perf"),
     });
-    expect(after.json()).toEqual([]);
+    expect(after.json()).toMatchObject([{ requestStatus: "accepted" }]);
 
     // The operator is not "invited" to their own event, so nothing lands here
-    // for them — this list is unanswered invitations, not a second events feed.
+    // for them — this list is invitations addressed to you, not a second events
+    // feed. Their participation is `host`, which is outside INVITABLE_ROLES.
     const forOperator = await app.inject({
       method: "GET",
       url: "/api/v1/me/event-invitations",
       headers: auth("list-op"),
     });
     expect(forOperator.json()).toEqual([]);
+  });
+
+  it("keeps an answered invitation, tagged for the tab it belongs in", async () => {
+    const { performer, event } = await seedEventWithHost("tabs");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("tabs-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+
+    const read = async () =>
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/v1/me/event-invitations",
+          headers: auth("tabs-perf"),
+        })
+      ).json() as Array<{ status: string; requestStatus: string }>;
+
+    expect(await read()).toMatchObject([{ status: "invited", requestStatus: "pending" }]);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("tabs-perf"),
+      payload: {},
+    });
+
+    // Still listed, now under Accepted — Ran: it "stays in the 'Accepted' tab of
+    // the incoming requests until Expired". Dropping it on accept is the obvious
+    // wrong thing, and this is the assertion that stops it.
+    expect(await read()).toMatchObject([{ status: "accepted", requestStatus: "accepted" }]);
+  });
+
+  it("calls an invitation expired once its night has passed, without a sweep", async () => {
+    const { db } = harness;
+    const { performer, event } = await seedEventWithHost("expiry");
+
+    await db
+      .update(schema.events)
+      .set({ eventDate: "2020-01-01" })
+      .where(eq(schema.events.id, event.id));
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("expiry-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+
+    const rows = (
+      await app.inject({
+        method: "GET",
+        url: "/api/v1/me/event-invitations",
+        headers: auth("expiry-perf"),
+      })
+    ).json() as Array<{ status: string; requestStatus: string }>;
+
+    // Unanswered, but the night is gone. Derived from the date rather than stored,
+    // so the inbox is truthful without a job having run.
+    expect(rows).toMatchObject([{ status: "invited", requestStatus: "expired" }]);
   });
 });
 

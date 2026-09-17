@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { GetApiV1MeEventInvitations200ItemRequestStatus } from './getApiV1MeEventInvitations200ItemRequestStatus';
 
 export type GetApiV1MeEventInvitations200Item = {
   eventId: string;
@@ -20,4 +21,6 @@ export type GetApiV1MeEventInvitations200Item = {
   /** @nullable */
   hostName: string | null;
   invitedAt: string;
+  status: string;
+  requestStatus: GetApiV1MeEventInvitations200ItemRequestStatus;
 };

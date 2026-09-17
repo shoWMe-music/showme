@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { PERFORMING_EVENT_ROLES } from "@showme/auth";
 import { schema } from "@showme/db";
 import { notifyProfileMembers } from "@showme/db/notify";
-import { and, asc, eq, isNull, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -913,8 +913,40 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
       venueName: z.string().nullable(),
       hostName: z.string().nullable(),
       invitedAt: z.string(),
+      /** The participation's own state: `invited` until answered. */
+      status: z.string(),
+      /**
+       * WHERE THIS SITS IN THE INBOX — the participation's state crossed with the
+       * calendar, in the vocabulary the Requests screen already uses.
+       *
+       * Ran (86cbcehmp): an invitation arrives as **pending**, and once answered
+       * *"stays in the 'Accepted' tab of the incoming requests until Expired"*.
+       * Expiry is not a stored state and must not become one: it is simply the
+       * night having passed, so it is derived here rather than swept by a job
+       * that would have to run to make the inbox truthful.
+       */
+      requestStatus: z.enum(["pending", "accepted", "declined", "expired"]),
     }),
   );
+
+  /** `invited` → pending, and anything whose night is past → expired. */
+  function inboxStatusFor(
+    status: string,
+    eventDate: string | null,
+    today: string,
+  ): "pending" | "accepted" | "declined" | "expired" {
+    if (eventDate && eventDate < today) return "expired";
+    if (status === "accepted") return "accepted";
+    if (status === "declined") return "declined";
+    return "pending";
+  }
+
+  /**
+   * Roles that are INVITED to somebody else's event. The host and a co-host are
+   * running it — nobody invited them to it — and an `agent` row is the projection
+   * of a representation rather than an invitation anybody answers (decisions #14).
+   */
+  const INVITABLE_ROLES = ["performer", "support", "crew_lead", "crew"] as const;
 
   app.get(
     "/me/event-invitations",
@@ -931,6 +963,7 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           participantId: schema.eventParticipants.id,
           profileId: schema.eventParticipants.profileId,
           role: schema.eventParticipants.role,
+          status: schema.eventParticipants.status,
           title: schema.events.title,
           eventDate: schema.events.eventDate,
           venueName: schema.events.venueName,
@@ -948,15 +981,23 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           and(
             eq(schema.profileMembers.userId, principal.userId),
             eq(schema.profileMembers.status, "active"),
-            eq(schema.eventParticipants.status, "invited"),
+            // Answered ones stay, so the inbox can show an Accepted tab — a
+            // `removed` participation is gone and has nothing to say.
+            inArray(schema.eventParticipants.status, ["invited", "accepted", "declined"]),
+            inArray(schema.eventParticipants.role, [...INVITABLE_ROLES]),
           ),
         )
         .orderBy(asc(schema.events.eventDate));
+
+      // One "today", read once: deriving expiry per row against a moving clock
+      // could put two rows on opposite sides of midnight in the same response.
+      const today = new Date().toISOString().slice(0, 10);
 
       return rows.map((row) => ({
         ...row,
         eventDate: row.eventDate ?? null,
         invitedAt: row.invitedAt.toISOString(),
+        requestStatus: inboxStatusFor(row.status, row.eventDate ?? null, today),
       }));
     },
   );
