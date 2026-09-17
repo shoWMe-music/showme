@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import { eventListRoutes } from "./routes/events-list";
 import { participantRoutes } from "./routes/participants";
 import { buildTestApp } from "./testing";
 
@@ -20,7 +21,12 @@ let app: FastifyInstance;
 
 beforeAll(async () => {
   harness = await startTestDatabase();
-  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [participantRoutes]);
+  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [
+    participantRoutes,
+    // `GET /events` resolves reachability with its OWN sql, so the leak test
+    // below needs the real list route rather than a stand-in.
+    eventListRoutes,
+  ]);
   await app.ready();
 });
 
@@ -1371,5 +1377,67 @@ describe("participants — the booking ladder", () => {
     // Still pending — adding a support act to a night an act has already agreed
     // to must not reopen the question.
     expect(await statusOf(event.id)).toBe("pending");
+  });
+});
+
+/**
+ * THE LEAK THE BROWSER FOUND (86cbcehmp).
+ *
+ * `GET /events` resolves reachability with its own SQL rather than through
+ * `effectiveEventCapabilities`, so when `invited` stopped granting capabilities
+ * that copy did not hear about it: the invited performer got a 404 opening the
+ * event and still saw its title, venue, date, capacity and co-billing on their
+ * events list. Four green full-suite runs did not catch it, because nothing
+ * asserted the list and the gate agree.
+ *
+ * That is the assertion here — not "the list is filtered", but "the list and the
+ * door give the same answer". A test of either alone would have stayed green.
+ */
+describe("participants — the events list and the gate must agree", () => {
+  it("hides an unanswered invitation from GET /events, and reveals it on accept", async () => {
+    const { performer, event } = await seedEventWithHost("leak");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("leak-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+
+    const titles = async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/events",
+        headers: auth("leak-perf"),
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      const items = (Array.isArray(body) ? body : body.items) as Array<{ id: string }>;
+      return items.map((one) => one.id);
+    };
+    const canOpen = async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/participants`,
+        headers: auth("leak-perf"),
+      });
+      return response.statusCode;
+    };
+
+    // Invited: absent from the list AND shut out. The two halves together are
+    // the point — either one alone passes with the bug present.
+    expect(await titles()).not.toContain(event.id);
+    expect(await canOpen()).toBe(404);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("leak-perf"),
+      payload: {},
+    });
+
+    // Answered: present in the list AND open. Same two halves.
+    expect(await titles()).toContain(event.id);
+    expect(await canOpen()).toBe(200);
   });
 });

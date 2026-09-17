@@ -10,6 +10,8 @@ export {
   liveEventDelegationsForEvents,
 } from "./delegation";
 export {
+  STANDING_PARTICIPANT_STATUSES,
+  NON_STANDING_PARTICIPANT_STATUSES,
   PRESET_PERMISSION_SETS,
   type PresetName,
   type ProfileRole,

@@ -1,3 +1,4 @@
+import { NON_STANDING_PARTICIPANT_STATUSES } from "@showme/auth";
 import { schema } from "@showme/db";
 import {
   type SQL,
@@ -11,6 +12,7 @@ import {
   isNull,
   ne,
   not,
+  notInArray,
   or,
   sql,
 } from "drizzle-orm";
@@ -251,7 +253,17 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
                 eq(schema.eventParticipants.eventId, schema.events.id),
                 eq(schema.profileMembers.userId, principal.userId),
                 eq(schema.profileMembers.status, "active"),
-                ne(schema.eventParticipants.status, "removed"),
+                // The SAME standing rule the authorization module applies
+                // (86cbcehmp). This list resolves reachability for ITSELF rather
+                // than going through `effectiveEventCapabilities`, so it held its
+                // own copy of the predicate — and when `invited` stopped granting
+                // capabilities, this copy did not hear about it. The result was a
+                // performer who could SEE a show on their events list (title,
+                // venue, date, capacity, who else was on the bill) and got a 404
+                // opening it: an inconsistent screen AND a leak of an event they
+                // had not agreed to be part of. Found by driving the browser, not
+                // by any test.
+                notInArray(schema.eventParticipants.status, [...NON_STANDING_PARTICIPANT_STATUSES]),
                 onlyUnfiled ? isNull(schema.eventParticipants.archivedAt) : undefined,
               ),
             ),
