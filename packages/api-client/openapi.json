@@ -12366,6 +12366,10 @@
                   "items": {
                     "type": "object",
                     "properties": {
+                      "stageId": {
+                        "type": "string",
+                        "nullable": true
+                      },
                       "id": {
                         "type": "string"
                       },
@@ -12416,6 +12420,11 @@
                         "reason": {
                           "type": "string",
                           "nullable": true
+                        },
+                        "stageId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "nullable": true
                         }
                       },
                       "required": ["startDate", "endDate"],
@@ -12450,6 +12459,10 @@
                   "items": {
                     "type": "object",
                     "properties": {
+                      "stageId": {
+                        "type": "string",
+                        "nullable": true
+                      },
                       "id": {
                         "type": "string"
                       },

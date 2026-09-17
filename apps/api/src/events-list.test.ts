@@ -1903,6 +1903,103 @@ describe("GET /events/date-conflicts — warning before the booking", () => {
     expect(response.json().roomIsBusy).toBe(true);
   });
 
+  /**
+   * ── A ROOM CAN BE SHUT WITHOUT THE BUILDING (86cbceux0, third box) ────────
+   *
+   * Ran: *"the system had the ability to mark multi unavailabilities per date,
+   * per venue and per room/space."* Before this, blocking a date shut the whole
+   * profile, so a refit in one room took every other room off sale with it.
+   */
+  it("blocks only the room it names, and leaves the others sellable", async () => {
+    const { db } = harness;
+    const { operator, main, basement } = await seedVenueWithRooms("dc-roomblock");
+    await db.insert(schema.profileUnavailability).values({
+      profileId: operator.profileId,
+      startDate: NIGHT,
+      endDate: NIGHT,
+      reason: "Refit",
+      stageId: main.id,
+    });
+
+    const shut = await ask("dc-roomblock-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+      stageId: main.id,
+    });
+    expect(shut.json().unavailability).toHaveLength(1);
+    expect(shut.json().unavailability[0]).toMatchObject({ reason: "Refit" });
+
+    // The whole point: the other room is untouched.
+    const open = await ask("dc-roomblock-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+      stageId: basement.id,
+    });
+    expect(open.json().unavailability).toEqual([]);
+  });
+
+  it("does not call the venue shut because one of its rooms is", async () => {
+    const { db } = harness;
+    const { operator, main } = await seedVenueWithRooms("dc-partial");
+    await db.insert(schema.profileUnavailability).values({
+      profileId: operator.profileId,
+      startDate: NIGHT,
+      endDate: NIGHT,
+      stageId: main.id,
+    });
+
+    // Venue-wide question, one room shut, one free — the building can still
+    // take a booking, and saying otherwise turns away a show the basement wants.
+    const venue = await ask("dc-partial-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+    });
+    expect(venue.json().unavailability).toEqual([]);
+  });
+
+  it("calls the venue shut once every room is", async () => {
+    const { db } = harness;
+    const { operator, main, basement } = await seedVenueWithRooms("dc-allrooms");
+    await db.insert(schema.profileUnavailability).values([
+      { profileId: operator.profileId, startDate: NIGHT, endDate: NIGHT, stageId: main.id },
+      { profileId: operator.profileId, startDate: NIGHT, endDate: NIGHT, stageId: basement.id },
+    ]);
+
+    const venue = await ask("dc-allrooms-op", {
+      venueProfileId: operator.profileId,
+      date: NIGHT,
+    });
+    expect(venue.json().unavailability).toHaveLength(2);
+  });
+
+  /** A block with no room is the whole place, which is what every block written
+   *  before this column existed meant. */
+  it("still lets a whole-venue block shut every room", async () => {
+    const { db } = harness;
+    const { operator, main, basement } = await seedVenueWithRooms("dc-whole");
+    await db.insert(schema.profileUnavailability).values({
+      profileId: operator.profileId,
+      startDate: NIGHT,
+      endDate: NIGHT,
+      reason: "Closed",
+      stageId: null,
+    });
+
+    for (const [label, room] of [
+      ["main", main],
+      ["basement", basement],
+    ] as const) {
+      const response = await ask("dc-whole-op", {
+        venueProfileId: operator.profileId,
+        date: NIGHT,
+        stageId: room.id,
+      });
+      expect(response.json().unavailability, label).toHaveLength(1);
+    }
+    const venue = await ask("dc-whole-op", { venueProfileId: operator.profileId, date: NIGHT });
+    expect(venue.json().unavailability).toHaveLength(1);
+  });
+
   /** Editing an event must not warn that it clashes with itself. */
   it("excludes the event being edited", async () => {
     const { operator, main } = await seedVenueWithRooms("dc-self");

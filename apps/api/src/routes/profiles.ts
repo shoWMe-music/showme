@@ -247,6 +247,12 @@ const UnavailabilityEntry = z.object({
   startDate: z.string().min(1),
   endDate: z.string().min(1),
   reason: z.string().nullable().optional(),
+  /**
+   * WHICH ROOM IS SHUT — omit or null for the whole place (ClickUp 86cbceux0).
+   * Validated below against the rooms this profile actually has: a block naming
+   * somebody else's room would be unreadable by every surface that asks.
+   */
+  stageId: z.string().uuid().nullable().optional(),
 });
 const ReplaceUnavailabilityBody = z.object({ entries: z.array(UnavailabilityEntry) });
 
@@ -372,6 +378,8 @@ const MemberResponse = z.object({
 });
 
 const UnavailabilityResponse = z.object({
+  /** The room this block shuts, or null for the whole profile (86cbceux0). */
+  stageId: z.string().nullable().optional(),
   id: z.string(),
   profileId: z.string(),
   startDate: z.string(),
@@ -1531,6 +1539,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
         startDate: row.startDate,
         endDate: row.endDate,
         reason: row.reason,
+        stageId: row.stageId,
       }));
     },
   );
@@ -1589,6 +1598,27 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
 
       requireProfileRole(request, id, [...WRITE_ROLES]);
 
+      // EVERY NAMED ROOM MUST BE THIS PROFILE'S (86cbceux0). Checked once, up
+      // front, against the whole body — a block naming another venue's room reads
+      // as nothing to every surface that asks, and a foreign key alone would
+      // accept it happily because the room exists, just not here.
+      const namedStages = [
+        ...new Set(
+          request.body.entries
+            .map((entry) => entry.stageId)
+            .filter((stageId): stageId is string => Boolean(stageId)),
+        ),
+      ];
+      if (namedStages.length > 0) {
+        const mine = await database
+          .select({ id: schema.stages.id })
+          .from(schema.stages)
+          .where(and(eq(schema.stages.venueProfileId, id), inArray(schema.stages.id, namedStages)));
+        const known = new Set(mine.map((row) => row.id));
+        const stranger = namedStages.find((stageId) => !known.has(stageId));
+        if (stranger) throw badRequest("That room is not part of this venue");
+      }
+
       const replaced = await database.transaction(async (tx) => {
         await tx
           .delete(schema.profileUnavailability)
@@ -1603,6 +1633,7 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
                   startDate: entry.startDate,
                   endDate: entry.endDate,
                   reason: entry.reason ?? null,
+                  stageId: entry.stageId ?? null,
                 })),
               )
               .returning()

@@ -1768,7 +1768,29 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         })),
       );
 
-      const blocked = blocks.filter((block) => block.startDate <= date && date <= block.endDate);
+      // A BLOCK ONLY SPEAKS FOR THE ROOM IT NAMES (ClickUp 86cbceux0).
+      //
+      // `stage_id` null is the whole profile and always applies. A block naming a
+      // room applies when that room is the one being asked about — and, when the
+      // question is the venue entire, only if it is shut along with every other
+      // room. That is the same rule `occupiedDates` uses for bookings, and it has
+      // to be: "the Back Room is shut" and "the Back Room is sold" have to answer
+      // "can you host me on the 14th" the same way, or the two halves of the
+      // warning contradict each other.
+      const onThisDate = blocks.filter((block) => block.startDate <= date && date <= block.endDate);
+      const wholeVenueBlocks = onThisDate.filter((block) => block.stageId === null);
+      const roomBlocks = onThisDate.filter((block) => block.stageId !== null);
+      const blockedRoomIds = new Set(roomBlocks.map((block) => block.stageId));
+      const blocked = stageId
+        ? [...wholeVenueBlocks, ...roomBlocks.filter((block) => block.stageId === stageId)]
+        : // No room named: this is the venue-wide question. Room blocks answer it
+          // only when they have closed every room there is.
+          [
+            ...wholeVenueBlocks,
+            ...(roomIds.length > 0 && roomIds.every((room) => blockedRoomIds.has(room))
+              ? roomBlocks
+              : []),
+          ];
 
       return {
         date,

@@ -12,6 +12,7 @@ import { errorMessage } from "../lib/errors";
 import {
   type UnavailabilityBlock,
   applyDaySelection,
+  applyDaySelectionForRoom,
   collapseDays,
   expandBlocks,
   shiftDay,
@@ -105,6 +106,20 @@ export interface MarkUnavailableView {
 export interface MarkUnavailableHandlers {
   /** The commit landed: how many nights it blocked, and how many it freed. */
   onSaved: (blocked: number, freed: number) => void;
+  /**
+   * WHICH ROOM MARKING SHUTS — a `stages.id`, or null for the whole place
+   * (ClickUp 86cbceux0).
+   *
+   * It is the room the calendar is currently NARROWED TO, which is the honest
+   * reading of the gesture: you filtered to the Back Room, you marked nights on
+   * the Back Room's calendar, so the Back Room is what you shut. Filtered to
+   * "All rooms", you shut the building.
+   *
+   * Nothing new to learn and no extra control to find — the room picker that was
+   * already there now decides what marking means, which is the interaction Ran
+   * described in V2 ("per venue and per room/space").
+   */
+  stageId?: string | null;
 }
 
 export function useMarkUnavailable(handlers: MarkUnavailableHandlers): MarkUnavailableView {
@@ -133,6 +148,7 @@ export function useMarkUnavailable(handlers: MarkUnavailableHandlers): MarkUnava
   /** The day a shift-click extends FROM: the last one a plain gesture touched. */
   const [anchorDay, setAnchorDay] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const scopedStageId = handlers.stageId ?? null;
 
   const serverBlocks = useMemo<UnavailabilityBlock[]>(
     () =>
@@ -142,11 +158,27 @@ export function useMarkUnavailable(handlers: MarkUnavailableHandlers): MarkUnava
           startDate: row.startDate,
           endDate: row.endDate,
           reason: row.reason,
+          stageId: row.stageId ?? null,
         })),
       ),
     [unavailability.data],
   );
-  const blockedDays = useMemo(() => expandBlocks(serverBlocks), [serverBlocks]);
+  /**
+   * The blocks that apply to the calendar ON SCREEN (86cbceux0).
+   *
+   * A whole-venue block always applies. A room block applies only when the
+   * calendar is narrowed to that room — otherwise shading the date on the
+   * "All rooms" view would say the building is shut when one room of it is, the
+   * exact over-blocking this feature exists to stop.
+   */
+  const blocksInView = useMemo(
+    () =>
+      serverBlocks.filter(
+        (block) => (block.stageId ?? null) === null || (block.stageId ?? null) === scopedStageId,
+      ),
+    [serverBlocks, scopedStageId],
+  );
+  const blockedDays = useMemo(() => expandBlocks(blocksInView), [blocksInView]);
 
   const refetch = unavailability.refetch;
   const startMarking = useCallback(() => {
@@ -254,7 +286,12 @@ export function useMarkUnavailable(handlers: MarkUnavailableHandlers): MarkUnava
   const commit = () => {
     if (!activeProfileId) return;
     setSaveError(null);
-    const next = applyDaySelection(serverBlocks, sortedSelection, null);
+    const next = applyDaySelectionForRoom(
+      serverBlocks,
+      sortedSelection,
+      null,
+      handlers.stageId ?? null,
+    );
     replaceUnavailability.mutate(
       {
         id: activeProfileId,
@@ -263,6 +300,12 @@ export function useMarkUnavailable(handlers: MarkUnavailableHandlers): MarkUnava
             startDate: block.startDate,
             endDate: block.endDate,
             reason: block.reason,
+            // The ROOM travels too (86cbceux0). This mapping dropped it, so every
+            // block arrived whole-venue however carefully the room was chosen —
+            // and nothing below the UI could tell, because the request it
+            // received was a perfectly valid whole-venue write. Caught by marking
+            // a room in the browser and reading back what was stored.
+            stageId: block.stageId ?? null,
           })),
         },
       },
@@ -287,7 +330,9 @@ export function useMarkUnavailable(handlers: MarkUnavailableHandlers): MarkUnava
     isProfilePublic: Boolean(profile?.isPublic),
     canEdit,
     isLoading: unavailability.isPending && Boolean(activeProfileId),
-    savedBlocks: serverBlocks,
+    // The blocks that apply to the calendar on screen, not every room's — see
+    // `blocksInView`. The grid shades from this (86cbceux0).
+    savedBlocks: blocksInView,
 
     isMarking,
     startMarking,

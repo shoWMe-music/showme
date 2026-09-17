@@ -18,7 +18,12 @@
  * and had been red on `main` since at least 2026-09-05 for that reason alone.
  */
 import { describe, expect, it } from "vitest";
-import { type UnavailabilityBlock, applyDaySelection, collapseDays } from "./unavailabilityRanges";
+import {
+  type UnavailabilityBlock,
+  applyDaySelection,
+  applyDaySelectionForRoom,
+  collapseDays,
+} from "./unavailabilityRanges";
 
 /** Ranges as `start..end (reason)`, so a failure reads as dates and not objects. */
 const shape = (blocks: UnavailabilityBlock[]) =>
@@ -183,5 +188,81 @@ describe("collapseDays", () => {
       "2026-09-13..2026-09-14 (Refit)",
       "2026-09-15..2026-09-15 (Private hire)",
     ]);
+  });
+});
+
+/**
+ * ── ONE ROOM AT A TIME (ClickUp 86cbceux0) ─────────────────────────────────
+ *
+ * `applyDaySelection` is keyed by DAY, which stops being enough once a night can
+ * be shut in one room and open in another — expanded to a flat day map, the two
+ * rooms overwrite each other. `applyDaySelectionForRoom` partitions first.
+ *
+ * These are the cases that partition exists for, and every one of them passes
+ * trivially if you forget the partition and just call the day-keyed function.
+ */
+describe("marking one room", () => {
+  const BACK = "back-room-id";
+  const MAIN = "main-room-id";
+
+  it("shuts the room it is scoped to, and nothing else", () => {
+    const next = applyDaySelectionForRoom([], ["2026-09-14"], null, BACK);
+    expect(next).toEqual([
+      { startDate: "2026-09-14", endDate: "2026-09-14", reason: null, stageId: BACK },
+    ]);
+  });
+
+  it("leaves another room's block completely alone", () => {
+    const existing = [
+      { startDate: "2026-09-14", endDate: "2026-09-14", reason: "Refit", stageId: MAIN },
+    ];
+    const next = applyDaySelectionForRoom(existing, ["2026-09-14"], null, BACK);
+
+    // The same night, now shut in BOTH rooms — separately, each keeping its own
+    // reason. A day-keyed write would have overwritten one with the other.
+    expect(next).toHaveLength(2);
+    expect(next.find((b) => b.stageId === MAIN)).toMatchObject({ reason: "Refit" });
+    expect(next.find((b) => b.stageId === BACK)).toMatchObject({ reason: null });
+  });
+
+  it("frees a night in one room without freeing it in the other", () => {
+    const existing = [
+      { startDate: "2026-09-14", endDate: "2026-09-14", reason: null, stageId: MAIN },
+      { startDate: "2026-09-14", endDate: "2026-09-14", reason: null, stageId: BACK },
+    ];
+    // Picking an already-blocked night frees it — for THIS room only.
+    const next = applyDaySelectionForRoom(existing, ["2026-09-14"], null, BACK);
+    expect(next).toHaveLength(1);
+    expect(next[0]?.stageId).toBe(MAIN);
+  });
+
+  it("treats the whole venue as its own scope, either way round", () => {
+    const wholePlace = [
+      { startDate: "2026-09-14", endDate: "2026-09-14", reason: "Closed", stageId: null },
+    ];
+    // Shutting a room does not disturb the building-wide block…
+    const afterRoom = applyDaySelectionForRoom(wholePlace, ["2026-09-14"], null, BACK);
+    expect(afterRoom).toHaveLength(2);
+    // …and editing the building does not disturb the room's.
+    const both = [
+      ...wholePlace,
+      { startDate: "2026-09-14", endDate: "2026-09-14", reason: null, stageId: BACK },
+    ];
+    const afterVenue = applyDaySelectionForRoom(both, ["2026-09-14"], null, null);
+    expect(afterVenue).toHaveLength(1);
+    expect(afterVenue[0]?.stageId).toBe(BACK);
+  });
+
+  it("still trims and splits ranges correctly inside one room", () => {
+    // The range maths is unchanged — this proves the partition did not break it.
+    const existing = [
+      { startDate: "2026-09-13", endDate: "2026-09-19", reason: "Refit", stageId: BACK },
+    ];
+    const next = applyDaySelectionForRoom(existing, ["2026-09-16"], null, BACK);
+    expect(next.map((b) => `${b.startDate}..${b.endDate}`)).toEqual([
+      "2026-09-13..2026-09-15",
+      "2026-09-17..2026-09-19",
+    ]);
+    expect(next.every((b) => b.stageId === BACK)).toBe(true);
   });
 });

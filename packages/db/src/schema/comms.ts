@@ -15,7 +15,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { adminAlertKind, calendarItemType, taskPriority, templateCategory } from "./enums";
-import { events, eventParticipants } from "./events";
+import { events, eventParticipants, stages } from "./events";
 import { groups, profiles, users } from "./identity";
 
 /**
@@ -487,6 +487,24 @@ export const profileUnavailability = pgTable("profile_unavailability", {
   profileId: uuid("profile_id")
     .notNull()
     .references(() => profiles.id, { onDelete: "cascade" }),
+  /**
+   * WHICH ROOM IS SHUT — or NULL for the whole place (ClickUp 86cbceux0).
+   *
+   * Ran: *"the system had the ability to mark multi unavailabilities per date,
+   * per venue and per room/space."* This column is that. Until it existed a
+   * venue could only ever close the entire building, so a refit in one room took
+   * every other room off sale with it.
+   *
+   * NULL IS THE WHOLE PROFILE, and that is exactly what every row written before
+   * this column meant — so the backfill is nothing, and the old reading survives
+   * untouched.
+   *
+   * `ON DELETE CASCADE`: deleting a room removes the blocks that named it. A
+   * block pointing at a room that no longer exists would be unreadable — neither
+   * the room's calendar (there isn't one) nor the venue's (it never claimed the
+   * venue was shut).
+   */
+  stageId: uuid("stage_id").references(() => stages.id, { onDelete: "cascade" }),
   startDate: date("start_date").notNull(),
   endDate: date("end_date").notNull(),
   reason: text("reason"),

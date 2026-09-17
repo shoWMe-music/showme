@@ -20,6 +20,8 @@ export interface UnavailabilityBlock {
   startDate: string;
   endDate: string;
   reason: string | null;
+  /** The room this shuts, or null for the whole place (ClickUp 86cbceux0). */
+  stageId?: string | null;
 }
 
 /** Roles `PUT /profiles/:id/unavailability` accepts (profiles.ts `WRITE_ROLES`). */
@@ -97,4 +99,33 @@ export function applyDaySelection(
   }
   const sorted = [...dayReasons.keys()].sort();
   return collapseDays(sorted, (day) => dayReasons.get(day) ?? null);
+}
+
+/**
+ * THE SAME WRITE, CONFINED TO ONE ROOM (ClickUp 86cbceux0).
+ *
+ * `applyDaySelection` above is keyed by DAY, which stops being enough the moment
+ * a night can be shut in the Back Room and open in the Main Room: expanded to a
+ * flat day map, the two rooms overwrite each other and the last one wins.
+ *
+ * Rather than teach the range maths about rooms — which would put a second
+ * dimension through every trim, split and merge — the blocks are PARTITIONED
+ * first. The marking session only ever touches the room it is scoped to, the
+ * other rooms' blocks are carried through untouched, and the day-keyed function
+ * stays exactly as correct as it was.
+ *
+ * The partition key is `stageId ?? null`, so "the whole venue" is a room like
+ * any other as far as this is concerned — which is what makes a whole-venue
+ * block survive a room-scoped edit, and the other way round.
+ */
+export function applyDaySelectionForRoom(
+  blocks: UnavailabilityBlock[],
+  days: string[],
+  reason: string | null,
+  stageId: string | null,
+): UnavailabilityBlock[] {
+  const sameRoom = blocks.filter((block) => (block.stageId ?? null) === stageId);
+  const otherRooms = blocks.filter((block) => (block.stageId ?? null) !== stageId);
+  const next = applyDaySelection(sameRoom, days, reason).map((block) => ({ ...block, stageId }));
+  return [...otherRooms, ...next];
 }
