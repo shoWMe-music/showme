@@ -14,11 +14,13 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CountryTag } from "../components/CountryTag";
 import { DateText } from "../components/DateText";
 import { type EventMenuItem, EventRowMenu, rowClickTargetStyle } from "../components/EventRowMenu";
+import { PendingInvitationsCard } from "../components/PendingInvitationsCard";
 import { GradientButton } from "../components/eventUi";
 import ledgerTable from "../components/ledgerTable.module.css";
 import { initialsOf, settlementStatusToDisplay } from "../components/settlementDocument";
 import { ErrorState, LoadMore, LoadingState } from "../components/states";
 import { useEventArchive } from "../hooks/useEventArchive";
+import { useEventInvitations } from "../hooks/useEventInvitations";
 import { type EventFilterKey, type EventItem, useEventList } from "../hooks/useEventList";
 import { useEventsViewMotion } from "../hooks/useEventsViewMotion";
 import { eventDisplayStatus } from "../lib/status";
@@ -163,12 +165,22 @@ export function Events() {
   // (with its Undo) and the cache invalidation; the rows below just draw what it
   // says the menu offers.
   const { menuItems, confirmDialogProps } = useEventArchive();
+  // Invitations the caller has not answered. These are NOT in `rows` — an
+  // unanswered participation grants no capabilities, so the events list cannot
+  // see them (86cbcehmp). The card above the list is the only place they exist.
+  const invitations = useEventInvitations();
   const viewPanel = useEventsViewMotion(view);
 
   const openEvent = (eventId: string) => navigate({ to: "/events/$eventId", params: { eventId } });
 
   return (
     <div style={{ width: "100%", maxWidth: 1180, margin: "0 auto" }}>
+      <PendingInvitationsCard
+        invitations={invitations.invitations}
+        answering={invitations.answering}
+        onAccept={invitations.accept}
+        onDecline={invitations.decline}
+      />
       <div
         style={{
           display: "flex",
