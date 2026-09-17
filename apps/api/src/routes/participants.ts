@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { PERFORMING_EVENT_ROLES } from "@showme/auth";
 import { schema } from "@showme/db";
 import { notifyProfileMembers } from "@showme/db/notify";
 import { and, asc, eq, isNull, or } from "drizzle-orm";
@@ -13,6 +14,7 @@ import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { renderOffPlatformPerformerEmail } from "../lib/email-templates";
 import { assertGrantAdminAllows } from "../lib/entitlements";
+import { advanceEventStatus } from "../lib/event-status-ladder";
 import { loadEventSummary } from "../lib/event-summary";
 import { createPerformerStub } from "../lib/off-platform";
 import { signProfileImageUrls } from "../lib/profile-media";
@@ -328,6 +330,13 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
                 })
                 .returning();
               if (!participant) throw new Error("participant create failed");
+              // RUNG 1 of the booking ladder (86cbcehmp): putting an act on the
+              // bill makes a draft a `suggested` event. Only a PERFORMING role
+              // does — booking a sound engineer is not suggesting the night to
+              // anybody, and the ladder is about the act's answer.
+              if (PERFORMING_EVENT_ROLES.has(request.body.role)) {
+                await advanceEventStatus(tx, { eventId: id, trigger: "performer_invited" });
+              }
               await writeAudit(tx, request, {
                 capability: "participants.manage",
                 action: "participant.add",
@@ -467,6 +476,11 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           })
           .returning();
         if (!participant) throw new Error("participant create failed");
+        // Same rung, the other door — Ran: *"Same when inviting external
+        // performers via email using the invite collaborator button."*
+        if (PERFORMING_EVENT_ROLES.has(request.body.role)) {
+          await advanceEventStatus(tx, { eventId: id, trigger: "performer_invited" });
+        }
 
         const [invitation] = await tx
           .insert(schema.invitations)
@@ -818,6 +832,15 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         )
         .returning();
       if (!after) throw conflict("You have already answered this invitation");
+
+      // RUNG 2: an act has said yes, so the booking is no longer merely
+      // suggested. Declining moves nothing — Ran's spec for a refusal is a
+      // notification and the operator's choice of what to do next ("delete the
+      // event or edit it to change the date"), not a status change, and
+      // inventing a revert would fight that.
+      if (answer === "accepted") {
+        await advanceEventStatus(tx, { eventId, trigger: "invitation_accepted" });
+      }
 
       await writeAudit(tx, request, {
         capability: "event.view",

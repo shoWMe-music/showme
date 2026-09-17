@@ -1257,3 +1257,119 @@ describe("participants — an invitation must be answered", () => {
     expect(forOperator.json()).toEqual([]);
   });
 });
+
+/**
+ * ── THE BOOKING LADDER, THROUGH THE REAL ROUTES (86cbcehmp) ────────────────
+ *
+ * `event-status-ladder.test.ts` asserts the RULE exhaustively and without a
+ * database. This asserts the WIRING: that the routes actually call it, on the
+ * right roles, and that nothing else moves.
+ */
+describe("participants — the booking ladder", () => {
+  /** Read an event's status straight from the table. */
+  async function statusOf(eventId: string): Promise<string> {
+    const [row] = await harness.db
+      .select({ status: schema.events.status })
+      .from(schema.events)
+      .where(eq(schema.events.id, eventId));
+    return row?.status ?? "";
+  }
+
+  it("draft → suggested when an act is invited, → pending when they accept", async () => {
+    const { performer, event } = await seedEventWithHost("ladder");
+    expect(await statusOf(event.id)).toBe("draft");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("ladder-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    expect(await statusOf(event.id)).toBe("suggested");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("ladder-perf"),
+      payload: {},
+    });
+    expect(await statusOf(event.id)).toBe("pending");
+  });
+
+  it("does NOT move the event when the invitee is crew, not an act", async () => {
+    const { event } = await seedEventWithHost("crewladder");
+    const crew = await seedMemberWithSet("crewladder-crew", "team_and_crew", [
+      "event.view",
+      "schedule.view",
+    ]);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("crewladder-op"),
+      payload: { profileId: crew.profileId, role: "crew" },
+    });
+
+    // Booking a sound engineer is not suggesting the night to anybody. This is
+    // the assertion that would stay green if the role filter were dropped and
+    // every crew add started moving the booking, so it is stated on its own.
+    expect(await statusOf(event.id)).toBe("draft");
+  });
+
+  it("leaves the event alone when the invitation is declined", async () => {
+    const { performer, event } = await seedEventWithHost("declladder");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("declladder-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    expect(await statusOf(event.id)).toBe("suggested");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/decline`,
+      headers: auth("declladder-perf"),
+      payload: { note: "no" },
+    });
+
+    // Ran's spec for a refusal is a notification and the operator deciding what
+    // to do next, NOT a status change. Reverting to `draft` here would be an
+    // invented rule, and it would fight "the operator can edit it to change the
+    // date" — which is an action on a suggested event.
+    expect(await statusOf(event.id)).toBe("suggested");
+  });
+
+  it("does not drag a live booking backwards when a second act is added", async () => {
+    const { performer, event } = await seedEventWithHost("second");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("second-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("second-perf"),
+      payload: {},
+    });
+    expect(await statusOf(event.id)).toBe("pending");
+
+    const support = await seedMemberWithSet("second-support", "performer", [
+      ...PRESET_PERMISSION_SETS.performer,
+    ]);
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("second-op"),
+      payload: { profileId: support.profileId, role: "support" },
+    });
+
+    // Still pending — adding a support act to a night an act has already agreed
+    // to must not reopen the question.
+    expect(await statusOf(event.id)).toBe("pending");
+  });
+});
