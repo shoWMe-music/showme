@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { conflict, forbidden, isUniqueViolation, notFound, tooManyRequests } from "../errors";
-import { readProfileBusyTime } from "../lib/availability";
+import { mergeDateRanges, readProfileBookedDates, readProfileBusyTime } from "../lib/availability";
 import { signProfileImageUrls } from "../lib/profile-media";
 import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
 import type { StorageSigner } from "../lib/storage";
@@ -525,12 +525,24 @@ export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
       // One rule, computed in one place, shared with the in-app read
       // (`GET /profiles/:id/availability`) so the two can never disagree about
       // when somebody is free.
-      const busy = await readProfileBusyTime(database, profile.id);
+      //
+      // THE PUBLIC READ ASKS FOR A THIRD SOURCE the in-app one must not have: the
+      // nights already sold (ClickUp 86cbceux0). A venue with a confirmed show
+      // used to publish that date as free, because neither a hand-made block nor
+      // an imported entry exists for a booking the product made itself.
+      //
+      // Only here. `GET /profiles/:id/availability` feeds a control whose save
+      // REPLACES the whole block list, so returning derived dates there would let
+      // the next save write them in as real rows — see `readProfileBookedDates`.
+      const [busy, booked] = await Promise.all([
+        readProfileBusyTime(database, profile.id),
+        readProfileBookedDates(database, profile.id),
+      ]);
       // `busy.timeWindows` is deliberately NOT returned here — see the response
       // schema above. Fastify strips what the schema does not declare, but the
       // omission is stated rather than left to the framework: an undeclared field
       // that someone later adds to the schema would start publishing hours again.
-      return { unavailability: busy.dateRanges };
+      return { unavailability: mergeDateRanges([...busy.dateRanges, ...booked]) };
     },
   );
 
