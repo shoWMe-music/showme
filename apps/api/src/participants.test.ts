@@ -2091,6 +2091,88 @@ describe("events — asking to move a night, from the act's side", () => {
     expect(await dateOf(event.id)).toBe("2026-10-03");
   });
 
+  /**
+   * CREW HAVE NO VOTE ON THE NIGHT — Ran's call, 2026-09-19.
+   *
+   * Both directions, because a vote is a vote either way: a counterpart who
+   * declines blocks a move as surely as a proposer starts one. story.md puts
+   * `team_and_crew` at arm's length — a fixed fee, "the schedule and their own
+   * deal, never the budget" — so they are told the night is moving and get no
+   * say in it.
+   */
+  async function bookedEventWithCrew(prefix: string) {
+    const seeded = await bookedEvent(prefix);
+    const crew = await seedMemberWithSet(
+      `${prefix}-crew`,
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_schedule_only,
+    );
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: seeded.event.id,
+      profileId: crew.profileId,
+      role: "crew",
+      permissionSetId: crew.permissionSetId,
+      status: "confirmed",
+      details: { callTime: "16:00", task: "Front-of-house sound" },
+    });
+    return { ...seeded, crew };
+  }
+
+  it("refuses to let crew ask to move the night", async () => {
+    const { event } = await bookedEventWithCrew("crew-ask");
+
+    const asked = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request`,
+      headers: auth("crew-ask-crew"),
+      payload: { eventDate: "2026-10-03", reason: "I have another gig" },
+    });
+    expect(asked.statusCode).toBe(403);
+    expect(await dateOf(event.id)).toBe("2026-09-12");
+  });
+
+  it("does not ask crew to confirm a move, so they cannot veto one", async () => {
+    // The half that is easy to miss: leaving crew in the answering set would let
+    // a sound engineer block a date the venue and the act had both agreed on.
+    const { event } = await bookedEventWithCrew("crew-veto");
+
+    const asked = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request`,
+      headers: auth("crew-veto-op"),
+      payload: { eventDate: "2026-10-03" },
+    });
+    expect(asked.statusCode).toBe(200);
+
+    // Only the act is being waited on — not the act AND the crew member.
+    const forCrew = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/change-request`,
+      headers: auth("crew-veto-crew"),
+    });
+    // Crew still SEE it — their call time depends on the night.
+    expect(forCrew.json().request).toMatchObject({ required: 1, answerable: false });
+
+    // And their decline is not counted.
+    const declined = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${forCrew.json().request.id}/decline`,
+      headers: auth("crew-veto-crew"),
+      payload: {},
+    });
+    expect(declined.statusCode).toBe(403);
+
+    // The act alone settles it.
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${forCrew.json().request.id}/confirm`,
+      headers: auth("crew-veto-perf"),
+      payload: {},
+    });
+    expect(confirmed.json().status).toBe("confirmed");
+    expect(await dateOf(event.id)).toBe("2026-10-03");
+  });
+
   it("does not hand the act `event.edit` on the way", async () => {
     const { event } = await bookedEvent("ask-noedit");
     // Proposing is not editing. An act that could PATCH would come away able to

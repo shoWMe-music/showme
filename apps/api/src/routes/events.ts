@@ -24,6 +24,7 @@ import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import { assertEventCapAllows } from "../lib/entitlements";
 import {
+  BOOKING_PARTY_ROLES,
   NEGOTIATED_FIELDS,
   answerChangeRequest,
   callerParticipantOrNull,
@@ -1605,8 +1606,13 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       // `event.view` and standing, NOT `event.edit`: the floor every participant
       // clears, and the one `callerParticipantOrNull` already means.
       await requireEventCapability(request, id, "event.view");
-      const participant = await callerParticipantOrNull(request, id);
-      if (!participant) throw forbidden("You are not on this event");
+      // ...but standing alone is not enough to move a night. Crew are on the
+      // event and have no say in when it happens (`BOOKING_PARTY_ROLES`), so the
+      // question asked here is narrower than "are you on this event".
+      const participant = await callerParticipantOrNull(request, id, BOOKING_PARTY_ROLES);
+      if (!participant) {
+        throw forbidden("Only the venue and the acts on the bill can ask to move this booking");
+      }
 
       const [before] = await database.select().from(schema.events).where(eq(schema.events.id, id));
       if (!before) throw notFound("Event not found");
