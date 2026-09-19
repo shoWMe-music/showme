@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { PERFORMING_EVENT_ROLES } from "@showme/auth";
+import { liveEventDelegationsForEvents } from "@showme/auth";
 import { schema } from "@showme/db";
 import { notifyProfileMembers } from "@showme/db/notify";
-import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from "../errors";
@@ -763,40 +764,51 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
    * refusal. Same reasoning as the holds routes.
    */
   async function resolvePendingParticipation(
-    request: Parameters<typeof requireEventCapability>[0],
+    request: FastifyRequest,
     eventId: string,
-  ): Promise<{ id: string; profileId: string | null; status: string }> {
+  ): Promise<{ id: string; profileId: string | null; agentParticipantId: string | null }> {
     const principal = request.principal;
     if (!principal) throw new Error("principal missing after authentication");
+    const myProfileIds = new Set(principal.memberships.map((one) => one.profileId));
 
-    const [participation] = await request.server.database
+    // Every answerable participation on this event — which for an agent means
+    // their ACT's row, not their own (86cbcehmp / decisions #14).
+    const onEvent = await request.server.database
       .select({
         id: schema.eventParticipants.id,
+        eventId: schema.eventParticipants.eventId,
         profileId: schema.eventParticipants.profileId,
+        role: schema.eventParticipants.role,
         status: schema.eventParticipants.status,
       })
       .from(schema.eventParticipants)
-      .innerJoin(
-        schema.profileMembers,
-        eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
-      )
       .where(
         and(
           eq(schema.eventParticipants.eventId, eventId),
-          eq(schema.profileMembers.userId, principal.userId),
-          eq(schema.profileMembers.status, "active"),
+          inArray(schema.eventParticipants.role, [...INVITABLE_ROLES]),
         ),
       );
 
-    if (!participation) throw notFound("Event not found");
-    if (participation.status !== "invited") {
+    const answerable = await answerableInvitations(request, onEvent, myProfileIds);
+    const mine = onEvent.filter((row) => answerable.has(row.id));
+    if (mine.length === 0) throw notFound("Event not found");
+
+    const pending = mine.find((row) => row.status === "invited");
+    if (!pending) {
+      const settled = mine[0];
       throw conflict(
-        participation.status === "declined"
+        settled?.status === "declined"
           ? "You already declined this invitation"
           : "You have already answered this invitation",
       );
     }
-    return participation;
+    return {
+      id: pending.id,
+      profileId: pending.profileId,
+      // The agent's own row moves with the answer — a projection cannot be
+      // further along, or further behind, than the act it projects.
+      agentParticipantId: answerable.get(pending.id)?.agentParticipantId ?? null,
+    };
   }
 
   /** Answer an invitation — the one write both routes share. */
@@ -832,6 +844,16 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         )
         .returning();
       if (!after) throw conflict("You have already answered this invitation");
+
+      // The agent row follows the act's. Without this an agent who accepts on
+      // their act's behalf would leave themselves at `invited` — locked out of
+      // the very booking they just agreed to.
+      if (participation.agentParticipantId) {
+        await tx
+          .update(schema.eventParticipants)
+          .set({ status: answer, updatedAt: new Date() })
+          .where(eq(schema.eventParticipants.id, participation.agentParticipantId));
+      }
 
       // RUNG 2: an act has said yes, so the booking is no longer merely
       // suggested. Declining moves nothing — Ran's spec for a refusal is a
@@ -885,6 +907,90 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
     }
 
     return { eventId, participantId: updated.id, status: answer };
+  }
+
+  /**
+   * WHO ANSWERS AN INVITATION — the act, unless an agent speaks for them.
+   *
+   * ClickUp 86cbcehmp. decisions #14 and story.md: *"on in-region events the
+   * agent negotiates and confirms while the performer's own screens go
+   * read-only."* Accepting a booking is the most consequential confirm there is,
+   * so for a represented act it belongs to the agent.
+   *
+   * The first version of this route got that exactly backwards: the delegated act
+   * was asked and could answer, while the agent was told nothing and — because
+   * their own row had been auto-accepted — could not answer if they wanted to.
+   * Found by driving the invitation as the agent rather than as the operator.
+   *
+   * `liveEventDelegationsForEvents` is the same resolver `authorize` and the
+   * change-request flow use, so a representation that has lapsed hands the answer
+   * straight back to the act without waiting for a sweep.
+   *
+   * Returns, for the caller: the participations they may answer, and for each the
+   * agent row that has to move with it.
+   */
+  async function answerableInvitations(
+    request: FastifyRequest,
+    rows: {
+      id: string;
+      eventId: string;
+      profileId: string | null;
+      role: string;
+      [key: string]: unknown;
+    }[],
+    myProfileIds: Set<string>,
+  ): Promise<Map<string, { agentParticipantId: string | null }>> {
+    const answerable = new Map<string, { agentParticipantId: string | null }>();
+    if (rows.length === 0) return answerable;
+
+    const delegations = await liveEventDelegationsForEvents(
+      request.server.database,
+      [...new Set(rows.map((row) => row.eventId))],
+      new Date(),
+      // Unanswered rows INCLUDED. The question here is who answers for an act
+      // that has not accepted yet, which the authorization default deliberately
+      // excludes — an agent holds no capabilities on an unaccepted event, but
+      // they are still the one who answers for it (86cbcehmp / decisions #14).
+      ["invited", "accepted", "confirmed"],
+    );
+
+    // The agent's own participation on each event, so answering can move it too.
+    const agentRows = await request.server.database
+      .select({
+        id: schema.eventParticipants.id,
+        eventId: schema.eventParticipants.eventId,
+        profileId: schema.eventParticipants.profileId,
+      })
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          inArray(schema.eventParticipants.eventId, [...new Set(rows.map((r) => r.eventId))]),
+          eq(schema.eventParticipants.role, "agent"),
+        ),
+      );
+    const agentRowFor = new Map(
+      agentRows.map((row) => [`${row.eventId}:${row.profileId}`, row.id]),
+    );
+
+    for (const row of rows) {
+      const onEvent = delegations.get(row.eventId) ?? [];
+      const delegated = onEvent.find((one) => one.performerParticipantId === row.id);
+
+      if (!delegated) {
+        // Nobody speaks for this participation — it is the holder's to answer.
+        if (row.profileId && myProfileIds.has(row.profileId)) {
+          answerable.set(row.id, { agentParticipantId: null });
+        }
+        continue;
+      }
+      // Delegated: the AGENT answers, and the act does not.
+      if (myProfileIds.has(delegated.agentProfileId)) {
+        answerable.set(row.id, {
+          agentParticipantId: agentRowFor.get(`${row.eventId}:${delegated.agentProfileId}`) ?? null,
+        });
+      }
+    }
+    return answerable;
   }
 
   /**
@@ -956,8 +1062,32 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
       const principal = request.principal;
       if (!principal) throw new Error("principal missing after authentication");
 
+      const myProfileIds = new Set(principal.memberships.map((one) => one.profileId));
+
+      // EVENTS THIS CALLER TOUCHES AT ALL — their own participations, and the
+      // `agent` rows that project a representation. The second half is why this
+      // is not a single join on `profile_members`: an agent answers for an act
+      // whose participation is not theirs, so the row they need is one the old
+      // query could never return (86cbcehmp).
+      const reachable = await database
+        .select({ eventId: schema.eventParticipants.eventId })
+        .from(schema.eventParticipants)
+        .innerJoin(
+          schema.profileMembers,
+          eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
+        )
+        .where(
+          and(
+            eq(schema.profileMembers.userId, principal.userId),
+            eq(schema.profileMembers.status, "active"),
+            ne(schema.eventParticipants.status, "removed"),
+          ),
+        );
+      const eventIds = [...new Set(reachable.map((row) => row.eventId))];
+      if (eventIds.length === 0) return [];
+
       const host = alias(schema.profiles, "host_profile");
-      const rows = await database
+      const candidates = await database
         .select({
           eventId: schema.eventParticipants.eventId,
           participantId: schema.eventParticipants.id,
@@ -971,16 +1101,11 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           invitedAt: schema.eventParticipants.createdAt,
         })
         .from(schema.eventParticipants)
-        .innerJoin(
-          schema.profileMembers,
-          eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
-        )
         .innerJoin(schema.events, eq(schema.events.id, schema.eventParticipants.eventId))
         .leftJoin(host, eq(host.id, schema.events.hostProfileId))
         .where(
           and(
-            eq(schema.profileMembers.userId, principal.userId),
-            eq(schema.profileMembers.status, "active"),
+            inArray(schema.eventParticipants.eventId, eventIds),
             // Answered ones stay, so the inbox can show an Accepted tab — a
             // `removed` participation is gone and has nothing to say.
             inArray(schema.eventParticipants.status, ["invited", "accepted", "declined"]),
@@ -988,6 +1113,16 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           ),
         )
         .orderBy(asc(schema.events.eventDate));
+
+      // Whose answer each one is. A delegated act's invitation belongs to their
+      // agent, and disappears from the act's own list — their screens are
+      // read-only on it (decisions #14).
+      const answerable = await answerableInvitations(
+        request,
+        candidates.map((row) => ({ ...row, id: row.participantId })),
+        myProfileIds,
+      );
+      const rows = candidates.filter((row) => answerable.has(row.participantId));
 
       // One "today", read once: deriving expiry per row against a moving clock
       // could put two rows on opposite sides of midnight in the same response.

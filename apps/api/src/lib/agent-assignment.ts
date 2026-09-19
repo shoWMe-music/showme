@@ -150,6 +150,18 @@ export async function assignAgentToEvent(
         eq(schema.eventParticipants.profileId, representation.agentProfileId),
       ),
     );
+  // THE AGENT'S STANDING MIRRORS THEIR ACT'S (ClickUp 86cbcehmp).
+  //
+  // This used to insert the agent as `accepted` outright, which put them on an
+  // event nobody had agreed to play: the act sat at `invited` while their agent
+  // already had the run of the booking. An agent participation is the PROJECTION
+  // of a representation, not a booking of its own — so it can never be further
+  // along than the act it projects.
+  //
+  // Practically this means an unanswered invitation leaves the agent `invited`
+  // too, and answering it moves both (see `answerInvitation`). Nothing here has
+  // to know about the answer; it only has to stop claiming one was given.
+  const mirroredStatus = performerParticipant.status === "invited" ? "invited" : "accepted";
   if (!existingAgent) {
     const permissionSetId = await agentPermissionSetId(tx, representation.agentProfileId);
     await tx.insert(schema.eventParticipants).values({
@@ -157,13 +169,13 @@ export async function assignAgentToEvent(
       profileId: representation.agentProfileId,
       role: "agent",
       permissionSetId,
-      status: "accepted",
+      status: mirroredStatus,
     });
   } else if (existingAgent.status === "removed") {
     const permissionSetId = await agentPermissionSetId(tx, representation.agentProfileId);
     await tx
       .update(schema.eventParticipants)
-      .set({ role: "agent", permissionSetId, status: "accepted", updatedAt: new Date() })
+      .set({ role: "agent", permissionSetId, status: mirroredStatus, updatedAt: new Date() })
       .where(eq(schema.eventParticipants.id, existingAgent.id));
   }
 

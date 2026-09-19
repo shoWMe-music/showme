@@ -424,3 +424,8 @@ export const STANDING_PARTICIPANT_STATUSES = ["accepted", "confirmed"] as const;
 
 /** The inverse, as the SQL filter both queries use. Kept adjacent so they move together. */
 export const NON_STANDING_PARTICIPANT_STATUSES = ["invited", "declined", "removed"] as const;
+
+/** Every value `event_participants.status` can hold — the enum, as a type. */
+export type ParticipantStatus =
+  | (typeof STANDING_PARTICIPANT_STATUSES)[number]
+  | (typeof NON_STANDING_PARTICIPANT_STATUSES)[number];

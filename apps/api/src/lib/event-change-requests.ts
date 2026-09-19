@@ -290,7 +290,13 @@ export function describeMove(changes: NegotiatedValues, previous: NegotiatedValu
  */
 export async function proposeEventChange(
   request: FastifyRequest,
-  input: { eventId: string; changes: NegotiatedValues; previous: NegotiatedValues },
+  input: {
+    eventId: string;
+    changes: NegotiatedValues;
+    previous: NegotiatedValues;
+    /** Why the proposer is asking. Optional, and theirs to word. */
+    reason?: string;
+  },
 ): Promise<void> {
   const { database } = request.server;
   const principal = request.principal;
@@ -323,6 +329,7 @@ export async function proposeEventChange(
         proposedByUserId: principal.userId,
         changes: input.changes,
         previous: input.previous,
+        reason: input.reason ?? null,
       })
       .returning();
     if (!row) throw new Error("change request create failed");
@@ -350,7 +357,7 @@ export async function proposeEventChange(
       await notifyProfileMembers(database, party.profileId, principal.userId, {
         type: "event.change_requested",
         title: `A change to ${event?.title ?? "an event"}`,
-        body: `Somebody has asked to change ${what}. Confirm or decline it on the event.`,
+        body: `Somebody has asked to change ${what}. Confirm or decline it on the event.${input.reason ? ` Reason: ${input.reason}` : ""}`,
         eventId: input.eventId,
         link: `/events/${input.eventId}`,
         metadata: { changeRequestId: created.id, changes: input.changes },

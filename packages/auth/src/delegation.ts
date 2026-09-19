@@ -2,7 +2,7 @@ import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import { isRepresentationActiveAt } from "@showme/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { STANDING_PARTICIPANT_STATUSES } from "./presets";
+import { type ParticipantStatus, STANDING_PARTICIPANT_STATUSES } from "./presets";
 
 /**
  * Which delegations on one event are LIVE right now.
@@ -55,6 +55,17 @@ export async function liveEventDelegationsForEvents(
   db: Database,
   eventIds: readonly string[],
   now: Date = new Date(),
+  /**
+   * Which participant statuses count. Defaults to the STANDING set, which is
+   * what authorization means by a live delegation: an agent holds no
+   * capabilities on an event whose act has not accepted it.
+   *
+   * The invitation flow asks a different question — *who answers for this act* —
+   * and has to ask it precisely while the act is still `invited` (86cbcehmp).
+   * That is not a weaker rule, it is a different one, so it says so here rather
+   * than loosening the default underneath the authorization path.
+   */
+  statuses: readonly ParticipantStatus[] = STANDING_PARTICIPANT_STATUSES,
 ): Promise<Map<string, LiveDelegation[]>> {
   const byEvent = new Map<string, LiveDelegation[]>();
   if (eventIds.length === 0) return byEvent;
@@ -84,7 +95,7 @@ export async function liveEventDelegationsForEvents(
         // delegating has not agreed to be here at all. Importing the constant
         // rather than restating the list: two copies of "who stands on an event"
         // is the drift this module exists to prevent (86cbcehmp).
-        inArray(schema.eventParticipants.status, [...STANDING_PARTICIPANT_STATUSES]),
+        inArray(schema.eventParticipants.status, [...statuses]),
         // The SQL prefilter only — a row can be `active` and already past its
         // agreed effective moment. `isRepresentationActiveAt` is the answer.
         eq(schema.representations.status, "active"),

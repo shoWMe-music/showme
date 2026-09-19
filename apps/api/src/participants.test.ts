@@ -43,7 +43,7 @@ const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 /** Seed a user + profile + active membership + a permission set, return the ids. */
 async function seedMemberWithSet(
   id: string,
-  kind: "operator" | "performer" | "team_and_crew",
+  kind: "operator" | "performer" | "team_and_crew" | "agent",
   capabilities: readonly string[],
 ) {
   const { db } = harness;
@@ -1888,5 +1888,242 @@ describe("events — a change to a booked night is a question", () => {
       headers: auth("quiet-perf"),
     });
     expect(open.json().request).toBeNull();
+  });
+});
+
+/**
+ * ── LOOKED AT FROM EVERY SIDE, NOT JUST THE OPERATOR'S (86cbcehmp) ─────────
+ *
+ * Ran, on reviewing the first version: *"you only look from the operator side.
+ * You need to look from all sides."* Driving the same features as the act, the
+ * agent and the crew found three things the operator's view could never show.
+ * These are those three, so they cannot come back.
+ */
+describe("participants — every side of an invitation", () => {
+  /** An act represented by an agent, invited to the operator's event. */
+  async function bookedThroughAnAgent(prefix: string) {
+    const { db } = harness;
+    const { operator, performer, event } = await seedEventWithHost(prefix);
+    const agent = await seedMemberWithSet(`${prefix}-agent`, "agent", [
+      ...PRESET_PERMISSION_SETS.operator_full,
+    ]);
+    await db.insert(schema.representations).values({
+      agentProfileId: agent.profileId,
+      performerProfileId: performer.profileId,
+      status: "active",
+      // Worldwide so the territory check passes without a venue location — the
+      // territory rule has its own tests; this fixture is about delegation.
+      isWorldwide: true,
+      proposedBy: "agent",
+    });
+
+    // THROUGH THE REAL ROUTE, so `autoAssignAgentOnPerformerJoin` runs and writes
+    // the delegation and the agent row ITSELF. Hand-seeding those two was the
+    // first version of this fixture, and it made the "agent is not auto-accepted"
+    // test assert its own setup — it stayed green with the bug put back.
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth(`${prefix}-op`),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    return { operator, performer, agent, event };
+  }
+
+  const invitations = (uid: string) =>
+    app
+      .inject({ method: "GET", url: "/api/v1/me/event-invitations", headers: auth(uid) })
+      .then((response) => response.json() as Array<{ eventId: string }>);
+
+  it("sends a represented act's invitation to their AGENT, not to the act", async () => {
+    const { event } = await bookedThroughAnAgent("side-a");
+    // The agent negotiates and confirms; the act's screens are read-only on it
+    // (decisions #14). This was exactly backwards before.
+    expect((await invitations("side-a-agent")).map((one) => one.eventId)).toContain(event.id);
+    expect((await invitations("side-a-perf")).map((one) => one.eventId)).not.toContain(event.id);
+  });
+
+  it("lets the agent answer, and moves their own row with it", async () => {
+    const { db } = harness;
+    const { agent, performer, event } = await bookedThroughAnAgent("side-b");
+
+    const answered = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("side-b-agent"),
+      payload: {},
+    });
+    expect(answered.statusCode).toBe(200);
+
+    const rows = await db
+      .select({
+        profileId: schema.eventParticipants.profileId,
+        status: schema.eventParticipants.status,
+      })
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, event.id));
+    const act = rows.find((row) => row.profileId === performer.profileId);
+    const theAgent = rows.find((row) => row.profileId === agent.profileId);
+
+    // Both move. An agent left at `invited` would be locked out of the booking
+    // they had just agreed to.
+    expect(act?.status).toBe("accepted");
+    expect(theAgent?.status).toBe("accepted");
+  });
+
+  it("does not stand the agent on an event nobody has agreed to play", async () => {
+    const { db } = harness;
+    const { agent, event } = await bookedThroughAnAgent("side-c");
+    const [row] = await db
+      .select({ status: schema.eventParticipants.status })
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, event.id),
+          eq(schema.eventParticipants.profileId, agent.profileId),
+        ),
+      );
+    // An agent participation is the PROJECTION of a representation. It cannot be
+    // further along than the act it projects — this used to be `accepted` while
+    // the act sat unanswered.
+    expect(row?.status).toBe("invited");
+  });
+
+  it("still lets an UNrepresented act answer for themselves", async () => {
+    const { performer, event } = await seedEventWithHost("side-d");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("side-d-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    // The guard that stops the delegation rule swallowing the ordinary case.
+    expect((await invitations("side-d-perf")).map((one) => one.eventId)).toContain(event.id);
+    const answered = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("side-d-perf"),
+      payload: {},
+    });
+    expect(answered.statusCode).toBe(200);
+  });
+});
+
+/**
+ * ── THE ACT CAN ASK TOO (86cbcftg3, after Ran's "all sides" review) ────────
+ *
+ * The first version let only the operator ask to move a night. Driven as each
+ * kind, the performer, the agent and the crew all got a flat 403 — so an act who
+ * had to move a booking had no path in the product at all.
+ */
+describe("events — asking to move a night, from the act's side", () => {
+  async function bookedEvent(prefix: string) {
+    const seeded = await seedEventWithHost(prefix);
+    await harness.db
+      .update(schema.events)
+      .set({ eventDate: "2026-09-12" })
+      .where(eq(schema.events.id, seeded.event.id));
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seeded.event.id}/participants`,
+      headers: auth(`${prefix}-op`),
+      payload: { profileId: seeded.performer.profileId, role: "performer" },
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seeded.event.id}/participation/accept`,
+      headers: auth(`${prefix}-perf`),
+      payload: {},
+    });
+    return seeded;
+  }
+
+  const dateOf = async (eventId: string) => {
+    const [row] = await harness.db
+      .select({ eventDate: schema.events.eventDate })
+      .from(schema.events)
+      .where(eq(schema.events.id, eventId));
+    return row?.eventDate;
+  };
+
+  it("lets the performer ask, and the operator answers", async () => {
+    const { event } = await bookedEvent("ask-perf");
+
+    const asked = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request`,
+      headers: auth("ask-perf-perf"),
+      payload: { eventDate: "2026-10-03", reason: "We fly out that morning" },
+    });
+    expect(asked.statusCode).toBe(200);
+
+    // Nothing moves until the other side agrees — same as the operator's ask.
+    expect(await dateOf(event.id)).toBe("2026-09-12");
+
+    // And it is the OPERATOR who is now being asked.
+    const forOperator = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/change-request`,
+      headers: auth("ask-perf-op"),
+    });
+    expect(forOperator.json().request).toMatchObject({
+      changes: { eventDate: "2026-10-03" },
+      reason: "We fly out that morning",
+      answerable: true,
+    });
+
+    // The asker cannot wave their own request through.
+    const own = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${forOperator.json().request.id}/confirm`,
+      headers: auth("ask-perf-perf"),
+      payload: {},
+    });
+    expect(own.statusCode).toBe(403);
+
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${forOperator.json().request.id}/confirm`,
+      headers: auth("ask-perf-op"),
+      payload: {},
+    });
+    expect(confirmed.json().status).toBe("confirmed");
+    expect(await dateOf(event.id)).toBe("2026-10-03");
+  });
+
+  it("does not hand the act `event.edit` on the way", async () => {
+    const { event } = await bookedEvent("ask-noedit");
+    // Proposing is not editing. An act that could PATCH would come away able to
+    // rename the show and rewrite its notes, which is why this is its own route.
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("ask-noedit-perf"),
+      payload: { title: "Renamed by the act" },
+    });
+    expect(patched.statusCode).toBe(403);
+  });
+
+  it("refuses a request that changes nothing, and one on an unagreed booking", async () => {
+    const { event } = await bookedEvent("ask-noop");
+    const nothing = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request`,
+      headers: auth("ask-noop-perf"),
+      payload: { eventDate: "2026-09-12" },
+    });
+    expect(nothing.statusCode).toBe(400);
+
+    // A draft has nobody to negotiate with — and an act cannot be standing on
+    // one in the first place.
+    const { event: draft, performer } = await seedEventWithHost("ask-draft");
+    expect(performer.profileId).toBeTruthy();
+    const tooEarly = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${draft.id}/change-request`,
+      headers: auth("ask-draft-op"),
+      payload: { eventDate: "2026-10-03" },
+    });
+    expect([403, 409]).toContain(tooEarly.statusCode);
   });
 });
