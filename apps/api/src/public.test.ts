@@ -298,6 +298,235 @@ describe("public profiles", () => {
       { startDate: "2026-08-01", endDate: "2026-08-05" },
     ]);
   });
+
+  /**
+   * THE NIGHT IS SOLD AND THE PAGE SAID IT WAS FREE (ClickUp 86cbceux0).
+   *
+   * The bug these pin: availability was read from hand-made blocks and imported
+   * entries only, so a booking the product made itself was invisible to the one
+   * page a promoter actually reads. Nobody had written a block, because the
+   * system was supposed to know.
+   */
+  async function readUnavailability(slug: string) {
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/public/profiles/${slug}/availability`,
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json().unavailability as { startDate: string; endDate: string }[];
+  }
+
+  it("marks a night the venue has already sold, with no block written", async () => {
+    const venueId = await seedProfile("sold-owner", "sold-hall", true);
+    await harness.db.insert(schema.events).values({
+      hostProfileId: venueId,
+      venueProfileId: venueId,
+      title: "Sold Out",
+      baseCurrency: "SEK",
+      status: "confirmed",
+      eventDate: "2026-10-10",
+      createdBy: "sold-owner",
+    });
+
+    expect(await readUnavailability("sold-hall")).toEqual([
+      { startDate: "2026-10-10", endDate: "2026-10-10" },
+    ]);
+  });
+
+  it("does not mark a night nobody has agreed to play", async () => {
+    // A draft or an unanswered offer is not a booking. Publishing it as busy
+    // would have the venue turning away a night it has not actually sold.
+    const venueId = await seedProfile("unagreed-owner", "draft-hall", true);
+    await harness.db.insert(schema.events).values([
+      {
+        hostProfileId: venueId,
+        venueProfileId: venueId,
+        title: "Just An Idea",
+        baseCurrency: "SEK",
+        status: "draft",
+        eventDate: "2026-10-11",
+        createdBy: "unagreed-owner",
+      },
+      {
+        hostProfileId: venueId,
+        venueProfileId: venueId,
+        title: "Asked, Not Answered",
+        baseCurrency: "SEK",
+        status: "suggested",
+        eventDate: "2026-10-12",
+        createdBy: "unagreed-owner",
+      },
+      {
+        hostProfileId: venueId,
+        venueProfileId: venueId,
+        title: "Called Off",
+        baseCurrency: "SEK",
+        status: "cancelled",
+        eventDate: "2026-10-13",
+        createdBy: "unagreed-owner",
+      },
+    ]);
+
+    expect(await readUnavailability("draft-hall")).toEqual([]);
+  });
+
+  it("keeps a multi-room venue bookable while any room is free", async () => {
+    // The rule the whole room model exists for: a show in the basement must not
+    // tell the world the main hall is gone.
+    const venueId = await seedProfile("rooms-owner", "two-room-hall", true);
+    const rooms = await harness.db
+      .insert(schema.stages)
+      .values([
+        { venueProfileId: venueId, name: "Main Hall" },
+        { venueProfileId: venueId, name: "Basement" },
+      ])
+      .returning();
+    const [main, basement] = rooms;
+    if (!main || !basement) throw new Error("room seed failed");
+
+    await harness.db.insert(schema.events).values({
+      hostProfileId: venueId,
+      venueProfileId: venueId,
+      title: "Basement Show",
+      baseCurrency: "SEK",
+      status: "confirmed",
+      eventDate: "2026-11-01",
+      stageId: basement.id,
+      createdBy: "rooms-owner",
+    });
+    expect(await readUnavailability("two-room-hall")).toEqual([]);
+
+    // Both rooms gone on the same night, and now there is nowhere to put a show.
+    await harness.db.insert(schema.events).values({
+      hostProfileId: venueId,
+      venueProfileId: venueId,
+      title: "Main Hall Show",
+      baseCurrency: "SEK",
+      status: "confirmed",
+      eventDate: "2026-11-01",
+      stageId: main.id,
+      createdBy: "rooms-owner",
+    });
+    expect(await readUnavailability("two-room-hall")).toEqual([
+      { startDate: "2026-11-01", endDate: "2026-11-01" },
+    ]);
+  });
+
+  it("does not let the venue's OWN host row walk its show past the room math", async () => {
+    // Found live, not here: a venue hosting its own event is also a participant
+    // on it, and the guest branch does no room math — so one confirmed show in
+    // the Main Room reported the whole building unavailable while the Back Room
+    // stood empty. The earlier room test missed it by never seeding the host's
+    // participant row, which every real event has.
+    const venueId = await seedProfile("hostrow-owner", "host-row-hall", true);
+    const rooms = await harness.db
+      .insert(schema.stages)
+      .values([
+        { venueProfileId: venueId, name: "Main Hall" },
+        { venueProfileId: venueId, name: "Basement" },
+      ])
+      .returning();
+    const [main] = rooms;
+    if (!main) throw new Error("room seed failed");
+
+    const [event] = await harness.db
+      .insert(schema.events)
+      .values({
+        hostProfileId: venueId,
+        venueProfileId: venueId,
+        title: "Main Hall Only",
+        baseCurrency: "SEK",
+        status: "confirmed",
+        eventDate: "2026-11-20",
+        stageId: main.id,
+        createdBy: "hostrow-owner",
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: venueId,
+      role: "host",
+      status: "confirmed",
+    });
+
+    expect(await readUnavailability("host-row-hall")).toEqual([]);
+  });
+
+  it("takes a performer's night from the show they stand on", async () => {
+    // A performer has no rooms — they can only be in one place, so any night
+    // they are playing is gone.
+    const actId = await seedProfile("act-owner", "touring-act", true);
+    const [event] = await harness.db
+      .insert(schema.events)
+      .values({
+        hostProfileId: actId,
+        title: "Someone Else's Room",
+        baseCurrency: "SEK",
+        status: "confirmed",
+        eventDate: "2026-12-05",
+        createdBy: "act-owner",
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: actId,
+      role: "performer",
+      status: "accepted",
+    });
+
+    expect(await readUnavailability("touring-act")).toEqual([
+      { startDate: "2026-12-05", endDate: "2026-12-05" },
+    ]);
+  });
+
+  it("does not take a night from an invitation the act has not answered", async () => {
+    const actId = await seedProfile("invited-owner", "undecided-act", true);
+    const [event] = await harness.db
+      .insert(schema.events)
+      .values({
+        hostProfileId: actId,
+        title: "Still Deciding",
+        baseCurrency: "SEK",
+        status: "confirmed",
+        eventDate: "2026-12-06",
+        createdBy: "invited-owner",
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: actId,
+      role: "performer",
+      status: "invited",
+    });
+
+    expect(await readUnavailability("undecided-act")).toEqual([]);
+  });
+
+  it("reports a block and the show booked inside it as one unbroken stretch", async () => {
+    const venueId = await seedProfile("merge-owner", "merged-hall", true);
+    await harness.db.insert(schema.profileUnavailability).values({
+      profileId: venueId,
+      startDate: "2027-01-01",
+      endDate: "2027-01-03",
+      reason: "refit",
+    });
+    await harness.db.insert(schema.events).values({
+      hostProfileId: venueId,
+      venueProfileId: venueId,
+      title: "Opening Night",
+      baseCurrency: "SEK",
+      status: "confirmed",
+      eventDate: "2027-01-04",
+      createdBy: "merge-owner",
+    });
+
+    expect(await readUnavailability("merged-hall")).toEqual([
+      { startDate: "2027-01-01", endDate: "2027-01-04" },
+    ]);
+  });
 });
 
 describe("public events", () => {

@@ -48,6 +48,35 @@ export type NegotiatedValues = Partial<Record<NegotiatedField, string | null>>;
  * out because there is nothing left to renegotiate, and an edit to either is
  * record-keeping rather than a booking change.
  */
+/**
+ * WHO IS A PARTY TO THE BOOKING — the roles with a say in when the show happens.
+ *
+ * Ran's call, 2026-09-19: "Crew should not be able to move an event." Read as
+ * covering BOTH directions, because a vote is a vote either way — a counterpart
+ * who declines blocks the move just as surely as a proposer starts it, and
+ * leaving crew in the answering set would have let a sound engineer veto a date
+ * the venue and the act had both agreed on.
+ *
+ * It matches the boundary story.md draws for `team_and_crew`: an arm's-length
+ * service provider on a fixed fee, who "sees the schedule and their own deal,
+ * never the budget". Hired for the night, not a party to it. Contrast `support`,
+ * which is an act on the bill, and `agent`, who negotiates for one.
+ *
+ * Crew are still TOLD. The banner draws for everyone standing on the event —
+ * their call time depends on the night — they simply get no buttons, which is
+ * the same thing the proposer themselves sees.
+ */
+/** Every value `event_participants.role` can hold — the enum, as a type. */
+export type ParticipantRole = (typeof schema.eventParticipantRole.enumValues)[number];
+
+export const BOOKING_PARTY_ROLES: readonly ParticipantRole[] = [
+  "host",
+  "co_host",
+  "performer",
+  "support",
+  "agent",
+] as const;
+
 const AGREED_STATUSES = new Set(["pending", "confirmed", "on_hold"]);
 
 /** Does a change to this event have to be ASKED rather than simply made? */
@@ -151,6 +180,8 @@ async function counterparts(
       and(
         eq(schema.eventParticipants.eventId, eventId),
         inArray(schema.eventParticipants.status, ["accepted", "confirmed"]),
+        // Crew are not asked — see `BOOKING_PARTY_ROLES`.
+        inArray(schema.eventParticipants.role, [...BOOKING_PARTY_ROLES]),
       ),
     );
 
@@ -290,7 +321,13 @@ export function describeMove(changes: NegotiatedValues, previous: NegotiatedValu
  */
 export async function proposeEventChange(
   request: FastifyRequest,
-  input: { eventId: string; changes: NegotiatedValues; previous: NegotiatedValues },
+  input: {
+    eventId: string;
+    changes: NegotiatedValues;
+    previous: NegotiatedValues;
+    /** Why the proposer is asking. Optional, and theirs to word. */
+    reason?: string;
+  },
 ): Promise<void> {
   const { database } = request.server;
   const principal = request.principal;
@@ -323,6 +360,7 @@ export async function proposeEventChange(
         proposedByUserId: principal.userId,
         changes: input.changes,
         previous: input.previous,
+        reason: input.reason ?? null,
       })
       .returning();
     if (!row) throw new Error("change request create failed");
@@ -350,7 +388,7 @@ export async function proposeEventChange(
       await notifyProfileMembers(database, party.profileId, principal.userId, {
         type: "event.change_requested",
         title: `A change to ${event?.title ?? "an event"}`,
-        body: `Somebody has asked to change ${what}. Confirm or decline it on the event.`,
+        body: `Somebody has asked to change ${what}. Confirm or decline it on the event.${input.reason ? ` Reason: ${input.reason}` : ""}`,
         eventId: input.eventId,
         link: `/events/${input.eventId}`,
         metadata: { changeRequestId: created.id, changes: input.changes },
@@ -648,6 +686,13 @@ export async function notifyProposer(
 export async function callerParticipantOrNull(
   request: FastifyRequest,
   eventId: string,
+  /**
+   * Narrow to particular event-roles. Defaulted to every role because most
+   * callers mean "is this person on the event at all"; the propose route passes
+   * `BOOKING_PARTY_ROLES` because it is asking a different question — "does this
+   * person get a say in the date" — and the two must not be conflated.
+   */
+  roles: readonly ParticipantRole[] = schema.eventParticipantRole.enumValues,
 ): Promise<{ id: string; profileId: string | null } | null> {
   const principal = request.principal;
   if (!principal) return null;
@@ -668,6 +713,7 @@ export async function callerParticipantOrNull(
         eq(schema.profileMembers.userId, principal.userId),
         eq(schema.profileMembers.status, "active"),
         inArray(schema.eventParticipants.status, ["accepted", "confirmed"]),
+        inArray(schema.eventParticipants.role, [...roles]),
       ),
     );
   // Prefer the profile the caller is acting as — somebody holding two profiles on

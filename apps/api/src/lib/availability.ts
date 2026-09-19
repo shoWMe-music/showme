@@ -1,6 +1,8 @@
+import { STANDING_PARTICIPANT_STATUSES } from "@showme/auth";
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
-import { and, eq, gte, isNotNull, isNull, lte, or } from "drizzle-orm";
+import { WHOLE_VENUE, isDateTaken, occupiedDates } from "@showme/shared";
+import { and, eq, gte, inArray, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 
 /**
  * WHEN IS A PROFILE BUSY — one answer, computed from two sources.
@@ -142,6 +144,44 @@ function dedupe<T>(rows: T[], key: (row: T) => string): T[] {
   return [...seen.values()];
 }
 
+/**
+ * Coalesce inclusive date ranges that overlap or sit next to each other.
+ *
+ * Needed the moment a second busy source exists: a hand-made block across a
+ * refit week and a show booked inside it are two true statements about the same
+ * nights, and publishing both makes a reader work out the union themselves.
+ * Worse, a consumer computing FREE nights as the complement of this list — which
+ * is what the public availability page does — double-counts the overlap.
+ *
+ * Touching ranges are joined as well as overlapping ones: 1st–3rd followed by
+ * the 4th is one unbroken stretch of four nights, and saying it twice invites
+ * the reader to think there is a free night between them.
+ */
+export function mergeDateRanges(ranges: readonly BusyDateRange[]): BusyDateRange[] {
+  const sorted = [...ranges].sort(
+    (left, right) =>
+      left.startDate.localeCompare(right.startDate) || left.endDate.localeCompare(right.endDate),
+  );
+  const merged: BusyDateRange[] = [];
+  for (const range of sorted) {
+    const last = merged[merged.length - 1];
+    // `<=` on the day AFTER the running end, so abutting ranges join too.
+    if (last && range.startDate <= dayAfter(last.endDate)) {
+      if (range.endDate > last.endDate) last.endDate = range.endDate;
+      continue;
+    }
+    merged.push({ ...range });
+  }
+  return merged;
+}
+
+/** `yyyy-mm-dd` + one day, over UTC so no local zone can shift the date. */
+function dayAfter(date: string): string {
+  const at = new Date(`${date}T00:00:00Z`);
+  at.setUTCDate(at.getUTCDate() + 1);
+  return at.toISOString().slice(0, 10);
+}
+
 /** An optional inclusive window to narrow the read to. Both bounds `yyyy-mm-dd`. */
 export interface BusyRangeFilter {
   from?: string;
@@ -229,4 +269,114 @@ export async function readProfileBusyTime(
     dateRanges: sortRanges([...manual, ...fromImports.dateRanges]),
     timeWindows: fromImports.timeWindows,
   };
+}
+
+/**
+ * NIGHTS ALREADY SOLD — the third busy source, and the one a stranger most needs.
+ *
+ * ClickUp 86cbceux0, third checkbox: "the system does not mark dates unavailable
+ * for the specific Venue profile / Room automatically when events are created."
+ * Measured 2026-09-19: a venue with a CONFIRMED show on a date reported that date
+ * as free on `/public/profiles/:slug/availability`, because the read above knows
+ * only about hand-made blocks and imported entries. A promoter reading the page
+ * was being invited to ask for a night that was already gone.
+ *
+ * SEPARATE FUNCTION, NOT A THIRD QUERY INSIDE `readProfileBusyTime`. The in-app
+ * read (`GET /profiles/:id/availability`) feeds the calendar's "Mark unavailable"
+ * control, whose write is a WHOLESALE `PUT` replace of `profile_unavailability`.
+ * Fold derived dates into that read and the next save writes them back as real
+ * rows — the exact materialize-and-drift failure the comment at the top of this
+ * file rejects, arrived at by accident. So the caller says which question it is
+ * asking, out loud, and only the public route asks this one.
+ *
+ * WHAT COUNTS, and why it is not "any event":
+ *
+ * - **`isDateTaken`** (`@showme/shared`) decides which statuses take a night, so
+ *   the public page, the booking warning and the share link cannot drift apart.
+ *   A night an act has ACCEPTED is gone even though nothing is confirmed yet.
+ * - **A venue is busy only when it has nowhere left to put a show** — one room
+ *   sold out of three leaves the venue bookable, and `occupiedDates` already owns
+ *   that rule, including the harder half: a booking with no room recorded fills
+ *   EVERY room, because nobody can say which one is still free.
+ * - **A performer is busy on any night they are playing.** No room math: they can
+ *   only be in one place, so every taken event they stand on takes the night.
+ *
+ * It reveals that a night is gone, never what is in it — the same withholding the
+ * shape above is built around, and strictly less than the titled, dated shows the
+ * public profile already lists.
+ */
+export async function readProfileBookedDates(
+  database: Database,
+  profileId: string,
+  filter: BusyRangeFilter = {},
+): Promise<BusyDateRange[]> {
+  const dateWindow = and(
+    isNotNull(schema.events.eventDate),
+    filter.from ? gte(schema.events.eventDate, filter.from) : undefined,
+    filter.to ? lte(schema.events.eventDate, filter.to) : undefined,
+  );
+
+  // The two ways a profile's night gets taken, in one round trip: shows AT this
+  // venue, and shows this profile is standing ON. A profile can be both.
+  const [atThisVenue, standingOn, rooms] = await Promise.all([
+    database
+      .select({
+        eventDate: schema.events.eventDate,
+        venueProfileId: schema.events.venueProfileId,
+        stageId: schema.events.stageId,
+        status: schema.events.status,
+      })
+      .from(schema.events)
+      .where(and(eq(schema.events.venueProfileId, profileId), dateWindow)),
+    database
+      .selectDistinct({
+        eventDate: schema.events.eventDate,
+        status: schema.events.status,
+      })
+      .from(schema.events)
+      .innerJoin(schema.eventParticipants, eq(schema.eventParticipants.eventId, schema.events.id))
+      .where(
+        and(
+          eq(schema.eventParticipants.profileId, profileId),
+          // Being INVITED to a night does not take it — only an answer does, and
+          // `STANDING_PARTICIPANT_STATUSES` is the same set authorization uses
+          // for "is really on this bill".
+          inArray(schema.eventParticipants.status, [...STANDING_PARTICIPANT_STATUSES]),
+          // SHOWS AT THIS PROFILE'S OWN VENUE ARE NOT ASKED ABOUT HERE.
+          //
+          // A venue hosting its own event is also a PARTICIPANT on it, so without
+          // this the host's own row walks its show straight past the room math
+          // above and shuts the building. Measured live 2026-09-19 against The
+          // Lantern Hall: one confirmed show in the Main Room reported the whole
+          // venue unavailable while the Back Room stood empty — the precise
+          // failure the room model exists to prevent, reintroduced through the
+          // back door. Those events are already counted, correctly, by
+          // `atThisVenue`; this branch is only for nights spent somewhere else.
+          or(isNull(schema.events.venueProfileId), ne(schema.events.venueProfileId, profileId)),
+          dateWindow,
+        ),
+      ),
+    database
+      .select({ id: schema.stages.id })
+      .from(schema.stages)
+      .where(eq(schema.stages.venueProfileId, profileId)),
+  ]);
+
+  const busy = occupiedDates(
+    { venueProfileId: profileId, room: WHOLE_VENUE },
+    rooms.map((room) => room.id),
+    atThisVenue.map((event) => ({
+      date: event.eventDate,
+      venueProfileId: event.venueProfileId,
+      stageId: event.stageId,
+      occupies: isDateTaken(event.status),
+    })),
+  );
+
+  for (const event of standingOn) {
+    if (event.eventDate && isDateTaken(event.status)) busy.add(event.eventDate.slice(0, 10));
+  }
+
+  // One whole day each — an event has no end date, and the shape above is ranges.
+  return [...busy].sort().map((date) => ({ startDate: date, endDate: date }));
 }

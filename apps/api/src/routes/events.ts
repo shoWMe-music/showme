@@ -24,6 +24,7 @@ import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import { assertEventCapAllows } from "../lib/entitlements";
 import {
+  BOOKING_PARTY_ROLES,
   NEGOTIATED_FIELDS,
   answerChangeRequest,
   callerParticipantOrNull,
@@ -510,6 +511,14 @@ const CreateEventBody = z.object({
   participants: z.array(CreateEventParticipant).optional(),
   /** The agreement stated while creating the event — see the block above. */
   deal: CreateEventDeal.optional(),
+});
+
+const ProposeChangeBody = z.object({
+  eventDate: z.string().nullable().optional(),
+  venueProfileId: z.string().uuid().nullable().optional(),
+  stageId: z.string().uuid().nullable().optional(),
+  /** Why they are asking, in their words — "we fly out that morning". */
+  reason: z.string().trim().max(2000).optional(),
 });
 
 const ChangeAnswerParams = z.object({
@@ -1556,6 +1565,80 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       });
 
       return { id, archived: false, archivedAt: null };
+    },
+  );
+
+  /**
+   * ── ASKING TO MOVE A NIGHT, FROM THE OTHER SIDE (ClickUp 86cbcftg3) ───────
+   *
+   * Ran, on reviewing the first version: *"you only look from the operator
+   * side."* He was right, and this is the clearest case. Changing a booked date
+   * went through `PATCH /events/:id`, which needs `event.edit` — a capability no
+   * performer, agent or crew preset carries. Driven as each of them, all three
+   * got a flat **403**. So an act who had to move a night — touring, illness, a
+   * clash — had no path in the product at all; they could only message and hope
+   * the operator did it for them.
+   *
+   * This is the mirror. Anyone STANDING on the event may ask; the same people who
+   * would have had to answer the operator's proposal now answer theirs, through
+   * the same confirm/decline route. Nothing about the resolution changes — only
+   * who is allowed to raise the question.
+   *
+   * It is a separate route rather than a loosened `PATCH` on purpose. `event.edit`
+   * is the right gate for *editing an event*, and an act must not acquire it to
+   * ask a question: they would come away able to rename the show, move the door
+   * time and rewrite the notes. Proposing is a different act from editing, so it
+   * gets a different door.
+   */
+  app.post(
+    "/events/:id/change-request",
+    {
+      schema: {
+        params: EventParams,
+        body: ProposeChangeBody,
+        response: { 200: ChangeAnswerResponse },
+      },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+
+      // `event.view` and standing, NOT `event.edit`: the floor every participant
+      // clears, and the one `callerParticipantOrNull` already means.
+      await requireEventCapability(request, id, "event.view");
+      // ...but standing alone is not enough to move a night. Crew are on the
+      // event and have no say in when it happens (`BOOKING_PARTY_ROLES`), so the
+      // question asked here is narrower than "are you on this event".
+      const participant = await callerParticipantOrNull(request, id, BOOKING_PARTY_ROLES);
+      if (!participant) {
+        throw forbidden("Only the venue and the acts on the bill can ask to move this booking");
+      }
+
+      const [before] = await database.select().from(schema.events).where(eq(schema.events.id, id));
+      if (!before) throw notFound("Event not found");
+
+      const negotiated = negotiatedChanges(request.body as Record<string, unknown>, {
+        eventDate: before.eventDate,
+        venueProfileId: before.venueProfileId,
+        stageId: before.stageId,
+      });
+      if (isEmptyChange(negotiated.changes)) {
+        throw badRequest("Name a date, venue or room that is actually different");
+      }
+      if (!changeNeedsAgreement(before.status)) {
+        // Below `pending` the booking is the operator's own draft or an
+        // unanswered offer — there is nobody to negotiate with yet, and an act
+        // cannot be standing on it in the first place.
+        throw conflict("This booking is not agreed yet, so there is nothing to renegotiate");
+      }
+
+      await proposeEventChange(request, {
+        eventId: id,
+        changes: negotiated.changes,
+        previous: negotiated.previous,
+        reason: request.body.reason,
+      });
+      return { status: "pending" as const };
     },
   );
 
