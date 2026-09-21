@@ -1,3 +1,68 @@
+# Deployed — 2026-09-21b (realtime on, and the load balancer finally used)
+
+| | |
+|---|---|
+| **Database** | **No migration.** Schema unchanged at **46**. |
+| **API** | `showme-api-00039-55g` (was `00038-5mj`), 100% of traffic. Connection pool capped. |
+| **SSE** | `showme-stream-00005-c9g` — **first ever deploy** of `apps/stream`. |
+| **Load balancer** | Second backend added at `/stream`. `terraform apply`: 2 added, 2 changed, **0 destroyed**; certificate only refreshed. |
+| **Web app** | `showme-app.web.app` — bundle `index-e_JH1J4i.js`, served copy matches the local build byte for byte (sha256 `3bbf529e…`). |
+| **Marketing** | Untouched. `--only hosting:web`. |
+
+## The correction this deploy is built on
+
+`api.showme.music` was **already live** — A record resolving to the anycast IP,
+managed certificate ACTIVE, full 163-path spec served. The line below in the
+2026-09-18 entry saying to "DNS-wire it or tear it down" was stale, and acting on
+it would have deleted a working custom domain. What was true is that **nothing
+used it**: the web app pointed at the `run.app` origin, so a paid-for load
+balancer sat in front of a service nobody reached through it. Both `VITE_API_URL`
+and `VITE_STREAM_URL` now point at the domain.
+
+## SSE shares the API's host, by path
+
+`/stream` and `/stream/*` route to the stream backend; everything else stays with
+the API. The forwarding-rule SKU covers the first five rules, so a second backend
+behind the existing rules and certificate costs nothing beyond per-GB processing —
+whereas `stream.showme.music` would have needed its own load balancer (~$19/mo),
+its own DNS record and its own managed cert.
+
+**`timeout_sec` is inert on a serverless NEG.** The first attempt set 3600 to stop
+the 30-second backend timeout severing streams; GCP rejected it outright ("Timeout
+sec is not supported for a backend service with Serverless network endpoint
+groups"). So the API backend's `timeoutSec: 30` governs nothing either — request
+duration comes from Cloud Run's own `--timeout 3600`.
+
+## What was verified, and how
+
+- **Routing proved by CORS signature, not by status code.** Both services share an
+  error shape, so a 401 on `/stream` proves nothing. The stream answers
+  `GET, OPTIONS`; the API answers its full method list. `/stream` returns the
+  former.
+- **Propagation took ~100 seconds.** The first three checks showed the API
+  answering `/stream` — indistinguishable from a broken path matcher. Re-check
+  before diagnosing.
+- **A real authenticated connection held 95 seconds through the load balancer**,
+  past both the 30s and 60s marks, with a direct `run.app` connection as a control
+  behaving identically. Tested with a throwaway Firebase user, deleted afterwards;
+  the stream never writes, and production still holds 6 users with no residue.
+- **Connections fell 23 → 4** after the pool cap shipped. The remainder is one
+  warmed API instance, one admin session and Google's two `cloudsqlagent`
+  backends.
+- **Served bundle matched the local build byte for byte**, carries
+  `api.showme.music` and the idle-disconnect logic, and contains no `run.app`
+  references.
+
+## Still not reachable by a user
+
+The act-side "ask to move a night" has **no button**. Only the ANSWER route is in
+the generated client, so an act can be asked and can reply but cannot start a
+request from the browser. And only `event.participant_added` and
+`event.message_posted` publish over SSE — **confirming a deal pushes nothing**, so
+the Budget Planner does not move by itself when an agreement is signed.
+
+---
+
 # Deployed — 2026-09-21 (every side of a booking, and nights already sold)
 
 | | |
