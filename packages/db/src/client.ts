@@ -9,15 +9,17 @@ import * as schema from "./schema";
  * (Testcontainers) without importing any environment.
  */
 /**
- * Open a postgres-js connection. A normal TCP URL is passed straight through.
+ * Open a postgres-js connection — THE one place that knows how to read a
+ * connection string, used by the API (via `createDatabase`) and by the stream
+ * service's LISTEN client. A normal TCP URL is passed straight through.
  * The Cloud SQL unix-socket form `postgres://user:pass@/db?host=/cloudsql/INSTANCE`
  * can't go through postgres-js as a URL (it can't parse the empty host and ignores
  * the `?host=` query), so we pull the parts out and pass the socket directory as
  * the `host` option instead — postgres-js then connects to `<host>/.s.PGSQL.5432`.
  */
-function connect(connectionString: string) {
+export function createSqlClient(connectionString: string, options: Record<string, unknown> = {}) {
   const socket = connectionString.match(/[?&]host=(\/[^&]+)/);
-  if (!socket) return postgres(connectionString);
+  if (!socket) return postgres(connectionString, options);
   const user = decodeURIComponent(connectionString.match(/:\/\/([^:/@]+):/)?.[1] ?? "");
   const password = decodeURIComponent(connectionString.match(/:\/\/[^:/@]+:([^@]*)@/)?.[1] ?? "");
   const database = connectionString.match(/@[^/]*\/([^?]+)/)?.[1] ?? "";
@@ -27,11 +29,12 @@ function connect(connectionString: string) {
     username: user,
     password,
     ssl: false,
+    ...options,
   });
 }
 
 export function createDatabase(connectionString: string) {
-  return drizzle(connect(connectionString), { schema });
+  return drizzle(createSqlClient(connectionString), { schema });
 }
 
 export type Database = ReturnType<typeof createDatabase>;

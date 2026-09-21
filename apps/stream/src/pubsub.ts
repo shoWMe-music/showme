@@ -1,6 +1,6 @@
-import type { Database } from "@showme/db";
+import { type Database, createSqlClient } from "@showme/db";
 import { sql } from "drizzle-orm";
-import postgres from "postgres";
+import type postgres from "postgres";
 
 /**
  * The realtime backbone: one dedicated Postgres LISTEN connection that receives
@@ -47,7 +47,12 @@ interface ChannelEntry {
  * is cross-connection by design.
  */
 export function createPubSub(connectionString: string): PubSub {
-  const listenClient = postgres(connectionString, { max: 1 });
+  // `createSqlClient`, NOT `postgres(url)` — the Cloud SQL socket form has no
+  // host and postgres-js cannot parse it as a URL, so a direct call threw
+  // "Invalid URL" and the container exited before binding PORT (2026-09-21).
+  // `@showme/db` has owned that rule since the API first deployed; this is the
+  // stream using it instead of keeping a second, wrong copy.
+  const listenClient = createSqlClient(connectionString, { max: 1 });
   const channels = new Map<string, ChannelEntry>();
 
   async function subscribe(uid: string, handler: EventHandler): Promise<Unsubscribe> {

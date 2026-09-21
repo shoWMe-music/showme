@@ -1,2 +1,2 @@
-export { createDatabase, type Database } from "./client";
+export { createDatabase, createSqlClient, type Database } from "./client";
 export * as schema from "./schema";
