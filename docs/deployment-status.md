@@ -1,3 +1,53 @@
+# Deployed — 2026-09-21 (every side of a booking, and nights already sold)
+
+| | |
+|---|---|
+| **Database** | **No migration.** Schema unchanged at **46**. |
+| **API** | `showme-api-00038-5mj` (was `00037-f76`), 100% of traffic. Routine `--source` deploy; configuration untouched. |
+| **Web app** | **Untouched.** No bundle change — every commit in this deploy is API-side. |
+| **Marketing** | Untouched. |
+| **Infrastructure** | Untouched. No terraform. |
+
+Three commits, all from Ran's review that the product had only ever been looked
+at from the operator's side.
+
+| | What a person could not do before | Now |
+|---|---|---|
+| `e231a37` | Only the venue could ask to move a booked night — the act, their agent and crew all got a flat refusal | Anyone who is a party to the booking can ask; the act still cannot edit the event |
+| `e231a37` | A represented act was asked directly and their agent was never told — and the agent, auto-accepted, could not have answered | The invitation goes to the agent; both rows move together on the answer |
+| `c2e4a89` | A venue with a confirmed show published that night as **free** on its public page | A night already sold is unavailable, per room, computed rather than stored |
+| `8c61444` | Crew could ask to move a night, and could veto one by declining | Crew are told and have no vote |
+
+## Verified against the running service, by content
+
+The spec served by `00038-5mj` carries `POST /api/v1/events/{id}/change-request`
+— the act-side route, which did not exist in `00037-f76`. **A 401 would have
+proved nothing**: auth is a global `preHandler`, so every unknown path answers
+401 too. `/openapi.json` is the only honest check, and the revision that answered
+was confirmed rather than assumed — a warm instance serves during a traffic
+shift.
+
+## Not reachable by a user yet
+
+**The act-side "ask to move" has no button.** Only the ANSWER route is in the
+generated API client, so an act can be asked and can reply, but cannot start a
+request from the browser. The operator's path works because their ordinary
+`PATCH` is intercepted and diverted into a proposal. The API is correct and
+deployed; the UI is owed, and until it lands this route is reachable only by an
+API client.
+
+## A bug the whole test suite could not have found
+
+The public-availability fix first reported a venue unavailable on a night only
+one of its two rooms was sold. A venue hosting its own event is also a
+PARTICIPANT on it, so the host's own row carried the show past the room math into
+the branch that deliberately does none. Every layer below was green; the room
+test missed it by never seeding a host participant row, which every real event
+has. Found by driving the live stack, now pinned by a test that reddens when the
+exclusion is removed.
+
+---
+
 # Deployed — 2026-09-18 (a room can be shut without the building)
 
 | | |
