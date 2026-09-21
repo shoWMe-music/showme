@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { auth } from "../auth/firebase";
 import { messagesKey, threadsKey } from "../components/useEventMessageThreads";
 import { playNotificationSound } from "../lib/notificationSound";
+import { HIDDEN_GRACE_MILLISECONDS, type RealtimeState, nextRealtime } from "./realtimeLifecycle";
 
 /**
  * The client half of the realtime backbone: one SSE connection to the stream
@@ -71,10 +72,19 @@ export function useRealtimeStream(streamUrl: string | undefined): void {
   useEffect(() => {
     if (!streamUrl) return;
 
-    const abortController = new AbortController();
+    // Recreated on every (re)connect: an AbortController is single-use, and going
+    // idle aborts one without ending the subscription for good.
+    let abortController = new AbortController();
     let retryMilliseconds = INITIAL_RETRY_MILLISECONDS;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
+    // Idle is NOT stopped. `stopped` means the hook is unmounting and must never
+    // reconnect; `idle` means the tab is hidden and should reconnect the moment
+    // somebody looks at it again.
+    let idle = false;
+    // Assigned once `apply` exists; `connect` closes over it.
+    let ended: () => void = () => {};
 
     const handleEvent = (event: StreamEvent) => {
       const client = queryClientRef.current;
@@ -101,7 +111,7 @@ export function useRealtimeStream(streamUrl: string | undefined): void {
     };
 
     const connect = async () => {
-      if (stopped) return;
+      if (stopped || idle) return;
       const token = await auth.currentUser?.getIdToken();
       if (!token) {
         // Signed out mid-session: stop rather than hammer the service with 401s.
@@ -124,7 +134,7 @@ export function useRealtimeStream(streamUrl: string | undefined): void {
         const decoder = new TextDecoder();
         let buffer = "";
 
-        while (!stopped) {
+        while (!stopped && !idle) {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
@@ -142,18 +152,80 @@ export function useRealtimeStream(streamUrl: string | undefined): void {
       }
 
       // Cloud Run caps a request at 60 minutes, so a healthy connection ALSO ends
-      // here on schedule. Reconnecting is the normal path, not just error recovery.
-      if (stopped) return;
-      retryTimer = setTimeout(connect, retryMilliseconds);
-      retryMilliseconds = Math.min(retryMilliseconds * 2, MAX_RETRY_MILLISECONDS);
+      // here on schedule. Whether that means "reconnect" or "stay quiet" is the
+      // machine's call — an idle tab must NOT rearm, which is the whole saving.
+      ended();
     };
 
-    void connect();
+    // WHEN to be connected is `realtimeLifecycle`'s decision, tested without a
+    // DOM; this only carries it out. `idle` above mirrors that state so the read
+    // loop and the reconnect path can both see it.
+    let machine: RealtimeState = "idle";
+
+    const apply = (signal: Parameters<typeof nextRealtime>[1]) => {
+      const next = nextRealtime(machine, signal);
+      machine = next.state;
+      idle = machine === "idle";
+      stopped = machine === "stopped";
+      for (const action of next.actions) {
+        switch (action.do) {
+          case "open":
+            abortController = new AbortController();
+            retryMilliseconds = INITIAL_RETRY_MILLISECONDS;
+            void connect();
+            break;
+          case "close":
+            // Aborting closes the socket, which fires `close` on the server and
+            // releases that user's Postgres LISTEN — so the instance really does
+            // go idle and can scale to zero, rather than merely being ignored.
+            if (retryTimer) clearTimeout(retryTimer);
+            abortController.abort();
+            break;
+          case "armGrace":
+            if (hiddenTimer) clearTimeout(hiddenTimer);
+            hiddenTimer = setTimeout(
+              () => apply({ kind: "graceElapsed" }),
+              HIDDEN_GRACE_MILLISECONDS,
+            );
+            break;
+          case "cancelGrace":
+            if (hiddenTimer) clearTimeout(hiddenTimer);
+            hiddenTimer = undefined;
+            break;
+          case "scheduleReconnect":
+            retryTimer = setTimeout(connect, retryMilliseconds);
+            retryMilliseconds = Math.min(retryMilliseconds * 2, MAX_RETRY_MILLISECONDS);
+            break;
+          case "resync":
+            void queryClientRef.current.invalidateQueries({
+              queryKey: getGetApiV1NotificationsQueryKey(),
+            });
+            break;
+        }
+      }
+    };
+
+    ended = () => apply({ kind: "connectionEnded" });
+
+    const onVisibilityChange = () =>
+      apply({ kind: "visibility", visible: document.visibilityState !== "hidden" });
+    const onPageHide = () => apply({ kind: "graceElapsed" });
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    // Closing the tab or navigating away: end it now rather than leaving the
+    // socket to time out server-side.
+    window.addEventListener("pagehide", onPageHide);
+    // A tab restored from the back/forward cache fires `pageshow`, not
+    // `visibilitychange`, and would otherwise sit there permanently idle.
+    window.addEventListener("pageshow", onVisibilityChange);
+
+    apply({ kind: "mount", visible: document.visibilityState !== "hidden" });
 
     return () => {
-      stopped = true;
-      if (retryTimer) clearTimeout(retryTimer);
-      abortController.abort();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onVisibilityChange);
+      apply({ kind: "stop" });
     };
   }, [streamUrl]);
 }
