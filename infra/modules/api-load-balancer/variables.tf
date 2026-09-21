@@ -38,3 +38,9 @@ variable "cert_version" {
   description = "Suffix for the managed SSL certificate name. Empty = the live unsuffixed name. Setting it replaces the certificate and drops TLS for 15-60 min; only do that when the current one has already failed."
   default     = ""
 }
+
+variable "stream_service" {
+  type        = string
+  default     = ""
+  description = "Name of the SSE Cloud Run service to serve at /stream on the same domain. Empty disables it, leaving a single-backend load balancer."
+}

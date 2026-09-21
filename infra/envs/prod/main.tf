@@ -9,6 +9,9 @@ module "api_load_balancer" {
   cloud_run_service = var.cloud_run_service
   domain            = var.domain
   cert_version      = var.cert_version
+  # The SSE service shares this load balancer at /stream — see the module for why
+  # (the forwarding rule is already paid for, and a subdomain would need a second).
+  stream_service    = var.stream_service
 }
 
 output "load_balancer_ip" {

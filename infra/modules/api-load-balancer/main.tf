@@ -45,10 +45,82 @@ resource "google_compute_backend_service" "default" {
   }
 }
 
+# ── THE SSE SERVICE, ON THE SAME LOAD BALANCER ───────────────────────────────────
+# The forwarding rule is already paid for: the "Forwarding Rule Minimum" SKU covers
+# the first five rules, so a second backend behind the SAME rules and the SAME
+# managed certificate costs nothing beyond per-GB processing. That is the whole
+# argument for putting the stream here rather than leaving it on its run.app origin
+# — one domain, one cert, one DNS record, no second load balancer (which is what a
+# `stream.showme.music` subdomain would have cost, ~$19/mo in forwarding rules for a
+# service that fits on this one).
+resource "google_compute_region_network_endpoint_group" "stream" {
+  count                 = var.stream_service == "" ? 0 : 1
+  project               = var.project_id
+  name                  = "${local.name}-stream-neg"
+  region                = var.cloud_run_region
+  network_endpoint_type = "SERVERLESS"
+
+  cloud_run {
+    service = var.stream_service
+  }
+}
+
+# A SEPARATE backend service, so the stream's routing and caching are its own.
+#
+# NOT `timeout_sec`. The obvious worry here is the backend timeout severing a
+# long-lived stream, and the first version set it to 3600 to match the Cloud Run
+# service. The API rejects that outright:
+#
+#   "Timeout sec is not supported for a backend service with Serverless network
+#    endpoint groups"
+#
+# So the field is inert for serverless NEGs — which also means the API backend's
+# `timeoutSec: 30`, alarming as it looks in `gcloud compute backend-services list`,
+# governs nothing either. The request duration is the CLOUD RUN service's own
+# `--timeout 3600`. That is verified by holding a connection open through this load
+# balancer for longer than a minute, not by reading the field.
+resource "google_compute_backend_service" "stream" {
+  count                 = var.stream_service == "" ? 0 : 1
+  project               = var.project_id
+  name                  = "${local.name}-stream-backend"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  # Deliberately no CDN. Caching a stream is meaningless, and a caching layer that
+  # buffers would hold frames back until the buffer filled — the failure that looks
+  # like "realtime is slow" and is actually "realtime is off".
+  enable_cdn = false
+
+  backend {
+    group = google_compute_region_network_endpoint_group.stream[0].id
+  }
+}
+
 resource "google_compute_url_map" "default" {
   project         = var.project_id
   name            = "${local.name}-urlmap"
   default_service = google_compute_backend_service.default.id
+
+  # Everything except /stream keeps going to the API, so the API's own paths are
+  # untouched and this stays a no-op when no stream service is configured.
+  dynamic "host_rule" {
+    for_each = var.stream_service == "" ? [] : [1]
+    content {
+      hosts        = [var.domain]
+      path_matcher = "split"
+    }
+  }
+
+  dynamic "path_matcher" {
+    for_each = var.stream_service == "" ? [] : [1]
+    content {
+      name            = "split"
+      default_service = google_compute_backend_service.default.id
+
+      path_rule {
+        paths   = ["/stream", "/stream/*"]
+        service = google_compute_backend_service.stream[0].id
+      }
+    }
+  }
 }
 
 # Google-managed SSL certificate. Provisioning to ACTIVE requires the domain's A

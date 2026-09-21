@@ -93,3 +93,9 @@ variable "exchange_rate_api_secret_name" {
   # rotate.
   default = "EXCHANGE_RATE_API"
 }
+
+variable "stream_service" {
+  type        = string
+  default     = "showme-stream"
+  description = "SSE Cloud Run service served at /stream on the API domain."
+}
