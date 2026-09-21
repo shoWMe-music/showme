@@ -1,4 +1,5 @@
 import { type Database, schema } from "@showme/db";
+import { majorToMinor } from "@showme/shared";
 import { and, eq, sql } from "drizzle-orm";
 
 /**
@@ -71,11 +72,43 @@ async function copyBudgetOnce(
   // enters it. That is also what keeps it unreadable: a line that was never
   // copied cannot leak through the settlement to the other party, and there is
   // no per-line privacy rule to get wrong later.
-  const budgetLines = await database
+  let budgetLines = await database
     .select()
     .from(schema.budgetLines)
     .innerJoin(schema.budgets, eq(schema.budgets.id, schema.budgetLines.budgetId))
     .where(and(eq(schema.budgets.eventId, eventId), eq(schema.budgets.scope, "shared")));
+
+  // THE FORECAST THE PLANNER IS SHOWING BUT HAS NOT WRITTEN (ClickUp 123qy9rnwud).
+  //
+  // Ticket tiers are entered on EVENT DETAILS and live in `events.extras`. The
+  // Budget Planner SEEDS them into its form (`useBudgetSeed`) and — deliberately —
+  // only persists a seeded figure once the operator has touched it, because a
+  // flush that wrote every untouched row used to invent phantom lines nobody
+  // entered. So an operator who fills in tickets on Event Details, opens the
+  // planner and reads a correct forecast off it has NOTHING in `budget_lines`.
+  //
+  // The two rules are each right and together left a hole: the screen showed a
+  // SEK 2.8M door while "Start from the Budget Planner" copied zero lines,
+  // reported success, and settled the night on the guarantee floor. Measured
+  // 2026-09-21 reproducing Ran's report: 0 settlement lines, pool 0, and a
+  // performer entitled to the SEK 3,000 guarantee instead of 70% of SEK 400,000.
+  //
+  // Pressing that button IS the acceptance the planner's own rule waits for — the
+  // operator is asking for the forecast — so the tiers are materialised here as
+  // real budget lines and then copied by the code below. They become budget rows
+  // rather than settlement rows on purpose: planned-vs-actual pairs on
+  // `origin_budget_line_id`, so seeding only the settlement would still have left
+  // the planned column empty.
+  if (budgetLines.length === 0) {
+    const seeded = await seedTicketTiersIntoBudget(database, eventId);
+    if (seeded > 0) {
+      budgetLines = await database
+        .select()
+        .from(schema.budgetLines)
+        .innerJoin(schema.budgets, eq(schema.budgets.id, schema.budgetLines.budgetId))
+        .where(and(eq(schema.budgets.eventId, eventId), eq(schema.budgets.scope, "shared")));
+    }
+  }
   if (budgetLines.length === 0) return { copied: 0, alreadyHad: false };
 
   await database.insert(schema.settlementLines).values(
@@ -106,4 +139,110 @@ async function copyBudgetOnce(
     }),
   );
   return { copied: budgetLines.length, alreadyHad: false };
+}
+
+/**
+ * One ticket tier as Event Details stores it (`events.extras.ticketTiers`).
+ *
+ * `price` is in MAJOR units and the schema says so — "display-only; settlement
+ * money lives in budget lines". Every money column this file writes is MINOR, so
+ * the conversion below is not a detail: reading the tier price as minor units
+ * settles a SEK 2,000 ticket at SEK 20 and pays the act a hundredth of the door.
+ */
+interface EventTicketTier {
+  name?: string;
+  /** Major-unit unit price. */
+  price?: number;
+  /** Expected sales; `max` is the tier's inventory cap, used when est is absent. */
+  est?: number;
+  max?: number;
+}
+
+/**
+ * Write the event's ticket tiers into the shared budget as revenue lines.
+ *
+ * The shape matches exactly what the planner writes when the operator edits a
+ * tier by hand (`useBudgetEditor`): `kind: "revenue"`, the tier's name as the
+ * label, `amount = unitAmount x quantity` computed in MINOR units so the total
+ * always equals its own breakdown, and `details.basis = "ticket_tier"` — which is
+ * what `routes/settlement.ts` reads to decide that a revenue line is the DOOR
+ * rather than bar or merchandise. Getting that wrong would leave the tickets out
+ * of the percentage a door deal is measured against.
+ *
+ * Returns how many were written, so a genuinely empty forecast stays distinct
+ * from one that was seeded.
+ */
+async function seedTicketTiersIntoBudget(
+  // biome-ignore lint/suspicious/noExplicitAny: Drizzle tx handle.
+  database: any,
+  eventId: string,
+): Promise<number> {
+  const [event] = await database
+    .select({ extras: schema.events.extras, baseCurrency: schema.events.baseCurrency })
+    .from(schema.events)
+    .where(eq(schema.events.id, eventId));
+  const tiers = (event?.extras as { ticketTiers?: EventTicketTier[] } | null)?.ticketTiers;
+  if (!Array.isArray(tiers) || tiers.length === 0) return 0;
+
+  const currency = event?.baseCurrency ?? "EUR";
+  const rows = tiers
+    .map((tier) => {
+      // `majorToMinor`, not a hardcoded x100: the planner multiplies by 100
+      // inline, which is wrong for a zero-decimal currency like JPY. The shared
+      // helper reads the currency's exponent.
+      const unitAmount = majorToMinor(tier.price ?? 0, currency);
+      const quantity = BigInt(Math.trunc(tier.est ?? tier.max ?? 0) || 0);
+      // Unit x count in minor units, so `amount` always equals its own
+      // breakdown — the same reason the planner multiplies before converting.
+      return { tier, unitAmount, quantity, amount: unitAmount * quantity };
+    })
+    // A tier with no price or no expected sales forecasts nothing. Writing a
+    // zero row would put an empty line in the ledger the settlement reconciles.
+    .filter((row) => row.amount > 0n);
+  if (rows.length === 0) return 0;
+
+  // The host does the planning and collects the door unless somebody says
+  // otherwise — the same fallback the planner's own flush applies to a tier that
+  // has not been attributed.
+  const [host] = await database
+    .select({ id: schema.eventParticipants.id })
+    .from(schema.eventParticipants)
+    .where(
+      and(eq(schema.eventParticipants.eventId, eventId), eq(schema.eventParticipants.role, "host")),
+    );
+
+  // `budgets` has NO currency column — a budget line carries its own, defaulting
+  // to the event's base. Typechecking did not catch the invented column because
+  // this function takes an untyped Drizzle handle; the test that inserts a budget
+  // for real did.
+  let [budget] = await database
+    .select({ id: schema.budgets.id })
+    .from(schema.budgets)
+    .where(and(eq(schema.budgets.eventId, eventId), eq(schema.budgets.scope, "shared")));
+  if (!budget) {
+    [budget] = await database
+      .insert(schema.budgets)
+      .values({ eventId, scope: "shared" })
+      .returning({ id: schema.budgets.id });
+  }
+  if (!budget) return 0;
+
+  await database.insert(schema.budgetLines).values(
+    rows.map(({ tier, unitAmount, quantity, amount }) => ({
+      budgetId: budget.id,
+      kind: "revenue" as const,
+      label: (tier.name ?? "").trim() || "Ticket tier",
+      // `amount` is a bigint column (minor units, money.md) — passed as a BigInt,
+      // not a string.
+      amount,
+      currency,
+      collectedBy: host?.id ?? null,
+      details: {
+        basis: "ticket_tier" as const,
+        unitAmount: unitAmount.toString(),
+        quantity: Number(quantity),
+      },
+    })),
+  );
+  return rows.length;
 }
