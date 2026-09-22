@@ -624,6 +624,130 @@ describe("deals — reopen (decisions #1)", () => {
   });
 });
 
+const patchDeal = (dealId: string, uid: string, payload: Record<string, unknown>) =>
+  app.inject({ method: "PATCH", url: `/api/v1/deals/${dealId}`, headers: auth(uid), payload });
+
+const signAll = async (deal: { dealId: string; opUid: string; aUid: string; bUid: string }) => {
+  await confirm(deal.dealId, deal.opUid);
+  await confirm(deal.dealId, deal.aUid);
+  await confirm(deal.dealId, deal.bUid);
+};
+
+/**
+ * THE FREEZE IS A RULE, NOT A RENDERING.
+ *
+ * `DealAgreementCard.tsx` has always hidden the editors once an agreement is
+ * confirmed, and the card says "Confirmed — terms frozen". The route did not
+ * enforce it, and `routes/settlement.ts` divides the LIVE `deals` row rather than
+ * `confirmed_snapshot` — so a guarantee moved after signature was a guarantee that
+ * got paid, against a document saying something else, with the snapshot sitting
+ * beside it as evidence nothing reads.
+ *
+ * These tests exist because the rule lived in a component. The assistant /
+ * agent-native surface (decisions #16.14) drives these routes with no component in
+ * the way, and that is the caller this guard is really for.
+ */
+describe("deals — a signed agreement's terms are frozen", () => {
+  it("refuses to move the guarantee on a confirmed agreement, and names the way out", async () => {
+    const deal = await seedSplitDeal("dfz");
+    await signAll(deal);
+
+    const moved = await patchDeal(deal.dealId, deal.opUid, { guaranteeAmount: "150000" });
+    expect(moved.statusCode).toBe(409);
+    expect(moved.json().error.message).toContain("guaranteeAmount");
+    expect(moved.json().error.message).toContain("reopen");
+
+    // And the row is untouched — a refusal that half-wrote would be worse than none.
+    const [row] = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.id, deal.dealId));
+    expect(row?.guaranteeAmount).toBeNull();
+  });
+
+  it("refuses the split, the structure, the escalator tiers and the signed words alike", async () => {
+    const deal = await seedSplitDeal("dfz2");
+    await signAll(deal);
+
+    for (const term of [
+      { splitBasisPoints: 8000 },
+      { structure: "guarantee_vs_door" },
+      { terms: { escalators: [{ thresholdSold: 300, splitBasisPoints: 7000 }] } },
+      { agreementBodyText: "…and the support act loads out first." },
+      { paymentTiming: "before_event" },
+      { name: "Door split, renamed" },
+    ]) {
+      const refused = await patchDeal(deal.dealId, deal.opUid, term);
+      expect(refused.statusCode, JSON.stringify(term)).toBe(409);
+    }
+  });
+
+  /**
+   * THE HALF THAT MAKES THE GUARD LIVEABLE. The Deals tab saves the whole form, so
+   * a request that sends every term and moves none is ordinary traffic. A guard
+   * that fired on "this field was present" rather than "this field changed" would
+   * block editing everything beside the terms, and would have been green against a
+   * test that only ever sent changes.
+   */
+  it("lets a no-op save through, terms and all", async () => {
+    const deal = await seedSplitDeal("dfz3");
+    await patchDeal(deal.dealId, deal.opUid, {
+      guaranteeAmount: "250000",
+      splitBasisPoints: 6000,
+      terms: { escalators: [{ thresholdSold: 300, splitBasisPoints: 7000 }] },
+    });
+    await signAll(deal);
+
+    const resaved = await patchDeal(deal.dealId, deal.opUid, {
+      name: "Door split",
+      guaranteeAmount: "250000",
+      splitBasisPoints: 6000,
+      // Key order deliberately reversed. It holds because Zod re-emits a parsed
+      // object in its schema's order on both sides — the invariant the comparison
+      // rests on, and this is the test that would catch it going away.
+      terms: { escalators: [{ splitBasisPoints: 7000, thresholdSold: 300 }] },
+    });
+    expect(resaved.statusCode).toBe(200);
+  });
+
+  /**
+   * Withdrawing is not renegotiating. `PATCH /deals/:did` is the only route in the
+   * product that cancels a deal (`DELETE` hard-deletes the row), so freezing
+   * `status` would leave a signed agreement that can never be called off.
+   */
+  it("still lets a signed deal be withdrawn, and its priority reordered", async () => {
+    const deal = await seedSplitDeal("dfz4");
+    await signAll(deal);
+
+    expect((await patchDeal(deal.dealId, deal.opUid, { priority: 3 })).statusCode).toBe(200);
+    const withdrawn = await patchDeal(deal.dealId, deal.opUid, { status: "cancelled" });
+    expect(withdrawn.statusCode).toBe(200);
+    expect(withdrawn.json().status).toBe("cancelled");
+  });
+
+  /** The door out, and the proof it is a door: reopen, then the same edit lands. */
+  it("takes the edit once the agreement has been reopened", async () => {
+    const deal = await seedSplitDeal("dfz5");
+    await signAll(deal);
+    expect((await patchDeal(deal.dealId, deal.opUid, { splitBasisPoints: 8000 })).statusCode).toBe(
+      409,
+    );
+
+    expect((await reopen(deal.dealId, deal.opUid, "the act renegotiated")).statusCode).toBe(200);
+    const accepted = await patchDeal(deal.dealId, deal.opUid, { splitBasisPoints: 8000 });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json().splitBasisPoints).toBe(8000);
+  });
+
+  /** An unsigned agreement is still being negotiated — nothing is frozen there. */
+  it("leaves a sent-but-unsigned agreement entirely editable", async () => {
+    const deal = await seedSplitDeal("dfz6");
+    const edited = await patchDeal(deal.dealId, deal.opUid, { guaranteeAmount: "90000" });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().guaranteeAmount).toBe("90000");
+  });
+});
+
 describe("deals — send (decisions #1)", () => {
   it("moves a draft agreement to sent and refuses a non-draft", async () => {
     const deal = await seedSplitDeal("ds", { send: false });

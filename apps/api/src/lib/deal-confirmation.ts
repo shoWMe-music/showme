@@ -100,6 +100,92 @@ export function freezeDealSnapshot(deal: DealRow, parties: DealPartyRow[]) {
   };
 }
 
+/**
+ * THE TERMS A SIGNATURE COVERS — exactly the fields `freezeDealSnapshot` copies
+ * into `confirmed_snapshot`, because that object IS the product's definition of
+ * "what was agreed".
+ *
+ * Derived from it on purpose rather than listed independently: a term added to
+ * the snapshot and forgotten here would be a term that freezes in the evidence
+ * and keeps moving in the row the settlement actually reads.
+ *
+ * `type` is in the snapshot and absent here only because no route can change it.
+ * `priority` and `status` are absent from BOTH: priority is an ordering hint, and
+ * withdrawing a deal (`status: "cancelled"`) has to stay possible after signature
+ * — `PATCH /deals/:did` is the only route in the product that withdraws one.
+ */
+export const SIGNED_TERM_FIELDS = [
+  "name",
+  "structure",
+  "currency",
+  "guaranteeAmount",
+  "advanceAmount",
+  "splitBasisPoints",
+  "paymentTiming",
+  "terms",
+  "agreementBodyText",
+  /**
+   * NOT in the snapshot, and frozen anyway. It decides how a commission is SIZED
+   * — a rate on the gross versus a rate on somebody's share — which is money by
+   * any reading. Leaving it writable after signature would leave open exactly the
+   * hole this list closes. That the snapshot does not record it is a gap in the
+   * evidence, worth closing separately; it is not a reason to let it move.
+   */
+  "commissionMode",
+] as const;
+
+/**
+ * Are the terms settled — the state in which a signature exists to be broken.
+ *
+ * `confirmed` is every signatory stamped; `signed` is the same agreement once it
+ * has been countersigned off-platform. Both mean somebody is holding a document
+ * that says what this deal pays.
+ */
+export function agreementIsFrozen(deal: Pick<DealRow, "agreementStatus">): boolean {
+  return deal.agreementStatus === "confirmed" || deal.agreementStatus === "signed";
+}
+
+/**
+ * The jsonb terms as one comparable string.
+ *
+ * A plain stringify is enough, and that is a claim worth writing down rather than
+ * defending with a sort: Zod re-emits every parsed object in its SCHEMA's key
+ * order, not the caller's, so the stored value and the incoming one are built the
+ * same way whatever order they arrived in. Measured, not assumed — and the test
+ * that resaves the escalators with the keys reversed is what holds it, so if
+ * `terms` ever becomes a passthrough shape the false 409 is caught there rather
+ * than in production.
+ */
+function canonical(value: unknown): string {
+  return JSON.stringify(value ?? null);
+}
+
+/**
+ * Which signed terms a patch would actually MOVE — names only, and empty when it
+ * moves none.
+ *
+ * A field the caller did not send is not a change, and neither is a field sent
+ * with the value the row already holds: the Deals tab saves the whole form, so a
+ * no-op save has to keep working or the freeze would block ordinary edits to
+ * everything beside it.
+ *
+ * Money crosses as `bigint` here and as a string in the row's own reads, so the
+ * comparison is stringly on purpose (`money.md`) — the same shape
+ * `changedDealTermNames` uses for the activity feed.
+ */
+export function movedSignedTerms(before: DealRow, patch: Record<string, unknown>): string[] {
+  return SIGNED_TERM_FIELDS.filter((field) => {
+    if (!(field in patch)) return false;
+    const next = patch[field];
+    if (next === undefined) return false;
+    const current = (before as unknown as Record<string, unknown>)[field];
+    if (typeof current === "object" && current !== null)
+      return canonical(current) !== canonical(next);
+    if (typeof next === "object" && next !== null) return canonical(current) !== canonical(next);
+    return String(current ?? "") !== String(next ?? "");
+  });
+}
+
 /** True once every signatory line carries a `confirmed_at`. */
 export function allSignatoriesConfirmed(parties: DealPartyRow[]): boolean {
   const signatories = parties.filter(isSignatory);
@@ -139,8 +225,7 @@ export async function confirmDealIfComplete(
   parties: DealPartyRow[],
   now: Date = new Date(),
 ): Promise<DealRow> {
-  const alreadyFrozen = deal.agreementStatus === "confirmed" || deal.agreementStatus === "signed";
-  if (alreadyFrozen || !allSignatoriesConfirmed(parties)) return deal;
+  if (agreementIsFrozen(deal) || !allSignatoriesConfirmed(parties)) return deal;
 
   const [frozen] = await tx
     .update(schema.deals)

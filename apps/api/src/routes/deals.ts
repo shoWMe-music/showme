@@ -18,9 +18,11 @@ import {
   resolveDealAuthority,
 } from "../lib/deal-authority";
 import {
+  agreementIsFrozen,
   allSignatoriesConfirmed,
   assertAgreementSignable,
   confirmDealIfComplete,
+  movedSignedTerms,
 } from "../lib/deal-confirmation";
 import { renderNotificationEmail } from "../lib/email-templates";
 import { withIdempotency } from "../plugins/idempotency";
@@ -571,6 +573,39 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
           ? { advanceAmount: advanceAmount === null ? null : BigInt(advanceAmount) }
           : {}),
       };
+      /**
+       * A SIGNED AGREEMENT'S TERMS STOP MOVING. The screen has always said so —
+       * `DealAgreementCard.tsx` hides the figures editor and the terms editor the
+       * moment `agreement_status` reaches `confirmed`, and the card reads "Confirmed
+       * — terms frozen". This route did not, and the gap was not academic:
+       * `routes/settlement.ts` pays the LIVE `deals` row, not `confirmed_snapshot`,
+       * so a guarantee moved after signature is a guarantee that gets paid, quietly,
+       * against a document that says something else. `confirmed_snapshot` would sit
+       * beside it as evidence nothing reads.
+       *
+       * It mattered because the rule lived in a React component. The assistant /
+       * agent-native surface (decisions #16.14) drives these same routes with no
+       * component in the way, and so does any script.
+       *
+       * REFUSED, NOT SILENTLY DROPPED, and pointed at the door that already exists:
+       * `POST /deals/:did/reopen` tears every signature up and puts the deal back to
+       * `draft` — which is what renegotiating terms actually is, and what the Deals
+       * tab already offers. 409 rather than 403: the caller has the capability, the
+       * agreement is in the wrong state for it.
+       *
+       * A no-op save still passes. The Deals tab saves the whole form, so "sent
+       * every term, moved none" has to stay an ordinary request, or this would
+       * block editing everything beside the terms.
+       */
+      if (agreementIsFrozen(before)) {
+        const moved = movedSignedTerms(before, fields);
+        if (moved.length > 0) {
+          throw conflict(
+            `These terms are frozen — ${moved.join(", ")} cannot change on a confirmed agreement. Reopen it for renegotiation first: POST /deals/${before.id}/reopen`,
+          );
+        }
+      }
+
       // The same rule as the create, measured against the deal this PATCH LEAVES
       // BEHIND: `paymentTiming: "before_event"` on its own is enough to turn a
       // fixed amount into a prepayment, so the terms have to be merged before the
