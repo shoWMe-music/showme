@@ -21,7 +21,7 @@ import {
   reconcile,
   serializeLadder,
 } from "@showme/settlement";
-import { convertMinorUnits } from "@showme/shared";
+import { convertMinorUnits, isTicketRevenueBasis } from "@showme/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
@@ -1021,21 +1021,9 @@ function dealTermsForEngine(
   };
 }
 
-/**
- * The non-tier revenue bases the planner stamps on `budget_lines.details`. Kept
- * as a list of what a tier is NOT, because that is how the planner decides too —
- * see `useBudgetEditor`'s `barLine` / `merchLine` / `otherRevenueLine` lookups.
- */
-const NON_TICKET_REVENUE_BASES = new Set([
-  "bar_spend",
-  "merch_spend",
-  "other_revenue",
-  "custom_revenue",
-]);
-
+/** `@showme/shared` owns the list; this is the shape THIS file reads it in. */
 function isTicketRevenueLine(line: { details: unknown }): boolean {
-  const basis = (line.details as { basis?: string } | null)?.basis;
-  return basis == null || !NON_TICKET_REVENUE_BASES.has(basis);
+  return isTicketRevenueBasis(line.details);
 }
 
 /** The participant ids the caller's profiles hold on one event. */

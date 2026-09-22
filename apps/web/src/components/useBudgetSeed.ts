@@ -1,6 +1,6 @@
 import { useGetApiV1EventsIdBudgets, useGetApiV1EventsIdDeals } from "@showme/api-client";
 import { type EntitlementBasis, dealEntitlementDetailed } from "@showme/settlement";
-import { allocate, basisPointsToPercent } from "@showme/shared";
+import { allocate, basisPointsToPercent, isTicketRevenueBasis } from "@showme/shared";
 import { useMemo } from "react";
 
 /**
@@ -326,17 +326,11 @@ export function performerFeeOf(
 }
 
 /**
- * The non-tier revenue bases the planner stamps on a line's `details`. A ticket
- * tier is the one with none of them — the same rule `routes/settlement.ts` applies
- * when it decides which revenue is the door, and deliberately the same list, so
- * the planner and the settlement cannot disagree about what a ticket is.
+ * A ticket tier is a revenue row with no non-ticket basis stamped on it. The list
+ * itself lives in `@showme/shared` so the planner, the settlement and the
+ * performance report cannot disagree about which revenue is the door.
  */
-const NON_TICKET_BASES = new Set(["bar_spend", "merch_spend", "other_revenue", "custom_revenue"]);
-
-function isTicketLine(details: unknown): boolean {
-  const basis = (details as { basis?: string } | null)?.basis;
-  return basis == null || !NON_TICKET_BASES.has(basis);
-}
+const isTicketLine = isTicketRevenueBasis;
 
 /**
  * HOW THE DOOR DIVIDES — one line per party, plus whatever the operators keep.

@@ -1,5 +1,5 @@
 import { type Database, schema } from "@showme/db";
-import { majorToMinor } from "@showme/shared";
+import { isTicketRevenueBasis, majorToMinor } from "@showme/shared";
 import { and, eq, sql } from "drizzle-orm";
 
 /**
@@ -99,7 +99,27 @@ async function copyBudgetOnce(
   // rather than settlement rows on purpose: planned-vs-actual pairs on
   // `origin_budget_line_id`, so seeding only the settlement would still have left
   // the planned column empty.
-  if (budgetLines.length === 0) {
+  // NO DOOR, rather than NO LINES — the fix's own gap, closed 2026-09-22.
+  //
+  // This asked whether the budget was EMPTY, which closed the reported case and
+  // left the commoner one open. The planner writes a row the moment the operator
+  // TOUCHES it, and the first thing most of them touch is a cost: they type a
+  // production figure, never touch the ticket rows they can already see filled in
+  // from Event Details, and the budget is no longer empty. The seeding then did
+  // not fire, the copy took the cost and nothing else, and the night settled with
+  // COSTS AND NO REVENUE — a negative pool, every percentage deal paying zero, and
+  // the act back on the guarantee floor. The same symptom Ran reported, reached by
+  // a shorter road.
+  //
+  // The question that actually matters is whether this budget already STATES A
+  // DOOR. A sheet with its own ticket rows is the operator's own statement of the
+  // night's takings and is never overridden; a sheet with none has the event's
+  // tiers materialised beside whatever else it holds.
+  const statesADoor = budgetLines.some(
+    (row: { budget_lines: typeof schema.budgetLines.$inferSelect }) =>
+      row.budget_lines.kind === "revenue" && isTicketRevenueBasis(row.budget_lines.details),
+  );
+  if (!statesADoor) {
     const seeded = await seedTicketTiersIntoBudget(database, eventId);
     if (seeded > 0) {
       budgetLines = await database

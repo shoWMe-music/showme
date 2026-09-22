@@ -4,6 +4,7 @@ import {
   type SetlistWork,
   applyBasisPoints,
   isProCode,
+  isTicketRevenueBasis,
   mergeSetlistWorks,
   societyForCountry,
 } from "@showme/shared";
@@ -294,11 +295,11 @@ async function ticketRevenueForEvent(
       ),
     );
 
-  const NON_TICKET_BASES = new Set(["bar_spend", "merch_spend", "other_revenue", "custom_revenue"]);
-
+  // `isTicketRevenueBasis` (@showme/shared) owns the rule — the same one the
+  // settlement divides money by, so a report cannot disagree with the ledger
+  // about which revenue was the door.
   return lines.reduce((total, line) => {
-    const basis = (line.details as { basis?: string } | null)?.basis;
-    if (basis && NON_TICKET_BASES.has(basis)) return total;
+    if (!isTicketRevenueBasis(line.details)) return total;
     if (line.currency && line.currency !== baseCurrency) return total;
     return total + line.amount;
   }, 0n);

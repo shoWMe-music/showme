@@ -16,6 +16,7 @@ export {
   computeBudgetProjection,
   type DealFigureDisagreement,
   dealFigureDisagreement,
+  isTicketRevenueBasis,
   type PaymentProcessingAssumption,
   type RevenueBasis,
   type TicketTier,

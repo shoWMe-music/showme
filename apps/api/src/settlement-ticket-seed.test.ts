@@ -115,10 +115,9 @@ describe("the door reaches the settlement even when the planner never wrote it",
     expect(line?.amount).toBe(30_000n); // 10 x 3000, no cents
   });
 
-  it("leaves an existing budget completely alone", async () => {
-    // The seeding is a LAST RESORT for an empty budget. A planner the operator
-    // has actually filled in is the source of truth, and re-adding the event's
-    // tiers on top would double the door.
+  it("leaves a budget that states its own door completely alone", async () => {
+    // A planner the operator has actually filled in is the source of truth, and
+    // re-adding the event's tiers on top would double the night's takings.
     const eventId = await seedEvent("hasbudget", "SEK", [
       { id: "t1", name: "General", price: 2000, max: 200, est: 200 },
     ]);
@@ -140,6 +139,75 @@ describe("the door reaches the settlement even when the planner never wrote it",
     const lines = await linesOf(eventId);
     expect(lines).toHaveLength(1);
     expect(lines[0]?.label).toBe("Door, as actually counted");
+  });
+
+  /**
+   * THE GAP THE FIRST VERSION OF THIS FIX LEFT OPEN (2026-09-22).
+   *
+   * The seeding asked whether the budget was EMPTY. That closed the case Ran
+   * reported and left the commoner one open, because the planner writes a row the
+   * moment the operator TOUCHES it — and the first thing most of them touch is a
+   * cost. Type a production figure, never touch the ticket rows already filled in
+   * from Event Details, and the budget is no longer empty: the seeding did not
+   * fire, the copy took the cost alone, and the night settled with COSTS AND NO
+   * REVENUE. A negative pool, every percentage deal paying zero, and the act back
+   * on the guarantee floor — Ran's own symptom by a shorter road.
+   *
+   * The question is whether the budget STATES A DOOR, never whether it holds rows.
+   */
+  it("carries the door across a budget that holds only costs", async () => {
+    const eventId = await seedEvent("costonly", "SEK", [
+      { id: "t1", name: "General", price: 2000, max: 200, est: 200 },
+    ]);
+    const [budget] = await harness.db
+      .insert(schema.budgets)
+      .values({ eventId, scope: "shared" })
+      .returning();
+    if (!budget) throw new Error("budget seed failed");
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "cost",
+      label: "Sound & production",
+      amount: 1_200_000n,
+      currency: "SEK",
+    });
+
+    await ensureSettlementLines(harness.db, eventId);
+    const lines = await linesOf(eventId);
+    // The operator's cost, AND the door they were looking at while they typed it.
+    expect(lines.map((line) => line.kind).sort()).toEqual(["cost", "revenue"]);
+    expect(lines.find((line) => line.kind === "revenue")?.amount).toBe(40_000_000n);
+    expect(lines.find((line) => line.kind === "cost")?.amount).toBe(1_200_000n);
+  });
+
+  /**
+   * The bar is revenue and is NOT the door. A sheet whose only revenue row is a bar
+   * estimate has still never stated what the tickets take, so the tiers belong in
+   * it — and `isTicketRevenueBasis` is the one rule that decides, shared with the
+   * settlement so the two cannot disagree about which revenue a deal divides.
+   */
+  it("does not mistake a bar estimate for a stated door", async () => {
+    const eventId = await seedEvent("baronly", "SEK", [
+      { id: "t1", name: "General", price: 2000, max: 200, est: 200 },
+    ]);
+    const [budget] = await harness.db
+      .insert(schema.budgets)
+      .values({ eventId, scope: "shared" })
+      .returning();
+    if (!budget) throw new Error("budget seed failed");
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "revenue",
+      label: "Bar",
+      amount: 500_000n,
+      currency: "SEK",
+      details: { basis: "bar_spend", unitAmount: "5000", quantity: 100 },
+    });
+
+    await ensureSettlementLines(harness.db, eventId);
+    const lines = await linesOf(eventId);
+    expect(lines).toHaveLength(2);
+    expect(lines.find((line) => line.label === "General")?.amount).toBe(40_000_000n);
   });
 
   it("writes nothing for a tier that forecasts nothing", async () => {

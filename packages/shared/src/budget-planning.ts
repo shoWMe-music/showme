@@ -30,6 +30,39 @@ import { applyBasisPoints } from "./money";
  */
 export type RevenueBasis = "per_guest" | "flat";
 
+/**
+ * WHICH REVENUE IS THE DOOR — the one question three separate modules were each
+ * answering with their own copy of this list.
+ *
+ * A percentage deal is a share of gross TICKET revenue, so every reader that
+ * divides money has to tell a tier from the bar, and a revenue row is otherwise
+ * just a label and an amount. The planner stamps `details.basis` on the rows that
+ * are NOT tiers — the bar estimate, the merch estimate, the standing other-revenue
+ * row and every free-form custom row — so a ticket tier is the one with no basis
+ * at all.
+ *
+ * Stated as what a tier is NOT because that is how the planner decides too, and
+ * because a new non-ticket row type must not silently become part of the door by
+ * forgetting to list it here.
+ *
+ * It lives in `@showme/shared` as of 2026-09-22 for the ordinary reason: it was
+ * spelt out in `routes/settlement.ts`, `routes/performance-reports.ts` and
+ * `useBudgetSeed.ts`, three copies of one rule about what money a deal is measured
+ * against, and a fourth was about to be written.
+ */
+const NON_TICKET_REVENUE_BASES = new Set([
+  "bar_spend",
+  "merch_spend",
+  "other_revenue",
+  "custom_revenue",
+]);
+
+/** Is this revenue row part of the door? Pass `budget_lines.details`. */
+export function isTicketRevenueBasis(details: unknown): boolean {
+  const basis = (details as { basis?: string } | null)?.basis;
+  return basis == null || !NON_TICKET_REVENUE_BASES.has(basis);
+}
+
 /** One ticket tier as the planner holds it: a price and how many are expected. */
 export interface TicketTier {
   readonly unitAmount: bigint;
