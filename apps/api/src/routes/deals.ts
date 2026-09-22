@@ -546,8 +546,14 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       // agent on its clients' — so a hand-set `confirmed` here would let that side
       // declare the other side's signature. Both readers would believe it: the
       // engine would settle a deal nobody signed, and the Budget Planner would
-      // render its fee as the signed, un-editable heading its own contract says
-      // may only ever come from an agreement "both parties have signed".
+      // print it as agreed.
+      //
+      // That second reason got WEAKER on 2026-09-22 and the guard did not (ClickUp
+      // `123qy9rnwud`). The planner now reads a DRAFT deal's fee too, so a false
+      // `confirmed` no longer conjures a figure out of nothing — it relabels an
+      // offer as an agreement, dropping the "still an offer, nobody has confirmed
+      // it" sentence the row carries. The first reason was always the load-bearing
+      // one: a signature is the other party's to give.
       //
       // `cancelled` and `draft` stay writable. Withdrawing an agreement is the
       // operator's own call, this PATCH is the only route in the product that does

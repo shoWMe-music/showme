@@ -1,6 +1,6 @@
 import { dealEntitlementDetailed } from "@showme/settlement";
 import { describe, expect, it } from "vitest";
-import { type Deal, performerFeeOf } from "./useBudgetSeed";
+import { type Deal, performerFeeOf, ticketSplitOf } from "./useBudgetSeed";
 
 /**
  * 400 tickets at 30.00 → a 12 000.00 door, with 2 000.00 of costs against it, so
@@ -117,5 +117,126 @@ describe("the planner's performer fee", () => {
     );
     expect(fee?.amount).toBe("750000");
     expect(fee?.dealName).toBe("Headline booking");
+  });
+});
+
+/**
+ * THE FEE COMES FROM THE DRAFT DEAL, NOT FROM CONFIRMATION (ClickUp `123qy9rnwud`,
+ * Ran, 2026-09-21).
+ *
+ * The suite above is entirely `status: "confirmed"` — every fixture, by way of
+ * `dealWith`'s default — which is exactly why the old rule could be reversed
+ * without a single test noticing. It was the rule with the most reasoning written
+ * about it and the least coverage under it.
+ *
+ * What Ran asked for, in his words: *"they need to make the budgeting before
+ * anyone agrees to the deal ... Confirmation of the deal doesn't matter for the
+ * budget planner. Confirmation of the deal only makes it that it becomes locked."*
+ */
+describe("a deal nobody has signed yet", () => {
+  it("reads into the planner, because that is what the operator is deciding with", () => {
+    const fee = performerFeeOf(
+      dealWith({
+        status: "draft",
+        structure: "guarantee_vs_door",
+        guaranteeAmount: "500000",
+        splitBasisPoints: 7000,
+      }),
+      ON_THE_BILL,
+      DOOR,
+    );
+
+    // The same 700 000 the confirmed deal above produces, from the same engine.
+    // The status changes what the SENTENCE says, never the arithmetic — an offer
+    // you cannot price is an offer you cannot assess.
+    expect(fee?.amount).toBe("700000");
+    expect(fee?.pending).toBe(true);
+  });
+
+  it("says nothing once the offer is withdrawn", () => {
+    const fee = performerFeeOf(
+      dealWith({ status: "cancelled", structure: "guarantee", guaranteeAmount: "750000" }),
+      ON_THE_BILL,
+      DOOR,
+    );
+    // The one status that forecasts no night. `reconcile()` filters the same
+    // `ne(status, 'cancelled')`, so the planner and the settlement drop the same
+    // deals.
+    expect(fee).toBeNull();
+  });
+
+  it("marks a confirmed deal as settled rather than offered", () => {
+    const fee = performerFeeOf(
+      dealWith({ structure: "guarantee", guaranteeAmount: "750000" }),
+      ON_THE_BILL,
+      DOOR,
+    );
+    expect(fee?.pending).toBe(false);
+  });
+
+  /**
+   * Ran's follow-on: *"when the operator edits the offered deal terms while it is
+   * pending, the budget re-seeds from the new terms rather than holding a stale
+   * figure."*
+   *
+   * It holds because nothing is stored — the fee is a pure function of the deal
+   * and the sheet, recomputed every render. This test is what would go red if
+   * somebody ever "optimised" that into a cached or written figure, which is the
+   * change the long note at the top of `useBudgetSeed` argues against.
+   */
+  it("follows the offered terms when they move, holding no stale figure", () => {
+    const offered = dealWith({
+      status: "draft",
+      structure: "guarantee",
+      guaranteeAmount: "300000",
+    });
+    const raised = { ...offered, guaranteeAmount: "450000" };
+
+    expect(performerFeeOf(offered, ON_THE_BILL, DOOR)?.amount).toBe("300000");
+    expect(performerFeeOf(raised, ON_THE_BILL, DOOR)?.amount).toBe("450000");
+  });
+});
+
+/**
+ * THE BARS ANSWER TO THE SAME DEALS THE FEE DOES.
+ *
+ * Two drawings of one agreement on one screen. A Costs card paying 70% of the
+ * door away, beside a split card showing the operators keeping all of it, is the
+ * planner contradicting itself on the question it was opened to answer — so the
+ * card moved to draft deals in the same change, and this is the test that pins
+ * the pair together.
+ */
+describe("the ticket-revenue split card", () => {
+  const splitDeal = (over: Partial<Deal>) =>
+    dealWith({
+      structure: "door_split",
+      splitBasisPoints: 6000,
+      parties: [{ participantId: "PERF", roleInDeal: "payee", share: { splitBasisPoints: 10000 } }],
+      ...over,
+    });
+
+  it("draws an unconfirmed deal, and says on the badge that it is only proposed", () => {
+    const split = ticketSplitOf([splitDeal({ status: "draft" })], ON_THE_BILL, DOOR);
+
+    expect(split.shares).toHaveLength(1);
+    expect(split.badge).toBe("Door Split · proposed");
+    expect(split.summary).toContain("Nobody has confirmed these terms yet");
+  });
+
+  it("drops the qualifier once every side has signed", () => {
+    const split = ticketSplitOf([splitDeal({})], ON_THE_BILL, DOOR);
+
+    expect(split.badge).toBe("Door Split");
+    expect(split.summary).not.toContain("Nobody has confirmed");
+  });
+
+  it("draws nothing at all for a withdrawn offer", () => {
+    const split = ticketSplitOf([splitDeal({ status: "cancelled" })], ON_THE_BILL, DOOR);
+
+    expect(split.shares).toEqual([]);
+    expect(split.badge).toBeNull();
+    // The whole door stays with the operators, which is the truth once the offer
+    // is gone — not a zero-width bar for somebody who is no longer on the deal.
+    expect(split.operatorRemainderMinor).toBe(DOOR.ticketRevenue);
   });
 });

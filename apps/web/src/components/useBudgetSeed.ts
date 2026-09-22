@@ -90,15 +90,27 @@ export interface BudgetSeedDealFigure {
   dealName: string;
   /** Minor units, the spelling `deal.guaranteeAmount` already uses. */
   amount: string;
+  /**
+   * NOBODY HAS SIGNED THIS YET — the figure is what the offer on the table comes
+   * to, not what the event owes.
+   *
+   * It is read and counted exactly like a confirmed one; that is the point of
+   * Ran's spec (`123qy9rnwud`, 2026-09-21). What the flag buys is the sentence
+   * under the row. A number that will move when the counterparty answers, drawn
+   * identically to one that will not, is the confident half-truth `docs/money.md`
+   * exists to keep off a money screen.
+   */
+  pending: boolean;
 }
 
 export interface BudgetSeed {
   /** Head count from `events.capacity` — itself snapshotted from the venue. */
   capacity: number | null;
   /**
-   * Every CONFIRMED deal that pays somebody on the bill and states a figure — a
-   * LIST, because a bill with a support act has more than one and the Costs card
-   * shows one "Performer fee". Displayed, never written; see the note above.
+   * Every deal STILL ON THE TABLE that pays somebody on the bill and states a
+   * figure — draft or confirmed alike, cancelled never — a LIST, because a bill
+   * with a support act has more than one and the Costs card shows one "Performer
+   * fee". Displayed, never written; see the note above.
    */
   performerFees: BudgetSeedDealFigure[];
   /** The venue's rental fee, minor units — only when a rental deal exists. */
@@ -175,18 +187,35 @@ function isRental(deal: Deal): boolean {
 }
 
 /**
- * What a confirmed deal already commits to the people on the bill, and the rule
- * it commits it under — or `null` when the deal says nothing the planner can use.
+ * What a deal commits — or offers — to the people on the bill, and the rule it
+ * commits it under, or `null` when the deal says nothing the planner can use.
  *
- * **Confirmed only.** The heading this feeds is READ-ONLY (`useBudgetEditor`
- * renders it from the deal and stores nothing), so the operator cannot argue with
- * the figure on the budget screen — they have to go and change the agreement. A
- * number you cannot edit had better be one both parties have signed, which is
- * exactly what `status = 'confirmed'` means. A deal still being negotiated says
- * nothing here and leaves the heading blank and typeable, as it was before.
- * *(The rental below is deliberately NOT gated the same way: it fills an ordinary
- * editable blank, so a figure from an open negotiation is a suggestion the
- * operator can overwrite — the distinction is the affordance, not the deal.)*
+ * **FROM THE DRAFT DEAL, NOT FROM CONFIRMATION** (ClickUp `123qy9rnwud`, Ran,
+ * 2026-09-21). This required `status = 'confirmed'` until today, on the argument
+ * that the heading it feeds is READ-ONLY — the operator cannot argue with the
+ * figure here, they have to go and change the agreement, so a number you cannot
+ * edit had better be one both parties have signed.
+ *
+ * Ran answered that argument rather than working around it: *"if a venue wants to
+ * create a budget plan and have a performer fee in it with a split deal, do they
+ * now have to wait for the deal to be confirmed by the other side? If so, that's a
+ * problem cause they need to make the budgeting before anyone agrees to the
+ * deal."* The planner is the tool for deciding whether to MAKE the offer. A blank
+ * fee until everybody signs is a risk assessment withheld until the risk is taken.
+ *
+ * The read-only affordance stays, and his spec is explicit about why: *"the
+ * operator edits the assumptions ... the fee is always computed from those, so it
+ * is never a free-typed figure that can drift from the deal."* There are two
+ * assumptions to edit and this row is neither — the ticket quantity and price on
+ * the sheet, and the offered terms ON THE DEAL. Both flow straight back here,
+ * because nothing is stored.
+ *
+ * **Cancelled is the one status that says nothing.** A withdrawn offer forecasts
+ * no night, and it is the only deal on an event that nobody is still arguing over
+ * — the same `ne(status, 'cancelled')` the settlement engine reads.
+ *
+ * *(The rental below was already ungated, for the affordance reason above: it
+ * fills an ordinary editable blank. The two now agree.)*
  *
  * **The figure is the deal's own.** A party line that states an
  * `illustrativeAmount` states it: *what this line is worth at the projected
@@ -202,7 +231,8 @@ export function performerFeeOf(
   performers: Set<string>,
   door: DoorForecast,
 ): BudgetSeedDealFigure | null {
-  if (deal.status !== "confirmed" || isRental(deal)) return null;
+  if (deal.status === "cancelled" || isRental(deal)) return null;
+  const pending = deal.status !== "confirmed";
 
   const entitled = (deal.parties ?? []).filter((party) =>
     ENTITLED_DEAL_ROLES.has(party.roleInDeal),
@@ -248,6 +278,7 @@ export function performerFeeOf(
           dealId: deal.id,
           dealName: derivedLabel(deal, settled.basis),
           amount: settled.amount.toString(),
+          pending,
         };
       }
     }
@@ -259,11 +290,16 @@ export function performerFeeOf(
       (running, party) => running + BigInt(party.share?.illustrativeAmount as string),
       0n,
     );
-    return { dealId: deal.id, dealName: sourceLabel(deal, stated), amount: amount.toString() };
+    return {
+      dealId: deal.id,
+      dealName: sourceLabel(deal, stated),
+      amount: amount.toString(),
+      pending,
+    };
   }
 
   if (deal.guaranteeAmount != null && onTheBill.length === entitled.length) {
-    return { dealId: deal.id, dealName: deal.name, amount: deal.guaranteeAmount };
+    return { dealId: deal.id, dealName: deal.name, amount: deal.guaranteeAmount, pending };
   }
   return null;
 }
@@ -370,7 +406,11 @@ function derivedLabel(deal: Deal, basis: EntitlementBasis): string {
  * quietly promising something the settlement will not pay (#23, and the €2 300
  * disagreement in Ran's own prototype).
  */
-function ticketSplitOf(deals: Deal[], performers: Set<string>, door: DoorForecast): TicketSplitRaw {
+export function ticketSplitOf(
+  deals: Deal[],
+  performers: Set<string>,
+  door: DoorForecast,
+): TicketSplitRaw {
   const shares: TicketSplitShare[] = [];
   let badge: string | null = null;
   let summary: string | null = null;
@@ -381,7 +421,12 @@ function ticketSplitOf(deals: Deal[], performers: Set<string>, door: DoorForecas
   }
 
   for (const deal of deals) {
-    if (deal.status !== "confirmed" || isRental(deal)) continue;
+    // The SAME deals the fee is read from, for the same reason (`performerFeeOf`)
+    // — and it has to be the same set. These bars and the "Performer fee" row are
+    // two drawings of one agreement, so a card showing the operators keeping the
+    // whole door beside a cost row paying 70% of it away is the screen
+    // contradicting itself on the one question the operator opened it to answer.
+    if (deal.status === "cancelled" || isRental(deal)) continue;
     const structure = deal.structure;
     if (structure !== "door_split" && structure !== "guarantee_vs_door") continue;
 
@@ -424,8 +469,18 @@ function ticketSplitOf(deals: Deal[], performers: Set<string>, door: DoorForecas
     });
 
     if (badge === null) {
-      badge = structure === "guarantee_vs_door" ? "Guarantee vs Door" : "Door Split";
-      summary = splitSummarySentence(settled.basis);
+      const shape = structure === "guarantee_vs_door" ? "Guarantee vs Door" : "Door Split";
+      // SAID ON THE CHIP, not left to be inferred from the Deals tab. The bars are
+      // the most confident thing on the screen — named parties, exact amounts —
+      // and an unsigned offer drawn identically to a signed one is the reader's
+      // mistake to make only if we let them make it.
+      const unconfirmed = deal.status !== "confirmed";
+      badge = unconfirmed ? `${shape} · proposed` : shape;
+      const sentence = splitSummarySentence(settled.basis);
+      summary =
+        unconfirmed && sentence
+          ? `${sentence} Nobody has confirmed these terms yet, so they can still move.`
+          : sentence;
     }
   }
 
@@ -597,6 +652,20 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
     const sheetCosts = sharedLines
       .filter((line) => line.kind === "cost" && line.dealId == null)
       .reduce((total, line) => total + BigInt(line.amount), 0n);
+    /**
+     * CONFIRMED RENTALS ONLY, deliberately, where the performer fee above now
+     * reads a draft too.
+     *
+     * A rental's figure is already offered to the operator as an ordinary
+     * editable "Venue cost" (`venueCost` below), draft or not. Deducting an
+     * unsigned rental HERE as well would take the room off the top twice the
+     * moment they accept that suggestion — and `budget_lines` is what the
+     * settlement reads, so the second deduction would be the real one.
+     *
+     * The same collision exists today for a CONFIRMED rental and is not this
+     * change's to fix: `sheetCosts` counts every cost line without a `deal_id`,
+     * and the seeded Venue cost is written without one. Filed rather than widened.
+     */
     const rentals = deals
       .filter((deal) => deal.status === "confirmed" && isRental(deal))
       .reduce((total, deal) => total + BigInt(deal.guaranteeAmount ?? 0), 0n);
@@ -615,10 +684,11 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
     return {
       capacity: sources.capacity,
       ticketTiers: sources.ticketTiers,
-      // Every confirmed deal that pays somebody on the bill and states a figure,
-      // whether it states it as a fee or as a share (`performerFeeOf`). The shape
-      // test is what keeps the venue's room hire out of the artist's row — a
-      // RENTAL deal carries a `guaranteeAmount` too.
+      // Every deal still on the table that pays somebody on the bill and states a
+      // figure, whether it states it as a fee or as a share (`performerFeeOf`) and
+      // whether or not anybody has signed it yet. The shape test is what keeps the
+      // venue's room hire out of the artist's row — a RENTAL deal carries a
+      // `guaranteeAmount` too.
       performerFees: deals
         .map((deal) => performerFeeOf(deal, performers, door))
         .filter((fee): fee is BudgetSeedDealFigure => fee !== null),

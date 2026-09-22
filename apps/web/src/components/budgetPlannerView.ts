@@ -378,13 +378,33 @@ export function budgetPlannerViewFrom(
   const dealFigureWarnings: Record<string, DealFigureWarning> = {};
   for (const cost of editor.costs) {
     const link = cost.dealLink;
-    if (link?.kind !== "deal_figure") continue;
-    const deal = editor.deals.find((option) => option.id === link.dealId);
-    if (!deal) continue;
-    const drift = dealFigureDisagreement(
-      minorUnitsOf(cost.value),
-      deal.guaranteeAmount == null ? null : BigInt(deal.guaranteeAmount),
-    );
+    /**
+     * TWO WAYS A ROW COMES TO DISAGREE WITH THE AGREEMENT, one sentence for both.
+     *
+     * `deal_figure` is the row that CLAIMS to be the deal's figure and states a
+     * different one. `dealsSay` is the row that claims nothing and simply stands
+     * where the deal's figure would have been read — the performer fee the
+     * operator typed themselves, which outranks the deal on the screen and is
+     * outranked by it at the settlement. Since the fee began reading from DRAFT
+     * deals (`123qy9rnwud`), the second is the common one: the operator budgets
+     * a fee, the offer is signed at another figure, and nothing said so.
+     */
+    const claimed =
+      link?.kind === "deal_figure"
+        ? editor.deals.find((option) => option.id === link.dealId)
+        : undefined;
+    let dealName: string;
+    let stated: bigint | null;
+    if (claimed) {
+      dealName = claimed.name;
+      stated = claimed.guaranteeAmount == null ? null : BigInt(claimed.guaranteeAmount);
+    } else if (cost.dealsSay) {
+      dealName = cost.dealsSay.dealName;
+      stated = BigInt(cost.dealsSay.amountMinor);
+    } else {
+      continue;
+    }
+    const drift = dealFigureDisagreement(minorUnitsOf(cost.value), stated);
     if (!drift) continue;
     // Two amounts that differ by less than a whole unit round to the SAME text
     // under the screen's house format, and a warning reading "says SEK 3,000, but
@@ -401,7 +421,7 @@ export function budgetPlannerViewFrom(
     // it. `formatMoneyExact` prints the symbol, so the sentence says which
     // currency it means.
     dealFigureWarnings[cost.key] = {
-      dealName: deal.name,
+      dealName,
       plannedLabel: roundsToTheSameText
         ? formatMoneyExact(drift.planned.toString(), currency)
         : planned,

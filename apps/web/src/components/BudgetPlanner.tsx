@@ -66,7 +66,11 @@ export interface CostRow {
    * figure actually lives. It still counts in every total, because the forecast
    * would otherwise be short by the largest cost of the night.
    */
-  readFromDeal?: { dealNames: string[] };
+  readFromDeal?: {
+    dealNames: string[];
+    /** Nobody has signed it yet, so the note says so rather than implying signature. */
+    pending?: boolean;
+  };
   /**
    * Set on a DERIVED row — a deduction stated as a share of another row rather
    * than as a figure. Read-only for the same reason `readFromDeal` is: the number
@@ -892,7 +896,10 @@ export function BudgetPlanner({
                     these keep their own space under it. */}
                 {cost.derivedFrom && <DerivedDeductionNote rule={cost.derivedFrom} />}
                 {cost.readFromDeal ? (
-                  <ReadFromDealNote dealNames={cost.readFromDeal.dealNames} />
+                  <ReadFromDealNote
+                    dealNames={cost.readFromDeal.dealNames}
+                    pending={cost.readFromDeal.pending}
+                  />
                 ) : (
                   <>
                     <CostBearingNote
@@ -1585,7 +1592,18 @@ function formatBasisPoints(basisPoints: number): string {
   return `${Number.isInteger(percent) ? percent : Number(percent.toFixed(2))}%`;
 }
 
-function ReadFromDealNote({ dealNames }: { dealNames: string[] }) {
+/**
+ * WHERE THE FIGURE CAME FROM, and — since `123qy9rnwud` — whether anyone has
+ * agreed to it.
+ *
+ * The row is drawn the same either way, because the operator wants the same
+ * arithmetic either way: a budget is how you decide whether to make the offer.
+ * What changes is the sentence. An unsigned figure presented as settled is the
+ * one thing a planner must not do, and "nothing is stored on the budget, so the
+ * settlement takes this figure from the deal" — true, and read on a draft —
+ * would say the night is already spoken for.
+ */
+function ReadFromDealNote({ dealNames, pending }: { dealNames: string[]; pending?: boolean }) {
   const quoted = dealNames.map((name) => `“${name}”`);
   const named =
     quoted.length > 1
@@ -1603,9 +1621,20 @@ function ReadFromDealNote({ dealNames }: { dealNames: string[] }) {
       }}
     >
       <Icon name="link" size={12} />
-      Read from {dealNames.length > 1 ? "the deals" : "the deal"} {named}. Nothing is stored on the
-      budget, so the settlement takes {dealNames.length > 1 ? "these figures" : "this figure"} from
-      the {dealNames.length > 1 ? "deals" : "deal"} — change it there.
+      {pending ? (
+        <span>
+          Read from {dealNames.length > 1 ? "the deals" : "the deal"} {named} — still an offer,
+          nobody has confirmed it. Nothing is stored on the budget: change the terms and this moves
+          with {dealNames.length > 1 ? "them" : "it"}.
+        </span>
+      ) : (
+        <span>
+          Read from {dealNames.length > 1 ? "the deals" : "the deal"} {named}. Nothing is stored on
+          the budget, so the settlement takes{" "}
+          {dealNames.length > 1 ? "these figures" : "this figure"} from the{" "}
+          {dealNames.length > 1 ? "deals" : "deal"} — change it there.
+        </span>
+      )}
     </div>
   );
 }

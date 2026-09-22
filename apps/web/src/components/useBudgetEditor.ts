@@ -200,7 +200,28 @@ export interface CostDraft {
    * `budget_lines` as well as in the deal, which is the double-count the whole
    * arrangement exists to avoid.
    */
-  readFromDeal?: { dealNames: string[] };
+  readFromDeal?: {
+    dealNames: string[];
+    /** At least one of those deals is still an offer — see `BudgetSeedDealFigure`. */
+    pending: boolean;
+  };
+  /**
+   * WHAT THE DEALS WOULD HAVE READ HERE, on a row where the operator typed their
+   * own figure instead.
+   *
+   * A stored line outranks the deal (below), which is right — it is the operator's
+   * own assertion — but it also SILENCES the read, and silence is the failure Ran
+   * named on `123qy9rnwud`: *"the confirmation-freeze should not be silent if the
+   * operator's projected assumptions differ materially from the locked terms."*
+   * Now that the fee is read from the moment a deal is drafted, that divergence
+   * opens the instant somebody signs terms that differ from what was budgeted —
+   * and the settlement pays the deal, not this row.
+   *
+   * Set whenever both sides state a figure. Whether they DISAGREE is
+   * `budgetPlannerView`'s question, because comparing them means formatting them,
+   * and the money formatting is that module's boundary.
+   */
+  dealsSay?: { dealName: string; amountMinor: string };
 }
 
 /**
@@ -823,7 +844,10 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           label: heading,
           value: toMajorUnits(total.toString()),
           isCustom: false,
-          readFromDeal: { dealNames: feesToRead.map((fee) => fee.dealName) },
+          readFromDeal: {
+            dealNames: feesToRead.map((fee) => fee.dealName),
+            pending: feesToRead.some((fee) => fee.pending),
+          },
         };
       }
       // A heading with a stored line shows the stored figure. A heading with none
@@ -833,6 +857,19 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       // blank, it never overwrites a figure somebody typed.
       const seeded = SEEDED_COST_HEADINGS[heading];
       const fallback = seeded ? seedSource[seeded] : null;
+      // Winning is not the same as being right. The operator's figure stands, and
+      // the deals get to say so when they read something else — `dealsSay` above.
+      const overruled =
+        heading === PERFORMER_FEE_HEADING && line != null && feesToRead.length > 0
+          ? {
+              // One name in the ordinary case; the warning quotes whatever it is
+              // given, so two deals read as one quoted phrase rather than two.
+              dealName: feesToRead.map((fee) => fee.dealName).join(" and "),
+              amountMinor: feesToRead
+                .reduce((running, fee) => running + BigInt(fee.amount), 0n)
+                .toString(),
+            }
+          : undefined;
       return {
         key: line ? line.id : `${NEW_ROW_PREFIX}${heading}`,
         label: heading,
@@ -845,6 +882,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
         paidBy: line?.paidBy ?? undefined,
         bearing: line ? bearingFrom(line) : SHARED_COST_BEARING,
         dealLink: line ? dealLinkFrom(line) : NO_DEAL_LINK,
+        ...(overruled ? { dealsSay: overruled } : {}),
       };
     });
     // Anything budgeted under a heading of the operator's own is kept too —
