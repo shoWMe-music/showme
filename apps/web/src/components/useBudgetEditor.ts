@@ -685,13 +685,13 @@ const NO_SEED: BudgetSeed = {
 };
 
 /**
- * Which standing heading each seeded AMOUNT fills in as an editable draft.
+ * The one standing heading a seeded AMOUNT fills in as an editable draft.
  *
  * Only the rental. The performer fee is handled separately a few lines down,
  * because it is not seeded into a field at all — it is read from the deal and
  * rendered read-only, so it must never become a stored row.
  */
-const SEEDED_COST_HEADINGS: Record<string, "venueCost"> = { "Venue cost": "venueCost" };
+const VENUE_COST_HEADING = "Venue cost";
 
 /** The heading the performer fee is read into. */
 const PERFORMER_FEE_HEADING = "Performer fee";
@@ -855,8 +855,23 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       // "Performer fee", the rental under "Venue cost" — and nothing at all when
       // the event knows nothing. A STORED LINE ALWAYS WINS: the seed fills a
       // blank, it never overwrites a figure somebody typed.
-      const seeded = SEEDED_COST_HEADINGS[heading];
-      const fallback = seeded ? seedSource[seeded] : null;
+      /**
+       * The room hire, offered under "Venue cost" — WITH the deal that states it.
+       *
+       * The link is the half that was missing and it is not cosmetic. A row
+       * written from this heading with no `deal_id` is external cash to the
+       * settlement, and the rental deal is settled off the top in its own right,
+       * so accepting the app's own suggestion used to charge the night for the
+       * room twice and pay a percentage act a share of what was left after it.
+       * Written as the deal's figure, the row is dropped at the settlement
+       * boundary and the rental deal is the only place the room is charged.
+       *
+       * Still an ordinary editable row: the operator can change the figure, and
+       * `DealFigureDriftWarning` then tells them the deal says something else and
+       * that the deal is what settles. They can clear the link if the charge
+       * really is a separate one.
+       */
+      const seededRental = heading === VENUE_COST_HEADING ? seedSource.venueCost : null;
       // Winning is not the same as being right. The operator's figure stands, and
       // the deals get to say so when they read something else — `dealsSay` above.
       const overruled =
@@ -875,13 +890,17 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
         label: heading,
         value: line
           ? toMajorUnits(line.amount)
-          : typeof fallback === "string"
-            ? toMajorUnits(fallback)
+          : seededRental
+            ? toMajorUnits(seededRental.amount)
             : "",
         isCustom: false,
         paidBy: line?.paidBy ?? undefined,
         bearing: line ? bearingFrom(line) : SHARED_COST_BEARING,
-        dealLink: line ? dealLinkFrom(line) : NO_DEAL_LINK,
+        dealLink: line
+          ? dealLinkFrom(line)
+          : seededRental
+            ? ({ kind: "deal_figure", dealId: seededRental.dealId } satisfies CostDealLink)
+            : NO_DEAL_LINK,
         ...(overruled ? { dealsSay: overruled } : {}),
       };
     });

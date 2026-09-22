@@ -113,8 +113,22 @@ export interface BudgetSeed {
    * fee". Displayed, never written; see the note above.
    */
   performerFees: BudgetSeedDealFigure[];
-  /** The venue's rental fee, minor units — only when a rental deal exists. */
-  venueCost: string | null;
+  /**
+   * The venue's rental fee and THE DEAL THAT STATES IT — only when a rental deal
+   * exists.
+   *
+   * The deal id is not decoration. It fills an editable "Venue cost" heading, and
+   * a row written from that heading with no `deal_id` is read by the settlement
+   * as an ordinary external cost — on top of the rental deal, which the engine
+   * settles off the top in its own right. The room comes off the night twice, and
+   * a percentage act is paid a share of what is left after paying for the room
+   * twice.
+   *
+   * Carrying the id lets the row be written as what it is — this deal's figure —
+   * which `routes/settlement.ts` drops at its boundary, leaving the rental deal
+   * as the single place the room is charged.
+   */
+  venueCost: { amount: string; dealId: string } | null;
   /** The event's own ticket tiers, carried through untouched. */
   ticketTiers: EventTicketTier[];
   /** How the door divides, in minor units — see `TicketSplitRaw`. */
@@ -155,16 +169,23 @@ export interface Deal {
 }
 
 /**
- * The guarantee on the first deal of a given shape.
+ * The room hire, and which deal says so — the first rental deal that states a
+ * figure.
  *
- * The shape test is mandatory and is the whole point. A RENTAL deal carries a
- * `guaranteeAmount` too — it is the room hire — so seeding "Performer fee" from
- * `deals[0]` would put the venue's fee in the artist's row. That is the bug this
- * function exists to make impossible.
+ * The shape test is the whole point and is mandatory. A RENTAL deal carries a
+ * `guaranteeAmount` like any other, so reading `deals[0]` would put the venue's
+ * fee in the artist's row. That is the bug this function exists to make
+ * impossible, and why it asks about the deal's SHAPE rather than its amount.
+ *
+ * A withdrawn rental states nothing, the same way a withdrawn performance deal
+ * does.
  */
-function guaranteeOf(deals: Deal[], matches: (deal: Deal) => boolean): string | null {
-  const deal = deals.find((candidate) => matches(candidate) && candidate.guaranteeAmount != null);
-  return deal?.guaranteeAmount ?? null;
+export function rentalOf(deals: Deal[]): { amount: string; dealId: string } | null {
+  const deal = deals.find(
+    (candidate) =>
+      isRental(candidate) && candidate.status !== "cancelled" && candidate.guaranteeAmount != null,
+  );
+  return deal ? { amount: deal.guaranteeAmount as string, dealId: deal.id } : null;
 }
 
 /**
@@ -584,6 +605,95 @@ export interface BudgetSeedSources {
   performerParticipantIds: string[];
 }
 
+/** One budget row, only as much of one as the forecast below reads. */
+export interface BudgetLineForDoor {
+  kind: string;
+  amount: string;
+  details?: unknown;
+  dealId?: string | null;
+}
+
+/**
+ * WHAT THE NIGHT IS WORTH, and what a percentage deal is measured against.
+ *
+ * Lifted out of the hook because it is the money core of the screen and the one
+ * part of it a test can hold. Everything here is arithmetic over three inputs and
+ * none of it knows what React is — the rule this repo applies to settlement maths
+ * (`CLAUDE.md`: business logic is plain TS, framework-agnostic) applies to the
+ * forecast of that maths just as well. It came out the day a mutation proved the
+ * rental deduction could be reverted with every test still green.
+ *
+ * @param sharedLines the SHARED ledger's rows, never a private book — the act's
+ *   fee is a fact about the event, not about whichever slice of it a co-operator
+ *   happens to be looking at (#23.2).
+ */
+export function doorForecastFrom(
+  deals: Deal[],
+  sharedLines: BudgetLineForDoor[],
+  ticketTiers: EventTicketTier[],
+): DoorForecast {
+  // Major units × 100, because the Ticketing card takes a price in major units
+  // and every figure past this boundary is minor (money.md).
+  const fromEventTiers = ticketTiers.reduce(
+    (total, tier) => total + BigInt(Math.round(tier.price * 100)) * BigInt(Math.trunc(tier.est)),
+    0n,
+  );
+  // The SHEET wins when it has tiers of its own: it is the later statement of the
+  // same fact, and the one the operator is looking at.
+  const fromSheet = sharedLines
+    .filter((line) => line.kind === "revenue" && isTicketLine(line.details))
+    .reduce((total, line) => total + BigInt(line.amount), 0n);
+  const ticketRevenue = fromSheet > 0n ? fromSheet : fromEventTiers;
+
+  /**
+   * The sheet's own revenue and costs, which is what turns a ticket forecast into
+   * the ADJUSTED NET the settlement will divide.
+   *
+   * A cost line carrying a `dealId` is A DEAL'S OWN FIGURE — the performer fee the
+   * planner derived, or the room hire the operator accepted under "Venue cost" —
+   * and the engine drops it at its boundary (`routes/settlement.ts`). Counting it
+   * here would charge the night for a fee the deal separately pays, which is the
+   * circularity the two-column rule on `budget_lines` exists to prevent.
+   */
+  const sheetRevenue = sharedLines
+    .filter((line) => line.kind === "revenue")
+    .reduce((total, line) => total + BigInt(line.amount), 0n);
+  const sheetCosts = sharedLines
+    .filter((line) => line.kind === "cost" && line.dealId == null)
+    .reduce((total, line) => total + BigInt(line.amount), 0n);
+  /**
+   * THE ROOM, OFF THE TOP — every rental still on the table, which is the set
+   * `reconcile()` itself settles (`ne(status, 'cancelled')`).
+   *
+   * This read `status === "confirmed"` until 2026-09-22 and was wrong in both
+   * directions. It disagreed with the engine, which has always settled an unsigned
+   * rental off the top; and it papered over a double count rather than preventing
+   * one — `sheetCosts` above takes every cost line WITHOUT a `deal_id`, and the
+   * "Venue cost" the seed offers the operator used to be written without one, so
+   * accepting the app's own suggestion charged the night for the room here AND in
+   * the rental deal.
+   *
+   * Both halves are fixed together, and they have to be: `venueCost` now carries
+   * its deal, the accepted row is written as that deal's figure, and a cost line
+   * with a `deal_id` is excluded above and dropped at the settlement boundary. The
+   * room is charged once, in the deal that states it.
+   */
+  const rentals = deals
+    .filter((deal) => deal.status !== "cancelled" && isRental(deal))
+    .reduce((total, deal) => total + BigInt(deal.guaranteeAmount ?? 0), 0n);
+  const totalRevenue = sheetRevenue > 0n ? sheetRevenue : ticketRevenue;
+
+  return {
+    ticketRevenue,
+    totalRevenue,
+    // Revenue less the costs nobody is charged for, less the room. Before the
+    // sheet has any costs on it this is simply the revenue, which is the honest
+    // forecast at that moment rather than an optimistic one.
+    splitBase: totalRevenue - sheetCosts - rentals,
+    ticketsSold: ticketTiers.reduce((total, tier) => total + Math.trunc(tier.est), 0),
+  };
+}
+
 export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): BudgetSeed {
   // Shares TanStack's cache with the Details and Agreement tabs, so this is free
   // whenever either has been opened and one request otherwise.
@@ -621,65 +731,9 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
      * Major units × 100, because the Ticketing card takes a price in major units
      * and every figure past this boundary is minor (money.md).
      */
-    const fromEventTiers = sources.ticketTiers.reduce(
-      (total, tier) => total + BigInt(Math.round(tier.price * 100)) * BigInt(Math.trunc(tier.est)),
-      0n,
-    );
-    // The SHEET wins when it has tiers of its own: it is the later statement of the
-    // same fact, and the one the operator is looking at. Read off the SHARED
-    // ledger, never a private book — the act's fee is a fact about the event, not
-    // about whichever slice of it a co-operator happens to be looking at (#23.2).
     const sharedLines =
       (budgetsQuery.data ?? []).find((budget) => budget.scope === "shared")?.lines ?? [];
-    const fromSheet = sharedLines
-      .filter((line) => line.kind === "revenue" && isTicketLine(line.details))
-      .reduce((total, line) => total + BigInt(line.amount), 0n);
-    const ticketRevenue = fromSheet > 0n ? fromSheet : fromEventTiers;
-
-    /**
-     * The sheet's own revenue and costs, which is what turns a ticket forecast
-     * into the ADJUSTED NET the settlement will divide.
-     *
-     * A cost line carrying a `dealId` is the deal's OWN figure — the performer fee
-     * the planner derived — and the engine drops it at its boundary
-     * (`routes/settlement.ts`). Counting it here would charge the night for the
-     * fee and then pay the fee out of what is left, which is the circularity the
-     * two-column rule on `budget_lines` exists to prevent.
-     */
-    const sheetRevenue = sharedLines
-      .filter((line) => line.kind === "revenue")
-      .reduce((total, line) => total + BigInt(line.amount), 0n);
-    const sheetCosts = sharedLines
-      .filter((line) => line.kind === "cost" && line.dealId == null)
-      .reduce((total, line) => total + BigInt(line.amount), 0n);
-    /**
-     * CONFIRMED RENTALS ONLY, deliberately, where the performer fee above now
-     * reads a draft too.
-     *
-     * A rental's figure is already offered to the operator as an ordinary
-     * editable "Venue cost" (`venueCost` below), draft or not. Deducting an
-     * unsigned rental HERE as well would take the room off the top twice the
-     * moment they accept that suggestion — and `budget_lines` is what the
-     * settlement reads, so the second deduction would be the real one.
-     *
-     * The same collision exists today for a CONFIRMED rental and is not this
-     * change's to fix: `sheetCosts` counts every cost line without a `deal_id`,
-     * and the seeded Venue cost is written without one. Filed rather than widened.
-     */
-    const rentals = deals
-      .filter((deal) => deal.status === "confirmed" && isRental(deal))
-      .reduce((total, deal) => total + BigInt(deal.guaranteeAmount ?? 0), 0n);
-    const totalRevenue = sheetRevenue > 0n ? sheetRevenue : ticketRevenue;
-
-    const door: DoorForecast = {
-      ticketRevenue,
-      totalRevenue,
-      // Revenue less the costs nobody is charged for, less the room. Before the
-      // sheet has any costs on it this is simply the revenue, which is the honest
-      // forecast at that moment rather than an optimistic one.
-      splitBase: totalRevenue - sheetCosts - rentals,
-      ticketsSold: sources.ticketTiers.reduce((total, tier) => total + Math.trunc(tier.est), 0),
-    };
+    const door = doorForecastFrom(deals, sharedLines, sources.ticketTiers);
 
     return {
       capacity: sources.capacity,
@@ -696,10 +750,7 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
       // The rental fee is the rental fee whoever collects it. There is no
       // "venue" participant role, so requiring a payee match here would seed
       // nothing on every event where the venue is not on the bill.
-      venueCost: guaranteeOf(
-        deals,
-        (deal) => deal.type === "rental" || deal.structure === "rental",
-      ),
+      venueCost: rentalOf(deals),
       // Production cost is deliberately absent. The handoff asks for it, but
       // NOTHING in the schema or the API holds a production figure — there is no
       // `events.production_cost` and no venue equivalent. Seeding it would mean
