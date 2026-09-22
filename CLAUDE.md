@@ -3,6 +3,14 @@
 Live-events **booking + settlement** SaaS. This repo is a **from-scratch rebuild** of the prior Firebase/Firestore
 app, built as a **monorepo**. **Status:** scaffolded and substantially built, with the API and web app deployed.
 
+**START HERE: [docs/handoff-2026-09-21-sse-costs-and-settlement.md](./docs/handoff-2026-09-21-sse-costs-and-settlement.md)** —
+the most recent state. Realtime (SSE) is LIVE for the first time and the app is served from
+`api.showme.music`; `main` is clean and fully deployed. It carries the one thing to pick up
+first (**Ran's 2026-09-21 spec: the budget fee must appear from the DRAFT deal, before
+confirmation — not built**), a correction to this file's own advice about the load balancer,
+and the running-cost model. **Ignore any older doc telling you to tear the load balancer
+down: it serves `api.showme.music` and always did.**
+
 **Going to work on settlements? Start with
 [docs/handoff-2026-09-15-settlement-built.md](./docs/handoff-2026-09-15-settlement-built.md)** —
 the surface was built from Ran's design on 2026-09-15, **two rules were reversed in
@@ -14,8 +22,8 @@ design itself and where it disagrees with itself, and
 still open. `docs/handoff-2026-09-14-settlement-surface.md` is the snapshot from the day
 before and is now largely superseded.
 
-**Otherwise start with [docs/handoff-2026-08-27-ran-list-state.md](./docs/handoff-2026-08-27-ran-list-state.md)** — the
-current state of the work: what is deployed versus merely committed, the three pending migrations (one of
+**[docs/handoff-2026-08-27-ran-list-state.md](./docs/handoff-2026-08-27-ran-list-state.md)** is an older snapshot —
+superseded by the 2026-09-21 handoff above on anything they disagree about, but still the fullest record of: what is deployed versus merely committed, the three pending migrations (one of
 which drops a table, guarded), the ClickUp writes owed, and the findings that are recorded nowhere else.
 Then **[docs/deployment-status.md](./docs/deployment-status.md)** (what is live).
 `docs/handoff-2026-08-25-remaining-work.md` and **[docs/STATUS.md](./docs/STATUS.md)** are older snapshots,

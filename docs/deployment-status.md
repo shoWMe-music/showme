@@ -1619,10 +1619,18 @@ The app is on `.web.app` for now. The domain needs a GoDaddy record plus a Hosti
 custom-domain setup on the `showme-app` site, and then the new origin added to the API's
 `CORS_ALLOWED_ORIGINS`.
 
-### 4. The idle load balancer
+### 4. The idle load balancer — ~~outstanding~~ **RESOLVED, and this entry was wrong**
 
-Either DNS-wire `api.showme.music` to it or tear it down. It has been billing for
-infrastructure serving no traffic since it was provisioned.
+> **Superseded 2026-09-21. Do not act on the paragraph below.** The load balancer was
+> never idle in the sense this implied: `api.showme.music` resolves to it, the managed
+> certificate is ACTIVE, and it serves the full API. What was true is that *nothing used
+> it* — the web app pointed at the `run.app` origin. Both `VITE_API_URL` and
+> `VITE_STREAM_URL` now point at the domain, and the SSE service shares the same load
+> balancer at `/stream`. Acting on the original wording would have destroyed a working
+> custom domain; it nearly did.
+
+~~Either DNS-wire `api.showme.music` to it or tear it down. It has been billing for
+infrastructure serving no traffic since it was provisioned.~~
 
 ### 5. Verify a real login against the deployed app
 
