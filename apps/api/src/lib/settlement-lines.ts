@@ -111,16 +111,45 @@ async function copyBudgetOnce(
   // the act back on the guarantee floor. The same symptom Ran reported, reached by
   // a shorter road.
   //
-  // The question that actually matters is whether this budget already STATES A
-  // DOOR. A sheet with its own ticket rows is the operator's own statement of the
-  // night's takings and is never overridden; a sheet with none has the event's
-  // tiers materialised beside whatever else it holds.
-  const statesADoor = budgetLines.some(
+  // PER TIER, rather than per budget — the second half of the same gap, closed
+  // 2026-09-26.
+  //
+  // This asked whether the budget stated A door and skipped the seeding entirely
+  // if it did. One ticket row was read as "the operator has stated the whole
+  // night's takings". The planner writes PER ROW — only the tier the operator
+  // touched — so on an event with two tiers, editing one wrote one line and that
+  // line alone satisfied this gate: the other tier was never materialised and the
+  // night settled without it. Measured on `Open Mic Wednesdays`: a SEK 6,300 door
+  // settled at SEK 1,800, the missing SEK 4,800 being the row nobody had typed in
+  // because it was already correct on the screen.
+  //
+  // So the question is asked of each tier, not of the sheet — but only where the
+  // sheet is speaking in tiers at all.
+  //
+  // TWO KINDS OF DOOR ROW, and they cannot be matched the same way. A row the
+  // planner wrote from a tier carries `details.basis = "ticket_tier"` and keeps the
+  // tier's name as its label, so it can be paired with the tier it came from. A row
+  // somebody typed themselves — "Door, as actually counted", no `details` at all —
+  // is the whole night's takings under a name of the operator's choosing, and
+  // pairing it by name against `General` would find no match and materialise the
+  // tiers on top of it, DOUBLING the door. That is the double-count the previous
+  // rule existed to prevent, and it stays prevented: one unstructured ticket row
+  // and the sheet is stating its own door in its own terms, untouched.
+  const ticketRows = budgetLines.filter(
     (row: { budget_lines: typeof schema.budgetLines.$inferSelect }) =>
       row.budget_lines.kind === "revenue" && isTicketRevenueBasis(row.budget_lines.details),
   );
-  if (!statesADoor) {
-    const seeded = await seedTicketTiersIntoBudget(database, eventId);
+  const statesItsOwnDoor = ticketRows.some(
+    (row: { budget_lines: typeof schema.budgetLines.$inferSelect }) =>
+      (row.budget_lines.details as { basis?: string } | null)?.basis !== "ticket_tier",
+  );
+  if (!statesItsOwnDoor) {
+    const statedTierNames = new Set<string>(
+      ticketRows.map((row: { budget_lines: typeof schema.budgetLines.$inferSelect }) =>
+        row.budget_lines.label.trim().toLowerCase(),
+      ),
+    );
+    const seeded = await seedTicketTiersIntoBudget(database, eventId, statedTierNames);
     if (seeded > 0) {
       budgetLines = await database
         .select()
@@ -196,13 +225,26 @@ async function seedTicketTiersIntoBudget(
   // biome-ignore lint/suspicious/noExplicitAny: Drizzle tx handle.
   database: any,
   eventId: string,
+  /**
+   * Tier names the budget ALREADY states, trimmed and lowercased. Matching on the
+   * name because it is the only identity that survives a write: both writers store
+   * the tier's name as `budget_lines.label` and neither keeps a reference back to
+   * `events.extras.ticketTiers`. Same key the planner's own merge uses
+   * (`mergeTicketTierSeeds`), deliberately — the sheet and the settlement have to
+   * agree about which tiers are already spoken for, or one of them double-counts.
+   */
+  alreadyStated: ReadonlySet<string> = new Set(),
 ): Promise<number> {
   const [event] = await database
     .select({ extras: schema.events.extras, baseCurrency: schema.events.baseCurrency })
     .from(schema.events)
     .where(eq(schema.events.id, eventId));
-  const tiers = (event?.extras as { ticketTiers?: EventTicketTier[] } | null)?.ticketTiers;
-  if (!Array.isArray(tiers) || tiers.length === 0) return 0;
+  const all = (event?.extras as { ticketTiers?: EventTicketTier[] } | null)?.ticketTiers;
+  if (!Array.isArray(all) || all.length === 0) return 0;
+  const tiers = all.filter(
+    (tier) => !alreadyStated.has((tier.name ?? "").trim().toLowerCase() || "ticket tier"),
+  );
+  if (tiers.length === 0) return 0;
 
   const currency = event?.baseCurrency ?? "EUR";
   const rows = tiers

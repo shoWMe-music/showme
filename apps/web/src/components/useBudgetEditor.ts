@@ -141,6 +141,42 @@ export interface TicketTierDraft {
 }
 
 /**
+ * THE EVENT'S TIER LIST AND THE BUDGET'S ARE ONE LIST, NOT TWO ALTERNATIVES.
+ *
+ * The seed used to be all-or-nothing — `serverTiers.length > 0 ? serverTiers :
+ * theEvent's` — while the flush is per-row: it writes only the tier the operator
+ * actually touched (`wasEdited`), because writing untouched rows is how the
+ * planner used to invent phantom lines. Those two rules together deleted money.
+ * Edit ONE of an event's two tiers and the budget goes from no tier rows to one;
+ * the ternary then flipped to the server list and dropped the other seed on the
+ * floor. It never came back, and because `copyBudgetOnce` hands the settlement
+ * the budget and not the event, the night settled as if those tickets had never
+ * been sold. Measured 2026-09-26 on `Open Mic Wednesdays`: SEK 4,800 of 6,300,
+ * gone on one blur, with a single POST on the wire and no warning.
+ *
+ * So a seed is withdrawn only when the budget actually holds the row it was
+ * suggesting. MATCHED ON THE TRIMMED NAME, because that is the only identity
+ * that survives the write: both writers — this hook's flush and the API's
+ * `seedTicketTiersIntoBudget` — store the tier name as `budget_lines.label` and
+ * keep no reference back to `events.extras.ticketTiers`.
+ *
+ * Renaming a written row therefore brings its event tier back as an unwritten
+ * suggestion. That is the honest answer rather than a miss: Event Details still
+ * lists a tier the budget has nothing for, and a suggestion costs nothing until
+ * it is touched. Removing it there is what removes it here.
+ */
+export function mergeTicketTierSeeds(
+  serverTiers: TicketTierDraft[],
+  eventTiers: TicketTierDraft[],
+): TicketTierDraft[] {
+  const written = new Set(serverTiers.map((tier) => tier.name.trim().toLowerCase()));
+  return [
+    ...serverTiers,
+    ...eventTiers.filter((tier) => !written.has(tier.name.trim().toLowerCase())),
+  ];
+}
+
+/**
  * WHAT A PERCENTAGE DEDUCTION IS A PERCENTAGE OF.
  *
  * `ofKey` names a row in the DRAFT, not a database id, because that is what makes
@@ -948,42 +984,38 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     const guests = Number(capacity);
     const expected =
       Number.isFinite(guests) && guests > 0 ? Math.round(guests * SEEDED_TICKET_SHARE) : 0;
+    /*
+     * THE EVENT'S OWN TIERS, when it has any.
+     *
+     * ClickUp `86cbcn1ue`: *"it should first go to budget planner from event
+     * details and then to settlement."* This is that first hop. An operator who
+     * had already listed Advance and Walk-up on Event Details was previously
+     * asked to type them again here, and the two lists then disagreed with
+     * nothing on either screen to say which was right.
+     *
+     * `est`, not `max`: a budget forecasts what will SELL, and the cap is how
+     * many exist. Falling back to the cap when nothing is estimated is the more
+     * useful blank than zero — an operator who set a cap and no estimate is
+     * telling us the only number they have.
+     */
+    const eventTiers = seedSource.ticketTiers.map((tier) => ({
+      id: `${NEW_ROW_PREFIX}event-${tier.id}`,
+      name: tier.name,
+      price: tier.price > 0 ? tier.price.toString() : "",
+      quantity: (tier.est || tier.max || 0) > 0 ? String(tier.est || tier.max) : "",
+    }));
+    const merged = mergeTicketTierSeeds(serverTiers, eventTiers);
     const tiers =
-      serverTiers.length > 0
-        ? serverTiers
-        : seedSource.ticketTiers.length > 0
-          ? /*
-             * THE EVENT'S OWN TIERS, when it has any.
-             *
-             * ClickUp `86cbcn1ue`: *"it should first go to budget planner from
-             * event details and then to settlement."* This is that first hop. An
-             * operator who had already listed Advance and Walk-up on Event Details
-             * was previously asked to type them again here, and the two lists then
-             * disagreed with nothing on either screen to say which was right.
-             *
-             * `est`, not `max`: a budget forecasts what will SELL, and the cap is
-             * how many exist. Falling back to the cap when nothing is estimated is
-             * the more useful blank than zero — an operator who set a cap and no
-             * estimate is telling us the only number they have.
-             *
-             * A suggestion, never an overwrite: this branch is only reached when
-             * the budget has no tiers of its own, exactly like every other seeded
-             * figure on this sheet (`useBudgetSeed`).
-             */
-            seedSource.ticketTiers.map((tier) => ({
-              id: `${NEW_ROW_PREFIX}event-${tier.id}`,
-              name: tier.name,
-              price: tier.price > 0 ? tier.price.toString() : "",
-              quantity: (tier.est || tier.max || 0) > 0 ? String(tier.est || tier.max) : "",
-            }))
-          : [
-              {
-                id: `${NEW_ROW_PREFIX}seed`,
-                name: SEEDED_TICKET_NAME,
-                price: "",
-                quantity: expected > 0 ? expected.toString() : "",
-              },
-            ];
+      merged.length > 0
+        ? merged
+        : [
+            {
+              id: `${NEW_ROW_PREFIX}seed`,
+              name: SEEDED_TICKET_NAME,
+              price: "",
+              quantity: expected > 0 ? expected.toString() : "",
+            },
+          ];
 
     return {
       budgetId,

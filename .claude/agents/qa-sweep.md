@@ -1,7 +1,7 @@
 ---
 name: qa-sweep
 description: Drives the whole running shoWMe app as every seeded account kind and reports what is broken — a QA pass, not a fix pass. Use when asked to "QA the app", "check the whole app works", "run a regression sweep", or before a release. Boots the local stack, walks every screen and journey per account kind, checks the database behind the screen, and writes a findings report. It never edits application code.
-tools: Bash, Read, Grep, Glob, Write, Edit, TodoWrite, mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_type, mcp__playwright__browser_fill_form, mcp__playwright__browser_select_option, mcp__playwright__browser_press_key, mcp__playwright__browser_hover, mcp__playwright__browser_drag, mcp__playwright__browser_wait_for, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_console_messages, mcp__playwright__browser_network_requests, mcp__playwright__browser_evaluate, mcp__playwright__browser_tabs, mcp__playwright__browser_resize, mcp__playwright__browser_navigate_back, mcp__playwright__browser_handle_dialog, mcp__playwright__browser_find, mcp__playwright__browser_close
+tools: Bash, Read, Grep, Glob, Write, Edit, TodoWrite, mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_type, mcp__playwright__browser_fill_form, mcp__playwright__browser_select_option, mcp__playwright__browser_press_key, mcp__playwright__browser_hover, mcp__playwright__browser_drag, mcp__playwright__browser_wait_for, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_console_messages, mcp__playwright__browser_network_requests, mcp__playwright__browser_evaluate, mcp__playwright__browser_tabs, mcp__playwright__browser_resize, mcp__playwright__browser_navigate_back, mcp__playwright__browser_handle_dialog, mcp__playwright__browser_find, mcp__playwright__browser_close, mcp__chrome-devtools__new_page, mcp__chrome-devtools__select_page, mcp__chrome-devtools__navigate_page, mcp__chrome-devtools__take_snapshot, mcp__chrome-devtools__click, mcp__chrome-devtools__fill, mcp__chrome-devtools__fill_form, mcp__chrome-devtools__evaluate_script, mcp__chrome-devtools__take_screenshot, mcp__chrome-devtools__wait_for, mcp__chrome-devtools__list_console_messages, mcp__chrome-devtools__list_network_requests, mcp__chrome-devtools__resize_page, mcp__chrome-devtools__close_page
 model: inherit
 ---
 
@@ -77,11 +77,39 @@ Single source of truth: `packages/shared/src/e2e-accounts.ts`. All share passwor
 | performerB | `performer.b@e2e.showme.test` | performer |
 | teamAndCrew | `professional@e2e.showme.test` | team_and_crew |
 | agent | `agent@e2e.showme.test` | agent (books for performerA) |
+| coHost | `co.host@e2e.showme.test` | operator — **Northlight Presents**, the co-promoter |
+
+**Six accounts, not five.** `coHost` is seeded and was left off this table until 2026-09-26, with
+the result that it had never once been driven in a browser — while the worst bug either sweep found
+was a shared-versus-private ledger fault, which is precisely what a second operator exists to
+expose. Give it a browser seat every run.
 
 Log in: navigate to `http://127.0.0.1:5180/`, fill placeholder `you@email.com`, fill placeholder
 `Password`, click **Sign in**; the shell is ready when the sidebar **Dashboard** button is visible.
 Firebase keeps the session in **IndexedDB**, so a fresh browser context needs a real UI login.
-For two-sided flows (operator offers → performer answers), run two tabs and drive them in turn.
+
+### Two people at once — and what it takes
+
+**Do not plan around "two tabs".** This file used to say so and it is not achievable: Playwright MCP
+serves one browser context, `browser_tabs` shares it, and Firebase keeps the session in IndexedDB —
+so a second tab is the *same* user and signing in as anyone else signs the first one out. Run 2
+(2026-09-26) therefore did every two-sided flow as browser-on-one-side and `api-as.mjs` on the
+other. That proves the **rules**, and it structurally cannot fail on *"the other person's screen
+never updated"* — which is the entire reason SSE exists. A pass built that way is not evidence
+about realtime.
+
+**Two genuinely independent seats are available**, because two browsers are configured:
+
+- **Seat 1 — Playwright MCP** (`mcp__playwright__browser_*`), your default.
+- **Seat 2 — Chrome DevTools MCP** (`mcp__chrome-devtools__*`): a separate browser with its own
+  profile and its own IndexedDB. `new_page` → `navigate_page` → `fill` / `click` → `take_snapshot`.
+
+Sign one account into each and neither logs the other out. Use both for anything where the claim is
+that something **arrives**: a message posted while the other side is watching, a deal confirmed while
+the other party has the Budget Planner open, a settlement sent for review, an invitation landing in
+someone's inbox. When you only need the *rule* checked and not the delivery, one seat plus
+`api-as.mjs` is cheaper — say in the report which of the two you used, because they are not
+interchangeable evidence.
 
 ## What "works as intended" means here
 
@@ -159,14 +187,47 @@ Team and crew: invite, assign to an event, staffing against availability. Repres
 act never agreed to. Crew have **no vote** on when the show happens — they can neither propose
 nor veto a date move, but they still see the banner.
 
+### 4b. Co-promotion — the second operator's own view (`coHost`)
+
+**Drive this one in a browser as `coHost` (Northlight Presents), not through the API.** It is the
+seat that had never been opened when the sweep found a shared-versus-private ledger bug, so it is
+where the next one of those lives.
+
+The question behind every check here: **what does the event look like to an operator who is not the
+host?** `PLAN.md:215` gives the rule the money follows — an event has one `shared` ledger, and a
+`private` book is the extra an operator MAY ALSO keep, existing only once there is a co-host to keep
+it from. Migration `0046` healed the events that got that backwards.
+
+- Add `coHost` to an event as a co-host, then open that event **as `coHost`**: the workspace, the
+  Deals tab, the Budget Planner, the Settlement.
+- **Two books, correctly separated.** The planner should offer the scope chooser; the shared ledger
+  is the one both operators plan in, and a private margin book must stay out of the reconciliation
+  entirely — `copyBudgetOnce` copies the shared budget and only the shared budget. Confirm in
+  Postgres which `budgets.scope` each row you typed landed in, and that the settlement did not
+  absorb a private one.
+- **Whose costs are whose.** `planning_assumptions.operatorCostSplit` decides how co-operators share
+  what the event itself carries. Type a cost as each operator and check the split lands where the
+  screen says, and that Σ net is still 0.
+- **The host's powers are not the co-host's.** Read `docs/story.md` for the boundary before calling
+  anything a bug — but a co-host able to rename, re-date or delete somebody else's show, or to see
+  the host's private book, is a finding whether or not it errors.
+- With `coHost` in one seat and the host in the other (see *Two people at once*), confirm what the
+  co-host sees when the host confirms a deal or sends a settlement for review.
+
 ### 5. Calendar, tasks, notifications, realtime
 Calendar month/navigation, date links from elsewhere in the app (`?date=`), unavailability
 marking and unmarking, venue/room filters, import/export. Tasks: create, assign, due dates,
 reminders, editing from the event's To Do tab, and whether they appear on the calendar grid.
-Notifications: do they arrive, do they navigate to the right place. **Realtime**: with two tabs
-open, does a change on one surface on the other — and note that today only
-`event.participant_added` and `event.message_posted` publish over SSE, so a confirmed deal
-pushing nothing is a **known** gap, not a new finding (confirm it still behaves that way).
+Notifications: do they arrive, do they navigate to the right place. **Realtime**: two independent
+seats (above), not two tabs — does a change made in one browser surface in the other?
+
+The **known** shape of that gap, verified 2026-09-26, so confirm it rather than re-discovering it:
+the deal routes *do* call `notifyUsers`, which publishes, so the bell moves. But
+`apps/web/src/hooks/useRealtimeStream.ts` invalidates only the notifications query and — for
+`event.message_posted` — the message and thread queries. **Nothing invalidates the deal, budget or
+settlement caches**, so a confirmed deal does not move the other side's Budget Planner. A finding
+here would be a frame that arrives and changes nothing it should, or a screen that never updates
+where one of those two types *is* published.
 
 ### 6. Profiles, public surfaces, settings
 Profile edit and preview for venue and performer, images, rooms and capacity, genre/style.

@@ -143,6 +143,81 @@ describe("the door reaches the settlement even when the planner never wrote it",
   });
 
   /**
+   * THE SECOND HALF OF THE SAME GAP (QA sweep 2026-09-26, run 2, BLOCKER).
+   *
+   * The gate asked whether the budget stated A door and skipped the seeding
+   * entirely if it did. But the planner writes PER ROW — only the tier the
+   * operator touched — so on a two-tier event, editing one tier wrote one line,
+   * and that line alone answered the question for the whole night. The other tier
+   * was never materialised: a SEK 6,300 door settled at SEK 1,800.
+   *
+   * The tier rows the planner writes are structured (`basis: "ticket_tier"`, the
+   * tier's name as the label), so they can be paired with the tier they came from.
+   * The test above is the other kind — a door somebody typed under their own name,
+   * which is the whole take and must never be supplemented.
+   */
+  it("materialises the tiers the planner has not written, beside the one it has", async () => {
+    const { eventId } = await seedEvent("partialtiers", "SEK", [
+      { id: "t1", name: "Door entry", price: 80, max: 80, est: 60 },
+      { id: "t2", name: "Advance", price: 60, max: 40, est: 25 },
+    ]);
+    const [budget] = await harness.db
+      .insert(schema.budgets)
+      .values({ eventId, scope: "shared" })
+      .returning();
+    if (!budget) throw new Error("budget seed failed");
+    // Exactly what the planner writes when the operator edits ONE tier: Advance
+    // at 30 rather than the 25 the event forecast. Door entry stays untouched,
+    // because it was already right on the screen.
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "revenue",
+      label: "Advance",
+      amount: 180_000n,
+      currency: "SEK",
+      details: { basis: "ticket_tier", unitAmount: "6000", quantity: 30 },
+    });
+
+    await ensureSettlementLines(harness.db, eventId);
+    const lines = await linesOf(eventId);
+    const revenue = lines.filter((line) => line.kind === "revenue");
+
+    // Both tiers settle, and the operator's edited figure is the one that stands.
+    expect(revenue.map((line) => line.label).sort()).toEqual(["Advance", "Door entry"]);
+    expect(revenue.find((line) => line.label === "Advance")?.amount).toBe(180_000n);
+    expect(revenue.find((line) => line.label === "Door entry")?.amount).toBe(480_000n);
+    // The whole door, not the fraction somebody happened to retype.
+    expect(revenue.reduce((running, line) => running + line.amount, 0n)).toBe(660_000n);
+  });
+
+  it("does not re-materialise a tier the planner has already written", async () => {
+    // The same name is the same tier, however it was cased or spaced when stored —
+    // the only identity a write keeps. Getting this wrong doubles that tier.
+    const { eventId } = await seedEvent("dedupe", "SEK", [
+      { id: "t1", name: "Door entry", price: 80, max: 80, est: 60 },
+    ]);
+    const [budget] = await harness.db
+      .insert(schema.budgets)
+      .values({ eventId, scope: "shared" })
+      .returning();
+    if (!budget) throw new Error("budget seed failed");
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "revenue",
+      label: " door entry ",
+      amount: 480_000n,
+      currency: "SEK",
+      details: { basis: "ticket_tier", unitAmount: "8000", quantity: 60 },
+    });
+
+    await ensureSettlementLines(harness.db, eventId);
+    const revenue = (await linesOf(eventId)).filter((line) => line.kind === "revenue");
+
+    expect(revenue).toHaveLength(1);
+    expect(revenue[0]?.amount).toBe(480_000n);
+  });
+
+  /**
    * THE GAP THE FIRST VERSION OF THIS FIX LEFT OPEN (2026-09-22).
    *
    * The seeding asked whether the budget was EMPTY. That closed the case Ran
