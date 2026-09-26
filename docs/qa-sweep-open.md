@@ -32,7 +32,7 @@ stated.
 | r3:113 | Co-promoter's Deals tab said "No deal yet" | `7e31d08` |
 | r3:350 | Ticket tiers lost a field on entry | `c95ba82` |
 | r3:70 | BLOCKER: the co-promoter could not be SENT the settlement | `b779e45` |
-| r3:141 + r2:866 | A refused tab rendered blank, retried 5×, and named a capability | pending |
+| r3:141 + r2:866 | A refused tab rendered blank, retried 5×, and named a capability | `a9ab0df` |
 
 **Corrected, not fixed:** r2:411 (inline Status "never saves") — run 3 found it does
 save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owed.
