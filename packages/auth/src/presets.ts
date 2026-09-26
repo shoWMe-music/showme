@@ -174,6 +174,32 @@ export type EventRole =
 /** The managing operators — the only relationship that may see the pool/budget. */
 const OPERATOR_EVENT_ROLES: ReadonlySet<EventRole> = new Set(["host", "co_host"]);
 
+/**
+ * A MANAGING OPERATOR'S FLOOR — and the thinnest floor in this file was theirs
+ * (QA sweep run 3 r3:153; reproduced 2026-09-27).
+ *
+ * `host` and `co_host` fell through to `["event.view"]`, which put a co-promoter
+ * BELOW crew on the same night: `CREW_FLOOR` guarantees the schedule, their own deal
+ * and their own money, and arm's-length labour is the thinnest relationship the
+ * product has. The invite dialog meanwhile tells the person doing the inviting, in
+ * `ACCESS_OPTIONS`, exactly what "Standard for the role" guarantees — *"the event,
+ * their schedule, and their own money. Never anyone else's deal, never the budget"* —
+ * and "Standard" deliberately attaches NO permission set, resting the whole promise on
+ * this floor. Measured after acceptance: `/schedule` 403, `/settlements` 403. Two of
+ * the three things the sentence promised were refused.
+ *
+ * The budget is NOT here, and that is the same sentence's other half: the pool stays
+ * behind `budget.view` and the pool ceiling, which is what `POOL_CAPABILITIES` and
+ * `isGrantable` govern. `agent` keeps `event.view` alone on purpose — an agent
+ * participation is the projection of a representation, never a standing of its own.
+ */
+const OPERATOR_FLOOR: readonly Capability[] = [
+  "event.view",
+  "schedule.view",
+  "deal.view.own",
+  "settlement.view.own",
+];
+
 /** A performer's inviolable floor — own slice + confirms; the operator cannot revoke it. */
 const PERFORMER_FLOOR: readonly Capability[] = [
   "event.view",
@@ -247,8 +273,11 @@ export function baselineCapabilities(role: EventRole, delegated = false): readon
       return CREW_LEAD_FLOOR;
     case "crew":
       return CREW_FLOOR;
+    case "host":
+    case "co_host":
+      return OPERATOR_FLOOR;
     default:
-      return ["event.view"]; // host / co_host / agent
+      return ["event.view"]; // agent — a projection of a representation, not a standing
   }
 }
 

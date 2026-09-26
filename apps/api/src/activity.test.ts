@@ -274,10 +274,13 @@ describe("activity feed — what an event's history records", () => {
     expect(added.statusCode).toBe(201);
     const participantId = added.json().id as string;
 
-    // A `view_only` guest. The role matters: `crew` carries `schedule.view` as an
-    // INALIENABLE floor (a crew member always sees the running order), so the only
-    // participant who can view an event without its schedule is one whose role has
-    // the bare `event.view` baseline and a permission set that adds nothing.
+    // A `view_only` guest — view-only in the sense the operator chose it: no editing,
+    // no budget, no inviting. Since r3:153 (2026-09-27) it does NOT mean "no running
+    // order": `OPERATOR_FLOOR` guarantees a co-promoter the schedule the same way
+    // `CREW_FLOOR` guarantees it to arm's-length crew, because the invite dialog
+    // promises it and a co-promoter who cannot see when doors open cannot co-promote.
+    // The capability-tier gating this file exists to prove is asserted instead on an
+    // operator-private kind (`hold.ranked`, below), which no floor carries.
     await addParticipant(eventId, guest.id, "co_host", PRESET_PERMISSION_SETS.view_only);
 
     const scheduled = await app.inject({
@@ -303,12 +306,14 @@ describe("activity feed — what an event's history records", () => {
       "schedule.created",
     ]);
 
-    // The `view_only` guest reads the event-level news and NOT the running order —
-    // the schedule tab is closed to them, so the timeline is too.
+    // The `view_only` guest reads the same story: they are a co-promoter, and the
+    // running order is theirs by floor. What they still do not read is the operator
+    // tier — the test below drives `hold.ranked` and this same seat sees nothing.
     expect(await visibleTypes("hist2-guest", eventId)).toEqual([
       "event.created",
       "participant.added",
       "participant.removed",
+      "schedule.created",
     ]);
   });
 });

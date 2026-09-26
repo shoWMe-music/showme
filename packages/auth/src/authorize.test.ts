@@ -96,6 +96,30 @@ describe("setlist authorship — the act's own content (A-23)", () => {
     expect(baselineCapabilities("agent")).not.toContain("setlist.author");
   });
 
+  /**
+   * THE THINNEST FLOOR IN THE FILE WAS THE CO-PROMOTER'S (QA sweep run 3 r3:153).
+   *
+   * `EventCollaboratorInviteModal`'s "Standard for the role" attaches no permission
+   * set on purpose and rests its promise — *"the event, their schedule, and their own
+   * money"* — on this floor. `host`/`co_host` fell through to `event.view` alone, one
+   * capability, which is less than arm's-length crew are guaranteed on the same night.
+   */
+  it("guarantees a managing operator at least what crew are guaranteed", () => {
+    for (const capability of baselineCapabilities("crew")) {
+      expect(baselineCapabilities("co_host")).toContain(capability);
+      expect(baselineCapabilities("host")).toContain(capability);
+    }
+    expect(baselineCapabilities("co_host")).toContain("schedule.view");
+    expect(baselineCapabilities("co_host")).toContain("settlement.view.own");
+
+    // And not the other half of the same sentence: "never the budget".
+    expect(baselineCapabilities("co_host")).not.toContain("budget.view");
+    expect(baselineCapabilities("host")).not.toContain("budget.view");
+
+    // An `agent` row is the projection of a representation, not a standing of its own.
+    expect(baselineCapabilities("agent")).toEqual(["event.view"]);
+  });
+
   it("survives delegation — business authority moves to the agent, artistry does not", () => {
     // Dropping it from the delegated floor would leave nobody able to author:
     // the agent preset does not carry it and the ceiling refuses it to an agent.

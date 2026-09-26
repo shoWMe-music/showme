@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { liveEventDelegations } from "@showme/auth";
+import { NON_STANDING_PARTICIPANT_STATUSES, liveEventDelegations } from "@showme/auth";
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import {
@@ -23,7 +23,7 @@ import {
   serializeLadder,
 } from "@showme/settlement";
 import { convertMinorUnits, isTicketRevenueBasis } from "@showme/shared";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, notInArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -1524,6 +1524,14 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           and(
             inArray(schema.eventParticipants.profileId, profileIds),
             isNull(schema.settlements.representationId),
+            // AND THE SAME RULE THE OTHER WAY. An `invited` party has no standing on
+            // the event — `effectiveEventCapabilities` refuses them `event.view`, so
+            // the night is a 404 to them — yet the residual allocation writes them a
+            // settlement row the moment the host computes, and this list handed it
+            // over: SEK 10,000 of "your money" on a show they cannot open. The
+            // statuses come from the auth engine's own list rather than a second
+            // spelling of it, so the two routes cannot drift apart again.
+            notInArray(schema.eventParticipants.status, [...NON_STANDING_PARTICIPANT_STATUSES]),
           ),
         )
         .orderBy(desc(schema.events.eventDate));

@@ -39,9 +39,10 @@ stated.
 | r2:447 + r2:851 + r2:904 + r2:910 + r2:1011 + r2:1016 | The copy cluster: six screens asserting something untrue | `30a6782` |
 | r2:455 + r2:474 + r2:860 | The currency cluster: dead chooser options, unconverted rows, invented EUR | `44719a2` |
 | r3:442 + r3:459 | A frame arrived and left the page asserting the opposite | `162785d` |
-| r3:535 | `revenueShares` accepted and silently dropped on line CREATE | *this commit* |
-| r3:529 | The agent was not told the agreement it must sign had moved | *this commit* |
-| r3:525 | Nobody was told a transfer was paid | *this commit* |
+| r3:535 | `revenueShares` accepted and silently dropped on line CREATE | `6f8af3d` |
+| r3:529 | The agent was not told the agreement it must sign had moved | `6f8af3d` |
+| r3:525 | Nobody was told a transfer was paid | `6f8af3d` |
+| r3:619 + r3:153 | A co-promoter's own money: listed on one screen, 403 on the event | *this commit* |
 
 **Corrected, not fixed:** r2:411 (inline Status "never saves") — run 3 found it does
 save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owed.
@@ -69,14 +70,23 @@ below as a decision, or corrected as a misreading. What remains is the minor lis
 | 20 | r2:880 | "Total settled SEK 0" beside "Finalized SEK 20,700" |
 | 21 | r2:887 | "Edit" a collaborator changes role only, though the menu says access |
 | 22 | r2:894 | Nested `<button>` on the Venue row, on all five seeded events |
-| 28 | r3:153 | The invite dialog promises a co-operator their schedule and their own money, and grants neither |
 | 29 | r3:165 | The co-host cannot read the venue's rooms; the event prints "Room / Stage: Assigned" |
 | 30 | r3:173 | The budget scope chooser does not survive a reload and is not in the URL |
 | 31 | r3:178 | Naming a fresh cost row before typing its amount throws the row out of the table |
-| 36 | r3:619 | Two routes disagree about whether a party may read their own settlement |
 | 37 | r3:731 | Escape on the venue autocomplete offers to throw the whole event away |
 
 ---
+
+## Found on the way, fixed with them
+
+- **A party with no standing was handed money from an event they cannot open.** The
+  global `/settlements` list joined `event_participants` with no status filter, so an
+  `invited` co-promoter read *"SEK 10,000 — your payout"* on a night the API answers
+  `404 Event not found` for (the capability engine refuses a non-standing participant
+  `event.view`). The residual allocation writes their settlement row the moment the
+  host computes, and nothing asked whether they had answered the invitation. The list
+  now excludes the auth engine's own `NON_STANDING_PARTICIPANT_STATUSES` rather than a
+  second spelling of them. Mutation-checked both ways.
 
 ## Corrections owed to the reports
 
