@@ -32,6 +32,7 @@ stated.
 | r3:113 | Co-promoter's Deals tab said "No deal yet" | `7e31d08` |
 | r3:350 | Ticket tiers lost a field on entry | `c95ba82` |
 | r3:70 | BLOCKER: the co-promoter could not be SENT the settlement | `b779e45` |
+| r3:141 + r2:866 | A refused tab rendered blank, retried 5×, and named a capability | pending |
 
 **Corrected, not fixed:** r2:411 (inline Status "never saves") — run 3 found it does
 save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owed.
@@ -42,7 +43,6 @@ save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owe
 
 | # | ID | What is wrong | State |
 |---|---|---|---|
-| 2 | r3:141 | A view-only co-operator is given the Deals and Settlement tabs; both render blank | open |
 | 3 | r2:346 | The derived performer fee is held fixed in the break-even model, so break-even is wrong wherever a percentage deal exists | open |
 | 4 | r2:368 | The ticket-split card overstates what the performers get, uncaptioned (4,410 shown vs 3,710 paid) | open |
 | 5 | r2:804 | The act's own settlement card contradicts itself, and quotes an agent commission SEK 500 above the one owed | open |
@@ -66,7 +66,7 @@ save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owe
 | 16 | r2:758 | The Requests date rail ignores the status filter, and the empty state hides it |
 | 17 | r2:851 | A performer's own settlement says they take "100.0%" |
 | 18 | r2:860 | Bills & Invoices defaults to € for a performer |
-| 19 | r2:866 | A performer is offered an enabled Remove they may not use, and gets the capability name as the error |
+| 19 | r2:866 | A performer is offered an enabled Remove they may not use *(the capability-name half is fixed; the enabled-control half is open)* |
 | 20 | r2:880 | "Total settled SEK 0" beside "Finalized SEK 20,700" |
 | 21 | r2:887 | "Edit" a collaborator changes role only, though the menu says access |
 | 22 | r2:894 | Nested `<button>` on the Venue row, on all five seeded events |

@@ -13,9 +13,36 @@ import { ApiError } from "@showme/api-client";
  */
 export const ENTITLEMENT_REQUIRED_CODE = "entitlement_required";
 
+/**
+ * A PERMISSION REFUSAL IN WORDS, not in the vocabulary of the authorization engine.
+ *
+ * The API says `Missing capability: deal.view.own`, which is exactly right for a
+ * developer reading a response and wrong for the person holding the screen: it names
+ * an internal identifier, implies they did something incorrectly, and offers no way
+ * forward. Measured 2026-09-26 in two places — a view-only co-operator's Deals tab
+ * printed it as the whole explanation, and a performer pressing a Remove they were
+ * never meant to have got it as a toast.
+ *
+ * Matched on the STATUS plus the message shape, never on the capability name: a new
+ * capability must not need a new line here. Plan refusals are a different 403 and
+ * keep their own message (`ENTITLEMENT_REQUIRED_CODE`), because an upgrade does fix
+ * those.
+ */
+export function isPermissionRefusal(error: unknown): boolean {
+  return (
+    error instanceof ApiError && error.status === 403 && error.code !== ENTITLEMENT_REQUIRED_CODE
+  );
+}
+
+function permissionRefusal(error: ApiError): string | null {
+  if (error.status !== 403) return null;
+  if (error.code === ENTITLEMENT_REQUIRED_CODE) return null;
+  return "This part of the event isn't shared with you. Ask the host if you need it.";
+}
+
 /** Pull a human-friendly message out of an unknown query/mutation error. */
 export function errorMessage(error: unknown, fallback = "Something went wrong."): string {
-  if (error instanceof ApiError) return error.message || fallback;
+  if (error instanceof ApiError) return permissionRefusal(error) ?? error.message ?? fallback;
   if (error instanceof Error) return error.message || fallback;
   return fallback;
 }

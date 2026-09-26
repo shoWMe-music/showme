@@ -1,5 +1,5 @@
 import { Button, EmptyState, Icon, Spinner } from "@showme/design-system";
-import { errorMessage } from "../lib/errors";
+import { errorMessage, isPermissionRefusal } from "../lib/errors";
 
 /** Centered spinner for the loading phase of a screen or section. */
 export function LoadingState({ label = "Loading" }: { label?: string }) {
@@ -10,12 +10,27 @@ export function LoadingState({ label = "Loading" }: { label?: string }) {
   );
 }
 
-/** Friendly error panel; message is pulled from an ApiError when possible. */
+/**
+ * Friendly error panel; message is pulled from an ApiError when possible.
+ *
+ * A REFUSAL IS NOT A FAILURE. "Couldn't load the deals" over "Missing capability:
+ * deal.view.own" tells a co-operator that something broke and names an internal
+ * identifier at them; nothing broke, and the part of the event simply is not theirs.
+ * The caller's `title` is about the thing that did not load, so it is the wrong
+ * sentence for a 403 and is replaced rather than decorated.
+ */
 export function ErrorState({
   error,
   title = "Couldn't load this",
 }: { error: unknown; title?: string }) {
-  return <EmptyState icon={<Icon name="mail" />} title={title} description={errorMessage(error)} />;
+  const refused = isPermissionRefusal(error);
+  return (
+    <EmptyState
+      icon={<Icon name={refused ? "eye-off" : "mail"} />}
+      title={refused ? "Not shared with you" : title}
+      description={errorMessage(error)}
+    />
+  );
 }
 
 /**

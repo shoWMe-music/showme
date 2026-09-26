@@ -1,4 +1,4 @@
-import { configureApiClient } from "@showme/api-client";
+import { ApiError, configureApiClient } from "@showme/api-client";
 import { Spinner, ToastProvider } from "@showme/design-system";
 import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
@@ -32,6 +32,32 @@ configureApiClient({
 // still runs.
 const queryClient = new QueryClient({
   mutationCache: new MutationCache({ onError: reportEntitlementError }),
+  defaultOptions: {
+    queries: {
+      /**
+       * A REFUSAL IS NOT A FLAKE — do not ask four more times.
+       *
+       * TanStack retries a failed query three times by default, which is right for a
+       * dropped connection and wrong for every answer the server meant. A workspace
+       * tab a party may not open fired FIVE requests and logged five console errors
+       * per query: measured 2026-09-26 on a view-only co-operator's event, twenty
+       * failed requests and twenty errors on one visit, which buries anything real
+       * in the console and hammers the API for an answer that cannot change.
+       *
+       * 4xx is the server stating a fact about this caller — missing capability,
+       * gone, malformed. 408 and 429 are the exceptions: both are explicitly "try
+       * again". Everything else (5xx, a network error with no status) keeps the
+       * default two further attempts.
+       */
+      retry: (failureCount, error) => {
+        const status = error instanceof ApiError ? error.status : null;
+        if (status !== null && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+          return false;
+        }
+        return failureCount < 2;
+      },
+    },
+  },
 });
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("#root not found");
