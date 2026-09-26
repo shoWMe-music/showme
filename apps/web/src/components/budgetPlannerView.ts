@@ -247,6 +247,20 @@ export interface TicketSplitDisplay {
    */
   composition: string | null;
   summary: string | null;
+  /**
+   * WHAT THIS CARD IS A SHARE OF, and what the deal actually pays.
+   *
+   * The card divides the BOX OFFICE — `door.ticketRevenue`, before costs and before
+   * rental — which is the design's own choice and is captioned as such on the
+   * settlement screen. The planner had no such caption, so a reader took its figure
+   * as the act's money: measured 2026-09-26 on Open Mic, the card said Marlo Vance
+   * took SEK 4,410 (70% of the 6,300 gross) while the Costs row one card below and
+   * the settlement one click away both paid SEK 3,710 (70% of the 5,300 adjusted
+   * net) — 18.9% overstated, on one screen at one moment, with nothing to say why.
+   *
+   * Null when there is nothing to qualify: no derived fee to compare against.
+   */
+  payoutCaption: string | null;
   /** Nothing to draw: no percentage deal, or no door yet. */
   isEmpty: boolean;
 }
@@ -264,9 +278,18 @@ export function ticketSplitDisplay(
   raw: TicketSplitRaw,
   participants: { id: string; label: string; roleLabel?: string }[],
   money: (amount: bigint) => string,
+  /** What the deal will actually pay — see `payoutCaption`. Absent when unknown. */
+  feePayableMinor?: bigint | null,
 ): TicketSplitDisplay {
   if (raw.doorMinor <= 0n || raw.shares.length === 0) {
-    return { rows: [], badge: null, composition: null, summary: null, isEmpty: true };
+    return {
+      rows: [],
+      badge: null,
+      composition: null,
+      summary: null,
+      payoutCaption: null,
+      isEmpty: true,
+    };
   }
   const partyOf = (id: string) => participants.find((party) => party.id === id);
   const nameOf = (id: string) => partyOf(id)?.label ?? "A collaborator";
@@ -340,7 +363,28 @@ export function ticketSplitDisplay(
     })
     .join(" / ");
 
-  return { rows, badge: raw.badge, composition, summary: raw.summary, isEmpty: false };
+  /*
+   * The design's own words for what this card is ("box office only, before costs and
+   * rental"), plus the figure that is actually paid when the two differ — because the
+   * gap is the whole reason the caption is needed, and a reader should not have to
+   * find the Costs card to learn of it.
+   */
+  const claimed = raw.shares.reduce((running, line) => running + line.amountMinor, 0n);
+  const payoutCaption =
+    feePayableMinor != null && claimed > 0n
+      ? feePayableMinor === claimed
+        ? "Box office only, before costs and rental."
+        : `Box office only, before costs and rental — after them the deal pays ${money(feePayableMinor)}.`
+      : null;
+
+  return {
+    rows,
+    badge: raw.badge,
+    composition,
+    summary: raw.summary,
+    payoutCaption,
+    isEmpty: false,
+  };
 }
 
 /**
@@ -351,6 +395,18 @@ export function ticketSplitDisplay(
  * `BudgetEditor` (the reason the rest of this module is untested here), and so the
  * singular case reads like English rather than "1 deals are".
  */
+/**
+ * The total of the cost rows whose figure is read from a deal, or null when none is.
+ *
+ * Null and not zero: "no deal states a fee" and "the deal states nothing" are
+ * different answers, and only the first should silence the caption.
+ */
+function derivedFeeMinor(editor: BudgetEditor): bigint | null {
+  const derived = editor.costs.filter((cost) => cost.readFromDeal != null);
+  if (derived.length === 0) return null;
+  return derived.reduce((running, cost) => running + minorUnitsOf(cost.value), 0n);
+}
+
 export function costsIncompleteNoteFor(hiddenDealCount: number): string | null {
   if (hiddenDealCount <= 0) return null;
   const subject =
@@ -598,7 +654,14 @@ export function budgetPlannerViewFrom(
     ],
     costsIncompleteNote: costsIncompleteNoteFor(editor.hiddenDealCount),
     ticketRevenueTotal: money(projection.ticketRevenue),
-    ticketSplit: ticketSplitDisplay(editor.seedTicketSplit, editor.participants, money),
+    ticketSplit: ticketSplitDisplay(
+      editor.seedTicketSplit,
+      editor.participants,
+      money,
+      // The Performer fee row when it is READ FROM A DEAL — the same figure the
+      // settlement will pay, which is what makes the caption worth printing.
+      derivedFeeMinor(editor),
+    ),
     ticketsPlannedLabel: `${projection.ticketsSold.toLocaleString()} ${
       projection.ticketsSold === 1 ? "ticket" : "tickets"
     } planned across all types`,

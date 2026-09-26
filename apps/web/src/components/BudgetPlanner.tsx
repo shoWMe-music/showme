@@ -1240,6 +1240,26 @@ function TicketSplitBars({ split }: { split: TicketSplitDisplay }) {
           {split.summary}
         </span>
       )}
+
+      {/* WHAT THIS CARD IS A SHARE OF. The bars divide the box office; the deal is
+          paid out of the adjusted net, and those are different numbers the moment
+          the night has a cost. The settlement screen has always said so — this
+          card said nothing, and its larger figure was read as the act's money. */}
+      {split.payoutCaption && (
+        <span
+          style={{
+            color: "var(--muted)",
+            fontSize: 12,
+            lineHeight: 1.45,
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 6,
+          }}
+        >
+          <Icon name="alert" size={13} style={{ marginTop: 2, flexShrink: 0 }} />
+          {split.payoutCaption}
+        </span>
+      )}
     </div>
   );
 }

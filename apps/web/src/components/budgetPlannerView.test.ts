@@ -300,6 +300,43 @@ describe("ticketSplitDisplay", () => {
     expect(display.rows[0]?.percentLabel).toBe("100%");
   });
 
+  /**
+   * WHAT THE CARD IS A SHARE OF (QA sweep run 2, still reproducing in run 3).
+   *
+   * The bars divide the BOX OFFICE; the deal is paid out of the adjusted net. On Open
+   * Mic the card said Marlo Vance took SEK 4,410 while the Costs row below it and the
+   * settlement one click away both paid SEK 3,710 — 18.9% overstated, on one screen at
+   * one moment, with no caption. The settlement screen has always carried the
+   * qualifier; the planner carried it only in a source comment.
+   */
+  describe("the payout caption", () => {
+    const door = {
+      doorMinor: 630_000n,
+      shares: [{ participantId: "p1", amountMinor: 441_000n, basisPoints: 7000 }],
+      operatorRemainderMinor: 189_000n,
+      badge: "Guarantee vs Door",
+      summary: "70% of the door.",
+    };
+
+    it("names the figure actually paid when costs make it smaller", () => {
+      const display = ticketSplitDisplay(door, participants, money, 371_000n);
+
+      expect(display.payoutCaption).toContain("Box office only, before costs and rental");
+      expect(display.payoutCaption).toContain("SEK 3,710");
+    });
+
+    it("qualifies the card without a second figure when the two agree", () => {
+      const display = ticketSplitDisplay(door, participants, money, 441_000n);
+
+      expect(display.payoutCaption).toBe("Box office only, before costs and rental.");
+    });
+
+    it("says nothing when no deal states a fee to compare against", () => {
+      expect(ticketSplitDisplay(door, participants, money, null).payoutCaption).toBeNull();
+      expect(ticketSplitDisplay(door, participants, money).payoutCaption).toBeNull();
+    });
+  });
+
   it("keeps percentages on an ordinary split that fits inside the door", () => {
     const display = ticketSplitDisplay(
       {

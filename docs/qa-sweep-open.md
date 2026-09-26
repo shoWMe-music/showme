@@ -34,6 +34,7 @@ stated.
 | r3:70 | BLOCKER: the co-promoter could not be SENT the settlement | `b779e45` |
 | r3:141 + r2:866 | A refused tab rendered blank, retried 5×, and named a capability | `a9ab0df` |
 | r2:346 | Break-even held the derived fee fixed (65 where 48 is true) | `02ff39a` |
+| r2:368 | The split card overstated the take with no caption (4,410 vs 3,710) | pending |
 
 **Corrected, not fixed:** r2:411 (inline Status "never saves") — run 3 found it does
 save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owed.
@@ -44,7 +45,6 @@ save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owe
 
 | # | ID | What is wrong | State |
 |---|---|---|---|
-| 4 | r2:368 | The ticket-split card overstates what the performers get, uncaptioned (4,410 shown vs 3,710 paid) | open |
 | 5 | r2:804 | The act's own settlement card contradicts itself, and quotes an agent commission SEK 500 above the one owed | open |
 | 6 | r3:442 | A deal confirmation reaches the bell and leaves the sentence beside it false | open |
 | 7 | r3:459 | An accepted invitation does not clear "Invite pending" on the inviter's open screen | open |
