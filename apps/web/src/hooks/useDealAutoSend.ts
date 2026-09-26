@@ -80,8 +80,8 @@ export function useDealAutoSend(): DealAutoSend {
       // Fired now, awaited later: the event was created a moment ago and carries
       // exactly one deal, but the window must start when the operator can see the
       // Undo — not when a round trip happens to come back.
-      const draftDeal = getApiV1EventsIdDeals(eventId).then((deals) =>
-        deals.find((deal) => deal.agreementStatus === "draft"),
+      const draftDeal = getApiV1EventsIdDeals(eventId).then((response) =>
+        response.deals.find((deal) => deal.agreementStatus === "draft"),
       );
       let cancelled = false;
 

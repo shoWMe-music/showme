@@ -63,7 +63,7 @@ import type {
   GetApiV1EventsIdBudgets200Item,
   GetApiV1EventsIdBudgetsBidLines200Item,
   GetApiV1EventsIdChangeRequest200,
-  GetApiV1EventsIdDeals200Item,
+  GetApiV1EventsIdDeals200,
   GetApiV1EventsIdHold200,
   GetApiV1EventsIdInvitations200Item,
   GetApiV1EventsIdMessageThreads200,
@@ -2265,7 +2265,7 @@ const {mutation: mutationOptions} = options ?
 ) => {
       
       
-      return customFetch<GetApiV1EventsIdDeals200Item[]>(
+      return customFetch<GetApiV1EventsIdDeals200>(
       {url: `/api/v1/events/${id}/deals`, method: 'GET', signal
     },
       );

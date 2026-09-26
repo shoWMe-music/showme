@@ -4,14 +4,14 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
-import type { GetApiV1EventsIdDeals200ItemTermsEscalatorsItem } from './getApiV1EventsIdDeals200ItemTermsEscalatorsItem';
+import type { GetApiV1EventsIdDeals200DealsItemTermsEscalatorsItem } from './getApiV1EventsIdDeals200DealsItemTermsEscalatorsItem';
 
 /**
  * @nullable
  */
-export type GetApiV1EventsIdDeals200ItemTerms = {
+export type GetApiV1EventsIdDeals200DealsItemTerms = {
   /** @maxItems 10 */
-  escalators?: GetApiV1EventsIdDeals200ItemTermsEscalatorsItem[];
+  escalators?: GetApiV1EventsIdDeals200DealsItemTermsEscalatorsItem[];
   /** @pattern ^\d+$ */
   bonusThreshold?: string;
   /** @pattern ^\d+$ */

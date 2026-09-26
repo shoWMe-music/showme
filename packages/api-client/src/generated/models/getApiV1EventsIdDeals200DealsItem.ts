@@ -4,10 +4,10 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
-import type { GetApiV1EventsIdDeals200ItemTerms } from './getApiV1EventsIdDeals200ItemTerms';
-import type { GetApiV1EventsIdDeals200ItemPartiesItem } from './getApiV1EventsIdDeals200ItemPartiesItem';
+import type { GetApiV1EventsIdDeals200DealsItemTerms } from './getApiV1EventsIdDeals200DealsItemTerms';
+import type { GetApiV1EventsIdDeals200DealsItemPartiesItem } from './getApiV1EventsIdDeals200DealsItemPartiesItem';
 
-export type GetApiV1EventsIdDeals200Item = {
+export type GetApiV1EventsIdDeals200DealsItem = {
   id: string;
   eventId: string;
   type: string;
@@ -30,7 +30,7 @@ export type GetApiV1EventsIdDeals200Item = {
   /** @nullable */
   agreementBodyText: string | null;
   /** @nullable */
-  terms: GetApiV1EventsIdDeals200ItemTerms;
+  terms: GetApiV1EventsIdDeals200DealsItemTerms;
   version: number;
-  parties: GetApiV1EventsIdDeals200ItemPartiesItem[];
+  parties: GetApiV1EventsIdDeals200DealsItemPartiesItem[];
 };

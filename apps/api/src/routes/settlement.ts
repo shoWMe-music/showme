@@ -283,6 +283,15 @@ const SettlementsResponse = z.object({
       invitedEmail: z.string().nullable(),
       invitedAt: z.string().nullable(),
       lastSeenAt: z.string().nullable(),
+      /**
+       * Whether this party has already been given the whole settlement
+       * (decisions.md #24.2). The operator's own record of a disclosure they made,
+       * so it belongs on the same `settlement.edit` row as the rest of the reach —
+       * and the send dialog cannot reflect a grant it cannot see. Without it, that
+       * dialog reopened with the toggle off for a party who HAD access and every
+       * re-send silently took it away again.
+       */
+      fullAccess: z.boolean(),
     }),
   ),
 });
@@ -1720,6 +1729,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
                 // and "read", which is the only thing the operator actually
                 // wants to know while waiting on a signature.
                 lastSeenAt: invited?.lastSeenAt?.toISOString() ?? null,
+                fullAccess: row.fullAccess === true,
               };
             })
           : [],

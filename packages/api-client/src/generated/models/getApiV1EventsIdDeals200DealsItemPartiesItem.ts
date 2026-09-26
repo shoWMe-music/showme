@@ -4,14 +4,14 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
-import type { GetApiV1EventsIdDeals200ItemPartiesItemShare } from './getApiV1EventsIdDeals200ItemPartiesItemShare';
+import type { GetApiV1EventsIdDeals200DealsItemPartiesItemShare } from './getApiV1EventsIdDeals200DealsItemPartiesItemShare';
 
-export type GetApiV1EventsIdDeals200ItemPartiesItem = {
+export type GetApiV1EventsIdDeals200DealsItemPartiesItem = {
   id: string;
   participantId: string;
   roleInDeal: string;
   /** @nullable */
-  share?: GetApiV1EventsIdDeals200ItemPartiesItemShare;
+  share?: GetApiV1EventsIdDeals200DealsItemPartiesItemShare;
   /** @nullable */
   confirmedAt: string | null;
   isYours: boolean;

@@ -16,7 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { errorMessage } from "../lib/errors";
 
-type Deal = Awaited<ReturnType<typeof getApiV1EventsIdDeals>>[number];
+type Deal = Awaited<ReturnType<typeof getApiV1EventsIdDeals>>["deals"][number];
 type Participant = Awaited<ReturnType<typeof getApiV1EventsIdParticipants>>[number];
 
 /**
@@ -223,7 +223,7 @@ export function useEventAgreements(
   const reopen = useCallback(
     (dealId: string, reason: string) => {
       setBusyDealId(dealId);
-      const deal = (deals.data ?? []).find((row) => row.id === dealId);
+      const deal = (deals.data?.deals ?? []).find((row) => row.id === dealId);
       reopenDeal.mutate(
         {
           did: dealId,
@@ -247,7 +247,7 @@ export function useEventAgreements(
   const roster = participants.data ?? [];
 
   return {
-    deals: deals.data ?? [],
+    deals: deals.data?.deals ?? [],
     roster,
     agentParticipantIds: roster.filter((party) => party.role === "agent").map((party) => party.id),
     isPending: deals.isPending || participants.isPending,

@@ -37,14 +37,40 @@ export function SendForReviewDialog({
     return Number(left.participantId === mine) - Number(right.participantId === mine);
   });
   const [recipientId, setRecipientId] = useState<string>(recipients[0]?.participantId ?? "");
-  const [fullAccess, setFullAccess] = useState(false);
   const chosen = recipients.find((row) => row.participantId === recipientId) ?? null;
+
+  /*
+   * THE TOGGLE STARTS WHERE THE GRANT ALREADY IS, and a re-send that nobody
+   * touched changes nobody's access.
+   *
+   * It used to be `useState(false)`, never seeded from the stored grant. So the
+   * dialog reopened OFF for a party who had full access and sent an explicit
+   * `fullAccess: false` — a reminder silently revoked the disclosure, taking that
+   * party's settlement from six rows back to one. Measured 2026-09-26 against
+   * decisions.md #24.2, whose last clause is exactly "re-sending without touching
+   * the toggle does not silently revoke it".
+   *
+   * Two halves, because either alone still lies. The toggle SHOWS the stored grant
+   * (per recipient in "one" mode — `chosen` keys the initial value). And the field
+   * is sent only once the operator has actually moved it: the API leaves the grant
+   * alone when it is absent, so an untouched dialog cannot revoke anything, and in
+   * "all" mode — one switch over parties who may each have a different answer — it
+   * never overwrites what it was not asked to.
+   */
+  const storedGrant = mode === "one" ? chosen?.fullAccess === true : false;
+  const [grantTouched, setGrantTouched] = useState(false);
+  const [grantChoice, setGrantChoice] = useState(false);
+  const fullAccess = grantTouched ? grantChoice : storedGrant;
+  const setFullAccess = (next: boolean) => {
+    setGrantTouched(true);
+    setGrantChoice(next);
+  };
   const canSend = mode === "all" ? recipients.length > 0 : chosen != null;
 
   const send = () => {
     settlement.sendForReview({
       ...(mode === "one" && chosen ? { participantIds: [chosen.participantId] } : {}),
-      fullAccess,
+      ...(grantTouched ? { fullAccess: grantChoice } : {}),
     });
     onClose();
   };
@@ -86,10 +112,22 @@ export function SendForReviewDialog({
         </p>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <Button variant={mode === "all" ? "primary" : "secondary"} onClick={() => setMode("all")}>
+          <Button
+            variant={mode === "all" ? "primary" : "secondary"}
+            onClick={() => {
+              setMode("all");
+              setGrantTouched(false);
+            }}
+          >
             All collaborators
           </Button>
-          <Button variant={mode === "one" ? "primary" : "secondary"} onClick={() => setMode("one")}>
+          <Button
+            variant={mode === "one" ? "primary" : "secondary"}
+            onClick={() => {
+              setMode("one");
+              setGrantTouched(false);
+            }}
+          >
             One by one
           </Button>
         </div>
@@ -99,7 +137,12 @@ export function SendForReviewDialog({
             <Eyebrow>Recipient</Eyebrow>
             <Select
               value={recipientId}
-              onChange={setRecipientId}
+              onChange={(next) => {
+                setRecipientId(next);
+                // Another party, another stored answer — a choice made about the
+                // last one must not follow the operator onto this one.
+                setGrantTouched(false);
+              }}
               options={recipients.map((row) => ({
                 value: row.participantId,
                 label: `${row.name} (${row.role})`,

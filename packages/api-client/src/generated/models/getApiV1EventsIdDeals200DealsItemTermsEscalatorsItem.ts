@@ -5,7 +5,7 @@
  * OpenAPI spec version: 0.0.0
  */
 
-export type GetApiV1EventsIdDeals200ItemTermsEscalatorsItem = {
+export type GetApiV1EventsIdDeals200DealsItemTermsEscalatorsItem = {
   /** @minimum 0 */
   thresholdSold: number;
   /**

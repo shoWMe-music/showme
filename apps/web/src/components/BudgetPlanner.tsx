@@ -143,6 +143,11 @@ export interface BudgetPlannerProps {
   processingFlatPerTicket: string;
   /** The seven Results tiles. */
   results: KpiItem[];
+  /**
+   * Why the profit tiles are absent, when they are. Rendered under the Results
+   * grid — that grid divides evenly by design, so a gap needs a stated reason.
+   */
+  costsIncompleteNote?: string | null;
   breakEven: BreakEvenDisplay;
   revenueSources: BreakdownDisplayRow[];
   costBreakdown: BreakdownDisplayRow[];
@@ -266,6 +271,7 @@ export function BudgetPlanner({
   processingPercent,
   processingFlatPerTicket,
   results,
+  costsIncompleteNote,
   breakEven,
   revenueSources,
   costBreakdown,
@@ -989,6 +995,21 @@ export function BudgetPlanner({
             180px is the floor before the grid drops to fewer columns rather than
             crushing them. */}
         <KpiRow items={results} minTileWidth={180} columns={3} variant="slab" valueSize={15} />
+
+        {/* WHY A TILE IS MISSING. The grid divides evenly by design, so a gap reads
+            as a missing figure — which here it IS, and the reason has to be on the
+            screen rather than inferred. A co-promoter who is not a party to the
+            act's deal cannot see that fee, so profit, margin and break-even are
+            withheld instead of being computed without it. */}
+        {costsIncompleteNote && (
+          <span
+            className="muted"
+            style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 12.5 }}
+          >
+            <Icon name="eye-off" size={14} style={{ marginTop: 2, flexShrink: 0 }} />
+            {costsIncompleteNote}
+          </span>
+        )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <Eyebrow section>Break-even analysis</Eyebrow>

@@ -1,6 +1,30 @@
+import { CURRENCIES } from "@showme/shared";
+
 /** Formatting helpers shared across screens. Money is stored as bigint MINOR
  * units and serialized as a string over the API (see packages/db money.md), so
- * every amount is divided by 100 for display. */
+ * every amount is scaled by its currency's own minor-unit exponent for display. */
+
+/**
+ * HOW MANY MINOR UNITS MAKE ONE OF THIS CURRENCY — 100 for most, 1 for yen,
+ * 1,000 for Kuwaiti dinar.
+ *
+ * These helpers divided by 100 unconditionally, which is right for the two-decimal
+ * currencies and wrong for every other kind. Measured 2026-09-26 on a JPY event:
+ * line items printed JP¥240,000 and the waterfall under them printed JP¥6,800 —
+ * the same money at 1% of itself, because the engine is exponent-aware and the
+ * screen was not. KWD fails the other way, printing ten times the real figure.
+ *
+ * `currencyExponent` THROWS on an unknown code, which is not acceptable in a render
+ * path — a stale or empty code would blank the screen rather than mis-scale one
+ * number. So the table is read directly and an unknown code falls back to 2, which
+ * is what every caller already assumed.
+ */
+function minorUnitsPer(currencyCode: string): number {
+  const exponent =
+    (CURRENCIES as Record<string, { minorUnitExponent: number } | undefined>)[currencyCode]
+      ?.minorUnitExponent ?? 2;
+  return 10 ** exponent;
+}
 
 /** Format a minor-unit amount (string or number) as major-unit currency. */
 export function formatMoney(
@@ -8,10 +32,11 @@ export function formatMoney(
   currencyCode: string,
 ): string {
   const minor = typeof amountMinor === "string" ? Number(amountMinor) : (amountMinor ?? 0);
-  const major = Number.isFinite(minor) ? minor / 100 : 0;
+  const currency = currencyCode || "EUR";
+  const major = Number.isFinite(minor) ? minor / minorUnitsPer(currency) : 0;
   return new Intl.NumberFormat("en-IE", {
     style: "currency",
-    currency: currencyCode || "EUR",
+    currency,
     maximumFractionDigits: 0,
   }).format(major);
 }
@@ -30,12 +55,17 @@ export function formatMoneyExact(
   currencyCode: string,
 ): string {
   const minor = typeof amountMinor === "string" ? Number(amountMinor) : (amountMinor ?? 0);
-  const major = Number.isFinite(minor) ? minor / 100 : 0;
+  const currency = currencyCode || "EUR";
+  const units = minorUnitsPer(currency);
+  const major = Number.isFinite(minor) ? minor / units : 0;
+  // The exponent decides the decimals as well as the scale: "to the minor unit"
+  // means no decimals at all in yen, and three in Kuwaiti dinar.
+  const digits = Math.log10(units);
   return new Intl.NumberFormat("en-IE", {
     style: "currency",
-    currency: currencyCode || "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    currency,
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
   }).format(major);
 }
 
@@ -45,9 +75,18 @@ export function formatMoneyExact(
  * worse than showing it under none, so callers must use this instead of letting
  * `formatMoney` fall back to a default currency.
  */
-export function formatAmount(amountMinor: string | number | null | undefined): string {
+export function formatAmount(
+  amountMinor: string | number | null | undefined,
+  /**
+   * The denomination where the caller does know it — only the SYMBOL was in
+   * question. Without it the scale can only be assumed, and 2 is the assumption
+   * every caller here has always made.
+   */
+  currencyCode?: string,
+): string {
   const minor = typeof amountMinor === "string" ? Number(amountMinor) : (amountMinor ?? 0);
-  const major = Number.isFinite(minor) ? minor / 100 : 0;
+  const units = currencyCode ? minorUnitsPer(currencyCode) : 100;
+  const major = Number.isFinite(minor) ? minor / units : 0;
   return new Intl.NumberFormat("en-IE", { maximumFractionDigits: 0 }).format(major);
 }
 

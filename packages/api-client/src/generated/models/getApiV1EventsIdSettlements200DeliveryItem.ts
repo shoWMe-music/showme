@@ -14,4 +14,5 @@ export type GetApiV1EventsIdSettlements200DeliveryItem = {
   invitedAt: string | null;
   /** @nullable */
   lastSeenAt: string | null;
+  fullAccess: boolean;
 };

@@ -358,7 +358,36 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
   // represent as agent), each party-scoped. No operator see-all (decisions #4).
   app.get(
     "/events/:id/deals",
-    { schema: { params: EventParams, response: { 200: z.array(DealResponse) } } },
+    {
+      schema: {
+        params: EventParams,
+        /**
+         * AN OBJECT, so the answer can say how much of itself is missing.
+         *
+         * `deals` is what this caller may read — story.md: an operator's breadth is
+         * *emergent* from being a party to the event's deals, never god-mode, and
+         * decisions.md #84 makes sharing one with a co-host an explicit
+         * `deal_party` in a read-only role. A co-host who is not a party therefore
+         * correctly sees nothing, and a bare array could not tell them so.
+         *
+         * `hiddenCount` is the consequence. The Budget Planner DERIVES the
+         * performer fee from this list, so a caller missing a deal is missing a
+         * cost — and used to be shown a confident `Profit / loss` computed without
+         * it. Measured 2026-09-26 on a co-promoted night: the host read a
+         * SEK 1,245 loss and the co-host, same ledger, same minute, read a
+         * SEK 40,255 profit and a "48.5% margin". The count is the one bit a screen
+         * needs to stop asserting a total it cannot compute; it discloses that a
+         * deal exists, which a co-host already infers from the bill, and nothing
+         * about its terms.
+         */
+        response: {
+          200: z.object({
+            deals: z.array(DealResponse),
+            hiddenCount: z.number().int().min(0),
+          }),
+        },
+      },
+    },
     async (request) => {
       const { database } = request.server;
       const eventId = request.params.id;
@@ -370,7 +399,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
         .select()
         .from(schema.deals)
         .where(eq(schema.deals.eventId, eventId));
-      if (deals.length === 0) return [];
+      if (deals.length === 0) return { deals: [], hiddenCount: 0 };
 
       const parties = await database
         .select()
@@ -388,10 +417,13 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
         partiesByDeal.set(party.dealId, bucket);
       }
 
-      return deals
+      const visible = deals
         .map((deal) => ({ deal, dealParties: partiesByDeal.get(deal.id) ?? [] }))
-        .filter(({ dealParties }) => isDealVisible(dealParties, viewer))
-        .map(({ deal, dealParties }) => serializeDeal(deal, dealParties, viewer));
+        .filter(({ dealParties }) => isDealVisible(dealParties, viewer));
+      return {
+        deals: visible.map(({ deal, dealParties }) => serializeDeal(deal, dealParties, viewer)),
+        hiddenCount: deals.length - visible.length,
+      };
     },
   );
 

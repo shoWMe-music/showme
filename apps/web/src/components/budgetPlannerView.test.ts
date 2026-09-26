@@ -21,7 +21,11 @@
  * and not a money test.
  */
 import { describe, expect, it } from "vitest";
-import { type PartitionableCostRow, splitCostRows } from "./budgetPlannerView";
+import {
+  type PartitionableCostRow,
+  costsIncompleteNoteFor,
+  splitCostRows,
+} from "./budgetPlannerView";
 
 /** The six headings the planner always offers, as the editor hands them over. */
 const STANDING_HEADINGS: PartitionableCostRow[] = [
@@ -180,5 +184,41 @@ describe("splitCostRows", () => {
     );
     expect(budgeted).toEqual([]);
     expect(labelsOf(unused)).toEqual(["Staff"]);
+  });
+});
+
+/**
+ * A CO-PROMOTER MUST NOT BE SHOWN A PROFIT THAT IS NOT THERE (QA sweep run 3).
+ *
+ * The performer fee is derived from the deals list and that list is scoped per
+ * reader, so a co-host who is not a `deal_party` sees the shared ledger minus the
+ * fee. The planner totalled what it could see and printed the difference as
+ * profit: the host read a SEK 1,245 loss and the co-host, same ledger, same
+ * minute, a SEK 40,255 profit at a "48.5% margin". Those tiles are now withheld,
+ * and this is the sentence that stands in their place.
+ */
+describe("costsIncompleteNoteFor", () => {
+  it("says nothing when the reader can see every deal", () => {
+    expect(costsIncompleteNoteFor(0)).toBeNull();
+  });
+
+  it("reads as English for a single hidden deal", () => {
+    const note = costsIncompleteNoteFor(1);
+    expect(note).toContain("One of this event's deals is not shown to you");
+    expect(note).toContain("without it.");
+    // The bug this guards against is a screen that says "1 deals are".
+    expect(note).not.toContain("1 of this event's deals");
+  });
+
+  it("counts and pluralises more than one", () => {
+    const note = costsIncompleteNoteFor(3);
+    expect(note).toContain("3 of this event's deals are not shown to you");
+    expect(note).toContain("without them.");
+  });
+
+  it("says the total is a floor, and names what was withheld", () => {
+    const note = costsIncompleteNoteFor(2) ?? "";
+    expect(note).toContain("higher than the total above");
+    expect(note).toContain("Profit, margin and break-even");
   });
 });

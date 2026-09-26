@@ -107,6 +107,22 @@ export interface BudgetSeed {
   /** Head count from `events.capacity` — itself snapshotted from the venue. */
   capacity: number | null;
   /**
+   * HOW MANY OF THIS NIGHT'S DEALS THIS READER MAY NOT SEE.
+   *
+   * Every figure on this sheet that involves a performer fee is DERIVED from the
+   * deals list (`performerFees`, `ticketSplit`, `venueCost`), and that list is
+   * scoped per reader: story.md gives an operator no god-mode, and decisions.md #84
+   * makes sharing a deal with a co-host an explicit `deal_party` in a read-only
+   * role. So a co-promoter who is not a party to the act's deal legitimately sees
+   * none of it — and the planner used to total the costs it COULD see and print a
+   * confident profit. Measured 2026-09-26: the host read a SEK 1,245 loss and the
+   * co-host, same shared ledger, same minute, read a SEK 40,255 profit at a "48.5%
+   * margin". Neither number was flagged.
+   *
+   * Nonzero means every cost-derived total on this screen is a floor, not a figure.
+   */
+  hiddenDealCount: number;
+  /**
    * Every deal STILL ON THE TABLE that pays somebody on the bill and states a
    * figure — draft or confirmed alike, cancelled never — a LIST, because a bill
    * with a support act has more than one and the Costs card shows one "Performer
@@ -709,7 +725,7 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
   const budgetsQuery = useGetApiV1EventsIdBudgets(eventId);
 
   return useMemo(() => {
-    const deals = (dealsQuery.data ?? []) as Deal[];
+    const deals = (dealsQuery.data?.deals ?? []) as Deal[];
     const performers = new Set(sources.performerParticipantIds);
 
     /**
@@ -731,6 +747,7 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
 
     return {
       capacity: sources.capacity,
+      hiddenDealCount: dealsQuery.data?.hiddenCount ?? 0,
       ticketTiers: sources.ticketTiers,
       // Every deal still on the table that pays somebody on the bill and states a
       // figure, whether it states it as a fee or as a share (`performerFeeOf`) and

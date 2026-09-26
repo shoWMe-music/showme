@@ -567,9 +567,9 @@ describe("the deal the create wizard states (ClickUp 86cbaxu52)", () => {
       headers: { ...auth("deal-op-send"), "x-profile-id": operator.profileId },
     });
     expect(listed.statusCode).toBe(200);
-    expect(listed.json()).toHaveLength(1);
-    const dealId = listed.json()[0].id;
-    expect(listed.json()[0].agreementStatus).toBe("draft");
+    expect(listed.json().deals).toHaveLength(1);
+    const dealId = listed.json().deals[0].id;
+    expect(listed.json().deals[0].agreementStatus).toBe("draft");
 
     const sent = await app.inject({
       method: "POST",

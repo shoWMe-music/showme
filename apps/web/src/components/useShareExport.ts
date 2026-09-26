@@ -148,7 +148,7 @@ export function useShareExport(eventId: string, open: boolean) {
       schedule: schedule.data ?? [],
       riders: riders.data ?? [],
       budgetLines: (budgets.data ?? []).flatMap((budget) => budget.lines),
-      deals: deals.data ?? [],
+      deals: deals.data?.deals ?? [],
       // `computed` is the breakdown blob; the export wants two of its fields,
       // named, so the file says "entitlement" and "net" rather than carrying a
       // nested object a spreadsheet cannot open.

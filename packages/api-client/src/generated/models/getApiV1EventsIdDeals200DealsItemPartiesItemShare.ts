@@ -8,4 +8,4 @@
 /**
  * @nullable
  */
-export type GetApiV1EventsIdDeals200ItemPartiesItemShare = unknown | null;
+export type GetApiV1EventsIdDeals200DealsItemPartiesItemShare = unknown | null;

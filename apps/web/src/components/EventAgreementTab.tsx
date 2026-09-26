@@ -20,7 +20,7 @@ import { useDealComposer } from "./useDealComposer";
 import { useDealTermsEditor } from "./useDealTermsEditor";
 import { dealActionsFor, useEventAgreements } from "./useEventAgreements";
 
-type Deal = Awaited<ReturnType<typeof getApiV1EventsIdDeals>>[number];
+type Deal = Awaited<ReturnType<typeof getApiV1EventsIdDeals>>["deals"][number];
 type Participant = Awaited<ReturnType<typeof getApiV1EventsIdParticipants>>[number];
 type ScheduleItem = Awaited<ReturnType<typeof getApiV1EventsIdSchedule>>[number];
 

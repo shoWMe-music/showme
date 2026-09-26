@@ -187,6 +187,12 @@ export interface SettlementDeliveryRow {
   invitedAt: string | null;
   /** When they last opened the link — "sent" and "read" are different answers. */
   lastSeenAt: string | null;
+  /**
+   * Whether this party already has the WHOLE settlement (decisions.md #24.2).
+   * The send dialog seeds its toggle from this, so a re-send cannot silently
+   * revoke a disclosure the operator made deliberately.
+   */
+  fullAccess: boolean;
 }
 
 export interface SettlementApprovalRow {
@@ -809,12 +815,12 @@ export function useEventSettlement(
   const ladder = settlements.data?.ladder ?? null;
 
   const dealRows = useMemo(
-    () => toDealRows(rows, deals.data ?? [], currency, nameOf, formatAmount),
+    () => toDealRows(rows, deals.data?.deals ?? [], currency, nameOf, formatAmount),
     [rows, deals.data, currency, nameOf, formatAmount],
   );
 
   const agreementRows = useMemo(
-    () => toAgreementRows(deals.data ?? [], currency),
+    () => toAgreementRows(deals.data?.deals ?? [], currency),
     [deals.data, currency],
   );
 
@@ -826,7 +832,7 @@ export function useEventSettlement(
    * other; the server is the enforcement and this is only the affordance.
    */
   const unsignedAgreementsNotice = useMemo(() => {
-    const waiting = (deals.data ?? []).filter(
+    const waiting = (deals.data?.deals ?? []).filter(
       (deal) =>
         deal.status !== "cancelled" &&
         deal.parties.some((party) => party.roleInDeal !== "observer") &&
@@ -863,6 +869,7 @@ export function useEventSettlement(
       role: roleOf(row.participantId),
       onPlatform: row.onPlatform,
       invitedEmail: row.invitedEmail,
+      fullAccess: row.fullAccess === true,
       invitedAt: row.invitedAt,
       lastSeenAt: row.lastSeenAt,
     })),
@@ -1028,7 +1035,7 @@ function toParty(
  * (`docs/money.md`).
  */
 function toAgreementRows(
-  deals: Awaited<ReturnType<typeof getApiV1EventsIdDeals>>,
+  deals: Awaited<ReturnType<typeof getApiV1EventsIdDeals>>["deals"],
   displayCurrency: string,
 ): SettlementAgreementRow[] {
   return deals.map((deal) => {
@@ -1050,7 +1057,7 @@ function toAgreementRows(
 
 function toDealRows(
   rows: Settlements["settlements"],
-  deals: Awaited<ReturnType<typeof getApiV1EventsIdDeals>>,
+  deals: Awaited<ReturnType<typeof getApiV1EventsIdDeals>>["deals"],
   currency: string,
   nameOf: (participantId: string | null | undefined) => string,
   formatAmount: (minorUnits: string) => string,

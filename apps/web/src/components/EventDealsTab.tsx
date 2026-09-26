@@ -75,7 +75,7 @@ export function EventDealsTab({
       <DealCostAccountabilityCard
         eventId={eventId}
         capabilities={capabilities}
-        deals={(deals.data ?? []).map((deal) => ({ id: deal.id, name: deal.name }))}
+        deals={(deals.data?.deals ?? []).map((deal) => ({ id: deal.id, name: deal.name }))}
         currency={baseCurrency}
       />
       {/* `extras` is operator-only — the serializer omits the KEY entirely for a

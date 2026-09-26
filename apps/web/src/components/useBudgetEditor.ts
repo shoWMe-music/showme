@@ -622,6 +622,11 @@ export interface BudgetEditor {
   removeRevenueShare: (lineId: string, index: number) => void;
   /** How the door divides, from the deal — see `TicketSplitRaw`. */
   seedTicketSplit: BudgetSeed["ticketSplit"];
+  /**
+   * How many of this night's deals the reader may not see — nonzero means every
+   * cost-derived total on this sheet is a floor. See `BudgetSeed.hiddenDealCount`.
+   */
+  hiddenDealCount: number;
   costs: CostDraft[];
   /** Every row a percentage deduction may be taken of, as the draft stands. */
   deductionBases: DeductionBaseOption[];
@@ -751,6 +756,7 @@ export interface BudgetEditor {
 /** Nothing known about the event — the planner then behaves exactly as before. */
 const NO_SEED: BudgetSeed = {
   capacity: null,
+  hiddenDealCount: 0,
   performerFees: [],
   venueCost: null,
   ticketTiers: [],
@@ -815,7 +821,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   );
   const dealOptions = useMemo<BudgetDealOption[]>(
     () =>
-      (dealsQuery.data ?? []).map((deal) => ({
+      (dealsQuery.data?.deals ?? []).map((deal) => ({
         id: deal.id,
         name: deal.name,
         guaranteeAmount: deal.guaranteeAmount ?? null,
@@ -2363,6 +2369,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     // carries it rather than deriving anything from it (#23.2: event-scoped,
     // never re-derived per book).
     seedTicketSplit: seedSource.ticketSplit,
+    hiddenDealCount: seedSource.hiddenDealCount,
     costs: resolvedCosts,
     deductionBases,
     capacity,

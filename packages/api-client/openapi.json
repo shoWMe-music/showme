@@ -3524,161 +3524,172 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string"
-                      },
-                      "eventId": {
-                        "type": "string"
-                      },
-                      "type": {
-                        "type": "string"
-                      },
-                      "structure": {
-                        "type": "string",
-                        "nullable": true
-                      },
-                      "name": {
-                        "type": "string"
-                      },
-                      "currency": {
-                        "type": "string",
-                        "nullable": true
-                      },
-                      "guaranteeAmount": {
-                        "type": "string",
-                        "nullable": true
-                      },
-                      "advanceAmount": {
-                        "type": "string",
-                        "nullable": true
-                      },
-                      "splitBasisPoints": {
-                        "type": "number",
-                        "nullable": true
-                      },
-                      "paymentTiming": {
-                        "type": "string"
-                      },
-                      "commissionMode": {
-                        "type": "string"
-                      },
-                      "priority": {
-                        "type": "number"
-                      },
-                      "status": {
-                        "type": "string"
-                      },
-                      "agreementStatus": {
-                        "type": "string"
-                      },
-                      "agreementBodyText": {
-                        "type": "string",
-                        "nullable": true
-                      },
-                      "terms": {
+                  "type": "object",
+                  "properties": {
+                    "deals": {
+                      "type": "array",
+                      "items": {
                         "type": "object",
                         "properties": {
-                          "escalators": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "structure": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "currency": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "guaranteeAmount": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "advanceAmount": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "splitBasisPoints": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "paymentTiming": {
+                            "type": "string"
+                          },
+                          "commissionMode": {
+                            "type": "string"
+                          },
+                          "priority": {
+                            "type": "number"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "agreementStatus": {
+                            "type": "string"
+                          },
+                          "agreementBodyText": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "terms": {
+                            "type": "object",
+                            "properties": {
+                              "escalators": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "thresholdSold": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "splitBasisPoints": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 10000
+                                    }
+                                  },
+                                  "required": ["thresholdSold", "splitBasisPoints"],
+                                  "additionalProperties": false
+                                },
+                                "maxItems": 10
+                              },
+                              "bonusThreshold": {
+                                "type": "string",
+                                "pattern": "^\\d+$"
+                              },
+                              "bonusAmount": {
+                                "type": "string",
+                                "pattern": "^\\d+$"
+                              }
+                            },
+                            "additionalProperties": false,
+                            "nullable": true
+                          },
+                          "version": {
+                            "type": "number"
+                          },
+                          "parties": {
                             "type": "array",
                             "items": {
                               "type": "object",
                               "properties": {
-                                "thresholdSold": {
-                                  "type": "integer",
-                                  "minimum": 0
+                                "id": {
+                                  "type": "string"
                                 },
-                                "splitBasisPoints": {
-                                  "type": "integer",
-                                  "minimum": 0,
-                                  "maximum": 10000
+                                "participantId": {
+                                  "type": "string"
+                                },
+                                "roleInDeal": {
+                                  "type": "string"
+                                },
+                                "share": {
+                                  "nullable": true
+                                },
+                                "confirmedAt": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "isYours": {
+                                  "type": "boolean"
+                                },
+                                "version": {
+                                  "type": "number"
                                 }
                               },
-                              "required": ["thresholdSold", "splitBasisPoints"],
+                              "required": [
+                                "id",
+                                "participantId",
+                                "roleInDeal",
+                                "confirmedAt",
+                                "isYours",
+                                "version"
+                              ],
                               "additionalProperties": false
-                            },
-                            "maxItems": 10
-                          },
-                          "bonusThreshold": {
-                            "type": "string",
-                            "pattern": "^\\d+$"
-                          },
-                          "bonusAmount": {
-                            "type": "string",
-                            "pattern": "^\\d+$"
+                            }
                           }
                         },
-                        "additionalProperties": false,
-                        "nullable": true
-                      },
-                      "version": {
-                        "type": "number"
-                      },
-                      "parties": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "properties": {
-                            "id": {
-                              "type": "string"
-                            },
-                            "participantId": {
-                              "type": "string"
-                            },
-                            "roleInDeal": {
-                              "type": "string"
-                            },
-                            "share": {
-                              "nullable": true
-                            },
-                            "confirmedAt": {
-                              "type": "string",
-                              "nullable": true
-                            },
-                            "isYours": {
-                              "type": "boolean"
-                            },
-                            "version": {
-                              "type": "number"
-                            }
-                          },
-                          "required": [
-                            "id",
-                            "participantId",
-                            "roleInDeal",
-                            "confirmedAt",
-                            "isYours",
-                            "version"
-                          ],
-                          "additionalProperties": false
-                        }
+                        "required": [
+                          "id",
+                          "eventId",
+                          "type",
+                          "structure",
+                          "name",
+                          "currency",
+                          "guaranteeAmount",
+                          "advanceAmount",
+                          "splitBasisPoints",
+                          "paymentTiming",
+                          "commissionMode",
+                          "priority",
+                          "status",
+                          "agreementStatus",
+                          "agreementBodyText",
+                          "terms",
+                          "version",
+                          "parties"
+                        ],
+                        "additionalProperties": false
                       }
                     },
-                    "required": [
-                      "id",
-                      "eventId",
-                      "type",
-                      "structure",
-                      "name",
-                      "currency",
-                      "guaranteeAmount",
-                      "advanceAmount",
-                      "splitBasisPoints",
-                      "paymentTiming",
-                      "commissionMode",
-                      "priority",
-                      "status",
-                      "agreementStatus",
-                      "agreementBodyText",
-                      "terms",
-                      "version",
-                      "parties"
-                    ],
-                    "additionalProperties": false
-                  }
+                    "hiddenCount": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": ["deals", "hiddenCount"],
+                  "additionalProperties": false
                 }
               }
             }
@@ -8429,6 +8440,9 @@
                           "lastSeenAt": {
                             "type": "string",
                             "nullable": true
+                          },
+                          "fullAccess": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -8436,7 +8450,8 @@
                           "onPlatform",
                           "invitedEmail",
                           "invitedAt",
-                          "lastSeenAt"
+                          "lastSeenAt",
+                          "fullAccess"
                         ],
                         "additionalProperties": false
                       }

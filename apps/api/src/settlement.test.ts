@@ -861,6 +861,44 @@ describe("settlement — full settlement access (decisions #24)", () => {
     await send({ status: "revised", participantIds: [seed.bPart], fullAccess: false });
     expect((await settlementsAs(seed.event.id, seed.band.userId)).json().ladder).toBeNull();
   });
+
+  /**
+   * THE OPERATOR HAS TO BE ABLE TO SEE WHOSE BOOKS ARE OPEN (QA sweep run 3).
+   *
+   * The rule above held at the API and was defeated by the screen: the send dialog
+   * could not read the stored grant, so it reopened with the toggle OFF for a party
+   * who had access and sent an explicit `fullAccess: false` — a reminder revoking
+   * the disclosure. The dialog seeds itself from this row, so the row has to carry
+   * it.
+   */
+  it("reports each party's standing grant on the operator's delivery list", async () => {
+    const seed = await seedWorkedExample("grant-visible");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.operator.userId),
+      payload: { status: "pending_review", participantIds: [seed.bPart], fullAccess: true },
+    });
+
+    const delivery = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${seed.event.id}/settlements`,
+        headers: auth(seed.operator.userId),
+      })
+    ).json().delivery as { participantId: string; fullAccess: boolean }[];
+
+    expect(delivery.find((row) => row.participantId === seed.bPart)?.fullAccess).toBe(true);
+    // Everyone else is untouched — the grant is per party, not per settlement.
+    expect(
+      delivery.filter((row) => row.participantId !== seed.bPart).every((row) => !row.fullAccess),
+    ).toBe(true);
+  });
 });
 
 describe("settlement — visibility (decisions #4)", () => {

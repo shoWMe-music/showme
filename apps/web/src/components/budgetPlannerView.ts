@@ -11,7 +11,7 @@ import {
 } from "@showme/shared";
 import { formatMoney, formatMoneyExact } from "../lib/format";
 import { toMinorUnits } from "../lib/moneyUnits";
-import type { KpiItem } from "./KpiRow";
+import type { KpiItem, KpiTone } from "./KpiRow";
 import { type BudgetEditor, budgetInputsFrom, minorUnitsOf } from "./useBudgetEditor";
 import type { TicketSplitRaw } from "./useBudgetSeed";
 
@@ -103,6 +103,11 @@ export interface DealFigureWarning {
 export interface BudgetPlannerView {
   kpis: KpiItem[];
   results: KpiItem[];
+  /**
+   * Why the profit figures are absent, when they are — null whenever this reader
+   * can see every deal on the night. See `costsIncomplete`.
+   */
+  costsIncompleteNote: string | null;
   ticketRevenueTotal: string;
   /**
    * Each tier's own `price × quantity`, formatted, keyed by tier id — the TOTAL
@@ -301,6 +306,24 @@ export function ticketSplitDisplay(
   return { rows, badge: raw.badge, composition, summary: raw.summary, isEmpty: false };
 }
 
+/**
+ * WHY THE PROFIT FIGURES ARE MISSING, in the reader's own terms — or null when
+ * nothing is missing.
+ *
+ * A plain function so it can be asserted without standing up a whole
+ * `BudgetEditor` (the reason the rest of this module is untested here), and so the
+ * singular case reads like English rather than "1 deals are".
+ */
+export function costsIncompleteNoteFor(hiddenDealCount: number): string | null {
+  if (hiddenDealCount <= 0) return null;
+  const subject =
+    hiddenDealCount === 1
+      ? "One of this event's deals is"
+      : `${hiddenDealCount} of this event's deals are`;
+  const object = hiddenDealCount === 1 ? "it" : "them";
+  return `${subject} not shown to you, so what the night costs is higher than the total above. Profit, margin and break-even are left out rather than calculated without ${object}.`;
+}
+
 export function budgetPlannerViewFrom(
   editor: BudgetEditor,
   currency: string,
@@ -322,6 +345,25 @@ export function budgetPlannerViewFrom(
 ): BudgetPlannerView {
   const inputs = budgetInputsFrom(editor);
   const projection = computeBudgetProjection(inputs);
+  /**
+   * A COST THIS READER CANNOT SEE MAKES EVERY COST-DERIVED FIGURE A FLOOR.
+   *
+   * The performer fee is derived from the deals list, and that list is scoped per
+   * reader (story.md: an operator's breadth is emergent from being a party, never
+   * god-mode; decisions.md #84 shares a deal with a co-host by making them a
+   * `deal_party`). So a co-promoter who is not on the act's deal sees the shared
+   * ledger minus that fee — and this screen used to total what it could see and
+   * print `Profit / loss`, `Profit margin`, break-even and cost-per-guest off it.
+   * Measured 2026-09-26: host SEK 1,245 LOSS, co-host SEK 40,255 PROFIT, same
+   * ledger, same minute, neither marked.
+   *
+   * Total costs stays, labelled as partial, because a floor is still useful. The
+   * figures that are only meaningful when costs are complete are withheld rather
+   * than guessed — `costsIncompleteNote` says why, so a missing tile is never a
+   * mystery. Revenue, the door and the ticket count are untouched: nothing about
+   * them depends on a deal.
+   */
+  const costsIncomplete = editor.hiddenDealCount > 0;
   const money = (minor: bigint) =>
     formatFigure ? formatFigure(minor.toString()) : formatMoney(minor.toString(), currency);
 
@@ -447,15 +489,25 @@ export function budgetPlannerViewFrom(
       // same colour as a loss meant a profitable event still showed two red
       // figures out of five, which is the screen shouting at an operator who is
       // doing fine.
-      { label: "Total costs", value: money(projection.totalCosts), tone: "amber" },
       {
-        label: "Profit / loss",
-        value: money(projection.profit),
-        tone: projection.profit < 0n ? "red" : "green",
+        label: costsIncomplete ? "Total costs (partial)" : "Total costs",
+        value: money(projection.totalCosts),
+        tone: "amber",
       },
-      // A COUNT, left plain. It is neither good nor bad until you know the room,
-      // and the tile beside it already says whether the night makes money.
-      { label: "Break-even tickets", value: projection.breakEvenTickets },
+      // A PROFIT IS NOT A FIGURE WHEN A COST IS MISSING. See `costsIncomplete`.
+      ...(costsIncomplete
+        ? []
+        : [
+            {
+              label: "Profit / loss",
+              value: money(projection.profit),
+              tone: (projection.profit < 0n ? "red" : "green") as KpiTone,
+            },
+            // A COUNT, left plain. It is neither good nor bad until you know the
+            // room, and the tile beside it already says whether the night makes
+            // money.
+            { label: "Break-even tickets", value: projection.breakEvenTickets },
+          ]),
     ],
     // TONED THE SAME WAY THE STRIP IS, which is what the design does and what we
     // did not: money carries its meaning (revenue green, the door blue, cost
@@ -466,25 +518,48 @@ export function budgetPlannerViewFrom(
     results: [
       { label: "Total revenue", value: money(projection.totalRevenue), tone: "green" },
       { label: "Ticket revenue", value: money(projection.ticketRevenue), tone: "blue" },
-      { label: "Total costs", value: money(projection.totalCosts), tone: "amber" },
       {
-        label: "Profit / loss",
-        value: money(projection.profit),
-        tone: projection.profit < 0n ? "red" : "green",
+        label: costsIncomplete ? "Total costs (partial)" : "Total costs",
+        value: money(projection.totalCosts),
+        tone: "amber",
       },
-      // MARGIN BEFORE BREAK-EVEN, which is the design's order and the reading
-      // order that follows from it: profit, then profit as a rate, then the
-      // attendance that would make it zero. We had the last two the other way
-      // round, so the row read profit, attendance, rate.
-      { label: "Profit margin", value: `${projection.marginPercent.toFixed(1)}%` },
-      { label: "Break-even tickets", value: projection.breakEvenTickets.toLocaleString() },
+      // EVERY FIGURE BELOW IS COST-DERIVED, so each one is withheld rather than
+      // printed wrong when a deal is invisible to this reader (`costsIncomplete`).
+      // Revenue, the door and the ticket count are unaffected and stay.
+      ...(costsIncomplete
+        ? []
+        : [
+            {
+              label: "Profit / loss",
+              value: money(projection.profit),
+              tone: (projection.profit < 0n ? "red" : "green") as KpiTone,
+            },
+            // MARGIN BEFORE BREAK-EVEN, which is the design's order and the
+            // reading order that follows from it: profit, then profit as a rate,
+            // then the attendance that would make it zero. We had the last two the
+            // other way round, so the row read profit, attendance, rate.
+            { label: "Profit margin", value: `${projection.marginPercent.toFixed(1)}%` },
+            {
+              label: "Break-even tickets",
+              value: projection.breakEvenTickets.toLocaleString(),
+            },
+          ]),
       // What the sheet expects to SELL. The grid showed revenue and cost per
       // guest without ever saying how many guests it meant, so neither figure
       // could be checked.
       { label: "Tickets planned", value: projection.ticketsSold.toLocaleString() },
       { label: "Revenue / guest", value: money(projection.revenuePerGuest), tone: "green" },
-      { label: "Cost / guest", value: money(projection.costPerGuest), tone: "amber" },
+      ...(costsIncomplete
+        ? []
+        : [
+            {
+              label: "Cost / guest",
+              value: money(projection.costPerGuest),
+              tone: "amber" as KpiTone,
+            },
+          ]),
     ],
+    costsIncompleteNote: costsIncompleteNoteFor(editor.hiddenDealCount),
     ticketRevenueTotal: money(projection.ticketRevenue),
     ticketSplit: ticketSplitDisplay(editor.seedTicketSplit, editor.participants, money),
     ticketsPlannedLabel: `${projection.ticketsSold.toLocaleString()} ${

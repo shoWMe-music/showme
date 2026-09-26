@@ -185,9 +185,9 @@ describe("deals — party-scoped visibility", () => {
       headers: auth("d-pb"),
     });
     expect(listAsB.statusCode).toBe(200);
-    expect(listAsB.json()).toHaveLength(1);
-    expect(listAsB.json()[0].parties).toHaveLength(1);
-    expect(listAsB.json()[0].parties[0].participantId).toBe(participantB.id);
+    expect(listAsB.json().deals).toHaveLength(1);
+    expect(listAsB.json().deals[0].parties).toHaveLength(1);
+    expect(listAsB.json().deals[0].parties[0].participantId).toBe(participantB.id);
 
     // `isYours` marks the line the caller stands behind — the one and only line
     // `POST /deals/:did/confirm` will stamp for them. The operator reads all three
@@ -201,7 +201,7 @@ describe("deals — party-scoped visibility", () => {
       operatorParties.filter((party) => party.isYours).map((party) => party.participantId),
     ).toEqual([hostParticipant.id]);
     expect(asPerformerA.json().parties[0].isYours).toBe(true);
-    expect(listAsB.json()[0].parties[0].isYours).toBe(true);
+    expect(listAsB.json().deals[0].parties[0].isYours).toBe(true);
   });
 
   it("404s a deal for a participant who is not a party on it (no leak)", async () => {
@@ -1396,7 +1396,9 @@ describe("deals — an agent's authority is per-deal, via the representation (de
       headers: auth(fixture.agentUid),
     });
     expect(list.statusCode).toBe(200);
-    expect(list.json().map((deal: { id: string }) => deal.id)).toEqual([fixture.clientDealId]);
+    expect(list.json().deals.map((deal: { id: string }) => deal.id)).toEqual([
+      fixture.clientDealId,
+    ]);
   });
 
   it("cannot reopen a deal it has no client on — the other act's confirmations stand", async () => {
@@ -1764,7 +1766,7 @@ describe("deals — a venue↔crew agreement can actually be confirmed (owner ca
     });
     expect(event.statusCode).toBe(200);
     // The crew member sees their agreement — `deal.view.own` is in their floor …
-    expect(event.json()).toHaveLength(1);
+    expect(event.json().deals).toHaveLength(1);
     // … and the capability that would let them decide the show's date is still absent.
     const principal = await resolvePrincipal(harness.db, "vc-scope-crew");
     if (!principal) throw new Error("principal not resolved");
@@ -1862,7 +1864,7 @@ describe("deals — a venue↔crew agreement can actually be confirmed (owner ca
       url: `/api/v1/events/${seed.event.id}/deals`,
       headers: auth("vc-other-crew2"),
     });
-    expect(list.json().map((deal: { id: string }) => deal.id)).toEqual([own.json().id]);
+    expect(list.json().deals.map((deal: { id: string }) => deal.id)).toEqual([own.json().id]);
   });
 
   it("refuses a crew OBSERVER — a shared agreement is watched, not signed", async () => {
@@ -2114,7 +2116,17 @@ describe("deals — a co-promoter sees the ENTIRE financial deal (meeting 00:25:
       url: `/api/v1/events/${event.id}/deals`,
       headers: auth("cp2-cohost"),
     });
-    expect(list.json()).toEqual([]);
+    expect(list.json().deals).toEqual([]);
+    /*
+     * AND IT SAYS SO (QA sweep run 3, 2026-09-26). An empty list used to be
+     * indistinguishable from a night with no deals at all, and the Budget Planner
+     * derives the performer fee from this list — so it totalled the costs it could
+     * see and printed the difference as profit. The host read a SEK 1,245 loss and
+     * this co-host, same shared ledger, same minute, read a SEK 40,255 profit at a
+     * "48.5% margin". The count is what lets that screen withhold a figure it
+     * cannot compute; it discloses that a deal exists and nothing about its terms.
+     */
+    expect(list.json().hiddenCount).toBe(1);
 
     // The host, who IS a party, reads it in full — same event, same capability set,
     // opposite answer. The difference is the party line and nothing else.
@@ -2125,6 +2137,16 @@ describe("deals — a co-promoter sees the ENTIRE financial deal (meeting 00:25:
     });
     expect(byHost.statusCode).toBe(200);
     expect(byHost.json().parties).toHaveLength(2);
+
+    // Nothing is hidden from a reader who is a party to everything, so their
+    // planner keeps its profit figures.
+    const hostList = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("cp2-host"),
+    });
+    expect(hostList.json().hiddenCount).toBe(0);
+    expect(hostList.json().deals).toHaveLength(1);
   });
 });
 
@@ -2226,7 +2248,7 @@ describe("deals — an operator sees a deal by being a party, not by being the h
       headers: auth("sub-op"),
     });
     expect(list.statusCode).toBe(200);
-    expect(list.json().map((deal: { id: string }) => deal.id)).toEqual([mainDealId]);
+    expect(list.json().deals.map((deal: { id: string }) => deal.id)).toEqual([mainDealId]);
 
     // Both parties to the sub-hire see it — each their own line.
     const performerRead = await app.inject({
