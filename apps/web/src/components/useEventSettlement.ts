@@ -322,7 +322,14 @@ export interface EventSettlement {
    * What actually has to leave the building — one row per party owed money, the
    * operator's own retained share excluded.
    */
+  /**
+   * Why the entitlements below do not sum to the adjusted net above them, or null
+   * when they do. See the memo where it is computed.
+   */
+  entitlementReconciliation: string | null;
   payouts: { key: string; label: string; value: string }[];
+  /** True when a listed payout is somebody else's — the card must not claim it. */
+  payoutsIncludeOthers: boolean;
   totalPayable: string;
   /** True when the caller is the party whose share is retained rather than paid. */
   retainsOwnShare: boolean;
@@ -761,7 +768,59 @@ export function useEventSettlement(
     return formatAmount(total.toString());
   }, [parties, formatAmount]);
 
+  /**
+   * WHY THE ENTITLEMENTS DO NOT SUM TO THE ADJUSTED NET.
+   *
+   * The band above the list states the adjusted net and used to be captioned
+   * "Adjusted net divided", while the lines beneath it are ENTITLEMENTS — each one
+   * a party's share of that pool plus the cash they collected and minus what was
+   * deducted from them. Measured 2026-09-26: a header of SEK 53,500 over rows
+   * summing to SEK 55,000, with percentages taken off the 55,000. Every figure was
+   * individually right and the one check a reader can do by eye failed.
+   *
+   * So the difference is stated rather than left to be discovered. Null when the two
+   * do agree, which is the ordinary case on a night with no collections or
+   * deductions.
+   */
+  const entitlementReconciliation = useMemo(() => {
+    const adjustedNetMinor = settlements.data?.ladder?.adjustedNet ?? null;
+    if (adjustedNetMinor == null) return null;
+    const entitlements = parties.reduce(
+      (running, party) => running + BigInt(party.entitlementMinor ?? "0"),
+      0n,
+    );
+    const adjusted = BigInt(adjustedNetMinor);
+    if (entitlements === adjusted) return null;
+    const direction = entitlements > adjusted ? "more" : "less";
+    return `The entitlements below come to ${formatAmount(entitlements.toString())}, ${direction} than the adjusted net: each line also carries the cash that party collected and the deductions taken off them. The percentages are shares of the entitlements.`;
+  }, [parties, settlements.data, formatAmount]);
+
   const payable = useMemo(() => parties.filter((party) => party.netTone === "positive"), [parties]);
+  const ownParticipantId = useMemo(
+    () => parties.find((party) => party.isYours)?.participantId ?? null,
+    [parties],
+  );
+  /**
+   * AN AGENT'S OWN MONEY ON THIS NIGHT IS A COMMISSION, NOT A SETTLEMENT NET.
+   *
+   * A commission is paid out of the act's entitlement by a representation
+   * transfer, which this screen deliberately keeps out of the who-owes-whom list
+   * (#14, see `transfers`). The consequence nobody had followed through: the agent
+   * has no positive net of their own, so `payable` held only their CLIENT's payout
+   * and the card above it said "What is payable to you on this event". Measured
+   * 2026-09-26: an agent owed SEK 3,581 read SEK 0 on every screen, and the event
+   * workspace showed them the act's figure under their own heading.
+   *
+   * `commissions` is empty for an operator and carries only the reader's own side
+   * otherwise, so summing the rows that name this reader as the agent is the whole
+   * of "what this night owes me".
+   */
+  const ownCommissionMinor = useMemo(() => {
+    if (!ownParticipantId) return 0n;
+    return (settlements.data?.commissions ?? [])
+      .filter((commission) => commission.agentParticipantId === ownParticipantId)
+      .reduce((running, commission) => running + BigInt(commission.commission), 0n);
+  }, [settlements.data, ownParticipantId]);
   // Whoever is HOLDING the night's money has a negative net — they are the one who
   // pays everybody else, and their own share is retained rather than transferred.
   const ownRetains = useMemo(
@@ -769,9 +828,12 @@ export function useEventSettlement(
     [parties],
   );
   const totalPayable = useMemo(() => {
-    const total = payable.reduce((running, party) => running + BigInt(party.netMinor ?? "0"), 0n);
+    const total = payable.reduce(
+      (running, party) => running + BigInt(party.netMinor ?? "0"),
+      ownCommissionMinor,
+    );
     return formatAmount(total.toString());
-  }, [payable, formatAmount]);
+  }, [payable, ownCommissionMinor, formatAmount]);
 
   const transfers = useMemo(
     () =>
@@ -861,6 +923,7 @@ export function useEventSettlement(
     adjustedNet: ladder ? formatAmount(ladder.adjustedNet) : null,
     shares,
     totalEntitlement,
+    entitlementReconciliation,
     approvals,
     approvedCount: approvals.filter((approval) => approval.approved).length,
     delivery: (settlements.data?.delivery ?? []).map((row) => ({
@@ -891,13 +954,31 @@ export function useEventSettlement(
     isComputed: partyRows.some((row) => row.computed != null),
     isFinalized: partyRows.some((row) => FROZEN_STATUSES.has(row.status)),
     status: partyRows[0]?.status ?? "open",
-    payouts: payable.map((party) => ({
-      key: party.settlementId,
-      label: `${party.name} payout`,
-      value: party.net as string,
-    })),
+    payouts: [
+      ...payable.map((party) => ({
+        key: party.settlementId,
+        label: `${party.name} payout`,
+        value: party.net as string,
+      })),
+      // The reader's own commission, where they have one — see `ownCommissionMinor`.
+      ...(ownCommissionMinor > 0n
+        ? [
+            {
+              key: "own-commission",
+              label: "Your commission",
+              value: formatAmount(ownCommissionMinor.toString()),
+            },
+          ]
+        : []),
+    ],
     totalPayable,
     retainsOwnShare: ownRetains,
+    /**
+     * Whether anything in that list belongs to somebody else — so the card can stop
+     * calling another party's payout "payable to you". An agent reading their
+     * client's settlement is the case that exposed it.
+     */
+    payoutsIncludeOthers: payable.some((party) => !party.isYours),
     // The review conversation is over once the figures freeze — after that the
     // only honest objection is a dispute, which stays available.
     canReview: partyRows.length > 0 && !partyRows.some((row) => FROZEN_STATUSES.has(row.status)),

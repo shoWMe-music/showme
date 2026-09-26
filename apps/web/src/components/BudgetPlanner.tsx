@@ -1190,7 +1190,14 @@ function TicketSplitBars({ split }: { split: TicketSplitDisplay }) {
                 </span>
               )}
               <span style={{ color: "var(--muted)", fontSize: 11.5, marginLeft: 7 }}>
-                {row.isRemainder ? "what no deal claims" : row.percentLabel}
+                {/* A NEGATIVE remainder is not "what no deal claims" — it is the
+                    operator paying out more than the door took, which is the
+                    sentence they need rather than a euphemism. */}
+                {row.isShortfall
+                  ? "the door does not cover the deals"
+                  : row.isRemainder
+                    ? "what no deal claims"
+                    : row.percentLabel}
               </span>
             </span>
             <span
@@ -1202,13 +1209,19 @@ function TicketSplitBars({ split }: { split: TicketSplitDisplay }) {
                 whiteSpace: "nowrap",
               }}
             >
-              <span style={{ color: "var(--muted)", marginRight: 8 }}>{row.percentLabel}</span>
+              {/* Absent when a guarantee exceeds the door — there is no honest
+                  percentage to print, and the amount carries the row on its own. */}
+              {row.percentLabel && (
+                <span style={{ color: "var(--muted)", marginRight: 8 }}>{row.percentLabel}</span>
+              )}
               {row.amount}
             </span>
           </div>
           {/* The track is the whole door, so every bar is read against the same
               width and the shares can be compared by eye. Scaling each to the
-              largest would make a 10% line look like a third of the night. */}
+              largest would make a 10% line look like a third of the night — the one
+              exception being a night whose claims EXCEED the door, where the track
+              becomes the largest claim so the shortfall has a shape. */}
           <div style={{ height: 5, borderRadius: 999, background: "var(--border)" }}>
             <div
               style={{

@@ -156,6 +156,31 @@ export function describeChange(changes: NegotiatedValues): string {
 }
 
 /**
+ * HOW MANY PEOPLE WOULD HAVE TO AGREE — nobody, on an event whose only
+ * participant is the operator asking.
+ *
+ * Exported because the DIVERSION is the thing that has to know. A PATCH that
+ * moves a booked night strips the negotiated fields out of itself and opens a
+ * proposal instead; with an empty counterpart set that proposal is raised with
+ * `required: 0`, nobody can answer it, `answerChangeRequest` is the only code that
+ * applies a change, and the date is frozen for good — with the pending row then
+ * superseding every later attempt. Measured 2026-09-26 on two events, and it is
+ * the shape the seed ships: a night is host-only until somebody is invited.
+ *
+ * `resolveProposal` already says the right thing about zero ("nobody left to ask"
+ * ⇒ confirmed). It was simply never consulted at the moment the question was
+ * asked, only when somebody answered one.
+ */
+export async function counterpartCount(
+  // biome-ignore lint/suspicious/noExplicitAny: Drizzle db/tx handle.
+  database: any,
+  eventId: string,
+  proposerUserId: string | null,
+): Promise<number> {
+  return (await counterparts(database, eventId, proposerUserId)).length;
+}
+
+/**
  * The participations that must answer a proposal — everyone standing on the
  * event except the profile proposing it.
  *

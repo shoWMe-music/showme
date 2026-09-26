@@ -1168,6 +1168,48 @@ describe("settlement — representation commission (decisions #14)", () => {
   });
 
   /**
+   * AN AGENT'S SETTLEMENTS SCREEN SHOWED SEK 0 ON EVERY NIGHT THEY EARN ON
+   * (QA sweep run 2 and run 3, 2026-09-26).
+   *
+   * `GET /settlements` lists settlements keyed to a PARTICIPATION, and an agent's
+   * participation is correctly entitled to nothing — their cut is the separate
+   * representation-scoped row, which has a null `participantId` (so the join drops
+   * it) and a non-null `representationId` (so the filter excluded it anyway). Their
+   * own money was therefore the one figure the screen could not show. Measured:
+   * SEK 3,581 owed, SEK 0 printed, on every row.
+   */
+  it("shows the agent their commission on the list, not their empty participation", async () => {
+    const seed = await seedWorkedExample("commlist");
+    const rep = await seedAgentRepresentation("commlist", seed);
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/v1/settlements",
+      headers: auth(rep.agentUserId),
+    });
+    expect(list.statusCode).toBe(200);
+    const items = list.json().items as { entitlement: string | null; net: string | null }[];
+    // One row for the night, carrying the 20% of the band's 300000 they are owed.
+    expect(items).toHaveLength(1);
+    expect(items[0]?.entitlement).toBe("60000");
+    expect(items[0]?.net).toBe("60000");
+
+    // The band's own row is untouched — the commission is paid out of their
+    // entitlement by a transfer, and does not shrink what the event owes them.
+    const bandList = await app.inject({
+      method: "GET",
+      url: "/api/v1/settlements",
+      headers: auth(seed.band.userId),
+    });
+    expect((bandList.json().items as { entitlement: string }[])[0]?.entitlement).toBe("300000");
+  });
+
+  /**
    * A REIMBURSED COST DOES NOT SHRINK THE AGENT'S COMMISSION (ClickUp `86cba8wtb`).
    *
    * `.claude/skills/settlement/SKILL.md` has always said reimbursements are not

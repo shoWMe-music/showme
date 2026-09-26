@@ -1190,7 +1190,12 @@ function TotalPayouts({ settlement }: { settlement: EventSettlementData }) {
         subtitle={
           settlement.retainsOwnShare
             ? "As operator your share is retained; below are the amounts payable to the other parties."
-            : "What is payable to you on this event."
+            : settlement.payoutsIncludeOthers
+              ? // Somebody else's figure is in this list, so it cannot be called
+                // the reader's. An agent sees their client's payout here beside
+                // their own commission.
+                "What this event pays out, including your own share."
+              : "What is payable to you on this event."
         }
       >
         Total Payouts

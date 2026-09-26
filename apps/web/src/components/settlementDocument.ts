@@ -242,7 +242,11 @@ export function entitlementRules(
     rules.push({
       key: `deal-${line.dealId}`,
       label: isShared
-        ? `${describeBasis(line.basis, currency)} — your share of ${formatMoney(line.dealTotal, currency)}`
+        ? // "the deal's" and not a bare figure: on a 60/40 bill both acts saw the
+          // identical sentence ending in the SAME total, which reads as each of them
+          // being paid it. The number belongs to the agreement; the line beside it is
+          // what this party takes out of it.
+          `${describeBasis(line.basis, currency)} — your share of the deal's ${formatMoney(line.dealTotal, currency)}`
         : describeBasis(line.basis, currency),
       value: formatAmount(line.amount),
     });

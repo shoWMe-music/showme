@@ -88,30 +88,70 @@ export function HoldRankBadge({
  * The competing holds for a date, matched the way the API matches them.
  *
  * `loadSiblings` in `routes/holds.ts` pools `on_hold` events sharing the exact
- * `(event_date, venue_profile_id, stage_id)`. The wizard creates events with no
- * venue PROFILE and no stage (it captures a free-text venue name), so its holds
- * land in the `(date, NULL, NULL)` pool — and a pool with no room is scoped to
- * ONE HOST (decisions #20): there is no room for two operators to be competing
- * for, so an unpinned hold queues only with its own host's. A hold pinned to a
- * venue profile is a different pool on purpose; counting it here would offer the
- * operator a rank the server would not honour.
+ * `(event_date, venue_profile_id, stage_id)`. A pool with NO room is scoped to ONE
+ * HOST (decisions #20): there is no room for two operators to be competing for, so
+ * an unpinned hold queues only with its own host's.
  *
  * This file used to say the server pooled unpinned holds across every operator
  * and count them accordingly, which was true of the server and wrong of the
  * queue: it inflated the ranks on offer with strangers' pencils, and taking one
  * of those ranks demoted them.
+ *
+ * IT THEN SAID THE WIZARD COULD NOT PIN A VENUE AT ALL, and counted only the
+ * `(date, NULL, NULL)` pool on that basis. The wizard grew a venue and room picker
+ * and sends both on create (`NewEventWizard`), so two holds placed on the same
+ * night in the same room each counted ZERO competitors and both were offered — and
+ * given — 1st. Measured 2026-09-26 through the wizard, the path the previous sweep
+ * had cleared. The pool is now keyed on what the operator has actually picked.
  */
 function holdsOnDate(holds: EventItem[], eventDate: string): EventItem[] {
   if (!eventDate) return [];
   return holds.filter((hold) => hold.status === "on_hold" && hold.eventDate === eventDate);
 }
 
+/**
+ * THE POOL THE SERVER WILL PUT THIS HOLD IN — `(date, venue, room)` when the
+ * operator has pinned one, and the host's own unpinned queue otherwise.
+ *
+ * Exported and pure because getting it wrong is silent: the wizard SKIPS the rank
+ * write when it believes there are no competitors (`placeOnHold`), leaving
+ * `hold_rank` NULL, which every reader treats as 1st. So an under-counted pool does
+ * not produce a wrong number on a screen — it produces two holds that are both
+ * genuinely 1st in the database.
+ */
+export function isInHoldPool(
+  hold: Pick<EventItem, "venueProfileId" | "stageId" | "hostProfileId">,
+  pool: {
+    venueProfileId: string | null;
+    stageId: string | null;
+    hostProfileId: string | undefined;
+  },
+): boolean {
+  if (pool.venueProfileId !== null) {
+    return (
+      hold.venueProfileId === pool.venueProfileId &&
+      (hold.stageId ?? null) === (pool.stageId ?? null)
+    );
+  }
+  // No room to compete for, so an unpinned hold queues only with its own host's
+  // (decisions #20).
+  return (
+    hold.venueProfileId === null &&
+    hold.stageId === null &&
+    hold.hostProfileId === pool.hostProfileId
+  );
+}
+
 export function useHoldPlacement(options: {
   enabled: boolean;
   eventDate: string;
   hostProfileId: string | undefined;
+  /** The venue this hold is being pinned to, when the operator has picked one. */
+  venueProfileId?: string | null;
+  /** The room within it — part of the pool key, so two rooms never compete. */
+  stageId?: string | null;
 }): HoldPlacement {
-  const { enabled, eventDate, hostProfileId } = options;
+  const { enabled, eventDate, hostProfileId, venueProfileId = null, stageId = null } = options;
 
   // Every hold the operator can reach, drained: the rank on offer is an
   // aggregate over the whole pool, and a first page of it would be a lie.
@@ -134,14 +174,16 @@ export function useHoldPlacement(options: {
   const [pickedRank, setPickedRank] = useState<number | null>(null);
 
   const sameDate = holdsOnDate(holdList.items, eventDate);
-  const competingHolds = sameDate.filter(
-    (hold) =>
-      hold.venueProfileId === null && hold.stageId === null && hold.hostProfileId === hostProfileId,
+  const inSamePool = (hold: EventItem) =>
+    isInHoldPool(hold, { venueProfileId, stageId, hostProfileId });
+  const competingHolds = sameDate.filter(inSamePool).length;
+  // The holds on this date that are NOT in this hold's pool — a separate queue, so
+  // worth a sentence and not worth a rank. Counted as "not mine" rather than "has a
+  // venue": once this hold is itself pinned, the ones queueing elsewhere are the
+  // ones at another venue or in another room.
+  const holdsPinnedToVenue = sameDate.filter(
+    (hold) => !inSamePool(hold) && hold.venueProfileId !== null,
   ).length;
-  // Counted from the venue field rather than as "everything else", so another
-  // host's unpinned hold is not mislabelled as queueing at a venue. It is in
-  // neither queue, which is the honest answer and not a sentence worth drawing.
-  const holdsPinnedToVenue = sameDate.filter((hold) => hold.venueProfileId !== null).length;
   const maxRank = competingHolds + 1;
   const rankOptions = Array.from({ length: maxRank }, (_, index) => index + 1);
   const holdRank = pickedRank === null ? maxRank : Math.min(pickedRank, maxRank);

@@ -29,6 +29,7 @@ import {
   answerChangeRequest,
   callerParticipantOrNull,
   changeNeedsAgreement,
+  counterpartCount,
   hasAnswered,
   isEmptyChange,
   negotiatedChanges,
@@ -1318,7 +1319,18 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         venueProfileId: before.venueProfileId,
         stageId: before.stageId,
       });
-      const mustAsk = changeNeedsAgreement(before.status) && !isEmptyChange(negotiated.changes);
+      /*
+       * …AND THERE IS SOMEBODY TO ASK. An event whose only participant is the
+       * operator has no counterparts, so the proposal was raised with `required:
+       * 0`, nothing could answer it, and the only code that applies a change
+       * (`answerChangeRequest`) never ran — the date could never move again, and
+       * the pending row superseded every later attempt. That is the state every
+       * event is in before anybody is invited to it.
+       */
+      const mustAsk =
+        changeNeedsAgreement(before.status) &&
+        !isEmptyChange(negotiated.changes) &&
+        (await counterpartCount(database, id, request.principal?.userId ?? null)) > 0;
       if (mustAsk) {
         for (const field of NEGOTIATED_FIELDS) {
           delete (fields as Record<string, unknown>)[field];

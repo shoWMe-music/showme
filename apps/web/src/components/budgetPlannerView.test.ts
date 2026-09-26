@@ -25,6 +25,7 @@ import {
   type PartitionableCostRow,
   costsIncompleteNoteFor,
   splitCostRows,
+  ticketSplitDisplay,
 } from "./budgetPlannerView";
 
 /** The six headings the planner always offers, as the editor hands them over. */
@@ -220,5 +221,102 @@ describe("costsIncompleteNoteFor", () => {
     const note = costsIncompleteNoteFor(2) ?? "";
     expect(note).toContain("higher than the total above");
     expect(note).toContain("Profit, margin and break-even");
+  });
+});
+
+/**
+ * NOBODY HOLDS 111% OF A QUANTITY (QA sweep run 2 and run 3, 2026-09-26).
+ *
+ * On a guarantee-vs-door night whose takings fall short, the engine pays the
+ * guarantee — which can exceed the whole door. The card divided it by the door
+ * anyway and printed "111% performer", with NO operator row at all, because the
+ * remainder was negative and the row was drawn only when positive. The one fact the
+ * operator needed — this night loses money on the door — was the one it hid.
+ */
+describe("ticketSplitDisplay", () => {
+  const participants = [
+    { id: "p1", label: "Marlo Vance", roleLabel: "Performer" },
+    { id: "p2", label: "Neon Tide", roleLabel: "Support" },
+  ];
+  const money = (amount: bigint) => `SEK ${(Number(amount) / 100).toLocaleString("en-IE")}`;
+
+  it("drops the percentages when a guarantee exceeds the door, and keeps the amounts", () => {
+    // The measured case: SEK 2,000 guarantee against SEK 1,800 of tickets.
+    const display = ticketSplitDisplay(
+      {
+        doorMinor: 180_000n,
+        shares: [{ participantId: "p1", amountMinor: 200_000n, basisPoints: 11_111 }],
+        operatorRemainderMinor: -20_000n,
+        badge: "Guarantee vs Door · proposed",
+        summary: "The guarantee beats the door.",
+      },
+      participants,
+      money,
+    );
+
+    const performer = display.rows.find((row) => row.key === "p1");
+    expect(performer?.percentLabel).toBeNull();
+    expect(performer?.amount).toBe("SEK 2,000");
+    // Never the impossible figure, in any field the screen reads.
+    expect(display.composition).not.toContain("111");
+    expect(display.rows.every((row) => row.percentLabel !== "111%")).toBe(true);
+  });
+
+  it("shows the operators' negative line rather than omitting it", () => {
+    const display = ticketSplitDisplay(
+      {
+        doorMinor: 180_000n,
+        shares: [{ participantId: "p1", amountMinor: 200_000n, basisPoints: 11_111 }],
+        operatorRemainderMinor: -20_000n,
+        badge: null,
+        summary: null,
+      },
+      participants,
+      money,
+    );
+
+    const operators = display.rows.find((row) => row.key === "operators");
+    expect(operators).toBeDefined();
+    expect(operators?.isShortfall).toBe(true);
+    expect(operators?.amount).toBe("SEK -200");
+  });
+
+  it("still draws no operators' row when a deal takes the whole door exactly", () => {
+    // The seeded album release does this at 100% — a zero-width bar labelled "the
+    // operators" reads as an error rather than as nothing.
+    const display = ticketSplitDisplay(
+      {
+        doorMinor: 100_000n,
+        shares: [{ participantId: "p1", amountMinor: 100_000n, basisPoints: 10_000 }],
+        operatorRemainderMinor: 0n,
+        badge: null,
+        summary: null,
+      },
+      participants,
+      money,
+    );
+
+    expect(display.rows.map((row) => row.key)).toEqual(["p1"]);
+    expect(display.rows[0]?.percentLabel).toBe("100%");
+  });
+
+  it("keeps percentages on an ordinary split that fits inside the door", () => {
+    const display = ticketSplitDisplay(
+      {
+        doorMinor: 100_000n,
+        shares: [
+          { participantId: "p1", amountMinor: 42_000n, basisPoints: 4_200 },
+          { participantId: "p2", amountMinor: 28_000n, basisPoints: 2_800 },
+        ],
+        operatorRemainderMinor: 30_000n,
+        badge: null,
+        summary: null,
+      },
+      participants,
+      money,
+    );
+
+    expect(display.rows.map((row) => row.percentLabel)).toEqual(["42%", "28%", "30%"]);
+    expect(display.rows.find((row) => row.key === "operators")?.isShortfall).toBeUndefined();
   });
 });

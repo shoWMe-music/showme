@@ -1550,6 +1550,53 @@ describe("events — a change to a booked night is a question", () => {
     return seeded;
   }
 
+  /**
+   * NOBODY TO ASK IS NOT THE SAME AS WAITING FOR AN ANSWER (QA sweep run 3).
+   *
+   * `resolveProposal` has always said a proposal with `required: 0` is confirmed,
+   * and `event-change-rules.test.ts` pins it — but the DIVERSION never consulted
+   * it. A confirmed event whose only participant is the operator had its date
+   * stripped out of the PATCH and turned into a proposal nobody could answer:
+   * `answerChangeRequest` is the only code that applies a change, so the night was
+   * frozen for good and the pending row superseded every later attempt. That is the
+   * state every event is in before anybody is invited to it, which is why a pure
+   * unit test of the rule passed while the app could not move a date.
+   */
+  it("moves the date outright on an event whose only participant is the operator", async () => {
+    const seeded = await seedEventWithHost("solomove");
+    await harness.db
+      .update(schema.events)
+      .set({ status: "confirmed", eventDate: "2026-09-12" })
+      .where(eq(schema.events.id, seeded.event.id));
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.event.id}`,
+      headers: auth("solomove-op"),
+      payload: { eventDate: "2026-10-20" },
+    });
+    expect(patched.statusCode).toBe(200);
+
+    // The date moved, and no question was opened to wait on.
+    expect((await eventRow(seeded.event.id))?.eventDate).toBe("2026-10-20");
+    const open = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.event.id}/change-request`,
+      headers: auth("solomove-op"),
+    });
+    expect(open.json().request).toBeNull();
+
+    // And it is still movable a second time — the bug left a pending row behind
+    // that superseded every later attempt.
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.event.id}`,
+      headers: auth("solomove-op"),
+      payload: { eventDate: "2026-11-03" },
+    });
+    expect((await eventRow(seeded.event.id))?.eventDate).toBe("2026-11-03");
+  });
+
   it("moves the date freely while the offer is unanswered, and re-asks it", async () => {
     const { performer, event } = await seedEventWithHost("freemove");
     await app.inject({

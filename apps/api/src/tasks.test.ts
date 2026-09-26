@@ -247,6 +247,129 @@ describe("tasks — the event's shared to-do list", () => {
   });
 });
 
+/**
+ * THE TO-DO LIST IS SHARED; THE MONEY ON IT IS NOT (QA sweep run 3, 2026-09-26).
+ *
+ * `GET /tasks?eventId=…` answered crew, both performers and the agent with
+ * `budgetAmount: "1200000"` — the operator's own planning figure. No screen renders
+ * it, which is why three sweeps of the app missed it and only a look at the wire
+ * found it. The same door was open from the write side: anybody who could reach the
+ * task could change the figure too.
+ */
+describe("tasks — a task's budget is the operator's, not the event's", () => {
+  async function seedEventWithPerformer(prefix: string) {
+    const { db } = harness;
+    const hostProfileId = await seedUserWithProfile(`${prefix}-host`);
+    const performerProfileId = await seedUserWithProfile(`${prefix}-perf`);
+    const [hostSet] = await db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: hostProfileId,
+        name: "operator_full",
+        capabilities: [...PRESET_PERMISSION_SETS.operator_full],
+      })
+      .returning();
+    const [performerSet] = await db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: performerProfileId,
+        name: "performer",
+        capabilities: [...PRESET_PERMISSION_SETS.performer],
+      })
+      .returning();
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId,
+        title: "Album Release",
+        baseCurrency: "SEK",
+        createdBy: `${prefix}-host`,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await db.insert(schema.eventParticipants).values([
+      {
+        eventId: event.id,
+        profileId: hostProfileId,
+        role: "host",
+        permissionSetId: hostSet?.id,
+        status: "confirmed",
+      },
+      {
+        eventId: event.id,
+        profileId: performerProfileId,
+        role: "performer",
+        permissionSetId: performerSet?.id,
+        status: "confirmed",
+      },
+    ]);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/tasks",
+      headers: { ...auth(`${prefix}-host`), "x-profile-id": hostProfileId },
+      payload: {
+        title: "Backline hire",
+        eventId: event.id,
+        budgetType: "cost",
+        budgetAmount: "1200000",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    return { event, hostProfileId, performerProfileId, taskId: created.json().id as string };
+  }
+
+  const listAs = (eventId: string, uid: string, profileId: string) =>
+    app.inject({
+      method: "GET",
+      url: `/api/v1/tasks?eventId=${eventId}`,
+      headers: { ...auth(uid), "x-profile-id": profileId },
+    });
+
+  it("shows the task to a performer and withholds its figure", async () => {
+    const seeded = await seedEventWithPerformer("taskmoney");
+
+    const asPerformer = await listAs(seeded.event.id, "taskmoney-perf", seeded.performerProfileId);
+    expect(asPerformer.statusCode).toBe(200);
+    const [seen] = asPerformer.json().items;
+    // The job itself is the point of a shared list.
+    expect(seen.title).toBe("Backline hire");
+    // Its money is not.
+    expect(seen.budgetAmount).toBeNull();
+    expect(seen.budgetType).toBeNull();
+
+    // The operator reads their own figure, same route, same task.
+    const asHost = await listAs(seeded.event.id, "taskmoney-host", seeded.hostProfileId);
+    const [mine] = asHost.json().items;
+    expect(mine.budgetAmount).toBe("1200000");
+    expect(mine.budgetType).toBe("cost");
+  });
+
+  it("refuses a performer moving the figure, and still lets them tick the job off", async () => {
+    const seeded = await seedEventWithPerformer("taskwrite");
+
+    const moved = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/tasks/${seeded.taskId}`,
+      headers: { ...auth("taskwrite-perf"), "x-profile-id": seeded.performerProfileId },
+      payload: { budgetAmount: "1" },
+    });
+    expect(moved.statusCode).toBe(403);
+
+    // …and the shared list still works for them, which is the thing being protected.
+    const ticked = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/tasks/${seeded.taskId}`,
+      headers: { ...auth("taskwrite-perf"), "x-profile-id": seeded.performerProfileId },
+      payload: { completed: true },
+    });
+    expect(ticked.statusCode).toBe(200);
+    expect(ticked.json().completed).toBe(true);
+    // The echo from their own successful write withholds the figure too.
+    expect(ticked.json().budgetAmount).toBeNull();
+  });
+});
+
 describe("tasks — priority (ClickUp 123qy9rnk29)", () => {
   /**
    * Ran: *"Let's add priority tags to tasks: Urgent, High, Normal, Low."*

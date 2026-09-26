@@ -1506,6 +1506,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           computed: schema.settlements.computed,
           version: schema.settlements.version,
           participantId: schema.settlements.participantId,
+          participantRole: schema.eventParticipants.role,
           eventId: schema.events.id,
           eventTitle: schema.events.title,
           eventDate: schema.events.eventDate,
@@ -1526,17 +1527,57 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         )
         .orderBy(desc(schema.events.eventDate));
 
+      /**
+       * AN AGENT'S MONEY ON A NIGHT IS THEIR COMMISSION (decisions #14).
+       *
+       * The rows above are settlements keyed to a PARTICIPATION, and an agent's
+       * participation is correctly entitled to nothing — their cut is a separate
+       * representation-scoped settlement with a null `participantId`, which the
+       * join above drops and the `representationId` filter excludes twice over.
+       * The consequence was a Settlements screen reading SEK 0 on every event an
+       * agent actually earns on (measured 2026-09-26: SEK 3,581 owed, SEK 0 shown,
+       * on every row).
+       *
+       * Read here rather than joined above so the shape of the list does not change:
+       * one row per night, carrying whatever THIS reader is owed for it.
+       */
+      const commissionRows = await database
+        .select({
+          eventId: schema.settlements.eventId,
+          computed: schema.settlements.computed,
+        })
+        .from(schema.settlements)
+        .innerJoin(
+          schema.representations,
+          eq(schema.representations.id, schema.settlements.representationId),
+        )
+        .where(inArray(schema.representations.agentProfileId, profileIds));
+      const commissionByEvent = new Map<string, bigint>();
+      for (const row of commissionRows) {
+        const commission = (row.computed as { commission?: string } | null)?.commission;
+        if (commission == null) continue;
+        commissionByEvent.set(
+          row.eventId as string,
+          (commissionByEvent.get(row.eventId as string) ?? 0n) + BigInt(commission),
+        );
+      }
+
       return {
         items: rows.map((row) => {
           const computed = (row.computed as SerializedBreakdown | null) ?? null;
+          // On an agent's own participation the figure is the commission, which is
+          // the only money that night owes them.
+          const commission =
+            row.participantRole === "agent" ? commissionByEvent.get(row.eventId as string) : null;
+          const ownFigure = commission != null ? commission.toString() : null;
           return {
             id: row.id,
             status: row.status,
             version: row.version,
             participantId: row.participantId,
             // The viewer's own figures — this row is theirs by construction above.
-            entitlement: computed?.entitlement ?? null,
-            net: computed?.net ?? null,
+            entitlement: ownFigure ?? computed?.entitlement ?? null,
+            net: ownFigure ?? computed?.net ?? null,
             currency: row.baseCurrency,
             event: {
               id: row.eventId,

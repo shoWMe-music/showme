@@ -132,7 +132,27 @@ interface TaskCursor {
  * through the join the caller already had to make, and passed in rather than
  * fetched here so a list serializes in one query instead of one per task.
  */
-function serializeTask(task: TaskRow, assigneeName: string | null): z.infer<typeof TaskResponse> {
+/**
+ * WHOSE MONEY A TASK'S BUDGET IS.
+ *
+ * A task hanging off an event is readable by anybody with `event.view` — that is
+ * deliberate, it is the event's to-do list. Its BUDGET is not: "backline hire,
+ * SEK 12,000" is the operator's own planning, and story.md puts a performer at
+ * "only their own slice, never the event budget". Measured 2026-09-26:
+ * `GET /tasks?eventId=…` handed `budgetAmount: "1200000"` to crew, both
+ * performers and the agent. No screen renders it today, which is exactly why it
+ * went unnoticed — the disclosure is in the response, not on the page.
+ *
+ * So the figure needs `budget.view`, the same capability the planner asks for,
+ * while the task itself keeps needing only `event.view`. Somebody reading their
+ * OWN task (they own it, or own it through a profile) always sees its money: it
+ * is theirs.
+ */
+function serializeTask(
+  task: TaskRow,
+  assigneeName: string | null,
+  mayReadBudget: boolean,
+): z.infer<typeof TaskResponse> {
   return {
     id: task.id,
     eventId: task.eventId,
@@ -149,8 +169,8 @@ function serializeTask(task: TaskRow, assigneeName: string | null): z.infer<type
     priority: task.priority,
     remindAt: task.remindAt ? task.remindAt.toISOString() : null,
     remindedAt: task.remindedAt ? task.remindedAt.toISOString() : null,
-    budgetType: task.budgetType,
-    budgetAmount: task.budgetAmount != null ? task.budgetAmount.toString() : null,
+    budgetType: mayReadBudget ? task.budgetType : null,
+    budgetAmount: mayReadBudget && task.budgetAmount != null ? task.budgetAmount.toString() : null,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
   };
@@ -414,8 +434,16 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       // Event-scoped list = the event's shared to-do, gated by event.view (the
       // access predicate IS the filter). Otherwise the caller's own + profile tasks.
       let scopeFilter: ReturnType<typeof or> | ReturnType<typeof eq> | undefined;
+      /**
+       * ONE capability read for the whole page, not one per row — see
+       * `serializeTask` for why the money is gated at all. An event's to-do list
+       * needs `event.view`; the figures on it need `budget.view`, and a row the
+       * caller owns themselves carries its money regardless of either.
+       */
+      let budgetViewOnEvent = false;
       if (eventId) {
         await requireEventCapability(request, eventId, "event.view");
+        budgetViewOnEvent = (await eventCapabilities(request, eventId)).has("budget.view");
         scopeFilter = eq(schema.tasks.eventId, eventId);
       } else {
         const profileIds = principal.memberships.map((m) => m.profileId);
@@ -490,10 +518,19 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
        * `order=priority` is for "the five that matter most", which is one page by
        * construction.
        */
+      // Owner-scoped rows are all the caller's own, so their money is theirs.
+      const ownsRow = (task: TaskRow) =>
+        (task.ownerUserId != null && task.ownerUserId === principal.userId) ||
+        (task.ownerProfileId != null &&
+          principal.memberships.some((member) => member.profileId === task.ownerProfileId));
+      const mayReadMoney = (task: TaskRow) => budgetViewOnEvent || ownsRow(task);
+
       if (order === "priority") {
         const ranked = rows.slice(0, limit);
         return {
-          items: ranked.map((row) => serializeTask(row.task, row.assigneeName)),
+          items: ranked.map((row) =>
+            serializeTask(row.task, row.assigneeName, mayReadMoney(row.task)),
+          ),
           nextCursor: null,
         };
       }
@@ -503,7 +540,9 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         id: row.task.id,
       }));
       return {
-        items: items.map((row) => serializeTask(row.task, row.assigneeName)),
+        items: items.map((row) =>
+          serializeTask(row.task, row.assigneeName, mayReadMoney(row.task)),
+        ),
         nextCursor,
       };
     },
@@ -557,7 +596,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
           .returning();
         if (!task) throw new Error("task create failed");
 
-        const serialized = serializeTask(task, assigneeName);
+        const serialized = serializeTask(task, assigneeName, true);
         await writeAudit(tx, request, {
           capability: "profile.edit",
           action: "task.create",
@@ -603,6 +642,37 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params;
       const before = await loadAccessibleTask(request, id);
       const body = request.body;
+
+      /**
+       * THE TO-DO LIST IS SHARED; THE MONEY ON IT IS NOT.
+       *
+       * `loadAccessibleTask` lets anybody with `event.view` reach an event's task,
+       * which is deliberate — crew ticking off the job they were assigned is the
+       * point of a shared list. But the same door reached the task's BUDGET, both
+       * to read it back and to change it: "backline hire, SEK 12,000" is the
+       * operator's planning, and story.md puts a performer at "only their own
+       * slice, never the event budget". Measured 2026-09-26 on the read half
+       * (`GET /tasks?eventId=…` answered crew, both performers and the agent with
+       * `budgetAmount`); the write half is the same hole from the other side.
+       *
+       * Their own task is always theirs, money included. An event's task needs the
+       * budget capability — `budget.edit` to move the figure, `budget.view` to be
+       * told it.
+       */
+      const ownTask =
+        (before.ownerUserId != null && before.ownerUserId === request.principal?.userId) ||
+        (before.ownerProfileId != null &&
+          (request.principal?.memberships ?? []).some(
+            (member) => member.profileId === before.ownerProfileId,
+          ));
+      const eventBudget =
+        !ownTask && before.eventId
+          ? await eventCapabilities(request, before.eventId)
+          : new Set<string>();
+      const mayReadMoney = ownTask || eventBudget.has("budget.view");
+      if (body.budgetAmount !== undefined && !ownTask && !eventBudget.has("budget.edit")) {
+        throw forbidden("Missing capability: budget.edit");
+      }
 
       const fields: Partial<typeof schema.tasks.$inferInsert> = { updatedAt: new Date() };
       if (body.title !== undefined) fields.title = body.title;
@@ -662,6 +732,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         const serialized = serializeTask(
           after,
           await assigneeNameOf(tx, after.assigneeParticipantId),
+          mayReadMoney,
         );
         await writeAudit(tx, request, {
           capability: "profile.edit",
@@ -669,7 +740,13 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
           targetKind: "task",
           targetId: id,
           eventId: after.eventId ?? undefined,
-          before: serializeTask(before, await assigneeNameOf(tx, before.assigneeParticipantId)),
+          // The audit trail keeps the figure whoever is looking: it is a record,
+          // not a screen, and `budgetAmount` is already in TRACKED_TASK_FIELDS.
+          before: serializeTask(
+            before,
+            await assigneeNameOf(tx, before.assigneeParticipantId),
+            true,
+          ),
           after: serialized,
         });
         if (after.eventId) {
@@ -720,7 +797,11 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
           targetKind: "task",
           targetId: id,
           eventId: before.eventId ?? undefined,
-          before: serializeTask(before, await assigneeNameOf(tx, before.assigneeParticipantId)),
+          before: serializeTask(
+            before,
+            await assigneeNameOf(tx, before.assigneeParticipantId),
+            true,
+          ),
         });
         if (before.eventId) {
           await writeActivity(tx, request, {

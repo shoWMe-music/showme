@@ -135,13 +135,22 @@ export function EventAgreementTab({
       </div>
 
       {agreements.deals.length === 0 ? (
+        /* EMPTY IS TWO DIFFERENT ANSWERS. A reader sees only the deals they are a
+           party to (story.md: an operator's breadth is emergent, not god-mode), so
+           an empty list can mean the night has no deals OR that its deals are not
+           this reader's to read. A co-promoter on a show with a signed agreement was
+           told "No deal yet", which is the one thing it was not. */
         <EmptyState
-          icon={<Icon name="file" />}
-          title="No deal yet"
+          icon={<Icon name={agreements.hiddenDealCount > 0 ? "eye-off" : "file"} />}
+          title={agreements.hiddenDealCount > 0 ? "Not your deal to see" : "No deal yet"}
           description={
-            agreements.authority.canCompose
-              ? "Write the terms down and send them to the other parties. Nothing settles until they confirm."
-              : "When a deal naming you is sent, its terms appear here for you to confirm."
+            agreements.hiddenDealCount > 0
+              ? agreements.hiddenDealCount === 1
+                ? "This event has a deal, and you are not a party to it. Ask the host to add you to it if you need its terms."
+                : `This event has ${agreements.hiddenDealCount} deals, and you are not a party to any of them. Ask the host to add you if you need their terms.`
+              : agreements.authority.canCompose
+                ? "Write the terms down and send them to the other parties. Nothing settles until they confirm."
+                : "When a deal naming you is sent, its terms appear here for you to confirm."
           }
         />
       ) : (

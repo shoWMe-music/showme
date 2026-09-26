@@ -218,14 +218,20 @@ export interface TicketSplitRow {
    * paid, not what they are here to do.
    */
   roleLabel: string | null;
-  /** "70%" — the share of the door, for the chip beside the name. */
-  percentLabel: string;
-  /** Bar width as a percentage of the widest possible bar (the whole door). */
+  /**
+   * "70%" — the share of the door, for the chip beside the name. NULL when a claim
+   * exceeds the door: a guarantee paid on a short night is not a proportion of it,
+   * and printing one gave a party 111% of a quantity.
+   */
+  percentLabel: string | null;
+  /** Bar width as a percentage of the widest bar on the card. */
   widthPercent: number;
   amount: string;
   color: string;
   /** The operators' line is a remainder, not a deal — said plainly on the row. */
   isRemainder?: boolean;
+  /** That remainder is NEGATIVE: the door does not cover what the deals claim. */
+  isShortfall?: boolean;
 }
 
 export interface TicketSplitDisplay {
@@ -266,41 +272,72 @@ export function ticketSplitDisplay(
   const nameOf = (id: string) => partyOf(id)?.label ?? "A collaborator";
   const share = (amount: bigint) => Number((amount * 10_000n) / raw.doorMinor) / 100;
 
+  /**
+   * A SHARE CARD IS A DIVISION OF ONE QUANTITY, and a guarantee is not a share.
+   *
+   * On a guarantee-vs-door night whose takings fall short, the engine pays the
+   * guarantee — which can exceed the whole door. Expressed as a proportion of the
+   * door that is a percentage over 100, and the card printed it: "111% performer",
+   * one bar, and NO operator row, because the remainder was negative and the row was
+   * only drawn when it was positive. So the screen hid the one fact the operator
+   * most needed (this night loses money on the door) behind an arithmetic
+   * impossibility. Measured 2026-09-26: guarantee SEK 2,000 against SEK 1,800 of
+   * tickets.
+   *
+   * When a claim exceeds the door, percentages are dropped rather than printed
+   * wrong — the amounts are exact and the summary beneath already explains that the
+   * guarantee beat the door. Bars stay drawn, scaled against the largest claim so
+   * the shortfall is visible as a shape.
+   */
+  const claimedMinor = raw.shares.reduce((running, line) => running + line.amountMinor, 0n);
+  const overClaimed = claimedMinor > raw.doorMinor;
+  const widestMinor = claimedMinor > raw.doorMinor ? claimedMinor : raw.doorMinor;
+  const width = (amount: bigint) =>
+    widestMinor > 0n ? Number((amount * 10_000n) / widestMinor) / 100 : 0;
+
   const rows: TicketSplitRow[] = raw.shares.map((line, index) => ({
     key: line.participantId,
     name: nameOf(line.participantId),
     roleLabel: partyOf(line.participantId)?.roleLabel ?? null,
-    percentLabel: `${Math.round(line.basisPoints / 100)}%`,
-    widthPercent: share(line.amountMinor),
+    percentLabel: overClaimed ? null : `${Math.round(line.basisPoints / 100)}%`,
+    widthPercent: width(line.amountMinor),
     amount: money(line.amountMinor),
     color: SPLIT_COLORS[index % SPLIT_COLORS.length] as string,
   }));
 
-  // Only when there is something left. A deal taking the whole door — the seeded
-  // album release does exactly that at 100% — would otherwise draw a zero-width
-  // bar labelled "the operators", which reads as an error rather than as nothing.
-  if (raw.operatorRemainderMinor > 0n) {
+  // NON-ZERO, not positive. A deal taking the whole door — the seeded album release
+  // does exactly that at 100% — draws no row, because a zero-width bar labelled
+  // "the operators" reads as an error rather than as nothing. A NEGATIVE remainder
+  // is the opposite of nothing: it is the operator paying out more than the door
+  // took, and leaving it off the card was how "111% performer" came to be the whole
+  // story.
+  if (raw.operatorRemainderMinor !== 0n) {
+    const negative = raw.operatorRemainderMinor < 0n;
+    const magnitude = negative ? -raw.operatorRemainderMinor : raw.operatorRemainderMinor;
     rows.push({
       key: "operators",
       name: "The operators",
       // No role: this line is nobody in particular, it is what no deal claimed.
       roleLabel: null,
-      percentLabel: `${Math.round(share(raw.operatorRemainderMinor))}%`,
-      widthPercent: share(raw.operatorRemainderMinor),
+      percentLabel: overClaimed ? null : `${Math.round(share(raw.operatorRemainderMinor))}%`,
+      widthPercent: width(magnitude),
       amount: money(raw.operatorRemainderMinor),
       color: SPLIT_COLORS[rows.length % SPLIT_COLORS.length] as string,
       isRemainder: true,
+      ...(negative ? { isShortfall: true } : {}),
     });
   }
 
   const roles = rows.map((row) => row.roleLabel);
   const rolesTellThemApart =
     roles.every((role) => role !== null) && new Set(roles).size === roles.length;
+  // No percentages to compose with when the guarantee governs — the headline then
+  // names the amounts, which are the only true figures on the card.
   const composition = rows
-    .map(
-      (row) =>
-        `${row.percentLabel} ${rolesTellThemApart ? (row.roleLabel as string).toLowerCase() : row.name}`,
-    )
+    .map((row) => {
+      const who = rolesTellThemApart ? (row.roleLabel as string).toLowerCase() : row.name;
+      return `${row.percentLabel ?? row.amount} ${who}`;
+    })
     .join(" / ");
 
   return { rows, badge: raw.badge, composition, summary: raw.summary, isEmpty: false };

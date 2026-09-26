@@ -96,7 +96,11 @@ export function TotalSettlementCard({ settlement }: { settlement: EventSettlemen
             background: "var(--elevated, var(--surface))",
           }}
         >
-          <Eyebrow>Adjusted net divided</Eyebrow>
+          {/* "Adjusted net", not "Adjusted net divided": the lines below are
+              ENTITLEMENTS, which also carry collected cash and deductions, so they
+              do not sum to this figure and never claimed to. The sentence under the
+              list says so when they differ. */}
+          <Eyebrow>Adjusted net</Eyebrow>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 700 }}>
             {settlement.adjustedNet}
           </span>
@@ -106,6 +110,11 @@ export function TotalSettlementCard({ settlement }: { settlement: EventSettlemen
       <StackedShareBar shares={settlement.shares} />
 
       <Eyebrow>Entitlement by party</Eyebrow>
+      {settlement.entitlementReconciliation && (
+        <span className="muted" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+          {settlement.entitlementReconciliation}
+        </span>
+      )}
       {settlement.shares.map((share) => (
         <div
           key={share.key}

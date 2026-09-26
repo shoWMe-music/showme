@@ -120,6 +120,11 @@ export function dealActionsFor(
 
 export interface EventAgreements {
   deals: Deal[];
+  /**
+   * How many of this event's deals this reader may not see — non-zero with an empty
+   * `deals` means "not yours to read", not "none exists".
+   */
+  hiddenDealCount: number;
   roster: Participant[];
   /** Participants whose event role is `agent` — never an entitled party (#14). */
   agentParticipantIds: string[];
@@ -248,6 +253,13 @@ export function useEventAgreements(
 
   return {
     deals: deals.data?.deals ?? [],
+    /**
+     * How many of this event's deals this reader may not see. Non-zero with an
+     * empty list means "not yours to read", which is a different sentence from
+     * "none exists" — a co-promoter was told "No deal yet" on a night with a signed
+     * one (measured 2026-09-26).
+     */
+    hiddenDealCount: deals.data?.hiddenCount ?? 0,
     roster,
     agentParticipantIds: roster.filter((party) => party.role === "agent").map((party) => party.id),
     isPending: deals.isPending || participants.isPending,

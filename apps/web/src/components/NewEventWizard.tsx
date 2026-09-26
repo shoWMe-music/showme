@@ -341,6 +341,10 @@ export function NewEventWizard({
     enabled: open && isHold,
     eventDate: date,
     hostProfileId: selectedProfile?.id,
+    // The wizard DOES pin a venue and a room, and sends both on create — so the
+    // rank on offer has to be computed against that pool, not the unpinned one.
+    venueProfileId,
+    stageId,
   });
 
   // The chosen venue's own record of itself. Offered ONLY into fields the
