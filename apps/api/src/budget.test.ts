@@ -1141,7 +1141,11 @@ describe("budgets — every line must say who held the cash (A-14)", () => {
  * all — which read as a permission problem and was not one.
  */
 describe("budgets — provisioned on demand", () => {
-  it("opens a private budget for the operator who reads an event that has none", async () => {
+  // A solo operator gets ONE book and it is the event's ledger — the book the
+  // settlement copies. It used to be a `private` one, which nothing downstream
+  // reads, so the night settled with whatever revenue `seedTicketTiersIntoBudget`
+  // invented a shared ledger for and none of the costs the operator had typed.
+  it("opens the event's shared ledger, and nothing else, for a solo operator", async () => {
     const seeded = await seedEvent("provision-solo");
 
     const before = await harness.db
@@ -1158,9 +1162,11 @@ describe("budgets — provisioned on demand", () => {
 
     expect(response.statusCode).toBe(200);
     const budgets = response.json();
+    // One book, so the planner shows no scope chooser at all — there is nobody
+    // to share it with and nobody to keep a margin line from.
     expect(budgets).toHaveLength(1);
-    expect(budgets[0].scope).toBe("private");
-    expect(budgets[0].ownerProfileId).toBe(seeded.operatorProfileId);
+    expect(budgets[0].scope).toBe("shared");
+    expect(budgets[0].ownerProfileId).toBeNull();
     expect(budgets[0].lines).toEqual([]);
   });
 
@@ -1201,9 +1207,10 @@ describe("budgets — provisioned on demand", () => {
     expect(rows).toHaveLength(1);
   });
 
-  // The rule the user set: private per profile, plus a shared ledger once the
-  // event is actually co-hosted. A solo operator has nobody to reconcile with.
-  it("adds ONE shared ledger once a co-host joins, and each operator keeps their own private book", async () => {
+  // The rule (PLAN.md:215): the event has one ledger, and a private margin book
+  // is the extra an operator MAY ALSO keep — which only means anything once
+  // there is a co-host to keep it from.
+  it("adds a private book to each operator once a co-host joins, beside the one shared ledger", async () => {
     const seeded = await seedEvent("provision-cohost");
     const coHost = await seedCoHost("provision-cohost", seeded.eventId);
 

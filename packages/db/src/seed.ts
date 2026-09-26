@@ -158,7 +158,7 @@ const DEAL_IDS = {
 const BUDGET_IDS = {
   springWarmup: "5eed0000-0000-4000-8000-0000000000c1", // shared — the settled reference event
   albumRelease: "5eed0000-0000-4000-8000-0000000000c3", // shared — confirmed, upcoming
-  synthShowcaseHold: "5eed0000-0000-4000-8000-0000000000c4", // PRIVATE — the venue's own costing
+  synthShowcaseHold: "5eed0000-0000-4000-8000-0000000000c4", // the venue costing a held date
 } as const;
 // One settlement per participant (PLAN.md) — the operator's line is not optional:
 // without it the host reads its own event and finds no line of its own.
@@ -866,8 +866,7 @@ async function main() {
     // nothing to sum under either of its forward-looking scopes ("Confirmed",
     // "Upcoming"), so a screen whose whole job is a forward P&L across the pipeline
     // showed a dash. The two live future events therefore carry budgets too: the
-    // confirmed release SHARED (its performer is signed to this money), the hold
-    // PRIVATE (nothing is signed, so the costing is the venue's own). The draft and
+    // confirmed release and the hold both on the event's own ledger. The draft and
     // the cancelled date stay unbudgeted — both are honest states, and they keep the
     // screen's partial-coverage note exercised.
     const budgets = await database
@@ -878,8 +877,13 @@ async function main() {
         {
           id: BUDGET_IDS.synthShowcaseHold,
           eventId: EVENT_IDS.synthShowcase,
-          scope: "private",
-          ownerProfileId: OPERATOR_PROFILE_ID, // required for `private`, and the point of it
+          // SHARED, although this is the venue costing a held date on its own and
+          // nobody else can see it. One operator means one book and it is the
+          // event's ledger — a `private` book here would be the shape that settled
+          // a night with no costs (migration 0046), because the settlement copies
+          // the shared budget and only the shared budget. A private margin book
+          // needs a co-host to be private FROM, which is the album release.
+          scope: "shared",
         },
       ])
       .returning({ id: schema.budgets.id });

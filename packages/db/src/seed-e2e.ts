@@ -237,7 +237,7 @@ const DEAL_IDS = {
 const BUDGET_IDS = {
   springWarmup: "e2e00000-0000-4000-8000-0000000000f1", // shared — the settled reference event
   albumRelease: "e2e00000-0000-4000-8000-000000000f11", // shared — confirmed, upcoming
-  synthShowcaseHold: "e2e00000-0000-4000-8000-000000000f12", // PRIVATE — the venue's own costing
+  synthShowcaseHold: "e2e00000-0000-4000-8000-000000000f12", // the venue costing a held date
 } as const;
 
 const SETTLEMENT_IDS = {
@@ -1337,9 +1337,11 @@ async function main() {
     // not happened yet and are still live now carry one:
     //   · Album Release  — SHARED: two performers are signed to a split of this pool,
     //                      so the budget is the thing they and the venue both read.
-    //   · Synth Showcase — PRIVATE: nothing is signed on a hold, so there is no
-    //                      counterparty to share with; it is the venue's own costing
-    //                      of whether to confirm the date (visible only to its owner).
+    //   · Synth Showcase — the venue costing a held date alone, deciding whether to
+    //                      confirm it. Still the event's ledger: one operator means
+    //                      one book, and nobody outside the venue can read a budget
+    //                      anyway (the authorization ceiling refuses `budget.view`
+    //                      to every arm's-length party).
     // The draft and the cancelled event stay unbudgeted on purpose — "not costed
     // yet" and "abandoned" are true states, and they give the screen's
     // partial-coverage note ("2 of 3 events budgeted") something honest to report.
@@ -1351,8 +1353,13 @@ async function main() {
         {
           id: BUDGET_IDS.synthShowcaseHold,
           eventId: EVENT_IDS.synthShowcase,
-          scope: "private",
-          ownerProfileId: PROFILE_IDS.operator, // required for `private`, and the point of it
+          // SHARED, although this is the venue costing a held date on its own and
+          // nobody else can see it. One operator means one book and it is the
+          // event's ledger — a `private` book here would be the shape that settled
+          // a night with no costs (migration 0046), because the settlement copies
+          // the shared budget and only the shared budget. A private margin book
+          // needs a co-host to be private FROM, which is the album release.
+          scope: "shared",
         },
       ])
       .returning({ id: schema.budgets.id });

@@ -2,6 +2,7 @@ import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ensureEventBudgets } from "./lib/budget-provisioning";
 import { ensureSettlementLines } from "./lib/settlement-lines";
 
 /**
@@ -34,7 +35,7 @@ async function seedEvent(
   prefix: string,
   currency: string,
   ticketTiers: unknown[] | undefined,
-): Promise<string> {
+): Promise<{ eventId: string; profileId: string }> {
   const { db } = harness;
   await db.insert(schema.users).values({ id: prefix, email: `${prefix}@t.test`, kind: "operator" });
   const [profile] = await db
@@ -61,7 +62,7 @@ async function seedEvent(
     role: "host",
     status: "confirmed",
   });
-  return event.id;
+  return { eventId: event.id, profileId: profile.id };
 }
 
 /** `amount` is a bigint column, not a string — assert against BigInt literals. */
@@ -73,7 +74,7 @@ const linesOf = (eventId: string) =>
 
 describe("the door reaches the settlement even when the planner never wrote it", () => {
   it("materialises the event's ticket tiers and copies them", async () => {
-    const eventId = await seedEvent("tiers", "SEK", [
+    const { eventId } = await seedEvent("tiers", "SEK", [
       { id: "t1", name: "General", price: 2000, max: 200, est: 200 },
     ]);
 
@@ -96,7 +97,7 @@ describe("the door reaches the settlement even when the planner never wrote it",
     // The schema says so: "Major-unit price for this tier (display-only;
     // settlement money lives in budget lines)". Reading 2000 as minor units would
     // settle a SEK 2,000 ticket at SEK 20 and pay the act a hundredth of the door.
-    const eventId = await seedEvent("major", "SEK", [
+    const { eventId } = await seedEvent("major", "SEK", [
       { id: "t1", name: "GA", price: 100, max: 10, est: 10 },
     ]);
     await ensureSettlementLines(harness.db, eventId);
@@ -107,7 +108,7 @@ describe("the door reaches the settlement even when the planner never wrote it",
   it("uses the currency's own exponent, so a zero-decimal currency is not inflated", async () => {
     // JPY has no minor unit. A hardcoded x100 (which the planner does inline)
     // would turn ¥3,000 into ¥300,000.
-    const eventId = await seedEvent("jpy", "JPY", [
+    const { eventId } = await seedEvent("jpy", "JPY", [
       { id: "t1", name: "GA", price: 3000, max: 10, est: 10 },
     ]);
     await ensureSettlementLines(harness.db, eventId);
@@ -118,7 +119,7 @@ describe("the door reaches the settlement even when the planner never wrote it",
   it("leaves a budget that states its own door completely alone", async () => {
     // A planner the operator has actually filled in is the source of truth, and
     // re-adding the event's tiers on top would double the night's takings.
-    const eventId = await seedEvent("hasbudget", "SEK", [
+    const { eventId } = await seedEvent("hasbudget", "SEK", [
       { id: "t1", name: "General", price: 2000, max: 200, est: 200 },
     ]);
     const [budget] = await harness.db
@@ -156,7 +157,7 @@ describe("the door reaches the settlement even when the planner never wrote it",
    * The question is whether the budget STATES A DOOR, never whether it holds rows.
    */
   it("carries the door across a budget that holds only costs", async () => {
-    const eventId = await seedEvent("costonly", "SEK", [
+    const { eventId } = await seedEvent("costonly", "SEK", [
       { id: "t1", name: "General", price: 2000, max: 200, est: 200 },
     ]);
     const [budget] = await harness.db
@@ -187,7 +188,7 @@ describe("the door reaches the settlement even when the planner never wrote it",
    * settlement so the two cannot disagree about which revenue a deal divides.
    */
   it("does not mistake a bar estimate for a stated door", async () => {
-    const eventId = await seedEvent("baronly", "SEK", [
+    const { eventId } = await seedEvent("baronly", "SEK", [
       { id: "t1", name: "General", price: 2000, max: 200, est: 200 },
     ]);
     const [budget] = await harness.db
@@ -213,7 +214,7 @@ describe("the door reaches the settlement even when the planner never wrote it",
   it("writes nothing for a tier that forecasts nothing", async () => {
     // A zero price or zero expected sales is not a forecast; a zero row would be
     // a line in the ledger the settlement reconciles that nobody entered.
-    const eventId = await seedEvent("empty", "SEK", [
+    const { eventId } = await seedEvent("empty", "SEK", [
       { id: "t1", name: "Free", price: 0, max: 100, est: 100 },
       { id: "t2", name: "Unsold", price: 500, max: 100, est: 0 },
     ]);
@@ -223,7 +224,7 @@ describe("the door reaches the settlement even when the planner never wrote it",
   });
 
   it("still settles an event with no tiers at all on its deals alone", async () => {
-    const eventId = await seedEvent("notiers", "SEK", undefined);
+    const { eventId } = await seedEvent("notiers", "SEK", undefined);
     const result = await ensureSettlementLines(harness.db, eventId);
     expect(result).toEqual({ copied: 0, alreadyHad: false });
   });
@@ -231,12 +232,125 @@ describe("the door reaches the settlement even when the planner never wrote it",
   it("does not re-seed once the settlement has its copy", async () => {
     // The seal: a second run must not re-pull, or the actuals somebody typed are
     // discarded — the whole reason the copy is taken once.
-    const eventId = await seedEvent("sealed", "SEK", [
+    const { eventId } = await seedEvent("sealed", "SEK", [
       { id: "t1", name: "General", price: 2000, max: 200, est: 200 },
     ]);
     expect((await ensureSettlementLines(harness.db, eventId)).copied).toBe(1);
     const second = await ensureSettlementLines(harness.db, eventId);
     expect(second).toEqual({ copied: 0, alreadyHad: true });
     expect(await linesOf(eventId)).toHaveLength(1);
+  });
+});
+
+/**
+ * THE MIRROR OF THE ABOVE, AND THE COMMONEST SHAPE THERE IS (2026-09-26).
+ *
+ * Everything in the block above hand-builds a `shared` budget, which is exactly
+ * what hid this: provisioning gave an event with ONE operator only a `private`
+ * book, and `copyBudgetOnce` reads the shared one and only the shared one. So the
+ * operator typed the night's costs into the single book the planner offered them,
+ * `seedTicketTiersIntoBudget` created a shared ledger of its own for the event's
+ * ticket tiers, and the settlement came out with revenue and no costs at all.
+ *
+ * Measured on a one-operator event before the fix: a SEK 1,000 production cost in
+ * the planner, Deductions SEK 0 in the settlement, and the 70% act paid 4,410
+ * instead of 3,710. It survived the 2026-09-21 session because the seeded
+ * reference event is co-hosted and therefore had a shared ledger all along.
+ *
+ * So this drives the app's OWN provisioning rather than inserting a budget, which
+ * is the only way the two halves can be caught disagreeing.
+ */
+describe("a night run by one operator settles the costs its operator typed", () => {
+  it("gives a solo operator one book, and it is the book the settlement copies", async () => {
+    const { eventId, profileId } = await seedEvent("solobook", "SEK", [
+      { id: "t1", name: "General", price: 2000, max: 200, est: 200 },
+    ]);
+
+    await ensureEventBudgets(harness.db, eventId, [profileId]);
+
+    const books = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, eventId));
+    // ONE book — so the planner shows no scope chooser and the operator cannot
+    // pick the wrong one — and it is the ledger, not a margin line.
+    expect(books).toHaveLength(1);
+    expect(books[0]?.scope).toBe("shared");
+    expect(books[0]?.ownerProfileId).toBeNull();
+
+    const budgetId = books[0]?.id;
+    if (!budgetId) throw new Error("provisioning opened no book");
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId,
+      kind: "cost",
+      label: "Production",
+      amount: 100_000n, // SEK 1,000
+      currency: "SEK",
+    });
+
+    await ensureSettlementLines(harness.db, eventId);
+
+    const lines = await linesOf(eventId);
+    // The cost the operator typed, beside the door they were looking at while
+    // they typed it. Before the fix this was the door alone.
+    expect(lines.map((line) => line.kind).sort()).toEqual(["cost", "revenue"]);
+    expect(lines.find((line) => line.kind === "cost")?.amount).toBe(100_000n);
+    expect(lines.find((line) => line.kind === "revenue")?.amount).toBe(40_000_000n);
+  });
+
+  it("keeps a co-operator's private margin book out of the reconciliation", async () => {
+    // The other half of the same rule, and the reason the fix is "provision the
+    // ledger" rather than "settle whatever book exists": once there IS a co-host,
+    // a private book is a real second book and must stay outside the settlement.
+    const { eventId, profileId } = await seedEvent("cohostbook", "SEK", [
+      { id: "t1", name: "General", price: 2000, max: 200, est: 200 },
+    ]);
+    const [coHost] = await harness.db
+      .insert(schema.profiles)
+      .values({
+        kind: "operator",
+        ownerUserId: "cohostbook",
+        name: "cohostbook co",
+        slug: "cohostbook-co",
+      })
+      .returning();
+    if (!coHost) throw new Error("co-host profile seed failed");
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId,
+      profileId: coHost.id,
+      role: "co_host",
+      status: "confirmed",
+    });
+
+    await ensureEventBudgets(harness.db, eventId, [profileId]);
+
+    const books = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, eventId));
+    const shared = books.find((book) => book.scope === "shared");
+    const ownPrivate = books.find((book) => book.scope === "private");
+    expect(shared?.ownerProfileId).toBeNull();
+    expect(ownPrivate?.ownerProfileId).toBe(profileId);
+
+    const sharedId = shared?.id;
+    const privateId = ownPrivate?.id;
+    if (!sharedId || !privateId) throw new Error("provisioning opened the wrong books");
+    await harness.db.insert(schema.budgetLines).values([
+      { budgetId: sharedId, kind: "cost", label: "Production", amount: 100_000n, currency: "SEK" },
+      {
+        budgetId: privateId,
+        kind: "cost",
+        label: "Promoter margin",
+        amount: 999_999n,
+        currency: "SEK",
+      },
+    ]);
+
+    await ensureSettlementLines(harness.db, eventId);
+
+    const lines = await linesOf(eventId);
+    expect(lines.map((line) => line.label).sort()).toEqual(["General", "Production"]);
+    expect(lines.some((line) => line.label === "Promoter margin")).toBe(false);
   });
 });
