@@ -34,7 +34,7 @@ stated.
 | r3:70 | BLOCKER: the co-promoter could not be SENT the settlement | `b779e45` |
 | r3:141 + r2:866 | A refused tab rendered blank, retried 5×, and named a capability | `a9ab0df` |
 | r2:346 | Break-even held the derived fee fixed (65 where 48 is true) | `02ff39a` |
-| r2:368 | The split card overstated the take with no caption (4,410 vs 3,710) | pending |
+| r2:368 | The split card overstated the take with no caption (4,410 vs 3,710) | `08b55e6` |
 
 **Corrected, not fixed:** r2:411 (inline Status "never saves") — run 3 found it does
 save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owed.
