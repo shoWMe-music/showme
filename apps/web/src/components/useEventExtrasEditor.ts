@@ -67,6 +67,14 @@ export function useEventExtrasEditor(event: EditableEventExtras): EventExtrasEdi
     running: false,
     next: null,
   });
+  /**
+   * The draft object the last write actually carried — the guard on retiring it.
+   *
+   * Reference identity is the whole test: `change` builds a NEW object for every
+   * keystroke, so a draft that is still the same object as the one written has had
+   * nothing typed into it since.
+   */
+  const writtenRef = useRef<EventExtras | null>(null);
 
   // An outside write (another tab, another user) that our refetch picked up.
   if (event.version > versionRef.current) versionRef.current = event.version;
@@ -76,10 +84,24 @@ export function useEventExtrasEditor(event: EditableEventExtras): EventExtrasEdi
   // everything that follows.
   useEffect(() => {
     if (settledVersion !== null && event.version >= settledVersion) {
-      setDraft(null);
+      /*
+       * ONLY IF THE DRAFT IS STILL THE ONE THAT WAS WRITTEN.
+       *
+       * It used to clear unconditionally, which threw away every edit made while the
+       * write was in flight: type a price, blur (the PATCH goes out), type a
+       * maximum, the PATCH settles — and the draft holding that maximum was
+       * discarded. `commit` then returned early on a null draft, so the figure was
+       * never saved, while the number stayed on screen because the input held its
+       * own text. Measured 2026-09-26 entering ticket tiers: across three tiers the
+       * Max persisted not once, and on a fourth it was Est. sales that vanished
+       * instead — whichever field was being typed when the previous write landed.
+       *
+       * A draft that has moved on is kept and goes out with the next commit.
+       */
+      if (draft === null || draft === writtenRef.current) setDraft(null);
       setSettledVersion(null);
     }
-  }, [event.version, settledVersion]);
+  }, [draft, event.version, settledVersion]);
 
   const invalidateEvent = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: getGetApiV1EventsIdQueryKey(event.id) });
@@ -92,6 +114,7 @@ export function useEventExtrasEditor(event: EditableEventExtras): EventExtrasEdi
       let next = queueRef.current.next;
       while (next !== null) {
         queueRef.current.next = null;
+        writtenRef.current = next;
         const updated = await patchEvent.mutateAsync({
           id: event.id,
           data: { extras: next, expectedVersion: versionRef.current },

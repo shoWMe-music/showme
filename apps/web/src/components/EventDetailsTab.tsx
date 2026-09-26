@@ -2,7 +2,7 @@ import { getGetApiV1EventsIdQueryKey, usePatchApiV1EventsId } from "@showme/api-
 import { Avatar, Button, Icon, Select, TextField, useToast } from "@showme/design-system";
 import { type GuestListEntry, guestListProblem } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
 import { formatMoney } from "../lib/format";
@@ -693,6 +693,20 @@ function NumericField({
   ariaLabel?: string;
 }) {
   const [text, setText] = useState(value != null ? String(value) : "");
+  /**
+   * THE FIELD MUST NOT SHOW A FIGURE NOTHING IS HOLDING.
+   *
+   * This kept its own text and never looked at `value` again after mount, so when a
+   * draft was dropped — a 409, a failed write, or the settle path that used to
+   * discard in-flight edits — the input went on displaying a number that no longer
+   * existed anywhere, and the operator had no way to know. Syncing while the field
+   * is NOT focused keeps the display honest without fighting the person typing
+   * (re-deriving mid-keystroke would eat a half-typed "1" out of "10").
+   */
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setText(value != null ? String(value) : "");
+  }, [value, focused]);
   return (
     <TextField
       label={label}
@@ -709,7 +723,11 @@ function NumericField({
         const parsed = Number(raw);
         onDraft(raw.trim() === "" || !Number.isFinite(parsed) ? emptyValue : parsed);
       }}
-      onBlur={onCommit}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false);
+        onCommit();
+      }}
     />
   );
 }
