@@ -113,6 +113,113 @@ describe("budget projection", () => {
     expect(projection.breakEvenTickets).toBeLessThan(500);
   });
 
+  /**
+   * A DERIVED PERFORMER FEE IS NOT A FIXED COST (QA sweep run 2 and run 3).
+   *
+   * The solve treated every entered cost as fixed. On a percentage deal the fee is a
+   * share of the door with a guarantee under it, so it shrinks as the attendance being
+   * solved for falls — and freezing it at the PLANNED attendance asks the sheet to
+   * cover a fee that attendance would never incur. Measured on Open Mic: 65 tickets
+   * where the true answer is 42. Run 1 measured 427 of a 400-seat room.
+   */
+  describe("a fee that moves with the door", () => {
+    // Open Mic, exactly as measured: Door 60 x SEK 80 + Advance 25 x SEK 60 = 6,300
+    // over 85 tickets, so ~SEK 74.12 a head. One SEK 1,000 cost, 1.5% processing,
+    // and a guarantee-vs-door deal at SEK 2,000 / 70%, worth SEK 3,710 at the plan.
+    const openMic = {
+      ticketTiers: [
+        { unitAmount: major(80), quantity: 60 },
+        { unitAmount: major(60), quantity: 25 },
+      ],
+      averageBarSpend: 0n,
+      capacity: 80,
+      otherRevenue: 0n,
+      paymentProcessing: { percentBasisPoints: 150, flatPerTicket: 0n },
+      costs: [major(1000), major(3710)],
+    };
+
+    it("solves with the fee falling as the attendance falls", () => {
+      const projection = computeBudgetProjection({
+        ...openMic,
+        attendanceDependentCosts: [
+          { plannedMinor: major(3710), guaranteeMinor: major(2000), splitBasisPoints: 7000 },
+        ],
+      });
+
+      /*
+       * 48, and the sweep's own "42" is wrong in the same way the defect is.
+       *
+       * Run 2 solved `R − 2,000 − 1,000 − 0.015R = 0` → R ≈ 3,046 → 42, holding the
+       * fee at the SEK 2,000 guarantee. But 70% of a 3,046 door is 2,132, so the
+       * SHARE governs there, not the floor — the report froze the fee while solving,
+       * which is the very mistake it was filing. With the share governing:
+       * `R − 0.70R − 1,000 − 0.015R = 0` → R ≈ 3,509 → 47.3 → 48.
+       *
+       * Checked by hand at three attendances: 42 leaves the night SEK 113 short, 47
+       * leaves it SEK 7 short, 48 covers it.
+       */
+      expect(projection.breakEvenTickets).toBe(48);
+    });
+
+    it("still reports 65 when the fee is genuinely fixed", () => {
+      // The same sheet with the fee typed in by hand is a fixed cost, and 65 is then
+      // the right answer — the old number was not wrong arithmetic, it was the wrong
+      // model of one row.
+      const projection = computeBudgetProjection(openMic);
+
+      expect(projection.breakEvenTickets).toBe(65);
+    });
+
+    it("leaves every other figure on the sheet alone", () => {
+      const withRule = computeBudgetProjection({
+        ...openMic,
+        attendanceDependentCosts: [
+          { plannedMinor: major(3710), guaranteeMinor: major(2000), splitBasisPoints: 7000 },
+        ],
+      });
+      const withoutRule = computeBudgetProjection(openMic);
+
+      // Only break-even is solved for a different attendance; the planned figures are
+      // the planned figures.
+      expect(withRule.totalCosts).toBe(withoutRule.totalCosts);
+      expect(withRule.totalRevenue).toBe(withoutRule.totalRevenue);
+      expect(withRule.profit).toBe(withoutRule.profit);
+    });
+
+    it("answers beyond capacity rather than capping at the room", () => {
+      // Run 1's shape: a break-even the room cannot reach is a real answer and the
+      // one an operator most needs to see.
+      const projection = computeBudgetProjection({
+        ticketTiers: [{ unitAmount: major(100), quantity: 400 }],
+        averageBarSpend: 0n,
+        capacity: 400,
+        otherRevenue: 0n,
+        costs: [major(25000), major(20000)],
+        attendanceDependentCosts: [{ plannedMinor: major(20000), splitBasisPoints: 5000 }],
+      });
+
+      // SEK 25,000 of fixed cost against SEK 50 a head once the act takes half the
+      // door: 500 tickets into a 400-seat room.
+      expect(projection.breakEvenTickets).toBe(500);
+      expect(projection.breakEvenTickets).toBeGreaterThan(400);
+    });
+
+    it("reports no break-even when the share leaves nothing per head", () => {
+      // 100% of the door to the act: every extra guest brings in nothing the show
+      // keeps, so there is no attendance that covers a fixed cost.
+      const projection = computeBudgetProjection({
+        ticketTiers: [{ unitAmount: major(100), quantity: 100 }],
+        averageBarSpend: 0n,
+        capacity: 100,
+        otherRevenue: 0n,
+        costs: [major(5000), major(10000)],
+        attendanceDependentCosts: [{ plannedMinor: major(10000), splitBasisPoints: 10000 }],
+      });
+
+      expect(projection.breakEvenTickets).toBe(0);
+    });
+  });
+
   it("rounds a part ticket up to a whole one", () => {
     const projection = computeBudgetProjection({
       ticketTiers: [{ unitAmount: major(30), quantity: 100 }],

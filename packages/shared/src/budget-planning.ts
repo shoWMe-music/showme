@@ -97,6 +97,29 @@ export interface PaymentProcessingAssumption {
   readonly flatPerTicket: bigint;
 }
 
+/**
+ * A COST THAT MOVES WITH THE DOOR, stated as its rule and not only as its amount.
+ *
+ * The performer fee on a percentage deal is the case: it is derived from the night's
+ * takings, so it is not a fixed cost, and break-even cannot be solved with it frozen.
+ * Measured 2026-09-26 on Open Mic — a SEK 2,000 guarantee against 70% of the door
+ * gave a break-even of 65 tickets where the true answer is 42, an overstatement of
+ * 55%; run 1 measured 427-of-400 on a different deal basis.
+ *
+ * `plannedMinor` is what the row is worth at the PLANNED attendance and is already
+ * inside `costs`, so every total on the sheet keeps its current value — this type
+ * exists only so the solve can put the row back where it belongs at each candidate
+ * attendance.
+ */
+export interface AttendanceDependentCost {
+  /** Its value at the planned attendance; already counted in `costs`. */
+  readonly plannedMinor: bigint;
+  /** The floor the deal guarantees whatever the door does. */
+  readonly guaranteeMinor?: bigint;
+  /** The share of the door the deal takes, in basis points. */
+  readonly splitBasisPoints?: number;
+}
+
 export interface BudgetInputs {
   readonly ticketTiers: readonly TicketTier[];
   /** Average spend per head at the bar, times the heads below. */
@@ -126,6 +149,12 @@ export interface BudgetInputs {
   readonly barBasis?: RevenueBasis;
   readonly merchBasis?: RevenueBasis;
   readonly capacity: number;
+  /**
+   * The subset of `costs` that scales with attendance — see
+   * `AttendanceDependentCost`. Absent on every caller that has no derived fee, and
+   * then nothing about the answer changes.
+   */
+  readonly attendanceDependentCosts?: readonly AttendanceDependentCost[];
   /** Revenue that is neither ticketing, bar nor merch (sponsorship, a fee, a grant). */
   readonly otherRevenue: bigint;
   /** How to read `otherRevenue`. Absent means `flat`, as it always was. */
@@ -323,6 +352,55 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
     // Ceiling division: a part ticket is a whole ticket, because half a guest
     // does not buy half a drink.
     breakEvenTickets = Number((uncovered + contributionPerHead - 1n) / contributionPerHead);
+  }
+
+  /**
+   * …AND THE PERFORMER FEE IS ONE OF THOSE TERMS.
+   *
+   * The division above treats every entered cost as fixed. On a percentage deal the
+   * derived fee is not: it is a share of the door with a guarantee under it, so it
+   * shrinks as the attendance being solved for falls, and freezing it at the PLANNED
+   * attendance asks the sheet to cover a fee that attendance would never incur.
+   * Open Mic: 65 tickets against a true 42.
+   *
+   * Solved by walking the attendance rather than by algebra, because a guarantee
+   * makes each fee piecewise (`max(floor, share)`) and a bill with two deals has as
+   * many corners as it has floors. A scan states the model once and is right for all
+   * of them; the arithmetic per step is the same three terms as above.
+   *
+   * The bound is generous on purpose — break-even beyond capacity is a real answer
+   * and one the sheet must be able to give (run 1 measured 427 of a 400 room). Not
+   * finding one inside the bound is reported as 0, the same as a non-positive
+   * contribution: "no break-even", never "none needed".
+   */
+  const derivedCosts = inputs.attendanceDependentCosts ?? [];
+  if (derivedCosts.length > 0 && uncovered > 0n) {
+    const plannedDerived = sum(derivedCosts.map((cost) => cost.plannedMinor));
+    // What is left once the moving rows are taken out of the frozen total.
+    const trulyFixedCosts = enteredCosts - plannedDerived;
+    const perHeadIncome = averageTicketPrice + perHeadRevenue;
+    const derivedAt = (tickets: number): bigint => {
+      const door = averageTicketPrice * BigInt(tickets);
+      return sum(
+        derivedCosts.map((cost) => {
+          const share =
+            cost.splitBasisPoints != null ? applyBasisPoints(door, cost.splitBasisPoints) : 0n;
+          const floor = cost.guaranteeMinor ?? 0n;
+          return share > floor ? share : floor;
+        }),
+      );
+    };
+    const bound = Math.min(inputs.capacity > 0 ? inputs.capacity * 4 : 10_000, 100_000);
+    breakEvenTickets = 0;
+    for (let tickets = 0; tickets <= bound; tickets += 1) {
+      const revenueAt = standingRevenue + perHeadIncome * BigInt(tickets);
+      const costsAt =
+        trulyFixedCosts + derivedAt(tickets) + variableCostPerTicket * BigInt(tickets);
+      if (revenueAt - costsAt >= 0n) {
+        breakEvenTickets = tickets;
+        break;
+      }
+    }
   }
 
   const marginPercent = totalRevenue > 0n ? (Number(profit) / Number(totalRevenue)) * 100 : 0;

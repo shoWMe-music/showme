@@ -283,6 +283,17 @@ export interface CostDraft {
     dealNames: string[];
     /** At least one of those deals is still an offer — see `BudgetSeedDealFigure`. */
     pending: boolean;
+    /**
+     * One entry per deal behind this row, for the readers that need the RULE and not
+     * the total: break-even has to re-derive a share of the door at the attendance it
+     * is solving for. Per deal rather than combined, because each carries its own
+     * guarantee floor and `max(floor, share)` does not add up.
+     */
+    scaling: {
+      plannedMinor: bigint;
+      splitBasisPoints?: number;
+      guaranteeMinor?: bigint;
+    }[];
   };
   /**
    * WHAT THE DEALS WOULD HAVE READ HERE, on a row where the operator typed their
@@ -934,6 +945,17 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           readFromDeal: {
             dealNames: feesToRead.map((fee) => fee.dealName),
             pending: feesToRead.some((fee) => fee.pending),
+            scaling: feesToRead
+              .filter((fee) => fee.scalesWithDoor != null)
+              .map((fee) => ({
+                plannedMinor: BigInt(fee.amount),
+                ...(fee.scalesWithDoor?.splitBasisPoints != null
+                  ? { splitBasisPoints: fee.scalesWithDoor.splitBasisPoints }
+                  : {}),
+                ...(fee.scalesWithDoor?.guaranteeMinor != null
+                  ? { guaranteeMinor: BigInt(fee.scalesWithDoor.guaranteeMinor) }
+                  : {}),
+              })),
           },
         };
       }
@@ -2462,6 +2484,13 @@ export function budgetInputsFrom(editor: BudgetEditor): BudgetInputs {
     otherRevenue: BigInt(toMinorUnits(editor.otherRevenue)),
     customRevenue: editor.customRevenue.map((row) => minorUnitsOf(row.value)),
     costs: editor.costs.map((cost) => minorUnitsOf(cost.value)),
+    /**
+     * The cost rows that MOVE with the door — the performer fee on a percentage
+     * deal. Break-even solves with these put back at each candidate attendance
+     * instead of frozen at the planned one; every other figure on the sheet still
+     * uses the amounts in `costs` above, so nothing else changes.
+     */
+    attendanceDependentCosts: editor.costs.flatMap((cost) => cost.readFromDeal?.scaling ?? []),
     // Absent rather than a pair of zeroes when the operator has said nothing: the
     // projection then reports `paymentProcessingFees` of 0 because there is no
     // assumption, not because the assumption is that it is free.

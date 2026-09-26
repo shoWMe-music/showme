@@ -33,6 +33,7 @@ stated.
 | r3:350 | Ticket tiers lost a field on entry | `c95ba82` |
 | r3:70 | BLOCKER: the co-promoter could not be SENT the settlement | `b779e45` |
 | r3:141 + r2:866 | A refused tab rendered blank, retried 5×, and named a capability | `a9ab0df` |
+| r2:346 | Break-even held the derived fee fixed (65 where 48 is true) | pending |
 
 **Corrected, not fixed:** r2:411 (inline Status "never saves") — run 3 found it does
 save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owed.
@@ -43,7 +44,6 @@ save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owe
 
 | # | ID | What is wrong | State |
 |---|---|---|---|
-| 3 | r2:346 | The derived performer fee is held fixed in the break-even model, so break-even is wrong wherever a percentage deal exists | open |
 | 4 | r2:368 | The ticket-split card overstates what the performers get, uncaptioned (4,410 shown vs 3,710 paid) | open |
 | 5 | r2:804 | The act's own settlement card contradicts itself, and quotes an agent commission SEK 500 above the one owed | open |
 | 6 | r3:442 | A deal confirmation reaches the bell and leaves the sentence beside it false | open |
@@ -87,6 +87,14 @@ save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owe
 | 37 | r3:731 | Escape on the venue autocomplete offers to throw the whole event away |
 
 ---
+
+## Corrections owed to the reports
+
+- **r2:346's "42" is wrong.** Run 2 solved break-even holding the fee at the SEK 2,000
+  guarantee, but 70% of the door it solved for is SEK 2,132 — the share governs there,
+  so the report froze the fee while solving, which is the defect it was filing. The
+  true answer is **48** (hand-checked: 42 leaves the night SEK 113 short, 47 leaves it
+  SEK 7 short, 48 covers it). The screen said 65; it now says 48.
 
 ## Parked — a decision, not a defect
 

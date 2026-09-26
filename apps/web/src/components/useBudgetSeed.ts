@@ -91,6 +91,22 @@ export interface BudgetSeedDealFigure {
   /** Minor units, the spelling `deal.guaranteeAmount` already uses. */
   amount: string;
   /**
+   * THE RULE BEHIND THE FIGURE, for the one reader that needs the rule rather than
+   * the number: break-even.
+   *
+   * `amount` is the fee at the PROJECTED attendance. Break-even solves for a
+   * different attendance, and a share of the door is a different number there — so
+   * the model has to be able to put the fee back at each candidate, which it cannot
+   * do from a total. Set only on a figure this module actually derived from a
+   * percentage deal; a stated fee has no rule and is genuinely fixed.
+   */
+  scalesWithDoor?: {
+    /** Basis points of the door the deal takes. */
+    splitBasisPoints?: number;
+    /** The floor it guarantees whatever the door does, in minor units. */
+    guaranteeMinor?: string;
+  };
+  /**
    * NOBODY HAS SIGNED THIS YET — the figure is what the offer on the table comes
    * to, not what the event owes.
    *
@@ -316,6 +332,13 @@ export function performerFeeOf(
           dealName: derivedLabel(deal, settled.basis),
           amount: settled.amount.toString(),
           pending,
+          // Derived from the door, so break-even must be able to re-derive it.
+          scalesWithDoor: {
+            ...(deal.splitBasisPoints != null ? { splitBasisPoints: deal.splitBasisPoints } : {}),
+            ...(deal.guaranteeAmount != null
+              ? { guaranteeMinor: BigInt(deal.guaranteeAmount).toString() }
+              : {}),
+          },
         };
       }
     }
