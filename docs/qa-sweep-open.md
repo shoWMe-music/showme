@@ -39,6 +39,9 @@ stated.
 | r2:447 + r2:851 + r2:904 + r2:910 + r2:1011 + r2:1016 | The copy cluster: six screens asserting something untrue | `30a6782` |
 | r2:455 + r2:474 + r2:860 | The currency cluster: dead chooser options, unconverted rows, invented EUR | `44719a2` |
 | r3:442 + r3:459 | A frame arrived and left the page asserting the opposite | `162785d` |
+| r3:535 | `revenueShares` accepted and silently dropped on line CREATE | *this commit* |
+| r3:529 | The agent was not told the agreement it must sign had moved | *this commit* |
+| r3:525 | Nobody was told a transfer was paid | *this commit* |
 
 **Corrected, not fixed:** r2:411 (inline Status "never saves") — run 3 found it does
 save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owed.
@@ -70,10 +73,6 @@ below as a decision, or corrected as a misreading. What remains is the minor lis
 | 29 | r3:165 | The co-host cannot read the venue's rooms; the event prints "Room / Stage: Assigned" |
 | 30 | r3:173 | The budget scope chooser does not survive a reload and is not in the URL |
 | 31 | r3:178 | Naming a fresh cost row before typing its amount throws the row out of the table |
-| 32 | r3:525 | Nobody is told a transfer was paid |
-| 33 | r3:529 | The agent is not told when the agreement it must sign is reopened or confirmed |
-| 34 | r3:535 | `revenueShares` is accepted and silently dropped on line CREATE |
-| 35 | r3:542 | A revenue share pays a participant who has not accepted the booking |
 | 36 | r3:619 | Two routes disagree about whether a party may read their own settlement |
 | 37 | r3:731 | Escape on the venue autocomplete offers to throw the whole event away |
 
@@ -110,6 +109,17 @@ below as a decision, or corrected as a misreading. What remains is the minor lis
   does not shrink the agent's commission*. The screen renders the stored figure
   faithfully, so run 2's "SEK 500 too high" was two measurements either side of a
   recompute, not a client defect. Nothing to fix until the base is decided.
+
+- **Should a revenue share pay a participant who has not accepted the booking?**
+  r3:542. A `revenue_shares` row names a `participantId`, and the engine pays it
+  whatever that participant's `status` is — so an invited act that has not answered can
+  already be owed a cut of the door. The report filed it as *"worth a decision either
+  way; recorded, not pressed"*, and it is: refusing to pay an unaccepted participant
+  would also refuse the legitimate case where the host writes the split before the
+  invitations go out, and the engine would then have to decide what happens to the
+  unpaid remainder (drop it to the host? hold it?). Σ net = 0 makes that a product
+  answer, not a code one. **Question for Ran:** should a split line to someone who has
+  not accepted pay, hold, or be refused at entry?
 
 ## Deliberate — recorded, no work owed
 

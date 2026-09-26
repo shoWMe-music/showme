@@ -4,6 +4,7 @@ import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import {
   eventParticipantRecipients,
+  notifyProfileMembers,
   notifyUsers,
   settlementPartyReach,
   settlementRecipients,
@@ -3452,6 +3453,44 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         }
         return after;
       });
+
+      /**
+       * TELL THE PARTY THEY WERE PAID.
+       *
+       * Marking a transfer paid wrote an audit row, an activity line and nothing a
+       * person sees: the party owed SEK 9,150 got `settlement.finalized` and then
+       * silence (measured 2026-09-26). "Your money has been sent" is the last thing
+       * anybody wants to hear about a night, and the one thing this step did not say.
+       *
+       * Only the RECIPIENT, and only on becoming paid — the payer is the one who just
+       * pressed it, and `owed → handled` is bookkeeping between the two of them rather
+       * than news. Outside the transaction, like every other notification here, so a
+       * message that cannot be recalled is never sent for a write that rolls back.
+       */
+      if (updated.state === "paid" && before.state !== "paid") {
+        try {
+          const [recipient] = await database
+            .select({ profileId: schema.eventParticipants.profileId })
+            .from(schema.eventParticipants)
+            .where(eq(schema.eventParticipants.id, updated.toParticipant));
+          const [event] = await database
+            .select({ title: schema.events.title })
+            .from(schema.events)
+            .where(eq(schema.events.id, id));
+          if (recipient?.profileId) {
+            await notifyProfileMembers(database, recipient.profileId, principal.userId, {
+              type: "settlement.transfer_paid",
+              title: `You have been paid for ${event?.title ?? "an event"}`,
+              body: "The transfer is marked as paid on the settlement.",
+              eventId: id,
+              link: `/events/${id}/settlement`,
+              metadata: { transferId: tid },
+            });
+          }
+        } catch (cause) {
+          request.log.warn({ err: cause, eventId: id }, "transfer paid notify failed");
+        }
+      }
 
       return serializeTransfer(updated);
     },

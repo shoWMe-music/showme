@@ -1388,6 +1388,100 @@ describe("settlement — representation commission (decisions #14)", () => {
     expect(paid.json().state).toBe("paid");
   });
 
+  /**
+   * "YOUR MONEY HAS BEEN SENT" IS THE LAST THING ANYBODY WANTS TO HEAR (run 3).
+   *
+   * Marking a transfer paid wrote an audit row, an activity line, and nothing a person
+   * sees — the party owed SEK 9,150 got `settlement.finalized` and then silence.
+   */
+  /**
+   * THE PARTY THAT HAS TO ACT WAS THE ONE NOT TOLD (QA sweep run 3, 2026-09-26).
+   *
+   * `dealPartyRecipients` joins through `deal_parties`, and decisions #14 refuses an
+   * agent any deal role but `observer` — precisely so its private commission never
+   * enters the deal. The same decision then hands that agent `agreement.confirm` for
+   * the act it represents. So `deal.reopened` reached both performers and the
+   * operator, and did not reach the agent whose signature it had just torn up.
+   *
+   * The second half is the mutation check: the recipient list is scoped to the acts
+   * standing on THIS deal, not to the event. Reopening the venue's rental — which the
+   * band is not a party to — must still leave the band's agent out of it.
+   */
+  it("tells the delegated act's agent when the agreement they must sign is reopened", async () => {
+    const seed = await seedWorkedExample("dealnotify");
+    const representation = await seedAgentRepresentation("dealnotify", seed);
+
+    const partyRows = await harness.db
+      .select({ dealId: schema.dealParties.dealId })
+      .from(schema.dealParties)
+      .where(eq(schema.dealParties.participantId, seed.bPart));
+    const bandDealId = partyRows[0]?.dealId;
+    const rentalRow = await harness.db
+      .select({ dealId: schema.dealParties.dealId })
+      .from(schema.dealParties)
+      .where(eq(schema.dealParties.participantId, seed.vPart));
+    const rentalDealId = rentalRow[0]?.dealId;
+    if (!bandDealId || !rentalDealId) throw new Error("deal fixture missing");
+
+    const rental = await app.inject({
+      method: "POST",
+      url: `/api/v1/deals/${rentalDealId}/reopen`,
+      headers: auth(seed.operator.userId),
+      payload: { reason: "venue terms" },
+    });
+    expect(rental.statusCode).toBe(200);
+
+    const afterRental = await harness.db
+      .select({ type: schema.notifications.type })
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, representation.agentUserId));
+    expect(afterRental).toHaveLength(0);
+
+    const band = await app.inject({
+      method: "POST",
+      url: `/api/v1/deals/${bandDealId}/reopen`,
+      headers: auth(seed.operator.userId),
+      payload: { reason: "fee moved" },
+    });
+    expect(band.statusCode).toBe(200);
+
+    const afterBand = await harness.db
+      .select({ type: schema.notifications.type })
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, representation.agentUserId));
+    expect(afterBand.map((row) => row.type)).toEqual(["deal.reopened"]);
+  });
+
+  it("tells the party they were paid, and does not tell the payer", async () => {
+    const seed = await seedWorkedExample("paidnotify");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    const [transfer] = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.eventId, seed.event.id));
+    if (!transfer) throw new Error("no transfer to settle");
+
+    const paid = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${transfer.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { state: "paid", expectedVersion: transfer.version },
+    });
+    expect(paid.statusCode).toBe(200);
+
+    const notifications = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.type, "settlement.transfer_paid"));
+    expect(notifications.length).toBeGreaterThan(0);
+    // The payer pressed the button; news is for whoever is owed.
+    expect(notifications.every((row) => row.userId !== seed.operator.userId)).toBe(true);
+  });
+
   it("lets the agent settle the same commission transfer", async () => {
     const seed = await seedWorkedExample("commsettle-agent");
     const rep = await seedAgentRepresentation("commsettle-agent", seed);

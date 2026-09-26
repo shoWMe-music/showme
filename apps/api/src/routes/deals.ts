@@ -1,4 +1,9 @@
-import { type DealPartyRole, type EventRole, dealPartyBaselineCapabilities } from "@showme/auth";
+import {
+  type DealPartyRole,
+  type EventRole,
+  dealPartyBaselineCapabilities,
+  liveEventDelegations,
+} from "@showme/auth";
 import { schema } from "@showme/db";
 import { dealPartyRecipients, notifyUsers } from "@showme/db/notify";
 import { type PrepaidTerms, prepaidAmountOf } from "@showme/settlement";
@@ -348,6 +353,61 @@ function requireRepresentedParty(
   if (!forAClient) {
     throw forbidden("An agent may only write deals for a performer it represents on this event");
   }
+}
+
+/**
+ * WHO IS TOLD WHEN A DEAL MOVES — the parties, AND the agent that has to sign for one.
+ *
+ * `dealPartyRecipients` joins through `deal_parties`, which is the right rule for the
+ * parties and structurally cannot reach an agent: decisions #14 refuses an agent any
+ * deal role but `observer`, precisely so its private commission never enters the deal.
+ * The same decision then hands that agent `agreement.confirm` for the act it represents.
+ * So the party that has to ACT on a sent, reopened or confirmed agreement was the one
+ * party not told about it (measured 2026-09-26: `deal.reopened` and `deal.confirmed`
+ * both reached the performers and the operator, and neither reached the agent).
+ *
+ * The delegation rule itself is NOT restated here — `liveEventDelegations` owns it,
+ * including the part where a lapsed representation stops counting before the sweep has
+ * run. This only asks it about the acts on this deal.
+ */
+async function dealRecipients(
+  request: FastifyRequest,
+  deal: { id: string; eventId: string },
+): Promise<string[]> {
+  const { database } = request.server;
+  const actorUserId = request.principal?.userId ?? null;
+  const parties = await dealPartyRecipients(database, deal.id, actorUserId);
+
+  const delegations = await liveEventDelegations(database, deal.eventId);
+  if (delegations.length === 0) return parties;
+
+  const onThisDeal = new Set(
+    (
+      await database
+        .select({ participantId: schema.dealParties.participantId })
+        .from(schema.dealParties)
+        .where(eq(schema.dealParties.dealId, deal.id))
+    ).map((row: { participantId: string }) => row.participantId),
+  );
+  const agentProfileIds = delegations
+    .filter((delegation) => onThisDeal.has(delegation.performerParticipantId))
+    .map((delegation) => delegation.agentProfileId);
+  if (agentProfileIds.length === 0) return parties;
+
+  const agentUsers = await database
+    .selectDistinct({ userId: schema.profileMembers.userId })
+    .from(schema.profileMembers)
+    .where(
+      and(
+        inArray(schema.profileMembers.profileId, agentProfileIds),
+        eq(schema.profileMembers.status, "active"),
+      ),
+    );
+  const everyone = new Set(parties);
+  for (const row of agentUsers as { userId: string | null }[]) {
+    if (row.userId && row.userId !== actorUserId) everyone.add(row.userId);
+  }
+  return [...everyone].sort();
 }
 
 export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
@@ -752,7 +812,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       // that another party's terms moved (`deal.view.own`). Best-effort, post-commit.
       try {
         const actorUserId = request.principal?.userId ?? null;
-        const recipients = await dealPartyRecipients(database, deal.id, actorUserId);
+        const recipients = await dealRecipients(request, deal);
         await notifyUsers(database, recipients, actorUserId, {
           type: "deal.sent",
           title: `Agreement sent for "${deal.name ?? "a deal"}"`,
@@ -894,7 +954,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       // that another party's terms moved (`deal.view.own`). Best-effort, post-commit.
       try {
         const actorUserId = request.principal?.userId ?? null;
-        const recipients = await dealPartyRecipients(database, deal.id, actorUserId);
+        const recipients = await dealRecipients(request, deal);
         await notifyUsers(database, recipients, actorUserId, {
           type: "deal.confirmed",
           title: `Agreement confirmed on "${deal.name ?? "a deal"}"`,
@@ -1017,7 +1077,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       // the button has come back.
       try {
         const actorUserId = request.principal?.userId ?? null;
-        const recipients = await dealPartyRecipients(database, deal.id, actorUserId);
+        const recipients = await dealRecipients(request, deal);
         const dealName = deal.name ?? "a deal";
         await notifyUsers(
           database,

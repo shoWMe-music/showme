@@ -791,6 +791,15 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
             paidBy: body.paidBy ?? null,
             payeeParticipantId: body.payeeParticipantId ?? null,
             costSplit: body.costSplit ?? null,
+            // ACCEPTED HERE, NOT ONLY ON PATCH. `CreateLineBody` declares
+            // `revenueShares` and the insert omitted it, so a create carrying a valid
+            // array answered 201 with `"revenueShares": null` and stored NULL — the
+            // same silent-strip shape CLAUDE.md records for `details.perGuest`, where
+            // the API accepted a write, answered 200, and kept none of it. The web
+            // client only ever writes shares by PATCH, so nothing in the product loses
+            // data today; a body that declares a field and ignores it is the trap, not
+            // the current caller.
+            revenueShares: body.revenueShares ?? null,
             dealId: body.dealId ?? null,
             attributedDealId: body.attributedDealId ?? null,
             details: body.details ?? null,

@@ -149,6 +149,16 @@ async function seedCoHost(prefix: string, eventId: string) {
   };
 }
 
+/**
+ * A BODY THAT DECLARES A FIELD MUST NOT IGNORE IT (QA sweep run 3, 2026-09-26).
+ *
+ * `CreateLineBody` declared `revenueShares` and the insert omitted it, so a create
+ * carrying a valid array answered 201 with `"revenueShares": null` and stored NULL,
+ * while the identical array on PATCH stored correctly. The web client only writes
+ * shares by PATCH, so nothing in the product lost data — but this is the same
+ * silent-strip shape CLAUDE.md records for `details.perGuest`, where the API accepted
+ * a write, answered 200, and kept none of it.
+ */
 describe("budgets — authorize + money-as-string + audit", () => {
   it("lets an operator create a budget with revenue/cost lines and read them back as strings", async () => {
     const { db } = harness;
@@ -1281,6 +1291,46 @@ describe("budgets — provisioned on demand", () => {
  * the authoritative `amount` so reopening the planner shows the tiers back
  * rather than a single collapsed total.
  */
+describe("budget lines — a revenue share survives CREATE, not only PATCH", () => {
+  it("stores the shares the create body declared", async () => {
+    const seeded = await seedEvent("shares-create");
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.eventId}/budgets`,
+      headers: auth(seeded.operatorUid),
+    });
+    const budgetId = listed.json()[0].id;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budgetId}/lines`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        kind: "revenue",
+        label: "Bar",
+        amount: "500000",
+        collectedBy: seeded.hostParticipantId,
+        // "10% of the bar to the act" (#23.2) — the shape the PATCH already stored.
+        revenueShares: [{ toParticipantId: seeded.performerParticipantId, basisPoints: 1000 }],
+      },
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(created.json().revenueShares).toEqual([
+      { toParticipantId: seeded.performerParticipantId, basisPoints: 1000 },
+    ]);
+
+    // …and it is really in the column, not only in the echo.
+    const [row] = await harness.db
+      .select({ revenueShares: schema.budgetLines.revenueShares })
+      .from(schema.budgetLines)
+      .where(eq(schema.budgetLines.id, created.json().id));
+    expect(row?.revenueShares).toEqual([
+      { toParticipantId: seeded.performerParticipantId, basisPoints: 1000 },
+    ]);
+  });
+});
+
 describe("budget lines — the planner's breakdown survives a round trip", () => {
   it("stores and returns unit amount and quantity", async () => {
     const seeded = await seedEvent("line-details");
