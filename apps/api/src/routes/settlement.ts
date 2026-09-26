@@ -1718,6 +1718,30 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       const visibleSettlements = settlementRows.filter(
         (row) => row.participantId != null && visible.has(row.participantId),
       );
+      /**
+       * WHO THE OPERATOR MAY ADDRESS — every party on the night, not only the ones
+       * whose figures they may read.
+       *
+       * `partiesVisibleTo` deliberately excludes a co-operator: visibility is
+       * emergent from being a party to a DEAL, and an operator that is a party to
+       * nothing is a party to nothing (decisions #4). That rule stands and the
+       * FIGURES below stay scoped by it.
+       *
+       * But the delivery roster and the signature roster were derived from the same
+       * set, and those are not disclosures — they are "who still has to be told" and
+       * "who has answered". So the co-promoter that is owed money could not be
+       * offered in the send-for-review chooser at all, and decisions.md #24.2 makes
+       * that send the ONLY way to open a settlement to a party: they were never sent
+       * their own settlement and never asked to sign it, while the approval roster
+       * read 0/3 and never named them. Measured 2026-09-26 on both co-promoted
+       * events; on one, the chooser offered the sender itself as the only recipient.
+       *
+       * Addressing somebody is not reading their money. Gated on `settlement.edit`,
+       * which is the capability that runs the reconciliation in the first place.
+       */
+      const addressableSettlements = capabilities.has("settlement.edit")
+        ? settlementRows.filter((row) => row.participantId != null)
+        : visibleSettlements;
 
       return {
         settlements: visibleSettlements.map((row) => ({
@@ -1755,7 +1779,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         // performer's business about their fellow acts; it is the roster of who
         // still has to be told, and telling them is `settlement.edit`.
         delivery: capabilities.has("settlement.edit")
-          ? visibleSettlements.map((row) => {
+          ? addressableSettlements.map((row) => {
               const participantId = row.participantId as string;
               const reached = reach.get(participantId);
               const invited = invitedByParticipant.get(participantId) ?? null;
@@ -1774,7 +1798,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
               };
             })
           : [],
-        approvals: visibleSettlements.map((row) => {
+        approvals: addressableSettlements.map((row) => {
           const participantId = row.participantId as string;
           const signed = roster.get(participantId);
           return {

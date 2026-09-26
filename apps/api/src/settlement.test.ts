@@ -988,6 +988,37 @@ describe("settlement — visibility (decisions #4)", () => {
     }
     // It holds `budget.view` — which is now no part of the answer.
     expect(PRESET_PERMISSION_SETS.operator_full).toContain("budget.view");
+
+    /*
+     * …AND THE HOST CAN STILL ADDRESS IT (QA sweep run 3, BLOCKER).
+     *
+     * The rule above is deliberate, and the delivery and signature rosters used to
+     * be derived from the same scoped set — so the one party the host could not see
+     * was also the one party they could not SEND the settlement to, and
+     * decisions.md #24.2 makes that send the only way to open a settlement to
+     * anybody. The co-promoter owed money was never sent theirs and never asked to
+     * sign, while the roster read 0/3 and never named them.
+     *
+     * Addressing is not reading: the host's own figures list stays scoped.
+     */
+    const asHost = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(seed.operator.userId),
+    });
+    const hostBody = asHost.json();
+    const addressable = (hostBody.delivery as { participantId: string }[]).map(
+      (row) => row.participantId,
+    );
+    expect(addressable).toContain(coHostPart?.id);
+    expect(
+      (hostBody.approvals as { participantId: string }[]).map((row) => row.participantId),
+    ).toContain(coHostPart?.id);
+    // The co-host is a party to no deal, so its FIGURES are still not the host's to
+    // read — the scoping this test exists for is untouched.
+    expect(
+      (hostBody.settlements as { participantId: string }[]).map((row) => row.participantId),
+    ).not.toContain(coHostPart?.id);
   });
 
   /**
