@@ -1,7 +1,7 @@
 import { useGetApiV1ExchangeRate, useGetApiV1ExchangeRateCurrencies } from "@showme/api-client";
 import { Select } from "@showme/design-system";
 import { convertMinorUnits } from "@showme/shared";
-import { formatMoney } from "../lib/format";
+import { formatMoney, formatMoneyExact } from "../lib/format";
 
 /**
  * Read a settlement's figures in another currency, WITHOUT ever changing what it
@@ -43,6 +43,18 @@ export interface CurrencyPreview {
    * exists; otherwise it is the ordinary base-currency formatter.
    */
   format: (minorUnits: string) => string;
+  /**
+   * The same figure to the MINOR UNIT — for a per-unit price that a reader
+   * multiplies.
+   *
+   * `format` rounds to whole units, which is right for a total and wrong for a unit
+   * price in a converted row: `60 x ≈ €7` beside `≈ €414` invites a reader to check
+   * 60 × 7 = 420 and conclude one of the two is wrong. Neither is; the unit had been
+   * rounded to the nearest euro. At the minor unit it reconciles — `60 x ≈ €6.90` is
+   * €414 — so the row can be checked by eye, which is the whole point of printing the
+   * multiplication.
+   */
+  formatExact: (minorUnits: string) => string;
 }
 
 export function useCurrencyPreview(
@@ -62,7 +74,13 @@ export function useCurrencyPreview(
   isExplicitChoice = true,
 ): CurrencyPreview {
   const wants = previewCurrency !== "" && previewCurrency !== baseCurrency;
-  const currencyList = useGetApiV1ExchangeRateCurrencies();
+  // Only what the display cache can reach FROM this settlement's own currency — the
+  // chooser used to offer the whole static table and silently fail on the pairs
+  // nothing had cached.
+  const currencyList = useGetApiV1ExchangeRateCurrencies(
+    { from: baseCurrency },
+    { query: { enabled: baseCurrency !== "" } },
+  );
   const rateQuery = useGetApiV1ExchangeRate(
     { from: baseCurrency, to: previewCurrency },
     { query: { enabled: wants && baseCurrency !== "" } },
@@ -72,10 +90,35 @@ export function useCurrencyPreview(
   const isPreviewing = wants && rate != null;
   const unavailable = wants && !rateQuery.isPending && rate == null && isExplicitChoice;
 
+  /**
+   * EVERY CONVERTED FIGURE CARRIES `≈`, and the marker lives HERE so no screen can
+   * forget it.
+   *
+   * The argument is the Budget Planner's, and it applies to every long page: the
+   * control saying "this settles in SEK" sits at the top of a sheet thousands of
+   * pixels tall, so by the time a reader reaches the party cards the only thing on
+   * screen naming the currency has scrolled away — and `€544` on its own reads as
+   * the real figure. A marker travels with the number at every scroll position, and
+   * into a screenshot somebody pastes into a chat. It is also honest about the second
+   * thing true of a converted figure: it is an approximation at a rate that moved
+   * this morning.
+   *
+   * It used to be applied by the planner alone, wrapping this function, so the
+   * settlement screen printed a bare `€544` beside the planner's `≈ US$8,281` for the
+   * same kind of figure (measured 2026-09-26). Money.md's line — a display currency
+   * is cosmetic and "never touches settled amounts" — is exactly what the marker
+   * says out loud.
+   */
   const format = (minorUnits: string): string => {
     if (!isPreviewing || rate == null) return formatMoney(minorUnits, baseCurrency);
     const converted = convertMinorUnits(BigInt(minorUnits), baseCurrency, previewCurrency, rate);
-    return formatMoney(converted.toString(), previewCurrency);
+    return `≈ ${formatMoney(converted.toString(), previewCurrency)}`;
+  };
+
+  const formatExact = (minorUnits: string): string => {
+    if (!isPreviewing || rate == null) return formatMoneyExact(minorUnits, baseCurrency);
+    const converted = convertMinorUnits(BigInt(minorUnits), baseCurrency, previewCurrency, rate);
+    return `≈ ${formatMoneyExact(converted.toString(), previewCurrency)}`;
   };
 
   return {
@@ -87,6 +130,7 @@ export function useCurrencyPreview(
     rate,
     unavailable,
     format,
+    formatExact,
   };
 }
 

@@ -39,6 +39,52 @@ describe("exchange-rate currencies", () => {
   });
 });
 
+/**
+ * A CHOOSER MUST NOT OFFER WHAT IT CANNOT CONVERT (QA sweep run 2, 2026-09-26).
+ *
+ * The currency preview listed all eight codes the product knows and could reach six:
+ * picking JPY fired `GET /exchange-rate?from=SEK&to=JPY`, took a 404 twice, and left
+ * the screen in SEK with nothing said. An option that cannot work is worse than an
+ * absent one — the reader concludes the figures are wrong rather than the menu.
+ */
+describe("exchange-rate currencies, narrowed by base", () => {
+  it("returns only what the display cache can reach from that base", async () => {
+    await harness.db.insert(schema.exchangeRateCache).values([
+      { base: "NOK", quote: "DKK", rate: "1.5000000000" },
+      { base: "NOK", quote: "GBP", rate: "0.0800000000" },
+    ]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/exchange-rate/currencies?from=NOK",
+    });
+    expect(response.statusCode).toBe(200);
+    const codes = (response.json().currencies as { code: string }[]).map((c) => c.code).sort();
+
+    // The base itself is always offered — picking it back is how you stop previewing.
+    expect(codes).toEqual(["DKK", "GBP", "NOK"]);
+  });
+
+  it("still answers the whole table when no base is named", async () => {
+    // A base-currency picker needs every currency the product can denominate in,
+    // whether or not a display rate happens to be cached for it.
+    const response = await app.inject({ method: "GET", url: "/api/v1/exchange-rate/currencies" });
+    const codes = (response.json().currencies as { code: string }[]).map((c) => c.code);
+
+    expect(codes.length).toBeGreaterThan(3);
+    expect(codes).toContain("JPY");
+  });
+
+  it("offers only the base when nothing is cached from it", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/exchange-rate/currencies?from=KWD",
+    });
+
+    expect((response.json().currencies as { code: string }[]).map((c) => c.code)).toEqual(["KWD"]);
+  });
+});
+
 describe("exchange-rate lookup", () => {
   it("returns a cached rate for a pair", async () => {
     await harness.db.insert(schema.exchangeRateCache).values({

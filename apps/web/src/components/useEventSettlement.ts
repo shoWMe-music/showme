@@ -327,6 +327,17 @@ export interface EventSettlement {
    * when they do. See the memo where it is computed.
    */
   entitlementReconciliation: string | null;
+  /**
+   * THE SCREEN'S OWN MONEY FORMATTER, so a card built outside this hook cannot format
+   * a figure differently from the rest of the page.
+   *
+   * The Ticketing card did exactly that: it formatted in the settlement's base
+   * currency while every card around it read the reader's preview, and one night
+   * looked like two ledgers (measured 2026-09-26).
+   */
+  formatMoney: (minorUnits: string) => string;
+  /** The same, to the minor unit — for a per-unit price a reader multiplies. */
+  formatMoneyUnit: (minorUnits: string) => string;
   payouts: { key: string; label: string; value: string }[];
   /** True when a listed payout is somebody else's — the card must not claim it. */
   payoutsIncludeOthers: boolean;
@@ -446,6 +457,13 @@ export function useEventSettlement(
    * one not converted at all.
    */
   formatAmount: (minorUnits: string) => string = (minorUnits) => formatMoney(minorUnits, currency),
+  /**
+   * The same money to the MINOR UNIT, for a per-unit price a reader multiplies —
+   * `60 x ≈ €7` beside `≈ €414` reads as an error when neither figure is wrong. Only
+   * passed while the screen is previewing in another currency; in the settlement's own
+   * currency the whole-unit form already reconciles.
+   */
+  formatAmountExact?: (minorUnits: string) => string,
 ): EventSettlement {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -924,6 +942,8 @@ export function useEventSettlement(
     shares,
     totalEntitlement,
     entitlementReconciliation,
+    formatMoney: formatAmount,
+    formatMoneyUnit: formatAmountExact ?? formatAmount,
     approvals,
     approvedCount: approvals.filter((approval) => approval.approved).length,
     delivery: (settlements.data?.delivery ?? []).map((row) => ({

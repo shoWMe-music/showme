@@ -21848,6 +21848,18 @@
     },
     "/api/v1/exchange-rate/currencies": {
       "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 3
+            },
+            "in": "query",
+            "name": "from",
+            "required": false
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response",

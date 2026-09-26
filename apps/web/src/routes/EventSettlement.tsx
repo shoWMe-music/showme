@@ -105,6 +105,7 @@ export function EventSettlement() {
     event.data?.capabilities ?? [],
     baseCurrency,
     preview.format,
+    preview.isPreviewing ? preview.formatExact : undefined,
   );
 
   if (event.isPending) return <LoadingState label="Loading settlement" />;
@@ -356,6 +357,14 @@ function OverviewTab({ event, settlement }: { event: EventData; settlement: Even
         revenue={lines.revenue}
         visible={settlement.ladder != null}
         currency={event.baseCurrency}
+        // The same formatter every other figure on this screen uses. Without it these
+        // rows stayed in the settlement's own currency while the cards around them
+        // read the preview — one night looking like two ledgers.
+        format={settlement.formatMoney}
+        // The UNIT price at full precision while previewing, so "60 x ≈ €6.90" still
+        // multiplies out to the "≈ €414" beside it. In the settlement's own currency
+        // the whole-unit form already reconciles, so it keeps it.
+        formatUnit={settlement.formatMoneyUnit}
       />
 
       {settlement.parties.length === 0 && <NothingSettledYet settlement={settlement} />}
@@ -979,7 +988,19 @@ function TicketingSummaryCard({
   revenue,
   visible,
   currency,
-}: { revenue: SettlementLineRow[]; visible: boolean; currency: string }) {
+  format,
+  formatUnit,
+}: {
+  revenue: SettlementLineRow[];
+  visible: boolean;
+  currency: string;
+  /** The screen's own money formatter, so a preview reaches these rows too. */
+  format?: (minorUnits: string) => string;
+  /** A per-unit price, at the precision a reader can multiply. Falls back to `format`. */
+  formatUnit?: (minorUnits: string) => string;
+}) {
+  const money = format ?? ((minorUnits: string) => formatMoney(minorUnits, currency));
+  const unitMoney = formatUnit ?? money;
   if (!visible) return null;
   const tickets = revenue.filter((line) => line.details?.basis === "ticket_tier");
   if (tickets.length === 0) return null;
@@ -997,10 +1018,10 @@ function TicketingSummaryCard({
           key={line.id}
           label={
             line.details
-              ? `${line.label} — ${line.details.quantity} x ${formatMoney(toMinorUnits(line.details.unitAmount), currency)}`
+              ? `${line.label} — ${line.details.quantity} x ${unitMoney(toMinorUnits(line.details.unitAmount))}`
               : line.label
           }
-          value={formatMoney(toMinorUnits(line.amount), currency)}
+          value={money(toMinorUnits(line.amount))}
           mono
         />
       ))}

@@ -36,6 +36,7 @@ stated.
 | r2:346 | Break-even held the derived fee fixed (65 where 48 is true) | `02ff39a` |
 | r2:368 | The split card overstated the take with no caption (4,410 vs 3,710) | `08b55e6` |
 | r2:804 | The act's card omitted the cash they collected, so it never reached its own headline | `5374e7e` |
+| r2:455 + r2:474 + r2:860 | The currency cluster: dead chooser options, unconverted rows, invented EUR | pending |
 | r3:442 + r3:459 | A frame arrived and left the page asserting the opposite | `162785d` |
 
 **Corrected, not fixed:** r2:411 (inline Status "never saves") — run 3 found it does
@@ -55,8 +56,6 @@ below as a decision, or corrected as a misreading. What remains is the minor lis
 | # | ID | What is wrong |
 |---|---|---|
 | 8 | r2:447 | Deal, planner and settlement give the split base three different names |
-| 9 | r2:455 | Display-currency preview leaves the ticketing rows in SEK |
-| 10 | r2:474 | The currency chooser offers four currencies it cannot convert to, silently |
 | 11 | r2:480 | Rounding makes the planner's three headline figures disagree |
 | 12 | r2:603 | The commission's `performerEntitlement` disagrees with the act's own entitlement |
 | 13 | r2:616 | A line on the Financials tab needs an explicit **Add**, and nothing says so |
@@ -64,7 +63,6 @@ below as a decision, or corrected as a misreading. What remains is the minor lis
 | 15 | r2:752 | The counter-offer dialog names the act when the terms go to the agent |
 | 16 | r2:758 | The Requests date rail ignores the status filter, and the empty state hides it |
 | 17 | r2:851 | A performer's own settlement says they take "100.0%" |
-| 18 | r2:860 | Bills & Invoices defaults to € for a performer |
 | 19 | r2:866 | A performer is offered an enabled Remove they may not use *(the capability-name half is fixed; the enabled-control half is open)* |
 | 20 | r2:880 | "Total settled SEK 0" beside "Finalized SEK 20,700" |
 | 21 | r2:887 | "Edit" a collaborator changes role only, though the menu says access |
@@ -73,7 +71,6 @@ below as a decision, or corrected as a misreading. What remains is the minor lis
 | 24 | r2:910 | Financial Projections calls forecast figures "realized revenue" |
 | 25 | r2:1011 | Crew's settlement "Deal structure" tab asserts a falsehood about the event |
 | 26 | r2:1016 | Refusing a crew member's answer tells them they proposed the change |
-| 27 | r2:1128 | Display currency is a per-visit preview; Settings has no control for it |
 | 28 | r3:153 | The invite dialog promises a co-operator their schedule and their own money, and grants neither |
 | 29 | r3:165 | The co-host cannot read the venue's rooms; the event prints "Room / Stage: Assigned" |
 | 30 | r3:173 | The budget scope chooser does not survive a reload and is not in the URL |
@@ -94,6 +91,14 @@ below as a decision, or corrected as a misreading. What remains is the minor lis
   so the report froze the fee while solving, which is the defect it was filing. The
   true answer is **48** (hand-checked: 42 leaves the night SEK 113 short, 47 leaves it
   SEK 7 short, 48 covers it). The screen said 65; it now says 48.
+
+## Parked — feature work, not a defect
+
+- **A display currency stored per user** (r2:1128, ClickUp `123qy9rpbb3`). PLAN.md
+  promises it; nothing stores it, so the preview is per visit and Settings has no
+  control. The half of that finding that WAS a defect — the planner marking converted
+  figures `≈` while the settlement printed a bare `€544` — is fixed: the marker now
+  lives inside `useCurrencyPreview.format`, so no screen can forget it.
 
 ## Parked — a decision, not a defect
 

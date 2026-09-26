@@ -88,6 +88,7 @@ import type {
   GetApiV1EventsParams,
   GetApiV1ExchangeRate200,
   GetApiV1ExchangeRateCurrencies200,
+  GetApiV1ExchangeRateCurrenciesParams,
   GetApiV1ExchangeRateParams,
   GetApiV1FilesIdDownloadUrl200,
   GetApiV1Geocode200,
@@ -12233,13 +12234,14 @@ const {mutation: mutationOptions} = options ?
       return useMutation(mutationOptions, queryClient);
     }
     export const getApiV1ExchangeRateCurrencies = (
-    
+    params?: GetApiV1ExchangeRateCurrenciesParams,
  signal?: AbortSignal
 ) => {
       
       
       return customFetch<GetApiV1ExchangeRateCurrencies200>(
-      {url: `/api/v1/exchange-rate/currencies`, method: 'GET', signal
+      {url: `/api/v1/exchange-rate/currencies`, method: 'GET',
+        params, signal
     },
       );
     }
@@ -12247,23 +12249,23 @@ const {mutation: mutationOptions} = options ?
 
 
 
-export const getGetApiV1ExchangeRateCurrenciesQueryKey = () => {
+export const getGetApiV1ExchangeRateCurrenciesQueryKey = (params?: GetApiV1ExchangeRateCurrenciesParams,) => {
     return [
-    `/api/v1/exchange-rate/currencies`
+    `/api/v1/exchange-rate/currencies`, ...(params ? [params]: [])
     ] as const;
     }
 
     
-export const getGetApiV1ExchangeRateCurrenciesQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError, TData>>, }
+export const getGetApiV1ExchangeRateCurrenciesQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError = unknown>(params?: GetApiV1ExchangeRateCurrenciesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError, TData>>, }
 ) => {
 
 const {query: queryOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetApiV1ExchangeRateCurrenciesQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1ExchangeRateCurrenciesQueryKey(params);
 
   
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>> = ({ signal }) => getApiV1ExchangeRateCurrencies(signal);
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>> = ({ signal }) => getApiV1ExchangeRateCurrencies(params, signal);
 
       
 
@@ -12277,7 +12279,7 @@ export type GetApiV1ExchangeRateCurrenciesQueryError = unknown
 
 
 export function useGetApiV1ExchangeRateCurrencies<TData = Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError = unknown>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError, TData>> & Pick<
+ params: undefined |  GetApiV1ExchangeRateCurrenciesParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>,
           TError,
@@ -12287,7 +12289,7 @@ export function useGetApiV1ExchangeRateCurrencies<TData = Awaited<ReturnType<typ
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetApiV1ExchangeRateCurrencies<TData = Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError, TData>> & Pick<
+ params?: GetApiV1ExchangeRateCurrenciesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>,
           TError,
@@ -12297,16 +12299,16 @@ export function useGetApiV1ExchangeRateCurrencies<TData = Awaited<ReturnType<typ
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useGetApiV1ExchangeRateCurrencies<TData = Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError, TData>>, }
+ params?: GetApiV1ExchangeRateCurrenciesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError, TData>>, }
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 
 export function useGetApiV1ExchangeRateCurrencies<TData = Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError = unknown>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError, TData>>, }
+ params?: GetApiV1ExchangeRateCurrenciesParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1ExchangeRateCurrencies>>, TError, TData>>, }
  , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getGetApiV1ExchangeRateCurrenciesQueryOptions(options)
+  const queryOptions = getGetApiV1ExchangeRateCurrenciesQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

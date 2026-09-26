@@ -22,7 +22,7 @@ import { InvoiceLedgerTable } from "../components/InvoiceLedgerTable";
 import { isInvoiceOverdue } from "../components/invoiceDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import { errorMessage } from "../lib/errors";
-import { formatMoney } from "../lib/format";
+import { formatAmount, formatMoney } from "../lib/format";
 
 type Invoice = Awaited<ReturnType<typeof getApiV1ProfilesIdInvoices>>[number];
 type Direction = "issued" | "received";
@@ -60,7 +60,19 @@ export function Invoices() {
     let payable = 0;
     let overdue = 0;
     let receivable = 0;
-    let currency = "EUR";
+    /**
+     * NO INVOICES MEANS NO CURRENCY TO NAME — not EUR.
+     *
+     * The fallback was `"EUR"`, so a performer whose events, deals and settlements are
+     * all SEK opened this screen and read `OUTSTANDING (PAYABLE) €0 · OVERDUE €0 ·
+     * RECEIVABLE (SENT) €0`, while their own Settlements screen read SEK throughout
+     * (measured 2026-09-26). Zero in the wrong currency is a statement about their
+     * money that happens to be false.
+     *
+     * `formatAmount` exists for precisely this and says so in its own comment —
+     * showing a number under the wrong symbol is worse than showing it under none.
+     */
+    let currency: string | null = null;
     for (const invoice of invoices) {
       const amount = Number(invoice.total ?? 0);
       if (!Number.isFinite(amount)) continue;
@@ -72,6 +84,9 @@ export function Invoices() {
     }
     return { payable, overdue, receivable, currency };
   }, [invoices]);
+  /** The ledger's own currency where it has one, and an unadorned figure otherwise. */
+  const money = (amount: number) =>
+    kpis.currency ? formatMoney(amount, kpis.currency) : formatAmount(amount);
 
   return (
     <>
@@ -103,19 +118,19 @@ export function Invoices() {
             items={[
               {
                 label: "Outstanding (payable)",
-                value: formatMoney(kpis.payable, kpis.currency),
+                value: money(kpis.payable),
                 hint: "Bills you owe",
                 tone: "amber",
               },
               {
                 label: "Overdue",
-                value: formatMoney(kpis.overdue, kpis.currency),
+                value: money(kpis.overdue),
                 hint: "Past due date",
                 tone: "red",
               },
               {
                 label: "Receivable (sent)",
-                value: formatMoney(kpis.receivable, kpis.currency),
+                value: money(kpis.receivable),
                 hint: "Invoices you've issued",
               },
               {

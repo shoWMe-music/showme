@@ -814,9 +814,9 @@ function BudgetTab({
    * honest about the second thing wrong with a converted figure: it is an
    * approximation at a rate that moved this morning.
    */
-  const peek = preview.isPreviewing
-    ? (minorUnits: string) => `≈ ${preview.format(minorUnits)}`
-    : undefined;
+  // `preview.format` carries the `≈` itself now — see `useCurrencyPreview`. Wrapping
+  // it again would print two.
+  const peek = preview.isPreviewing ? preview.format : undefined;
   const readMoneyAs = peek ? (draft: string) => peek(toMinorUnits(draft)) : undefined;
   // The same function in the shape `budgetPlannerViewFrom` wants: its figures are
   // already minor units, so they need no shifting.

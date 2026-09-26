@@ -175,6 +175,7 @@ export * from './getApiV1EventsStatusItem';
 export * from './getApiV1ExchangeRate200';
 export * from './getApiV1ExchangeRateCurrencies200';
 export * from './getApiV1ExchangeRateCurrencies200CurrenciesItem';
+export * from './getApiV1ExchangeRateCurrenciesParams';
 export * from './getApiV1ExchangeRateParams';
 export * from './getApiV1FilesIdDownloadUrl200';
 export * from './getApiV1Geocode200';
