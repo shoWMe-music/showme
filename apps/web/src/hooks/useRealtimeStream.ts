@@ -1,4 +1,13 @@
-import { getGetApiV1NotificationsQueryKey } from "@showme/api-client";
+import {
+  getGetApiV1EventsIdBudgetsQueryKey,
+  getGetApiV1EventsIdDealsQueryKey,
+  getGetApiV1EventsIdInvitationsQueryKey,
+  getGetApiV1EventsIdParticipantsQueryKey,
+  getGetApiV1EventsIdQueryKey,
+  getGetApiV1EventsIdSettlementLinesQueryKey,
+  getGetApiV1EventsIdSettlementsQueryKey,
+  getGetApiV1NotificationsQueryKey,
+} from "@showme/api-client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { auth } from "../auth/firebase";
@@ -97,6 +106,45 @@ export function useRealtimeStream(streamUrl: string | undefined): void {
       // window refocus, a cache eviction and every other reason a list refetches.
       // The module answers "is this device muted" itself and is silent if so.
       playNotificationSound();
+      /**
+       * …AND THE SCREENS THE FRAME MAKES WRONG.
+       *
+       * Refetching the bell and nothing else meant a frame could arrive, be acted
+       * on, and leave the page beneath it ASSERTING the opposite of what had just
+       * happened. Measured 2026-09-26 with a live observer: `performerB` confirms a
+       * deal, the watching operator's bell moves from 2 unread to 3 — on the same
+       * page whose Budget Planner one scroll below still read "still an offer,
+       * nobody has confirmed it" with a `PROPOSED` chip, indefinitely. And a
+       * co-operator accepted an invitation while the host's Collaborators tab went
+       * on saying "Invite pending … nothing is granted until they accept", with the
+       * row already `accepted` in Postgres.
+       *
+       * Stale is not the same as absent: an empty screen invites a reload, a
+       * confident wrong sentence does not.
+       *
+       * INVALIDATED BY THE EVENT, NOT BY THE TYPE. Every frame this service sends
+       * about an event means something about that event moved, and the type
+       * vocabulary is the notification catalogue — 65 types and growing, in a
+       * different package from this map. Keying on the type would need a new line
+       * here for every new notification, and the line that is forgotten is exactly
+       * the stale screen this exists to prevent. So an event-scoped frame refetches
+       * that event's workspace queries; TanStack only actually fetches the ones
+       * currently mounted, so a Calendar page pays nothing for a deal frame.
+       */
+      if (event.eventId) {
+        const eventId = event.eventId;
+        for (const queryKey of [
+          getGetApiV1EventsIdQueryKey(eventId),
+          getGetApiV1EventsIdDealsQueryKey(eventId),
+          getGetApiV1EventsIdBudgetsQueryKey(eventId),
+          getGetApiV1EventsIdSettlementsQueryKey(eventId),
+          getGetApiV1EventsIdSettlementLinesQueryKey(eventId),
+          getGetApiV1EventsIdParticipantsQueryKey(eventId),
+          getGetApiV1EventsIdInvitationsQueryKey(eventId),
+        ]) {
+          void client.invalidateQueries({ queryKey });
+        }
+      }
       if (event.type === "event.message_posted" && event.eventId) {
         // Refetch through the authorized endpoint — the frame deliberately carries
         // no message body, so the server re-applies visibility on the way out.
