@@ -2178,6 +2178,54 @@ describe("events — asking to move a night, from the act's side", () => {
     expect(await dateOf(event.id)).toBe("2026-09-12");
   });
 
+  /**
+   * A REFUSAL MUST NOT MISDESCRIBE WHAT THE READER DID (QA sweep run 2, 2026-09-26).
+   *
+   * Declining somebody else's proposal as crew returned 403 "You proposed this change;
+   * somebody else has to answer it". The outcome is right — crew have no vote in either
+   * direction — and the sentence is false: they had proposed nothing. The code even
+   * carried a comment claiming the message said so. A refusal that names you as the
+   * cause sends you hunting for a mistake you did not make.
+   */
+  it("tells crew the answer is not theirs, without calling them the proposer", async () => {
+    const { event } = await bookedEventWithCrew("crew-msg");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request`,
+      headers: auth("crew-msg-op"),
+      payload: { eventDate: "2026-10-03" },
+    });
+    const crid = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/change-request`,
+        headers: auth("crew-msg-crew"),
+      })
+    ).json().request.id;
+
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${crid}/decline`,
+      headers: auth("crew-msg-crew"),
+      payload: {},
+    });
+    expect(refused.statusCode).toBe(403);
+    const message = refused.json().error.message as string;
+    expect(message).not.toContain("You proposed");
+    expect(message).toContain("not yours to answer");
+
+    // …and the operator who DID propose it still gets the sentence that is true of them.
+    const byProposer = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${crid}/decline`,
+      headers: auth("crew-msg-op"),
+      payload: {},
+    });
+    expect(byProposer.statusCode).toBe(403);
+    expect(byProposer.json().error.message).toContain("You proposed this change");
+  });
+
   it("does not ask crew to confirm a move, so they cannot veto one", async () => {
     // The half that is easy to miss: leaving crew in the answering set would let
     // a sound engineer block a date the venue and the act had both agreed on.

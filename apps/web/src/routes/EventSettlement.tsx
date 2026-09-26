@@ -439,11 +439,27 @@ function DealStructureTab({
 }: { event: EventData; settlement: EventSettlementData }) {
   const lines = useSettlementLines(event.id, event.baseCurrency);
   if (settlement.agreements.length === 0) {
+    /*
+     * EMPTY IS TWO DIFFERENT ANSWERS, the same as the Deals tab's own empty state.
+     *
+     * A reader sees only the deals they are a party to, so an empty list can mean the
+     * night has no agreement OR that its agreement is not theirs to read. Crew opened
+     * this tab on a show carrying a confirmed door split and were told "No agreements
+     * on this event yet" — a statement about the event, and false. The Deals tab one
+     * click away already gets this right.
+     */
+    const hidden = settlement.hiddenDealCount;
     return (
       <EmptyState
-        icon={<Icon name="file" />}
-        title="No agreements on this event yet"
-        description="Deal terms are written on the event's Deals tab. Once an agreement exists, its structure and what it paid appear here."
+        icon={<Icon name={hidden > 0 ? "eye-off" : "file"} />}
+        title={hidden > 0 ? "Not your agreement to see" : "No agreements on this event yet"}
+        description={
+          hidden > 0
+            ? hidden === 1
+              ? "This event has an agreement, and you are not a party to it. What it paid is between the parties named on it."
+              : `This event has ${hidden} agreements, and you are not a party to any of them.`
+            : "Deal terms are written on the event's Deals tab. Once an agreement exists, its structure and what it paid appear here."
+        }
       />
     );
   }

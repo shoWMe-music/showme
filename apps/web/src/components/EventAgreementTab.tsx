@@ -298,7 +298,12 @@ function dealStructureFields(deal: Deal, fallbackCurrency: string): AgreementFie
   }
   if (deal.splitBasisPoints != null) {
     rows.push({
-      label: "Share of the pool",
+      // "…of the adjusted net", matching the settlement's own waterfall caption.
+      // `pool` and `adjustedNet` are DIFFERENT quantities in `reconcile`, and
+      // decisions #24.1 makes the percentage divide the adjusted net — so "share of
+      // the pool" named the wrong one, on the card a party reads to check their deal.
+      // One quantity, one name, across the deal, the agreement and the settlement.
+      label: "Share of the adjusted net",
       value: `${(deal.splitBasisPoints / 100).toFixed(0)}%`,
     });
   }

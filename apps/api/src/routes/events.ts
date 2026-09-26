@@ -1731,10 +1731,23 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       const participant = await callerParticipantOrNull(request, id);
       if (!participant) throw forbidden("You are not on this event");
       if (!open.partyIds.includes(participant.id)) {
-        // Either they asked for it, or they are on the event without standing to
-        // answer. Both are "somebody else decides", and the message says so
-        // rather than pretending they are not here.
-        throw forbidden("You proposed this change; somebody else has to answer it");
+        /*
+         * TWO REASONS, AND THE MESSAGE HAS TO PICK THE RIGHT ONE.
+         *
+         * Either they asked for it, or they are on the event without standing to
+         * answer — crew have no vote on when the show happens, in either direction.
+         * Both are "somebody else decides", and the comment here used to claim the
+         * sentence said so; it actually named the reader as the proposer either way,
+         * so a crew member declining somebody else's proposal was told they had made
+         * it (measured 2026-09-26). A refusal that misdescribes what you did is worse
+         * than a bare "no": it sends you looking for a mistake you did not make.
+         */
+        const isProposer = open.proposedByUserId === request.principal?.userId;
+        throw forbidden(
+          isProposer
+            ? "You proposed this change; somebody else has to answer it"
+            : "This change is not yours to answer — the parties standing on this date decide it",
+        );
       }
       if (await hasAnswered(database, open.id, participant.id)) {
         throw conflict("You have already answered this change");

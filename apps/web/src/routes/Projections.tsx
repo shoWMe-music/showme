@@ -269,13 +269,23 @@ function ProjectionsScreen() {
     },
   ];
 
-  // The realized figures come from settled history, which the scope toggle does not
-  // filter — sitting silently under filtered projections they read as the same set,
-  // so the scope difference is stated rather than left to be inferred.
+  /**
+   * BUDGETED, NOT REALIZED — the endpoint sums `budget_lines`.
+   *
+   * This line called the figure "realized revenue", which is what an operator reads to
+   * mean money that arrived. `GET /insights/profiles/:id/revenue` sums the BUDGET, so
+   * the number included three events that had not happened yet at SEK 0 each and only
+   * one of the seven had a finalized settlement (measured 2026-09-26) — and it was the
+   * same figure as PROJECTED REVENUE directly above it, which is the tell.
+   *
+   * The scope difference it exists to state is still worth stating: these totals ignore
+   * the filter, so sitting silently under filtered projections they read as the same
+   * set.
+   */
   const realizedNote =
     revenue.data && summary.data ? (
       <div style={{ color: "var(--muted)", fontSize: 12.5 }}>
-        All time, ignoring the filter above: realized revenue{" "}
+        All time, ignoring the filter above: budgeted revenue{" "}
         <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>
           {formatMoney(revenue.data.totalRevenue, currency)}
         </span>{" "}

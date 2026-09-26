@@ -122,7 +122,10 @@ export function DealComposerModal({
           {structureNeedsSplit(draft.structure) && (
             <div style={{ flex: "1 1 160px" }}>
               <TextField
-                label="Share of the pool (%)"
+                // The settlement divides the ADJUSTED NET (decisions #24.1), and
+                // `pool` is a different quantity in `reconcile` — so this asked for a
+                // share of something the engine never divides.
+                label="Share of the adjusted net (%)"
                 value={draft.splitPercent}
                 inputMode="decimal"
                 placeholder="70"

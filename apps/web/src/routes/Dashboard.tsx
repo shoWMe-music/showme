@@ -13,6 +13,7 @@ import { TaskPriorityBadge } from "../components/TaskPriorityBadge";
 import { settlementStatusToDisplay, settlementTotals } from "../components/settlementDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import { formatAmount, formatDay, formatMoney } from "../lib/format";
+import { apiStatusToDisplay } from "../lib/status";
 import styles from "./Dashboard.module.css";
 
 type TaskItem = {
@@ -187,7 +188,11 @@ export function Dashboard() {
       icon: "calendar",
       color: "#F4A046",
       title: `Confirm ${event.title}`,
-      detail: `Pending event · ${formatDay(event.eventDate)} · needs a decision`,
+      // THE EVENT'S OWN STATUS, not a word for the whole bucket. `NEEDS_DECISION`
+      // covers more than one status, so "Pending event" was printed over `on_hold`
+      // shows while the EVENTS tile on the same screen counted Pending as 0 and On
+      // hold as 2 — one dashboard disagreeing with itself about two named events.
+      detail: `${apiStatusToDisplay(event.status).label} · ${formatDay(event.eventDate)} · needs a decision`,
       action: "Review",
       onAction: () => openEvent(event.id),
     });

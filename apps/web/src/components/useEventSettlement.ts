@@ -338,6 +338,12 @@ export interface EventSettlement {
   formatMoney: (minorUnits: string) => string;
   /** The same, to the minor unit — for a per-unit price a reader multiplies. */
   formatMoneyUnit: (minorUnits: string) => string;
+  /**
+   * How many of this event's deals this reader may not see. Non-zero with an empty
+   * `agreements` means "not yours to read", not "none exists" — the Deal-structure tab
+   * told crew a show with a confirmed door split had no agreement at all.
+   */
+  hiddenDealCount: number;
   payouts: { key: string; label: string; value: string }[];
   /** True when a listed payout is somebody else's — the card must not claim it. */
   payoutsIncludeOthers: boolean;
@@ -750,6 +756,20 @@ export function useEventSettlement(
    */
   const shares = useMemo<EntitlementShare[]>(() => {
     const entitled = parties.filter((party) => party.entitlementMinor != null);
+    /*
+     * A PERCENTAGE OF ONE ROW IS NOT A PERCENTAGE.
+     *
+     * These are shares of the entitlements THIS READER CAN SEE, which is the only
+     * honest denominator — but a performer sees exactly their own line, so the column
+     * read "100.0%" always, on every settlement, whatever their deal said. Measured
+     * 2026-09-26: Marlo Vance on a 60/40 bill, paid SEK 33,600 of a SEK 53,500
+     * adjusted net, with "100.0%" beside it. A figure that cannot vary carries no
+     * information and reads as a claim about the deal.
+     *
+     * So it is withheld below two rows. The rule beside each name still says what the
+     * deal takes, which is the fact a single-row reader actually wants.
+     */
+    const percentsAreMeaningful = entitled.length > 1;
     const positiveTotal = entitled.reduce((running, party) => {
       const amount = BigInt(party.entitlementMinor ?? "0");
       return amount > 0n ? running + amount : running;
@@ -765,7 +785,10 @@ export function useEventSettlement(
           role: party.role,
           initials: party.initials,
           amount: party.entitlement as string,
-          percent: positiveTotal > 0n && minor > 0n ? (fraction * 100).toFixed(1) : null,
+          percent:
+            percentsAreMeaningful && positiveTotal > 0n && minor > 0n
+              ? (fraction * 100).toFixed(1)
+              : null,
           fraction,
           rule: party.rules[0]?.label ?? null,
           isYours: party.isYours,
@@ -943,6 +966,7 @@ export function useEventSettlement(
     totalEntitlement,
     entitlementReconciliation,
     formatMoney: formatAmount,
+    hiddenDealCount: deals.data?.hiddenCount ?? 0,
     formatMoneyUnit: formatAmountExact ?? formatAmount,
     approvals,
     approvedCount: approvals.filter((approval) => approval.approved).length,
