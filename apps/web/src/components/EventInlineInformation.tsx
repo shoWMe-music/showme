@@ -21,6 +21,7 @@ import {
   EVENT_STATUS_OPTIONS,
   type EditableEventInformation,
   type EventInlineRoom,
+  roomFieldText,
   useEventInlineFields,
 } from "./useEventInlineFields";
 
@@ -132,13 +133,20 @@ export function EventInlineInformation({
   const inline = useEventInlineFields(event);
 
   /**
-   * The venue's rooms, so this card can NAME the one the show is in rather than
-   * say "Assigned". Skipped when the event stands at no venue profile — the
-   * wizard captures a free-text venue name for a room the operator does not run,
-   * and there is nobody to ask for its rooms.
+   * The venue's rooms — for the PICKER, not for the label. The event now carries
+   * `stageName`, so naming the room no longer depends on being allowed to read the
+   * venue's whole catalogue: that route is a venue-membership route and a 404 to
+   * everyone else by design, which is why a co-promoter on the night read "Room /
+   * Stage: Assigned" off four retried 404s while the host read "Main Room" (QA
+   * sweep run 3 r3:165).
+   *
+   * So it is asked only when there is a choice to offer — `canEdit` — and asked
+   * once: an operator who may edit the event but does not belong to the venue is a
+   * real state (a co-promoter with full control), and for them the answer is a
+   * single 404 and no picker, not four.
    */
   const rooms = useGetApiV1ProfilesIdStages(event.venueProfileId ?? "", {
-    query: { enabled: Boolean(event.venueProfileId) },
+    query: { enabled: Boolean(event.venueProfileId) && canEdit, retry: false },
   });
   /** "No room set" leads the list because it is a real choice, not an empty
    * state: a show whose room nobody has decided yet is a different statement
@@ -167,13 +175,7 @@ export function EventInlineInformation({
   });
 
   const stageId = inline.values.stageId;
-  const roomText = (() => {
-    if (stageId === "") return "";
-    // A room id we cannot resolve is not "not set": the show IS in a room, we
-    // just could not read the list (no venue profile, or the request has not
-    // landed).
-    return roomChoices.find((room) => room.id === stageId)?.name ?? "Assigned";
-  })();
+  const roomText = roomFieldText(stageId, roomChoices, event.stageName);
   const draftRoom = roomChoices.find((room) => room.id === inline.draft);
 
   const capacityText = inline.values.capacity;

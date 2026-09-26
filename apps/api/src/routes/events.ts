@@ -606,6 +606,8 @@ const EventResponse = z.object({
   venueSlug: z.string().nullable(),
   capacity: z.number().nullable(),
   stageId: z.string().nullable(),
+  /** The name of that one room, so the page need not read the venue's whole list. */
+  stageName: z.string().nullable(),
   notes: z.string().nullable(),
   /** Signed per response when the poster is an upload — never a stored value. */
   imageUrl: z.string().nullable(),
@@ -1139,7 +1141,14 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         ]);
         return {
           statusCode: 201,
-          body: serializeEvent(created, OPERATOR_CAPABILITIES, imageUrls),
+          body: serializeEvent(
+            created,
+            OPERATOR_CAPABILITIES,
+            imageUrls,
+            undefined,
+            undefined,
+            await stageNameOf(database, created.stageId),
+          ),
         };
       });
 
@@ -1222,6 +1231,16 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
     return profile?.slug ?? null;
   }
 
+  /** The name of the one room the event stands in — see `SerializedEvent.stageName`. */
+  async function stageNameOf(database: FastifyInstance["database"], stageId: string | null) {
+    if (!stageId) return null;
+    const [stage] = await database
+      .select({ name: schema.stages.name })
+      .from(schema.stages)
+      .where(eq(schema.stages.id, stageId));
+    return stage?.name ?? null;
+  }
+
   // Read: authorize `event.view`, then serialize by the caller's capabilities.
   app.get(
     "/events/:id",
@@ -1245,6 +1264,7 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         imageUrls,
         await venueLocationOf(database, event.venueProfileId),
         await venueSlugOf(database, event.venueProfileId),
+        await stageNameOf(database, event.stageId),
       );
     },
   );
@@ -1465,13 +1485,15 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         updated.imageFileId,
       ]);
       // The address travels on the PATCH response too — a save that moved the
-      // venue must not answer with the old room's country still on screen.
+      // venue must not answer with the old room's country still on screen. Same for
+      // the room: picking one is a PATCH, and the field it re-renders is its name.
       return serializeEvent(
         updated,
         capabilities,
         imageUrls,
         await venueLocationOf(database, updated.venueProfileId),
         await venueSlugOf(database, updated.venueProfileId),
+        await stageNameOf(database, updated.stageId),
       );
     },
   );

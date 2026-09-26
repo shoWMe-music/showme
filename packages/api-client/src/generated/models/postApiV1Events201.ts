@@ -39,6 +39,8 @@ export type PostApiV1Events201 = {
   /** @nullable */
   stageId: string | null;
   /** @nullable */
+  stageName: string | null;
+  /** @nullable */
   notes: string | null;
   /** @nullable */
   imageUrl: string | null;

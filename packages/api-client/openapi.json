@@ -724,6 +724,10 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "stageName": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "notes": {
                       "type": "string",
                       "nullable": true
@@ -913,6 +917,7 @@
                     "venueSlug",
                     "capacity",
                     "stageId",
+                    "stageName",
                     "notes",
                     "imageUrl",
                     "version",
@@ -1233,6 +1238,10 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "stageName": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "notes": {
                       "type": "string",
                       "nullable": true
@@ -1422,6 +1431,7 @@
                     "venueSlug",
                     "capacity",
                     "stageId",
+                    "stageName",
                     "notes",
                     "imageUrl",
                     "version",
@@ -1777,6 +1787,10 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "stageName": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "notes": {
                       "type": "string",
                       "nullable": true
@@ -1966,6 +1980,7 @@
                     "venueSlug",
                     "capacity",
                     "stageId",
+                    "stageName",
                     "notes",
                     "imageUrl",
                     "version",

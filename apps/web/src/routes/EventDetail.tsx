@@ -710,6 +710,10 @@ function DetailsTab({
         imageUrl: event.imageUrl,
         capacity: event.capacity,
         stageId: event.stageId,
+        // r3:165 — the room's NAME, so the field can say "Main Room" to a reader who
+        // may not enumerate the venue's rooms. The warning above is why this line
+        // exists: leaving it out is exactly the silent, backend-looking failure.
+        stageName: event.stageName,
         version: event.version,
         extras: event.extras as EventExtras | null | undefined,
       }}

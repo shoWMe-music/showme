@@ -65,6 +65,21 @@ export interface SerializedEvent {
   venueSlug: string | null;
   capacity: number | null;
   stageId: string | null;
+  /**
+   * THE NAME OF THE ROOM THE SHOW IS IN — not the venue's catalogue of rooms.
+   *
+   * The event page used to name it by fetching `GET /profiles/:venue/stages` and
+   * looking the id up in the list. That route is a venue-membership route and a 404
+   * by design to everyone else ("a venue's internal geography is not something a
+   * stranger enumerates"), so a co-promoter on the night read `Room / Stage:
+   * Assigned` while the host read `Main Room`, off four retried 404s (QA sweep run 3
+   * r3:165). Which room the show is in is a fact about the SHOW, and every reader of
+   * the event already has the venue's name and street address two lines above it.
+   *
+   * `null` when the event stands in no room, or when the caller read it from a list
+   * that does not resolve it — the field names one room, it is not a lookup table.
+   */
+  stageName: string | null;
   notes: string | null;
   /**
    * The poster, resolved down the file-then-URL ladder (`serialize/image.ts`).
@@ -105,6 +120,7 @@ export function serializeEvent(
   imageUrls?: Map<string, string>,
   venueLocation?: SerializedEvent["venueLocation"],
   venueSlug?: string | null,
+  stageName?: string | null,
 ): SerializedEvent {
   const base: SerializedEvent = {
     id: event.id,
@@ -125,6 +141,7 @@ export function serializeEvent(
     venueSlug: venueSlug ?? null,
     capacity: event.capacity,
     stageId: event.stageId,
+    stageName: stageName ?? null,
     notes: event.notes,
     imageUrl: resolveImageUrl(event.imageFileId, event.imageUrl, imageUrls),
     version: event.version,

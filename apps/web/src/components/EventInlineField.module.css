@@ -107,28 +107,53 @@
 }
 
 /* The rest state of an EDITABLE row: a real <button>, so it is in the tab order
-   and Enter/Space open it without a line of JavaScript. */
+   and Enter/Space open it without a line of JavaScript — STRETCHED over the row
+   rather than wrapped around it. The Venue value carries a menu of its own, and a
+   button inside a button is invalid HTML that React reported on every event
+   workspace (r2:894). The row is the positioning context; the button is the hit
+   target; `.valueAbove` is the one layer above it. */
+.triggerRow {
+  position: relative;
+  cursor: pointer;
+}
+
 .trigger {
+  position: absolute;
+  inset: 0;
   width: 100%;
   border: 0;
-  border-bottom: 1px solid var(--border);
   background: transparent;
   font-family: inherit;
   text-align: left;
   cursor: pointer;
 }
 
+/* The value sits ABOVE the stretched trigger so its own controls are clickable,
+   and is transparent to the pointer so that everything in it which is NOT a
+   control still opens the row. Without the second rule the venue's street address
+   would be a dead spot on an otherwise clickable row. */
+.valueAbove {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+.valueAbove :is(button, a, input, select) {
+  pointer-events: auto;
+}
+
 /* WHAT SAYS "YOU MAY CHANGE THIS". On approach the row's own rule warms to the
    colour an input wears, the ground lifts, and the label comes forward — three
    signals, none of which need a value to be present, so an empty field
-   advertises itself exactly as loudly as a full one. */
-.trigger:hover,
-.trigger:focus-visible {
+   advertises itself exactly as loudly as a full one. Hover is the ROW's now (the
+   pointer is over the row, and the button under it is invisible); keyboard focus
+   is read off the button through `:has`. */
+.triggerRow:hover,
+.triggerRow:has(.trigger:focus-visible) {
   border-bottom-color: var(--control-border);
   background: color-mix(in srgb, var(--elevated) 55%, transparent);
 }
-.trigger:hover .label,
-.trigger:focus-visible .label {
+.triggerRow:hover .label,
+.triggerRow:has(.trigger:focus-visible) .label {
   color: var(--text);
 }
 
@@ -136,9 +161,11 @@
    is the whole visual language of this card now, and a focus ring around a
    full-bleed table row reads as a selected row rather than a focused field.
    Weight carries it as well as colour, for anyone who cannot use the hue. */
-.trigger:focus-visible {
+.triggerRow:has(.trigger:focus-visible) {
   border-bottom-color: var(--brand-red);
   box-shadow: 0 1px 0 0 var(--brand-red);
+}
+.trigger:focus-visible {
   outline: none;
 }
 

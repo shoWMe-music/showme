@@ -112,6 +112,13 @@ export interface EditableEventInformation {
   capacity: number | null;
   /** The room (`stages.id`) this show is placed in, or null for none set. */
   stageId: string | null;
+  /**
+   * That room's NAME, carried by the event itself — read-only here, like the
+   * address below. Which room the show is in is a fact about the show, and the
+   * venue's room catalogue is a venue-membership read that 404s for everyone else
+   * (QA sweep run 3 r3:165: the co-promoter's field said "Assigned").
+   */
+  stageName?: string | null;
   /** The venue PROFILE this event stands at, when one is linked. */
   venueProfileId?: string | null;
   /**
@@ -128,6 +135,25 @@ export interface EditableEventInformation {
   /** The venue's public slug — the address "Go to profile" needs (`123qy9rnfab`). */
   venueSlug?: string | null;
   version: number;
+}
+
+/**
+ * WHAT THE "Room / Stage" FIELD SAYS — three answers, in order of authority.
+ *
+ * The room catalogue is live under an edit, so a room renamed in another tab wins
+ * over the name the event was serialized with. Then the event's own `stageName`,
+ * which is what a reader who may not enumerate the venue's rooms has (QA sweep run 3
+ * r3:165 — the co-promoter's field said "Assigned" while the host's said "Main
+ * Room"). "Assigned" only when a room id resolves to nothing at all: the show IS in
+ * a room, so the field must not fall back to the empty "no room set".
+ */
+export function roomFieldText(
+  stageId: string,
+  choices: readonly { id: string; name: string }[],
+  stageName?: string | null,
+): string {
+  if (stageId === "") return "";
+  return choices.find((room) => room.id === stageId)?.name ?? stageName ?? "Assigned";
 }
 
 /** Every field is held as text: an editor must be able to hold "" (meaning

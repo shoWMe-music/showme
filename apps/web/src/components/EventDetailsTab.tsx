@@ -48,6 +48,8 @@ export interface DetailsEvent {
   imageUrl: string | null;
   capacity: number | null;
   stageId: string | null;
+  /** The name of that room, carried by the event — see `roomFieldText`. */
+  stageName?: string | null;
   version: number;
   extras?: EventExtras | null;
 }

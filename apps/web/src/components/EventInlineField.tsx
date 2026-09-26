@@ -227,19 +227,36 @@ export function EventInlineField({
     );
   }
 
+  /**
+   * THE TRIGGER IS A STRETCHED BUTTON BESIDE THE VALUE, NOT A BUTTON AROUND IT.
+   *
+   * It used to wrap the whole row, which put the Venue row's `ProfileNameMenu` — a
+   * real `<button>` (go to profile / open the map) — inside another `<button>`. That
+   * is invalid HTML and React said so twice on every event workspace, on all five
+   * seeded events (QA sweep run 2, r2:894). "No interactive content inside a button"
+   * is also an accessibility rule, not only a validator's opinion: a focusable thing
+   * inside a button has no defined behaviour for a screen reader or a keyboard.
+   *
+   * So the button is absolutely positioned over the row and the value is lifted one
+   * layer above it. The value itself is `pointer-events: none`, which hands clicks on
+   * plain text back to the trigger underneath, and its own controls take them back —
+   * the row still opens from anywhere you click except the name, which is exactly
+   * what the Venue row's menu wanted in the first place.
+   */
   return (
-    <button
-      ref={triggerRef}
-      type="button"
-      className={`${styles.row} ${styles.trigger}`}
-      onClick={onBegin}
-      // The note is part of what this row SAYS, so it is part of what the row is
-      // announced as — a live region inside a button would be read out of turn,
-      // and the button's label is what a screen reader reaches for anyway.
-      aria-label={`${label}, ${isEmpty ? emptyLabel : valueText}${
-        sourceNote ? `, ${sourceNote}` : ""
-      }, edit`}
-    >
+    <div className={`${styles.row} ${styles.triggerRow}`}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={styles.trigger}
+        onClick={onBegin}
+        // The note is part of what this row SAYS, so it is part of what the row is
+        // announced as — a live region inside a button would be read out of turn,
+        // and the button's label is what a screen reader reaches for anyway.
+        aria-label={`${label}, ${isEmpty ? emptyLabel : valueText}${
+          sourceNote ? `, ${sourceNote}` : ""
+        }, edit`}
+      />
       <span className={styles.label} aria-hidden>
         {label}
       </span>
@@ -248,10 +265,10 @@ export function EventInlineField({
           {sourceNote}
         </span>
       )}
-      <span className={valueClass} aria-hidden>
+      <span className={`${valueClass} ${styles.valueAbove}`} aria-hidden>
         {shown}
       </span>
-    </button>
+    </div>
   );
 }
 
