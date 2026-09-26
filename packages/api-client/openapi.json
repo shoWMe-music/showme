@@ -2121,6 +2121,70 @@
       }
     },
     "/api/v1/events/{id}/change-request": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "eventDate": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "venueProfileId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true
+                  },
+                  "stageId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["pending", "confirmed", "declined"]
+                    }
+                  },
+                  "required": ["status"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
       "get": {
         "parameters": [
           {
@@ -5150,6 +5214,10 @@
                                 "perGuest": {
                                   "type": "boolean"
                                 },
+                                "tierId": {
+                                  "type": "string",
+                                  "maxLength": 200
+                                },
                                 "ofKey": {
                                   "type": "string",
                                   "maxLength": 200
@@ -5416,6 +5484,10 @@
                               },
                               "perGuest": {
                                 "type": "boolean"
+                              },
+                              "tierId": {
+                                "type": "string",
+                                "maxLength": 200
                               },
                               "ofKey": {
                                 "type": "string",
@@ -5724,6 +5796,10 @@
                               "perGuest": {
                                 "type": "boolean"
                               },
+                              "tierId": {
+                                "type": "string",
+                                "maxLength": 200
+                              },
                               "ofKey": {
                                 "type": "string",
                                 "maxLength": 200
@@ -5925,6 +6001,10 @@
                           "perGuest": {
                             "type": "boolean"
                           },
+                          "tierId": {
+                            "type": "string",
+                            "maxLength": 200
+                          },
                           "ofKey": {
                             "type": "string",
                             "maxLength": 200
@@ -6087,6 +6167,10 @@
                       "perGuest": {
                         "type": "boolean"
                       },
+                      "tierId": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
                       "ofKey": {
                         "type": "string",
                         "maxLength": 200
@@ -6246,6 +6330,10 @@
                         },
                         "perGuest": {
                           "type": "boolean"
+                        },
+                        "tierId": {
+                          "type": "string",
+                          "maxLength": 200
                         },
                         "ofKey": {
                           "type": "string",
@@ -6407,6 +6495,10 @@
                       },
                       "perGuest": {
                         "type": "boolean"
+                      },
+                      "tierId": {
+                        "type": "string",
+                        "maxLength": 200
                       },
                       "ofKey": {
                         "type": "string",
@@ -6578,6 +6670,10 @@
                         },
                         "perGuest": {
                           "type": "boolean"
+                        },
+                        "tierId": {
+                          "type": "string",
+                          "maxLength": 200
                         },
                         "ofKey": {
                           "type": "string",

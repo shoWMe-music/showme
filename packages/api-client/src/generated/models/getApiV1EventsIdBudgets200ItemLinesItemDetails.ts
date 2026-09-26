@@ -17,6 +17,8 @@ export type GetApiV1EventsIdBudgets200ItemLinesItemDetails = {
   quantity: number;
   perGuest?: boolean;
   /** @maxLength 200 */
+  tierId?: string;
+  /** @maxLength 200 */
   ofKey?: string;
   /** @maxLength 200 */
   ofLabel?: string;

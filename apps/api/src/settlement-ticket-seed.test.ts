@@ -190,6 +190,40 @@ describe("the door reaches the settlement even when the planner never wrote it",
     expect(revenue.reduce((running, line) => running + line.amount, 0n)).toBe(660_000n);
   });
 
+  /**
+   * A RENAMED TIER IS THE SAME TIER (QA sweep run 3, 2026-09-26).
+   *
+   * Matching by name alone meant renaming a tier in the planner made the event's
+   * tier look unmatched, so it was materialised a second time: SEK 6,300 settling
+   * at SEK 7,800, the phantom then written into the budget for good. `details.tierId`
+   * is the identity; the name is only the fallback for rows written before it.
+   */
+  it("does not re-materialise a tier whose label the operator has changed", async () => {
+    const { eventId } = await seedEvent("renamed", "SEK", [
+      { id: "openmic-door", name: "Door entry", price: 80, max: 80, est: 60 },
+    ]);
+    const [budget] = await harness.db
+      .insert(schema.budgets)
+      .values({ eventId, scope: "shared" })
+      .returning();
+    if (!budget) throw new Error("budget seed failed");
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "revenue",
+      label: "Door entry, cash only",
+      amount: 480_000n,
+      currency: "SEK",
+      details: { basis: "ticket_tier", unitAmount: "8000", quantity: 60, tierId: "openmic-door" },
+    });
+
+    await ensureSettlementLines(harness.db, eventId);
+    const revenue = (await linesOf(eventId)).filter((line) => line.kind === "revenue");
+
+    expect(revenue).toHaveLength(1);
+    expect(revenue[0]?.label).toBe("Door entry, cash only");
+    expect(revenue[0]?.amount).toBe(480_000n);
+  });
+
   it("does not re-materialise a tier the planner has already written", async () => {
     // The same name is the same tier, however it was cased or spaced when stored —
     // the only identity a write keeps. Getting this wrong doubles that tier.

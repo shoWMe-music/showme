@@ -138,6 +138,19 @@ export interface TicketTierDraft {
    * the selector existed.
    */
   collectedBy?: string;
+  /**
+   * The `events.extras.ticketTiers` row this tier is, when it is one of them —
+   * carried through the write in `details.tierId`, so a rename cannot make the
+   * budget's row look like a different tier from the event's.
+   */
+  originTierId?: string;
+  /**
+   * Whether the STORED line behind this row has a unit x count breakdown. False
+   * on a hand-entered revenue row — a door somebody typed as one figure — which is
+   * the whole door and suppresses the event's tiers. A tier added here in the
+   * planner has a breakdown but no `originTierId`, and suppresses nothing.
+   */
+  hasBreakdown?: boolean;
 }
 
 /**
@@ -160,19 +173,49 @@ export interface TicketTierDraft {
  * `seedTicketTiersIntoBudget` — store the tier name as `budget_lines.label` and
  * keep no reference back to `events.extras.ticketTiers`.
  *
- * Renaming a written row therefore brings its event tier back as an unwritten
- * suggestion. That is the honest answer rather than a miss: Event Details still
- * lists a tier the budget has nothing for, and a suggestion costs nothing until
- * it is touched. Removing it there is what removes it here.
+ * MATCHED ON THE TIER'S ID FIRST, and on the name only for rows written before
+ * `details.tierId` existed. The first version of this matched on the name alone
+ * and a rename then counted the tier TWICE — the written row under its new name
+ * and the event's tier seeded again beside it, SEK 6,300 settling at SEK 7,800,
+ * with `copyBudgetOnce` writing the phantom back into the budget for good. A name
+ * is what a person edits; an id is what a row IS.
+ *
+ * `dismissed` carries the seeds the operator has taken off this sheet. Without it
+ * the Remove control on a seeded row does nothing visible: the row goes, the next
+ * re-seed puts it straight back from the event, and pressing Remove twice looks
+ * like a dead button. It is per-sheet-session on purpose — Event Details is where
+ * that tier lives, so a reload legitimately offers it again.
  */
 export function mergeTicketTierSeeds(
   serverTiers: TicketTierDraft[],
   eventTiers: TicketTierDraft[],
+  dismissed: ReadonlySet<string> = new Set(),
 ): TicketTierDraft[] {
-  const written = new Set(serverTiers.map((tier) => tier.name.trim().toLowerCase()));
+  /*
+   * A DOOR SOMEBODY TYPED THEMSELVES suppresses the event's tiers entirely — the
+   * same rule the settlement applies (`statesItsOwnDoor` in `settlement-lines.ts`),
+   * and it has to be the same or the two disagree about the night's takings. A
+   * ticket row with no tier breakdown is the whole door under a name of the
+   * operator's choosing; seeding `Door entry` and `Advance` beside a row that
+   * already counts both is how the planner came to show SEK 57,000 on a
+   * SEK 25,000 night while the settlement had it right.
+   */
+  const statesItsOwnDoor = serverTiers.some((tier) => tier.hasBreakdown === false);
+  if (statesItsOwnDoor) return serverTiers;
+
+  const writtenIds = new Set(
+    serverTiers
+      .map((tier) => tier.originTierId)
+      .filter((id): id is string => typeof id === "string"),
+  );
+  const writtenNames = new Set(serverTiers.map((tier) => tier.name.trim().toLowerCase()));
   return [
     ...serverTiers,
-    ...eventTiers.filter((tier) => !written.has(tier.name.trim().toLowerCase())),
+    ...eventTiers.filter((tier) => {
+      if (dismissed.has(tier.id)) return false;
+      if (tier.originTierId != null && writtenIds.has(tier.originTierId)) return false;
+      return !writtenNames.has(tier.name.trim().toLowerCase());
+    }),
   ];
 }
 
@@ -817,6 +860,8 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
           price: toMajorUnits(line.details?.unitAmount ?? line.amount),
           quantity: (line.details?.quantity ?? 1).toString(),
           collectedBy: line.collectedBy ?? undefined,
+          hasBreakdown: line.details != null,
+          ...(line.details?.tierId != null ? { originTierId: line.details.tierId } : {}),
         })),
     [lines],
   );
@@ -970,6 +1015,19 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   /** How co-operators share what the event itself carries — see `routes/budget.ts`. */
   const operatorCostSplit = budget?.planningAssumptions?.operatorCostSplit ?? null;
 
+  /**
+   * Seeded tier rows the operator has removed from this sheet.
+   *
+   * A seed is a suggestion read live from Event Details, so removing one has
+   * nothing to delete and the next re-seed offers it again — which made the Remove
+   * control on those rows look dead. Remembering the dismissal for as long as the
+   * sheet is open is the smallest honest answer: Event Details still lists the
+   * tier, and that is where it is removed for good.
+   */
+  const [dismissedSeeds, setDismissedSeeds] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+
   const seed = useMemo(() => {
     // The bar line is where the planner keeps its head count, so a budget that
     // has never been touched has no capacity of its own — the event's does.
@@ -1003,8 +1061,9 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       name: tier.name,
       price: tier.price > 0 ? tier.price.toString() : "",
       quantity: (tier.est || tier.max || 0) > 0 ? String(tier.est || tier.max) : "",
+      originTierId: tier.id,
     }));
-    const merged = mergeTicketTierSeeds(serverTiers, eventTiers);
+    const merged = mergeTicketTierSeeds(serverTiers, eventTiers, dismissedSeeds);
     const tiers =
       merged.length > 0
         ? merged
@@ -1050,6 +1109,7 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
     };
   }, [
     budgetId,
+    dismissedSeeds,
     serverTiers,
     serverCosts,
     serverCustomRevenue,
@@ -1478,7 +1538,16 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
       // row (0.145 × 2 stores 29 against a unit of 14), which is a breakdown that
       // does not add up to its own total.
       const amount = (BigInt(unitAmount) * BigInt(quantity)).toString();
-      const details = { basis: "ticket_tier" as const, unitAmount, quantity };
+      // WHICH EVENT TIER THIS IS, kept on the row. Without it the only identity a
+      // written tier has is its label, and renaming one then made the event's tier
+      // look unmatched and get materialised beside it — the same door counted
+      // twice, in the planner and in the settlement.
+      const details = {
+        basis: "ticket_tier" as const,
+        unitAmount,
+        quantity,
+        ...(tier.originTierId != null ? { tierId: tier.originTierId } : {}),
+      };
       const attempted = `${tier.name.trim() || "the ticket tier"} at ${tier.price || "0"}`;
       if (tier.id.startsWith(NEW_ROW_PREFIX)) {
         if (tier.name.trim() === "") continue; // an unnamed tier is not a line yet
@@ -1869,6 +1938,17 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
   const removeTier = useCallback(
     (id: string) => {
       holdDraft();
+      // Whichever it is, the event may still list the tier behind it — as this
+      // row's own seed id, or as the origin stamped on the stored line. Both are
+      // dismissed, or the row returns on the next re-seed.
+      const removed = tiers.find((row) => row.id === id);
+      setDismissedSeeds((seeds) => {
+        const next = new Set(seeds);
+        next.add(id);
+        if (removed?.originTierId != null)
+          next.add(`${NEW_ROW_PREFIX}event-${removed.originTierId}`);
+        return next;
+      });
       setTiers((rows) => {
         const left = rows.filter((row) => row.id !== id);
         // The tier list is NEVER empty (handoff §1): taking the last row out

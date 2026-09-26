@@ -65,6 +65,12 @@ export interface BudgetLineDetails {
   ofLabel?: string;
   /** Integer basis points (money.md — never a float). 1000 = 10%. */
   basisPoints?: number;
+  /**
+   * Which `events.extras.ticketTiers` row this line came from, when it came from
+   * one. A name is not an identity: matching tiers by label counted a renamed one
+   * twice. Absent on every line written before this existed.
+   */
+  tierId?: string;
 }
 
 function budgetLineDetails(value: unknown): BudgetLineDetails | null {
@@ -83,6 +89,7 @@ function budgetLineDetails(value: unknown): BudgetLineDetails | null {
     ...(typeof candidate.ofKey === "string" ? { ofKey: candidate.ofKey } : {}),
     ...(typeof candidate.ofLabel === "string" ? { ofLabel: candidate.ofLabel } : {}),
     ...(typeof candidate.basisPoints === "number" ? { basisPoints: candidate.basisPoints } : {}),
+    ...(typeof candidate.tierId === "string" ? { tierId: candidate.tierId } : {}),
     // Absent stays ABSENT rather than becoming false: the planner reads "no
     // flag" as "whatever this row has always meant" — per head for bar and
     // merch, flat for other revenue — and a false here would silently turn every

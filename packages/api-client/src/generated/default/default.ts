@@ -215,6 +215,8 @@ import type {
   PostApiV1EventsIdBudgetsBidLines201,
   PostApiV1EventsIdBudgetsBidLinesBody,
   PostApiV1EventsIdBudgetsBody,
+  PostApiV1EventsIdChangeRequest200,
+  PostApiV1EventsIdChangeRequestBody,
   PostApiV1EventsIdChangeRequestCridAnswer200,
   PostApiV1EventsIdChangeRequestCridAnswerBody,
   PostApiV1EventsIdDeals201,
@@ -1237,6 +1239,65 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getPostApiV1EventsIdUnarchiveMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const postApiV1EventsIdChangeRequest = (
+    id: string,
+    postApiV1EventsIdChangeRequestBody: PostApiV1EventsIdChangeRequestBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1EventsIdChangeRequest200>(
+      {url: `/api/v1/events/${id}/change-request`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1EventsIdChangeRequestBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1EventsIdChangeRequestMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdChangeRequest>>, TError,{id: string;data: PostApiV1EventsIdChangeRequestBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdChangeRequest>>, TError,{id: string;data: PostApiV1EventsIdChangeRequestBody}, TContext> => {
+
+const mutationKey = ['postApiV1EventsIdChangeRequest'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdChangeRequest>>, {id: string;data: PostApiV1EventsIdChangeRequestBody}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  postApiV1EventsIdChangeRequest(id,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1EventsIdChangeRequestMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1EventsIdChangeRequest>>>
+    export type PostApiV1EventsIdChangeRequestMutationBody = PostApiV1EventsIdChangeRequestBody
+    export type PostApiV1EventsIdChangeRequestMutationError = unknown
+
+    export const usePostApiV1EventsIdChangeRequest = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdChangeRequest>>, TError,{id: string;data: PostApiV1EventsIdChangeRequestBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1EventsIdChangeRequest>>,
+        TError,
+        {id: string;data: PostApiV1EventsIdChangeRequestBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1EventsIdChangeRequestMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

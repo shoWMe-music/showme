@@ -144,12 +144,15 @@ async function copyBudgetOnce(
       (row.budget_lines.details as { basis?: string } | null)?.basis !== "ticket_tier",
   );
   if (!statesItsOwnDoor) {
-    const statedTierNames = new Set<string>(
-      ticketRows.map((row: { budget_lines: typeof schema.budgetLines.$inferSelect }) =>
-        row.budget_lines.label.trim().toLowerCase(),
-      ),
-    );
-    const seeded = await seedTicketTiersIntoBudget(database, eventId, statedTierNames);
+    const stated = new Set<string>();
+    for (const row of ticketRows as {
+      budget_lines: typeof schema.budgetLines.$inferSelect;
+    }[]) {
+      const tierId = (row.budget_lines.details as { tierId?: string } | null)?.tierId;
+      if (tierId != null) stated.add(`id:${tierId}`);
+      stated.add(`name:${row.budget_lines.label.trim().toLowerCase()}`);
+    }
+    const seeded = await seedTicketTiersIntoBudget(database, eventId, stated);
     if (seeded > 0) {
       budgetLines = await database
         .select()
@@ -199,6 +202,8 @@ async function copyBudgetOnce(
  * settles a SEK 2,000 ticket at SEK 20 and pays the act a hundredth of the door.
  */
 interface EventTicketTier {
+  /** Stable per-event id, written by the Event Details editor. */
+  id?: string;
   name?: string;
   /** Major-unit unit price. */
   price?: number;
@@ -226,12 +231,12 @@ async function seedTicketTiersIntoBudget(
   database: any,
   eventId: string,
   /**
-   * Tier names the budget ALREADY states, trimmed and lowercased. Matching on the
-   * name because it is the only identity that survives a write: both writers store
-   * the tier's name as `budget_lines.label` and neither keeps a reference back to
-   * `events.extras.ticketTiers`. Same key the planner's own merge uses
-   * (`mergeTicketTierSeeds`), deliberately — the sheet and the settlement have to
-   * agree about which tiers are already spoken for, or one of them double-counts.
+   * What the budget ALREADY states, as `id:<tierId>` and `name:<lowercased label>`
+   * keys. Both are carried because a line written before `details.tierId` existed
+   * can only be matched by name, and a renamed tier can only be matched by id.
+   * The planner's own merge (`mergeTicketTierSeeds`) matches the same two ways,
+   * deliberately — the sheet and the settlement have to agree about which tiers
+   * are spoken for, or one of them double-counts.
    */
   alreadyStated: ReadonlySet<string> = new Set(),
 ): Promise<number> {
@@ -241,9 +246,13 @@ async function seedTicketTiersIntoBudget(
     .where(eq(schema.events.id, eventId));
   const all = (event?.extras as { ticketTiers?: EventTicketTier[] } | null)?.ticketTiers;
   if (!Array.isArray(all) || all.length === 0) return 0;
-  const tiers = all.filter(
-    (tier) => !alreadyStated.has((tier.name ?? "").trim().toLowerCase() || "ticket tier"),
-  );
+  const tiers = all.filter((tier) => {
+    // The tier's own id where the line carries one, the name only for lines
+    // written before `details.tierId` existed. A rename moves the name and keeps
+    // the id, which is the whole reason the id is now stored.
+    if (tier.id != null && alreadyStated.has(`id:${tier.id}`)) return false;
+    return !alreadyStated.has(`name:${(tier.name ?? "").trim().toLowerCase() || "ticket tier"}`);
+  });
   if (tiers.length === 0) return 0;
 
   const currency = event?.baseCurrency ?? "EUR";
@@ -303,6 +312,9 @@ async function seedTicketTiersIntoBudget(
         basis: "ticket_tier" as const,
         unitAmount: unitAmount.toString(),
         quantity: Number(quantity),
+        // So a later rename in the planner cannot make this row look like a
+        // different tier and get the event's one materialised beside it.
+        ...(tier.id != null ? { tierId: tier.id } : {}),
       },
     })),
   );

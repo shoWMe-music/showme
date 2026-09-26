@@ -83,6 +83,23 @@ const LineDetails = z.object({
    */
   perGuest: z.boolean().optional(),
   /**
+   * WHICH `events.extras.ticketTiers` ROW THIS LINE IS, when it came from one.
+   *
+   * The same argument as `basis` above, one step further: a name is not an
+   * identity either. Both writers of a tier line — the planner's flush and
+   * `seedTicketTiersIntoBudget` — used to keep only the tier's NAME, as the
+   * label, so the question "does the budget already hold this tier?" could only
+   * be asked by name. Rename a tier in the planner and the answer came back no:
+   * the event's tier was materialised a second time and the night counted that
+   * door twice (`Open Mic Wednesdays`: SEK 6,300 settling at SEK 7,800, the
+   * phantom then written back into the budget by `copyBudgetOnce`).
+   *
+   * Optional and absent on every line written before it existed, exactly like
+   * `perGuest` — `details` is jsonb, so no backfill and no migration. Matching
+   * falls back to the name for those, which is what it always did.
+   */
+  tierId: z.string().max(200).optional(),
+  /**
    * A deduction stated as a percentage of another line (ClickUp `86cbcn1ue`).
    * Optional and set together; `amount` stays the authoritative figure, and these
    * only remember how it was reached so the planner can recompute it when the
