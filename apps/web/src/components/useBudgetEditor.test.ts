@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type TicketTierDraft, mergeTicketTierSeeds } from "./useBudgetEditor";
+import { type TicketTierDraft, mergeTicketTierSeeds, preferredBudget } from "./useBudgetEditor";
 
 /**
  * THE BUG THIS FILE EXISTS FOR (QA sweep 2026-09-26, run 2, BLOCKER).
@@ -161,5 +161,33 @@ describe("mergeTicketTierSeeds", () => {
     );
 
     expect(merged.map((row) => row.name)).toEqual(["Advance"]);
+  });
+});
+
+/**
+ * WHICH BOOK OPENS (QA sweep run 3, r3:173).
+ *
+ * The scope switch was component state: *"My budget"* reverted to *"Shared ledger"*
+ * on every reload, and there was no `?budgetScope=` to link either one by. The shared
+ * ledger stays the default — on a screen where two books must never be confused, the
+ * one everybody can see is the safe one to open — but a link can now name the other.
+ */
+describe("preferredBudget", () => {
+  const shared = { id: "s", scope: "shared" } as Parameters<typeof preferredBudget>[0][number];
+  const mine = { id: "m", scope: "private" } as Parameters<typeof preferredBudget>[0][number];
+
+  it("opens the shared ledger by default", () => {
+    expect(preferredBudget([mine, shared])?.id).toBe("s");
+    expect(preferredBudget([mine, shared], undefined)?.id).toBe("s");
+    expect(preferredBudget([mine, shared], "shared")?.id).toBe("s");
+  });
+
+  it("opens the private book when the link asked for it", () => {
+    expect(preferredBudget([shared, mine], "mine")?.id).toBe("m");
+  });
+
+  it("falls back to the shared ledger when there is no private book to open", () => {
+    expect(preferredBudget([shared], "mine")?.id).toBe("s");
+    expect(preferredBudget([], "mine")).toBeUndefined();
   });
 });

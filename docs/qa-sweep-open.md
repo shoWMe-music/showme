@@ -43,8 +43,10 @@ stated.
 | r3:529 | The agent was not told the agreement it must sign had moved | `6f8af3d` |
 | r3:525 | Nobody was told a transfer was paid | `6f8af3d` |
 | r3:619 + r3:153 | A co-promoter's own money: listed on one screen, 403 on the event | `f70c519` |
-| r3:165 | "Room / Stage: Assigned" to everyone but the venue's own members | *this commit* |
-| r2:894 | Nested `<button>` on the Venue row, on all five events | *this commit* |
+| r3:165 | "Room / Stage: Assigned" to everyone but the venue's own members | `9468472` |
+| r2:894 | Nested `<button>` on the Venue row, on all five events | `9468472` |
+| r3:178 | Naming a revealed cost heading threw the row out of the table | *this commit* |
+| r3:173 | The budget scope chooser was nowhere in the URL | *this commit* |
 
 **Corrected, not fixed:** r2:411 (inline Status "never saves") — run 3 found it does
 save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owed.
@@ -71,8 +73,6 @@ below as a decision, or corrected as a misreading. What remains is the minor lis
 | 19 | r2:866 | A performer is offered an enabled Remove they may not use *(the capability-name half is fixed; the enabled-control half is open)* |
 | 20 | r2:880 | "Total settled SEK 0" beside "Finalized SEK 20,700" |
 | 21 | r2:887 | "Edit" a collaborator changes role only, though the menu says access |
-| 30 | r3:173 | The budget scope chooser does not survive a reload and is not in the URL |
-| 31 | r3:178 | Naming a fresh cost row before typing its amount throws the row out of the table |
 | 37 | r3:731 | Escape on the venue autocomplete offers to throw the whole event away |
 
 ---

@@ -551,9 +551,26 @@ function bearingFields(bearing: CostBearing): {
 }
 
 /** Which budget the planner opens on: the joint book if this event is co-hosted. */
-function preferredBudget(budgets: Budget[]): Budget | undefined {
+/**
+ * WHICH BOOK OPENS. The shared ledger, unless a link asked for the private one.
+ *
+ * The switch was pure component state, so *"My budget"* went back to *"Shared
+ * ledger"* on every reload and could not be linked to at all (QA sweep run 3,
+ * r3:173). On a screen where the two books must never be confused, the shared one is
+ * the right default — but "you cannot get back to the one you were reading" is not a
+ * default, it is a loss, and `?budgetScope=mine` is the whole fix.
+ */
+export function preferredBudget(budgets: Budget[], scope?: BudgetScope): Budget | undefined {
+  if (scope === "mine") {
+    const mine = budgets.find((budget) => budget.scope !== "shared");
+    if (mine) return mine;
+  }
   return budgets.find((budget) => budget.scope === "shared") ?? budgets[0];
 }
+
+/** Which book a link addresses — `?budgetScope=`. Never a budget id: an id in a URL
+ * is not shareable, and the reader is choosing a BOOK, not a row. */
+export type BudgetScope = "shared" | "mine";
 
 /** One party a line's money can be attributed to, named as the planner shows them. */
 export interface BudgetAttributionOption {
@@ -792,7 +809,11 @@ const VENUE_COST_HEADING = "Venue cost";
 /** The heading the performer fee is read into. */
 const PERFORMER_FEE_HEADING = "Performer fee";
 
-export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEED): BudgetEditor {
+export function useBudgetEditor(
+  eventId: string,
+  seedSource: BudgetSeed = NO_SEED,
+  initialScope?: BudgetScope,
+): BudgetEditor {
   const toast = useToast();
   const queryClient = useQueryClient();
   const budgetsQuery = useGetApiV1EventsIdBudgets(eventId);
@@ -804,7 +825,9 @@ export function useBudgetEditor(eventId: string, seedSource: BudgetSeed = NO_SEE
 
   const budgets = useMemo(() => budgetsQuery.data ?? [], [budgetsQuery.data]);
   const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null);
-  const budget = budgets.find((entry) => entry.id === selectedBudgetId) ?? preferredBudget(budgets);
+  const budget =
+    budgets.find((entry) => entry.id === selectedBudgetId) ??
+    preferredBudget(budgets, initialScope);
   const budgetId = budget?.id ?? null;
 
   // Every line must name the participant who handled the cash (A-14), and for

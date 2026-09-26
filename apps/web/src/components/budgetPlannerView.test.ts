@@ -23,6 +23,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type PartitionableCostRow,
+  carryRevealedHeading,
   costsIncompleteNoteFor,
   splitCostRows,
   ticketSplitDisplay,
@@ -355,5 +356,41 @@ describe("ticketSplitDisplay", () => {
 
     expect(display.rows.map((row) => row.percentLabel)).toEqual(["42%", "28%", "30%"]);
     expect(display.rows.find((row) => row.key === "operators")?.isShortfall).toBeUndefined();
+  });
+});
+
+/**
+ * A REVEALED HEADING LEFT THE TABLE ON THE FIRST KEYSTROKE (QA sweep run 3, r3:178).
+ *
+ * Reveals are keyed by label, so naming a revealed "Other" un-revealed it and
+ * `splitCostRows` collapsed the row into a chip under its new name, mid-edit.
+ */
+describe("carryRevealedHeading", () => {
+  it("keeps a renamed heading on the sheet", () => {
+    const revealed = carryRevealedHeading(["Other"], "Other", "Piano tuning");
+    expect(revealed).toEqual(["Piano tuning"]);
+
+    const row = {
+      key: "new:Other",
+      label: "Piano tuning",
+      value: "",
+      isCustom: false,
+      readFromDeal: undefined,
+    };
+    expect(splitCostRows([row], revealed).budgeted).toHaveLength(1);
+    // The mutation check: without carrying it, the same row collapses.
+    expect(splitCostRows([row], ["Other"]).unused).toHaveLength(1);
+  });
+
+  it("leaves a heading nobody revealed alone", () => {
+    expect(carryRevealedHeading(["Marketing"], "Other", "Piano tuning")).toEqual(["Marketing"]);
+  });
+
+  it("touches only the heading that moved", () => {
+    expect(carryRevealedHeading(["Staff", "Other", "Venue"], "Other", "Piano")).toEqual([
+      "Staff",
+      "Piano",
+      "Venue",
+    ]);
   });
 });

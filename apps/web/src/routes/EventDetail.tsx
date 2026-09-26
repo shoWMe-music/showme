@@ -58,7 +58,7 @@ import { EventSettlementTab } from "../components/EventSettlementTab";
 import { ProfileFace } from "../components/ProfileFace";
 import { useCurrencyPreview } from "../components/SettlementCurrencyPreview";
 import { ShareExportModal } from "../components/ShareExportModal";
-import { budgetPlannerViewFrom } from "../components/budgetPlannerView";
+import { budgetPlannerViewFrom, carryRevealedHeading } from "../components/budgetPlannerView";
 import {
   type EventTab,
   EventTabsBar,
@@ -777,7 +777,13 @@ function BudgetTab({
     [capacity, eventTicketTiers, performerIdsKey],
   );
   const seed = useBudgetSeed(eventId, seedSources);
-  const editor = useBudgetEditor(eventId, seed);
+  // `?budgetScope=mine` opens the private book instead of the shared ledger
+  // (r3:173). Read as an INITIAL value, like `?tab=` above it; switching books
+  // afterwards writes it back with `replace`, so a reload stays on the book you
+  // were reading without a history entry per click.
+  const budgetScope = useSearch({ from: "/events/$eventId" }).budgetScope;
+  const navigateFromBudget = useNavigate();
+  const editor = useBudgetEditor(eventId, seed, budgetScope);
   /**
    * The currency peek. State lives here rather than in the control so it resets
    * when the tab unmounts — a peek is a glance, not a preference, and coming back
@@ -843,6 +849,15 @@ function BudgetTab({
   // Clearing a standing heading has to take back the reveal as well as the line,
   // or the row it just deleted comes straight back as a blank one nobody asked
   // for. A CUSTOM row has no heading to return to, so it only deletes.
+  // Renaming a revealed heading carries the reveal to the new name — without it the
+  // row left the table on the first keystroke (`carryRevealedHeading`, r3:178).
+  const changeCostLabel = (key: string, label: string) => {
+    const row = editor.costs.find((cost) => cost.key === key);
+    if (row && !row.isCustom) {
+      setRevealedCostHeadings((headings) => carryRevealedHeading(headings, row.label, label));
+    }
+    editor.changeCostLabel(key, label);
+  };
   const removeCost = (key: string) => {
     const row = editor.costs.find((cost) => cost.key === key);
     if (row && !row.isCustom) {
@@ -882,7 +897,18 @@ function BudgetTab({
           <BudgetScopeSwitch
             budgets={editor.budgets}
             selectedBudgetId={editor.selectedBudgetId}
-            onSelect={editor.selectBudget}
+            onSelect={(budgetId) => {
+              editor.selectBudget(budgetId);
+              const chosen = editor.budgets.find((entry) => entry.id === budgetId);
+              void navigateFromBudget({
+                to: ".",
+                search: (prev: { tab?: string; budgetScope?: "mine" }) => ({
+                  ...prev,
+                  budgetScope: chosen?.scope === "shared" ? undefined : ("mine" as const),
+                }),
+                replace: true,
+              });
+            }}
           />
         )}
         <div style={{ marginLeft: "auto" }}>
@@ -962,7 +988,7 @@ function BudgetTab({
         onAvgMerchSpendChange={editor.changeAverageMerchSpend}
         onOtherRevenueChange={editor.changeOtherRevenue}
         onCostChange={editor.changeCost}
-        onCostLabelChange={editor.changeCostLabel}
+        onCostLabelChange={changeCostLabel}
         onRemoveCost={removeCost}
         revealedCostHeadings={revealedCostHeadings}
         onRevealCost={(heading) => setRevealedCostHeadings((headings) => [...headings, heading])}

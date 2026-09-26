@@ -53,8 +53,16 @@ const routeTree = rootRoute.addChildren([
     getParentRoute: () => rootRoute,
     path: "/events/$eventId",
     component: EventDetail,
-    validateSearch: (search: Record<string, unknown>): { tab?: string } =>
-      typeof search.tab === "string" ? { tab: search.tab } : {},
+    // `?budgetScope=mine` opens the operator's PRIVATE book instead of the shared
+    // ledger on a co-hosted event. Two books on one screen that must never be
+    // confused, and the switch between them used to be component state: reloading
+    // dropped you back into the shared one with no way to link to the other (QA
+    // sweep run 3, r3:173). Only "mine" is spelled — the shared ledger is the
+    // default, and a default does not belong in a URL.
+    validateSearch: (search: Record<string, unknown>): { tab?: string; budgetScope?: "mine" } => ({
+      ...(typeof search.tab === "string" ? { tab: search.tab } : {}),
+      ...(search.budgetScope === "mine" ? { budgetScope: "mine" as const } : {}),
+    }),
   }),
   // The full settlement workspace. A route of its own rather than a tab: it has
   // its own sub-navigation and its own "Back to event" link, and the Settlements

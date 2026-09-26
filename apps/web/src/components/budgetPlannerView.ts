@@ -183,6 +183,28 @@ export interface PartitionableCostRow {
  * no longer had. The label is the one thing about a standing heading that does
  * not move.
  */
+/**
+ * A RENAMED HEADING KEEPS ITS PLACE ON THE SHEET (QA sweep run 3, r3:178).
+ *
+ * Reveals are tracked by LABEL — see `splitCostRows` for why the row's key cannot
+ * carry them — which means a heading revealed as "Other" and then NAMED stopped being
+ * revealed on the first keystroke. Measured: the row left the cost table mid-edit and
+ * came back as a chip under its new name. Typing the amount first kept it, because a
+ * figure makes the reveal irrelevant.
+ *
+ * So a rename moves the reveal with it. Nothing is written — a heading with no figure
+ * still has no line — and the row is created the moment it is given one, under the
+ * name the operator typed, which is what `changeCostLabel` already documents.
+ */
+export function carryRevealedHeading(
+  revealed: readonly string[],
+  from: string,
+  to: string,
+): string[] {
+  if (!revealed.includes(from)) return [...revealed];
+  return revealed.map((heading) => (heading === from ? to : heading));
+}
+
 export function splitCostRows<Row extends PartitionableCostRow>(
   costs: Row[],
   revealedHeadings: readonly string[],
