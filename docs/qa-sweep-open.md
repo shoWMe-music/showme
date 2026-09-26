@@ -36,7 +36,7 @@ stated.
 | r2:346 | Break-even held the derived fee fixed (65 where 48 is true) | `02ff39a` |
 | r2:368 | The split card overstated the take with no caption (4,410 vs 3,710) | `08b55e6` |
 | r2:804 | The act's card omitted the cash they collected, so it never reached its own headline | `5374e7e` |
-| r3:442 + r3:459 | A frame arrived and left the page asserting the opposite | pending |
+| r3:442 + r3:459 | A frame arrived and left the page asserting the opposite | `162785d` |
 
 **Corrected, not fixed:** r2:411 (inline Status "never saves") — run 3 found it does
 save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owed.
