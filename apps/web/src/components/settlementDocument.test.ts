@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchingSettlements } from "./settlementDocument";
+import { entitlementRules, matchingSettlements } from "./settlementDocument";
 
 /**
  * The Settlements screen's whole filtering rule (ClickUp `123qy9rngbp`).
@@ -59,5 +59,51 @@ describe("matchingSettlements", () => {
     // The failure mode worth pinning: a filter that falls open on a miss shows
     // the whole list and reads as "search does nothing".
     expect(titles("zzzz")).toEqual([]);
+  });
+});
+
+/**
+ * THE COLUMN HAS TO ADD UP TO ITS OWN HEADLINE (QA sweep run 2, 2026-09-26).
+ *
+ * The engine's `entitlement` is `deal lines + revenue you collected − costs fronted
+ * for you`. The card printed the first and the last, so a party who collected
+ * anything read a headline its rows could not reach: a SEK 33,600 headline over rows
+ * of 32,100 and −3,500, with the SEK 5,000 sponsorship they took at the door
+ * appearing nowhere. Verified against a live breakdown of the same shape:
+ * entitlement 31,500 = 30,000 + 5,000 − 3,500.
+ */
+describe("entitlementRules", () => {
+  const money = (minor: string) => `SEK ${(Number(minor) / 100).toLocaleString("en-IE")}`;
+
+  it("shows the money the party collected, so the rows reach the headline", () => {
+    const rules = entitlementRules(
+      {
+        entitlement: "3150000",
+        collected: "500000",
+        deductibles: "350000",
+        lines: [],
+      } as never,
+      "SEK",
+      money,
+    );
+
+    const collected = rules.find((rule) => rule.key === "collected");
+    expect(collected).toBeDefined();
+    expect(collected?.value).toBe("SEK 5,000");
+    expect(collected?.negative).toBeFalsy();
+
+    // Reads in the engine's own order: what you collected before what came off you.
+    const keys = rules.map((rule) => rule.key);
+    expect(keys.indexOf("collected")).toBeLessThan(keys.indexOf("deductibles"));
+  });
+
+  it("says nothing about collected cash when there is none", () => {
+    const rules = entitlementRules(
+      { entitlement: "3000000", collected: "0", deductibles: "0", lines: [] } as never,
+      "SEK",
+      money,
+    );
+
+    expect(rules.find((rule) => rule.key === "collected")).toBeUndefined();
   });
 });

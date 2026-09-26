@@ -283,6 +283,27 @@ export function entitlementRules(
       value: formatAmount(computed.residual),
     });
   }
+  /**
+   * CASH THIS PARTY ALREADY HOLDS — the row the column was missing.
+   *
+   * The engine's `entitlement` is `deal lines + revenue you collected − costs
+   * fronted for you`, and the card printed the first and the last. So a party who
+   * collected anything read a headline the rows beneath it could not reach:
+   * measured 2026-09-26, a SEK 33,600 headline over rows of 32,100 and −3,500, with
+   * the SEK 5,000 sponsorship they had taken at the door appearing nowhere. Three
+   * numbers, arithmetic for two of them — and it is the card an act reads to decide
+   * whether they were paid correctly.
+   *
+   * Placed before the deductions so the column reads in the order the engine adds
+   * it up.
+   */
+  if (computed.collected != null && computed.collected !== "0") {
+    rules.push({
+      key: "collected",
+      label: "Plus the money you collected on the night",
+      value: formatAmount(computed.collected),
+    });
+  }
   if (computed.deductibles != null && computed.deductibles !== "0") {
     rules.push({
       key: "deductibles",

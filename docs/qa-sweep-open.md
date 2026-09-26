@@ -45,7 +45,6 @@ save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owe
 
 | # | ID | What is wrong | State |
 |---|---|---|---|
-| 5 | r2:804 | The act's own settlement card contradicts itself, and quotes an agent commission SEK 500 above the one owed | open |
 | 6 | r3:442 | A deal confirmation reaches the bell and leaves the sentence beside it false | open |
 | 7 | r3:459 | An accepted invitation does not clear "Invite pending" on the inviter's open screen | open |
 
@@ -104,7 +103,13 @@ save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owe
   now withholds the figures it cannot compute rather than guessing. Three options are
   in the status doc for Ran. Items 1–2 above may be narrowed by the answer.
 - **Should a reimbursed cost reduce an agent's commissionable income?**
-  ClickUp `86cba8wtb`, status `re-do`. Item 12 touches it.
+  ClickUp `86cba8wtb`, status `re-do`. Items 12 and the second half of r2:804 both
+  turn on it. Measured today: the engine's commissionable base is
+  `entitlement + deductibles` (31,500 + 3,500 = 35,000 → SEK 3,500 at 10%), which is
+  what `commission-settlement.ts` and its test already assert — *a reimbursed cost
+  does not shrink the agent's commission*. The screen renders the stored figure
+  faithfully, so run 2's "SEK 500 too high" was two measurements either side of a
+  recompute, not a client defect. Nothing to fix until the base is decided.
 
 ## Deliberate — recorded, no work owed
 
