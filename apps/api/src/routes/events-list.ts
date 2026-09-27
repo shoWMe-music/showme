@@ -33,9 +33,17 @@ import { resolveImageUrl } from "../serialize/image";
 
 const EventParams = z.object({ id: z.string().uuid() });
 
-/** Keyset cursor over the `(created_at, id)` order — opaque to the client. */
+/**
+ * Keyset cursor over the `(event_date DESC NULLS LAST, id DESC)` order — opaque to the
+ * client (ClickUp `123qy9rpe3y`).
+ *
+ * `eventDate` is null for a show nobody has placed yet, which is a real state and sorts
+ * last. An older cursor carrying `createdAt` instead is REFUSED rather than honoured:
+ * decoding it against this comparison would page from the wrong place silently, and a
+ * cursor is a page token that lives for seconds — starting again is the cheaper failure.
+ */
 interface EventCursor {
-  createdAt: string;
+  eventDate: string | null;
   id: string;
 }
 
@@ -325,15 +333,29 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
           })()
         : undefined;
 
-      // `created_at` is timestamptz (microsecond) but the cursor round-trips
-      // through a JS Date (millisecond) — truncate the column to milliseconds so
-      // the keyset stays exact and never re-emits the boundary row. Bind the
-      // cursor values as ISO/UUID strings (postgres.js can't bind a Date param
-      // under a raw SQL comparison) with explicit casts.
-      const createdAtMillis = sql`date_trunc('milliseconds', ${schema.events.createdAt})`;
+      /**
+       * SHOW-DATE ORDER, newest night first (ClickUp `123qy9rpe3y`).
+       *
+       * Ran: the list is ordered by when a row was CREATED, which is an accident of data
+       * entry — an event typed in yesterday for next March sat above one typed last
+       * month for this Friday. `event_date` is a `date`, so no millisecond truncation is
+       * needed here; the cursor round-trips it as `yyyy-mm-dd`.
+       *
+       * The keyset has to say the null block out loud. Dated rows come first, newest
+       * down to oldest; undated ones follow. So "after the cursor" is:
+       *
+       *   from a DATED cursor   → an older dated row, or any undated row
+       *   from an UNDATED one   → we are already in the null block: a later id in it
+       */
       const decoded = cursor ? decodeCursor<EventCursor>(cursor) : null;
-      const afterCursor = decoded
-        ? sql`(${createdAtMillis}, ${schema.events.id}) > (${decoded.createdAt}::timestamptz, ${decoded.id}::uuid)`
+      // An older `{createdAt, id}` token carries no `eventDate` key at all. Treated as
+      // no cursor rather than as a null date, which would skip straight to the undated
+      // tail and silently hide every dated row.
+      const usableCursor = decoded && "eventDate" in decoded ? decoded : null;
+      const afterCursor = usableCursor
+        ? usableCursor.eventDate == null
+          ? sql`${schema.events.eventDate} is null and ${schema.events.id} < ${usableCursor.id}::uuid`
+          : sql`(${schema.events.eventDate} is null or (${schema.events.eventDate}, ${schema.events.id}) < (${usableCursor.eventDate}::date, ${usableCursor.id}::uuid))`
         : undefined;
 
       const rows = await database
@@ -350,11 +372,14 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
             afterCursor,
           ),
         )
-        .orderBy(asc(createdAtMillis), asc(schema.events.id))
+        // NULLS LAST: a show with no night is a draft nobody has placed, and leading a
+        // date-ordered list with the rows that have no date answers the question with
+        // the rows that cannot.
+        .orderBy(sql`${schema.events.eventDate} desc nulls last`, desc(schema.events.id))
         .limit(limit + 1);
 
       const { items, nextCursor } = paginate(rows, limit, (event) => ({
-        createdAt: event.createdAt,
+        eventDate: event.eventDate ?? null,
         id: event.id,
       }));
 

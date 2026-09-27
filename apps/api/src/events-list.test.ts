@@ -114,6 +114,60 @@ describe("GET /events — access-scoped list", () => {
     expect(ids.size).toBe(2); // never the stranger's event
   });
 
+  /**
+   * SHOW-DATE ORDER, AND THE CURSOR THAT HAS TO AGREE WITH IT (ClickUp `123qy9rpe3y`).
+   *
+   * The list used to be ordered by when a row was CREATED, which is an accident of data
+   * entry: an event typed in yesterday for next March sat above one typed last month for
+   * this Friday. The order and the keyset are one decision — sorting in the client would
+   * page wrongly the moment there is a second page — so both are asserted here, and the
+   * paging half is asserted one row at a time, which is the only way a keyset can be
+   * caught skipping or repeating.
+   */
+  it("orders by show date, newest night first, with undated shows last", async () => {
+    const caller = await seedMemberWithSet(
+      "order-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    // Seeded in an order that is NOT the answer, so a list that simply echoed
+    // insertion order would fail.
+    await seedHostedEvent("Middle", caller, "order-op", { eventDate: "2026-06-15" });
+    await seedHostedEvent("Undated", caller, "order-op");
+    await seedHostedEvent("Latest", caller, "order-op", { eventDate: "2027-03-01" });
+    await seedHostedEvent("Earliest", caller, "order-op", { eventDate: "2025-01-05" });
+
+    const listed = await app.inject({
+      method: "GET",
+      url: "/api/v1/events",
+      headers: auth("order-op"),
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().items.map((event: { title: string }) => event.title)).toEqual([
+      "Latest",
+      "Middle",
+      "Earliest",
+      "Undated",
+    ]);
+
+    // And the same order across page boundaries, one row at a time — including the
+    // step from the last dated row into the undated block, which is the join the
+    // keyset has to name explicitly.
+    const walked: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 4; page++) {
+      const url: string = cursor
+        ? `/api/v1/events?limit=1&cursor=${encodeURIComponent(cursor)}`
+        : "/api/v1/events?limit=1";
+      const response = await app.inject({ method: "GET", url, headers: auth("order-op") });
+      expect(response.statusCode).toBe(200);
+      walked.push(...response.json().items.map((event: { title: string }) => event.title));
+      cursor = response.json().nextCursor;
+    }
+    expect(walked).toEqual(["Latest", "Middle", "Earliest", "Undated"]);
+    expect(cursor).toBeNull();
+  });
+
   it("respects limit and returns a nextCursor when truncated", async () => {
     const caller = await seedMemberWithSet(
       "pg-op",

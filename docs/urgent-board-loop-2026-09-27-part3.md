@@ -204,3 +204,46 @@ Proven live on a second show seeded into Main Room on 2026-10-14: the card reads
 Room already has "Marlo Vance — Album Release" on this night. You can book it anyway."*
 with nothing touched, and opening the date field keeps the count at exactly one. Suites:
 biome 712 · web 330 · e2e 112.
+
+### `123qy9rpe3y` — the events list reads in show-date order
+
+**Verdict: real, and an API change rather than a UI tweak** — exactly as the audit says.
+The list orders by `(created_at, id)` and the keyset cursor is built on that tuple, so
+sorting in the client would page wrongly the moment there is a second page.
+
+**The decision it hides is the DIRECTION, which the ticket does not state.** Three
+readings, and the cost of each:
+
+1. **Ascending by date.** A diary read forwards — and page one is the oldest concluded
+   show the account ever had, which is the least useful thing to open on.
+2. **Upcoming first, then past.** What an operator actually wants, and it is a four-term
+   sort key (`date IS NULL`, `date < today`, then two conditional orderings). A keyset
+   cursor over that is genuinely awkward and easy to get subtly wrong.
+3. **Descending by date, undated last.** A diary read backwards: the furthest-committed
+   night first, scrolling back through the season into history. Every dated row is in one
+   run, so the keyset stays a two-column tuple.
+
+**Taken: (3).** It is the ordering the ticket asks for, it puts the nights somebody is
+working on near the top, and it keeps the cursor honest. (2) is better product and is
+worth doing when somebody asks for "what's next" specifically — it is written here rather
+than half-built.
+
+**Undated events sort LAST, not first.** A show with no night is a draft nobody has
+placed; leading a date-ordered list with the rows that have no date would answer the
+question with the rows that cannot.
+
+**The cursor changes shape, so an old one is refused rather than honoured.** A cursor is
+an opaque page token that lives for seconds; decoding `{createdAt, id}` against a
+`(event_date, id)` comparison would silently page from the wrong place, which is worse
+than starting again.
+
+**Built.** `(event_date DESC NULLS LAST, id DESC)`, with the keyset saying the null block
+out loud — from a dated cursor, "after" is an older dated row **or any undated one**; from
+an undated cursor we are already inside that block. Mutation-checked on both halves
+(nulls first → red; dropping the `is null` arm of the comparison → red), and the paging
+half is walked one row at a time, which is the only way a keyset can be caught skipping
+or repeating.
+
+Proven live: the list reads 6 Jan 2027 · 3 Dec 2026 · 14 Oct 2026 · 4 Oct 2026 · 20 May
+2026 — a diary backwards, where it used to read in the order the rows were typed in.
+Suites: biome 712 · api 1312 (1 new) · e2e 112.
