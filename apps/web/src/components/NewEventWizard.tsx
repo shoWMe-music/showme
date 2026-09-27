@@ -587,7 +587,22 @@ export function NewEventWizard({
   const currentKey = stepKeys[clampedIndex];
   const isLast = clampedIndex === stepKeys.length - 1;
 
-  const artistLabel = multiPerformer ? "Festival / event name" : "Artist / performer";
+  /**
+   * ONE QUESTION PER FIELD (ClickUp `123qy9rnf9d`: *"two fields, Artist / performer and
+   * Performer profile"*).
+   *
+   * They are two different questions and read as one. This field names the SHOW — it
+   * becomes `events.title`, which is what every screen, notification and public page
+   * calls the night. The picker below it links the ACT, which is what the deal is with
+   * and who appears on the bill.
+   *
+   * The multi-performer label has always said "Festival / event name", and the single
+   * one said "Artist / performer" — the same words as the picker under it, for a field
+   * holding something else. Naming both for what they hold is what tells the two apart;
+   * the act's name is still offered into the blank the moment a profile is linked, so
+   * nobody types it twice.
+   */
+  const artistLabel = multiPerformer ? "Festival / event name" : "Event name";
 
   // The agreement can only be stated once the wizard knows WHO it is with. That
   // is a linked performer profile: a typed name is nobody the settlement can
@@ -1384,6 +1399,13 @@ function DetailsStep(props: {
           placeholder={props.multiPerformer ? "e.g. Nordic Synth Festival" : "e.g. Nils Frahm"}
           style={bigField}
         />
+        {/* How the two fields relate, said once. Without it they read as the same
+            question asked twice, which is the ticket. */}
+        {!props.multiPerformer && (
+          <span style={{ display: "block", fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
+            What the night is called. Linking the act below fills it in.
+          </span>
+        )}
       </label>
 
       {/* Who is actually playing — asked in BOTH modes now, because a linked

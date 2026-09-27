@@ -161,3 +161,24 @@ terms as they stood — a second copy of the agreement, with no business on a li
 Mutation-checked both ways (the deal stops carrying it → red; the bell stops carrying it →
 red). Suites: biome 712 · api 1311 (2 new; `contacts` and `settlement` re-run alone after
 the port flake) · web 330.
+
+### `123qy9rnf9d` — the wizard asks two questions, and now says so
+
+**Verdict: half already built, and the half that was missing is the labels.** The
+duplicate TYPING is already handled: picking a performer profile fills the name field
+when it is blank, with the same "offered into a blank, never over what you typed" rule
+the venue prefill uses (`addSelection`). What survived is what Ran actually saw — two
+fields that read as the same question.
+
+They are not. The first names the **show** (it becomes `events.title`: what every screen,
+notification and public page calls the night); the picker links the **act** (who the deal
+is with and who is on the bill). The multi-performer label has always said "Festival /
+event name"; the single one said **"Artist / performer"** — the same words as the picker
+beneath it, over a field holding something else.
+
+So: it is called **"Event name"**, with one line saying how the two relate — *"What the
+night is called. Linking the act below fills it in."* No behaviour changed, nothing
+renamed in the data, and the act's name is still offered into the blank.
+
+Proven live: the step reads `EVENT NAME *` over that line, and picking **Neon Tide** in
+the picker fills the name field with "Neon Tide". Suites: biome 712 · web 330 · e2e 112.
