@@ -1,13 +1,6 @@
-import {
-  Button,
-  Checkbox,
-  Icon,
-  Input,
-  Modal,
-  Select,
-  type SelectOption,
-} from "@showme/design-system";
+import { Button, Checkbox, Icon, Input, Modal, Select } from "@showme/design-system";
 import type { ReactNode } from "react";
+import type { CalendarChoice } from "../lib/calendarChoice";
 import { DateTimeField } from "./DateTimeField";
 import { Eyebrow } from "./primitives";
 
@@ -26,18 +19,22 @@ export interface AvailabilityShareModalProps {
   open: boolean;
   onClose: () => void;
   /**
-   * The calendars this user has: their venues, and the ROOMS inside them —
-   * grouped, with an unselectable venue heading above each venue's rooms.
+   * VENUE, THEN ROOM — the two selects, and what each may offer (`lib/calendarChoice.ts`).
    *
-   * It used to be three strings ("Promoter events / Performer shows / Venue
-   * bookings"), which named the acting profile's role rather than any calendar.
-   * A calendar here is a thing that can be double-booked, which for a venue is a
-   * room: two rooms hold two shows on the same Friday, so each has its own free
-   * nights and the answer to "are you free on the 12th?" is per room.
+   * It used to be ONE select carrying both, venue names as disabled headings with rooms
+   * indented under them. Everything was reachable and nothing was operable: an indent is
+   * not a hierarchy you can use.
+   *
+   * (Before that it was three strings — "Promoter events / Performer shows / Venue
+   * bookings" — which named the acting profile's role rather than any calendar at all. A
+   * calendar is a thing that can be double-booked, which for a venue is a room: two rooms
+   * hold two shows on the same Friday, so "are you free on the 12th?" is answered per
+   * room.)
    */
-  calendars: Array<SelectOption | string>;
+  choice: CalendarChoice;
+  /** The chosen calendar — `CalendarSource.value`, which BOTH selects write. */
   calendar: string;
-  /** "The Nest — Basement": what the dates below are actually about. */
+  /** "The Nest · Basement": what the dates below are actually about. */
   calendarLabel?: string;
   onCalendarChange?: (calendar: string) => void;
   from: string;
@@ -64,7 +61,7 @@ export interface AvailabilityShareModalProps {
 export function AvailabilityShareModal({
   open,
   onClose,
-  calendars,
+  choice,
   calendar,
   calendarLabel,
   onCalendarChange,
@@ -100,15 +97,37 @@ export function AvailabilityShareModal({
       }
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <FieldLabel>Calendar</FieldLabel>
-          <Select
-            value={calendar}
-            onChange={(value) => onCalendarChange?.(value)}
-            options={calendars}
-            aria-label="Calendar"
-            placeholder="No calendars yet"
-          />
+        {/* Venue, then room — the same two-step the calendar's own filter uses, and both
+            halves write the ONE `calendar` value: a venue row means "this venue, all
+            rooms". There is no "All venues" row, because this names the subject of the
+            share rather than narrowing a view. */}
+        <div
+          style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12 }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <FieldLabel>Calendar</FieldLabel>
+            <Select
+              value={choice.calendarValue}
+              onChange={(value) => onCalendarChange?.(value)}
+              options={choice.calendarOptions}
+              aria-label="Calendar"
+              placeholder="No calendars yet"
+            />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <FieldLabel>Room / stage</FieldLabel>
+            {/* Disabled says WHY: a performer has one schedule, a venue may have no rooms
+                recorded, and a venue with exactly one room is named rather than offered —
+                "All rooms" and "Main Room" are the same set of nights. */}
+            <Select
+              value={calendar}
+              onChange={(value) => onCalendarChange?.(value)}
+              options={choice.roomOptions}
+              disabled={choice.roomsDisabled}
+              aria-label="Room or stage"
+              placeholder={choice.roomPlaceholder}
+            />
+          </div>
         </div>
 
         {/* `minmax(0, 1fr)`, not `1fr`: a bare `1fr` is `minmax(auto, 1fr)` and a

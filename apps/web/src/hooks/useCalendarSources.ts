@@ -3,7 +3,6 @@ import {
   getGetApiV1ProfilesIdStagesQueryOptions,
   useGetApiV1Profiles,
 } from "@showme/api-client";
-import type { SelectOption } from "@showme/design-system";
 import { type RoomId, WHOLE_VENUE, isPlaceProfile } from "@showme/shared";
 import { useQueries } from "@tanstack/react-query";
 import { useMemo } from "react";
@@ -72,11 +71,6 @@ export interface CalendarSource {
 
 export interface CalendarSourcesView {
   sources: CalendarSource[];
-  /** Ready for the DS `Select`, with an unselectable heading per multi-room venue. */
-  options: SelectOption[];
-  isPending: boolean;
-  /** Look one up by its `value`, falling back to the first real calendar. */
-  find: (value: string) => CalendarSource | undefined;
 }
 
 /** `profileId:room` — parsed nowhere, compared everywhere. */
@@ -85,11 +79,24 @@ function sourceValue(profileId: string, room: RoomId | typeof WHOLE_VENUE): stri
 }
 
 /**
- * The venue's own entry. Named "All rooms" rather than the venue's name because
- * the venue's name is the heading directly above it, and it means something
- * different from the rooms beneath: the venue is free while ANY room is free.
+ * The venue's own entry. Named "All rooms" rather than the venue's name because the venue
+ * is named by the select beside it, and this means something different from the rooms
+ * beneath: the venue is free while ANY room is free.
  */
 const WHOLE_VENUE_LABEL = "All rooms";
+
+/**
+ * "The Lantern Hall · Main Room" — the one full-name format, used wherever there is no
+ * venue named next to the room.
+ *
+ * A middot, and the room's own capitalisation. It used to be two em-dashed formats with
+ * the whole-venue one lowercased, which made the share modal's own heading read
+ * *"Available dates — The Lantern Hall — all rooms"* — two dashes doing two different
+ * jobs in one line.
+ */
+function fullLabelFor(profileName: string, roomLabel: string): string {
+  return `${profileName} · ${roomLabel}`;
+}
 
 /** A venue with no rooms recorded yet is one space, and says so plainly. */
 function calendarsForProfile(
@@ -130,14 +137,14 @@ function calendarsForProfile(
       ...base,
       value: sourceValue(profile.id, WHOLE_VENUE),
       label: WHOLE_VENUE_LABEL,
-      fullLabel: `${profile.name} — ${WHOLE_VENUE_LABEL.toLowerCase()}`,
+      fullLabel: fullLabelFor(profile.name, WHOLE_VENUE_LABEL),
       room: WHOLE_VENUE,
     },
     ...rooms.map((room) => ({
       ...base,
       value: sourceValue(profile.id, room.id),
       label: room.name,
-      fullLabel: `${profile.name} — ${room.name}`,
+      fullLabel: fullLabelFor(profile.name, room.name),
       room: room.id,
     })),
   ];
@@ -191,47 +198,5 @@ export function useCalendarSources(): CalendarSourcesView {
     [profileList, roomsByProfileId],
   );
 
-  /**
-   * Headings are disabled options rather than a nested structure: the DS `Select`
-   * has one flat list, and a disabled row is exactly what a group label is — it
-   * names the rows beneath it and cannot be chosen instead of them.
-   */
-  const options = useMemo<SelectOption[]>(() => {
-    const built: SelectOption[] = [];
-    for (const profile of profileList) {
-      const forProfile = sources.filter((source) => source.profileId === profile.id);
-      if (forProfile.length === 0) continue;
-      if (forProfile.length === 1) {
-        const [only] = forProfile;
-        if (only) built.push({ value: only.value, label: only.label });
-        continue;
-      }
-      built.push({
-        value: `heading:${profile.id}`,
-        label: profile.name,
-        disabled: true,
-        // Never selected, so it never needs to be found by typing.
-        searchText: "",
-      });
-      for (const source of forProfile) {
-        built.push({
-          value: source.value,
-          // A non-breaking-space indent (HTML collapses ordinary spaces).
-          // The indent is what says "this room is inside the venue above".
-          label: `\u00a0\u00a0${source.label}`,
-          // The heading is what puts a room in its building, and a filtered list
-          // may have dropped it — so each room stays searchable by venue name.
-          searchText: source.fullLabel,
-        });
-      }
-    }
-    return built;
-  }, [profileList, sources]);
-
-  return {
-    sources,
-    options,
-    isPending: profiles.isPending || roomQueries.some((query) => query.isPending),
-    find: (value) => sources.find((source) => source.value === value) ?? sources[0],
-  };
+  return { sources };
 }

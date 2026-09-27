@@ -1119,7 +1119,7 @@ export function Calendar() {
       <AvailabilityShareModal
         open={shareOpen}
         onClose={() => setShareOpen(false)}
-        calendars={calendarSources.options}
+        choice={share.choice}
         calendar={share.calendar}
         calendarLabel={share.calendarLabel}
         onCalendarChange={share.setCalendar}

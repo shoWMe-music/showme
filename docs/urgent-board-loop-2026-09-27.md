@@ -200,3 +200,76 @@ gesture chain (an `await` in between is what Safari refuses). Suites: biome clea
 
 **Item 1 status:** A, B1, B2a, B2b done — `123qy9rpqn0` is closed and `123qy9rpqp0` §3 is
 done. **C** (Venue-then-Room chooser) and **D** (which rooms are free per date) remain.
+**C — plan, written before building.** Verdict: **real, and web only.** Today one `Select`
+labelled "Calendar" carries venues *and* rooms in a single flat list: venue names as
+disabled headings, rooms indented under them with two non-breaking spaces
+(`useCalendarSources.ts:200-228`). It works, and it is exactly what Ran is objecting to —
+an indent is not a hierarchy you can operate.
+
+**Two selects, one piece of state.** `calendar` stays a single `CalendarSource.value`
+(`profileId:room` — *"parsed nowhere, compared everywhere"*). The venue select's option
+values are each profile's **whole-calendar** entry, so picking a venue simply *is*
+`setCalendar("<profile>:whole-venue")` and both selects write through the same setter.
+There is no second piece of state to keep in step — the rule the grid's own room select
+already follows (`useCalendarVenueFilter` reads and writes `hiddenRooms` rather than
+owning a copy of the answer).
+
+**The decision C hides: there is no "All venues" here.** The grid filter has one and
+should — a filter narrows a view. This select names the **subject** of a share: one
+`profileSlug` in the snapshot, one `POST /profiles/:id/availability-share`. "All venues"
+would have to either share nothing or silently pick one, so the first row is a venue, not
+an "all".
+
+**Derivation goes in `lib/calendarChoice.ts`** — pure and tested, rather than inside the
+hook: `useAvailabilityShare` is already 345 lines, and which rooms may be chosen is a
+rule, not state.
+
+**What this deletes:** `useCalendarSources.options` and `.find`. `options` had exactly one
+caller (this modal) and `find` had none, so the heading-and-indent builder goes with the
+list it built.
+
+**The disabled room select says why, every time** (the pattern the grid established): a
+non-venue profile → "One schedule"; a venue with no rooms recorded → "No rooms recorded";
+a venue with exactly one room → that room's name, because "All rooms" and "Main Room" are
+the same set and offering both is furniture.
+
+**One label format.** `fullLabel` becomes `Venue · Room` / `Venue · All rooms`; it was two
+em-dashed formats, which made the modal's own heading read *"Available dates — The Lantern
+Hall — all rooms"*. Ran's wording is "The test venue · All rooms".
+
+**Re-checked and deliberately left alone:** `docs/codebase-reuse-audit.md` **R5** — this
+hook's private clipboard helper. The recorded reason still holds: adopting
+`useCopyToClipboard` changes the toast wording, which is a user-visible change nobody
+asked for, and C is not the commit to smuggle it into.
+
+**C — venue, then room. Built.** Two selects where there was one mixed list, over the one
+`calendar` value: the venue rows ARE each profile's whole-calendar entry, so both controls
+write through `setCalendar` and there is no second state to fall out of step. The rule —
+which rooms may be offered, and what the room select says when it cannot offer any — is in
+`lib/calendarChoice.ts` with eight tests; mutation-checked three ways (an "All venues" row
+→ 3 red; offering a lone room as a choice → 1 red; the venue select following the room
+instead of the venue → 1 red).
+
+Proven live on the stack. As the operator: **Calendar** "The Lantern Hall", **Room /
+stage** "All rooms", the room list offering *only* that venue's `All rooms · Back Room ·
+Main Room`, and picking **Back Room** leaves the venue select reading "The Lantern Hall"
+while the heading becomes *"Available dates — The Lantern Hall · Back Room"*. As
+performer.a: **Marlo Vance**, room select **disabled** reading "One schedule". At 360px
+the pair fits the same two-column row as From/To
+(`docs/screenshots/urgent-loop-2026-09-27/c-venue-then-room-360.png`).
+
+**Deleted with it:** `useCalendarSources.options` and `.find` — the heading-and-indent
+builder had exactly one caller and `find` had none. `CalendarSourcesView` is now
+`{ sources }`.
+
+**Found on the way — and it was mine.** `biome check .` was **not** clean at `92e5108`:
+the staleness `useEffect` I added there trips `useExhaustiveDependencies` (its only
+dependency is one it never reads), and my "biome clean" line for that commit was wrong —
+I had linted the paths I edited, not the repo. Fixed properly rather than suppressed: the
+link is now stored **with the snapshot it was minted from** and read back only while that
+is still the snapshot on screen, so going stale is a comparison during render instead of
+an effect that has to fire. Same behaviour, no effect, no ignore comment. Repo-wide biome
+is clean at 708 files.
+
+Suites: biome 708 clean · web 311 (8 new) · api 1304 (`shares.test.ts` re-run alone after
+the port flake) · e2e 112.

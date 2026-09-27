@@ -10,10 +10,11 @@ import {
   isDateTaken,
   occupiedDates,
 } from "@showme/shared";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { dayKey } from "../components/calendarGrid";
 import { getActiveProfileId } from "../lib/activeProfile";
 import type { AvailabilitySnapshot } from "../lib/availabilityShareLink";
+import { type CalendarChoice, calendarChoice } from "../lib/calendarChoice";
 import { errorMessage } from "../lib/errors";
 import { formatDayWithWeekday } from "../lib/format";
 import { publicAvailabilityTokenUrl } from "../lib/publicSite";
@@ -122,10 +123,12 @@ function bookingsFor(
 }
 
 export interface AvailabilityShareView {
-  /** The selected calendar's `CalendarSource.value`. */
+  /** The selected calendar's `CalendarSource.value` — what BOTH selects write. */
   calendar: string;
   setCalendar: (calendar: string) => void;
-  /** "The Nest — Basement" — what this list is actually about. */
+  /** The two-step chooser built over that one value: a venue, then a room of it. */
+  choice: CalendarChoice;
+  /** "The Nest · Basement" — what this list is actually about. */
   calendarLabel: string;
   from: string;
   setFrom: (value: string) => void;
@@ -185,6 +188,17 @@ export function useAvailabilityShare(
   // The recorded blocks belong to the profile being SHARED, which is not always
   // the acting one — an operator with two venues shares whichever they picked.
   // Asked for the share WINDOW, not for the month the grid happens to show.
+  /**
+   * VENUE, THEN ROOM — two selects over the one `calendar` value above.
+   *
+   * Which rooms may be chosen is a rule rather than state, so it lives in
+   * `lib/calendarChoice.ts` where it can be asserted: the venue select's rows are each
+   * profile's whole-calendar entry, so picking a venue IS "this venue, all rooms" and both
+   * controls write through `setCalendar`. There is deliberately no "All venues" row — a
+   * share names one profile.
+   */
+  const choice = useMemo(() => calendarChoice(sources, selected), [sources, selected]);
+
   const availability = useGetApiV1ProfilesIdAvailability(
     selected?.profileId ?? "",
     { from, to },
@@ -261,11 +275,16 @@ export function useAvailabilityShare(
    * moment the form describes something else — a changed window or an unticked Saturday
    * means the token points at a snapshot that is no longer on screen, and a copied stale
    * link is worse than no link because nothing about it looks wrong.
+   *
+   * So the link is kept WITH the snapshot it was minted from, and read back only while
+   * that is still the snapshot on screen. Going stale is then a comparison made during
+   * render rather than an effect that has to remember to fire — which is also what stops
+   * the reset being a `useEffect` whose only dependency it never reads.
    */
-  const [shareLink, setShareLink] = useState("");
-  useEffect(() => {
-    setShareLink("");
-  }, [snapshot]);
+  const [minted, setMinted] = useState<{ snapshot: AvailabilitySnapshot; link: string } | null>(
+    null,
+  );
+  const shareLink = minted && minted.snapshot === snapshot ? minted.link : "";
 
   const createShare = usePostApiV1ProfilesIdAvailabilityShare();
 
@@ -279,6 +298,7 @@ export function useAvailabilityShare(
   return {
     calendar: selected?.value ?? "",
     setCalendar,
+    choice,
     calendarLabel: selected?.fullLabel ?? "",
     from,
     setFrom,
@@ -332,7 +352,7 @@ export function useAvailabilityShare(
         {
           onSuccess: ({ token }) => {
             const link = publicAvailabilityTokenUrl(token);
-            setShareLink(link);
+            setMinted({ snapshot, link });
             copyToClipboard(link, "Availability link created and copied");
           },
           onError: (error) =>
