@@ -176,3 +176,36 @@ Proven live on all six seeded kinds, against the sweep's own table:
 
 Suites: biome 718 · api **1342** (4 new; `performance-reports` lost to the Testcontainers
 flake and green alone) · web 338 · e2e 112.
+
+### QA4-8, first half — a share of a cancelled show read as a live booking · **FIXED**
+
+The viewer printed *"THE SHOW · Marlo Vance — Album Release · 14 Oct 2026 · Doors 19:00 ·
+On stage 20:00"* with nothing anywhere saying the night was off, while its own footer
+promises *"This page reads the event as it stands right now — it is not a copy."* The
+public event page has always handled this (a cancelled event 404s from
+`GET /public/events/:id`); a share is addressed to somebody ON the bill, so it says so
+instead of vanishing.
+
+The API already served `event.status` in the document — the viewer never read it. A banner
+above the grid rather than a row inside it: a reader scanning a share for their set time
+does not read every row, and this is the one fact that makes the rest of them moot.
+
+**Proven live on one share page, both halves of QA4-8 at once.** A protected share of the
+cancelled album release, opened as `performer.a@` through the real OTP: the card now leads
+with *"This show has been cancelled. The details below are what was planned…"*, and after
+attaching a house document as the operator, the same page — which reads live — lists
+**Tech Rider 2026** *and* **The Lantern Hall — House Rules**, which is the sentence the
+dialog has been selling all along.
+
+## Still open from run 4, and why
+
+| Finding | Why it is not fixed here |
+|---|---|
+| **QA4-2** (major) a co-host can rename and CANCEL the host's show | **A decision, not a defect.** `event-delete.ts` says *"the show is not theirs to end"* and the date move is already protected by a change request every party must answer — so the sweep's argument is strong. But a co-promoter legitimately calling off a night they co-produce would be blocked, and the mechanism that would fix it properly (a cancel REQUEST, like the date one) is a feature. Recommendation: require the host profile to cancel, mirroring delete. **Ran's call.** |
+| **QA4-5** (major) the co-host's Budget Planner prints a break-even it promises to leave out | Real, and in the settlement/planner surface whose vocabulary session (`123qy9rng6d`) is explicitly owed before more copy is written there. |
+| **QA4-7** (major) an invite never attaches the act's agent, and the agent is never told | The outbound invite chain (item 2 of this loop). A real gap, separate from what was built today, and the biggest of the four left. |
+| **QA4-10 … QA4-20** (minors + cosmetics) | Queued behind the remaining §2/§5 items. None blocks a journey; each is named in the sweep report with its route and account. |
+
+**The seed after this iteration** is mutated again (the album release is cancelled and
+carries an operator rider and a share link). A `pnpm dev` restart re-seeds; nothing should
+be quoted from the running database without one.

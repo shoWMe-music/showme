@@ -93,6 +93,33 @@ export function ShareViewer({ token }: { token: string }) {
 
 type ShareViewerState = ReturnType<typeof useShareViewer>;
 
+/**
+ * A cancelled show, on a page that is otherwise about a night going ahead.
+ *
+ * Deliberately a banner rather than a line in the grid beside "Date": a reader
+ * scanning a share for their set time does not read every row, and this is the one
+ * fact that makes the rest of them moot. It is also the reason the surrounding page
+ * says nothing else about status — a live show needs no badge saying it is live.
+ */
+function ShareCancelledNotice() {
+  return (
+    <p
+      style={{
+        margin: 0,
+        padding: "10px 12px",
+        borderRadius: 8,
+        border: "1px solid var(--danger, #d4483f)",
+        color: "var(--text)",
+        fontSize: 13,
+        lineHeight: 1.5,
+      }}
+    >
+      <strong>This show has been cancelled.</strong> The details below are what was planned — the
+      night is not going ahead. Ask the operator if you need to know why.
+    </p>
+  );
+}
+
 function ShareDocumentBody({
   document,
   share,
@@ -119,6 +146,15 @@ function ShareDocumentBody({
 
       {document.event && (
         <ShareSectionCard {...sectionProps("event", "The show", "the show")}>
+          {/* THE NIGHT IS OFF, said before anything else about it — QA sweep run 4,
+              QA4-8. A share of a cancelled show read exactly like a share of a live
+              booking: title, date, doors, on stage, with nothing anywhere saying the
+              show had been called off. The page's own promise one card up is *"This
+              page reads the event as it stands right now — it is not a copy"*, and
+              this was the one fact it left out. The public event page has always
+              handled it (a cancelled event 404s from `GET /public/events/:id`); a
+              share is addressed to somebody on the bill, so it says so instead. */}
+          {document.event.status === "cancelled" && <ShareCancelledNotice />}
           <div style={fieldGridStyle}>
             <KeyValueRow label="Event" value={document.event.title} />
             <KeyValueRow label="Date" value={formatDay(document.event.eventDate)} />
