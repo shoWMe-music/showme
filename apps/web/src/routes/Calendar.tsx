@@ -3,7 +3,7 @@ import {
   getGetApiV1CalendarQueryKey,
   useGetApiV1Calendar,
 } from "@showme/api-client";
-import { Icon, Select, type Status, useToast } from "@showme/design-system";
+import { Icon, STATUS_COLOR, Select, type Status, useToast } from "@showme/design-system";
 import { WHOLE_VENUE } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -73,13 +73,14 @@ const TYPE_TO_STATUS: Record<string, Status> = {
   task: "task",
   appointment: "task",
   note: "draft",
-  // Imported entries take the muted `concluded` tint: they are the one kind on
-  // this grid that is NOT shoWMe's, and reading as background is exactly right
-  // for something that occupies a night without being a show. The palette is
-  // fixed by the design system and every hue is already spoken for, so the tint
-  // is shared and the WORD does the telling apart — the same trade this map
-  // already makes for appointments (see below).
-  external: "concluded",
+  // Imported entries have their own tint now (ClickUp `123qy9rpdum`). They used to
+  // share `concluded`'s warm grey on the reasoning that an imported entry is
+  // background and every hue was already spoken for — so the word did the telling
+  // apart. Ran read the two dots as one, and he was right: they were the same value.
+  // `external` is a cool slate, picked by rendering four candidates into this very
+  // legend (`design-system/src/lib/status.ts`), which keeps it background without
+  // making it another status's colour.
+  external: "external",
 };
 
 /** What to CALL each calendar-item kind. Separate from `TYPE_TO_STATUS` because
@@ -135,7 +136,11 @@ const STATUS_FILTER_OPTIONS: { key: string; label: string; color: string }[] = [
   // Same reasoning as Draft: imported entries are real rows on the grid, and a
   // filter that cannot name what is on screen is a filter that hides it with no
   // way back. Not added to LEGEND, which is verbatim from the prototype.
-  { key: "External", label: "External", color: "#B8A99B" },
+  //
+  // The colour is READ from the palette rather than repeated as a hex: this chip and
+  // the dot on the grid are the same statement about the same rows, and the two
+  // disagreeing is precisely how `external` and `concluded` came to be one colour.
+  { key: "External", label: "External", color: STATUS_COLOR.external.fg },
 ];
 
 /** Matches a bare calendar date — what a Postgres `date` column serialises to. */

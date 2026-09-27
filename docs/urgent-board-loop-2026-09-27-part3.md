@@ -274,3 +274,29 @@ Mutation-checked (the roster forgets the genres → red). Proven live: the bill 
 *"Marlo Vance · The Lantern Hall — 400 cap. · Nordic folk · Ambient"*, and Neon Tide,
 who has named none, shows the venue line alone. Suites: biome 712 · api 1313 (1 new) ·
 web 330 · e2e 112.
+
+### `123qy9rpdum` — External gets a hue of its own
+
+**Verdict: real, and the audit's correction stands — the two dots WERE the same value.**
+`TYPE_TO_STATUS.external` mapped to `concluded`, deliberately: an imported entry is
+background, the palette had every hue spoken for, so the tint was shared and the WORD did
+the telling apart. Ran read them as one colour because they were one colour (`#B8A99B`).
+
+**Picked by rendering, not by taste** — the method `showday`'s own comment sets. Four
+candidates were drawn into the real legend on both grounds and compared
+(`docs/screenshots/urgent-loop-2026-09-27/external-hue-candidates.png`):
+
+| Candidate | Verdict |
+|---|---|
+| **A · cool slate `#8FA3B8`** | **Taken.** Cool where both greys are warm, so it is unmistakable beside `concluded` and `draft`, and far from the task cyan and the task blue. Still a neutral — which is what "not shoWMe's" should look like |
+| B · deeper slate `#7E93A8` | Fine, but sits closer to `draft`'s weight on the dark ground for no gain |
+| C · light blue-grey `#9BA8B4` | Almost the same LIGHTNESS as `concluded` — the one dot it has to differ from |
+| D · steel `#6E8CA0` | Drifts into the blue the tasks already own (`#6FA8E0`) |
+
+`external` is a `Status` member now, so the chip, the grid tint and the filter all read
+one value; the filter's colour is **read from the palette rather than repeated as a hex**,
+since two copies drifting apart is exactly how this started.
+
+Proven live: on the calendar's Status filter, External renders `rgb(143, 163, 184)` and
+Concluded `rgb(184, 169, 155)` — two different dots where there was one. Suites: biome
+712 · web 330 · e2e 112.

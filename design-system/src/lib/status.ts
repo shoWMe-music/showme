@@ -18,6 +18,7 @@ export const STATUSES = [
   "draft",
   "task",
   "showday",
+  "external",
 ] as const;
 
 export type Status = (typeof STATUSES)[number];
@@ -32,6 +33,7 @@ export const STATUS_LABEL: Record<Status, string> = {
   draft: "Draft",
   task: "Task",
   showday: "Show day",
+  external: "External",
 };
 
 /** Exact hue + `.14` tint fill for each status, verbatim from the source. */
@@ -60,6 +62,23 @@ export const STATUS_COLOR: Record<Status, { fg: string; tint: string }> = {
      nearest neighbour is the calendar's Appointment magenta, and mistaking "show
      day" for "you have something on today" costs nobody anything. */
   showday: { fg: "#FF4FA3", tint: "rgba(255,79,163,.14)" },
+  /* Cool slate — an entry imported from somebody else's calendar (ClickUp
+     `123qy9rpdum`), and the second hue chosen by rendering rather than by taste.
+
+     It shared `concluded`'s warm grey (#B8A99B) deliberately: an imported entry is
+     background, and the palette had every hue spoken for, so the WORD did the telling
+     apart. Ran read the two dots as one and he is right that they are — they were
+     literally the same value.
+
+     Four candidates were drawn into the real legend, on both grounds, and compared
+     (`docs/screenshots/urgent-loop-2026-09-27/external-hue-candidates.png`): this slate,
+     a deeper one, a lighter blue-grey and a steel. The light blue-grey sits at almost
+     the same LIGHTNESS as `concluded`, which is the one dot it has to differ from; the
+     steel drifts into the blue the tasks already own (#6FA8E0). This one is cool where
+     both greys are warm — unmistakable beside `concluded` and `draft` — while staying a
+     neutral rather than claiming a brand hue, which is what "not shoWMe's" should look
+     like. */
+  external: { fg: "#8FA3B8", tint: "rgba(143,163,184,.14)" },
 };
 
 /**
