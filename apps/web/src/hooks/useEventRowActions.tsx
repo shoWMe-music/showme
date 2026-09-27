@@ -7,11 +7,13 @@ import {
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import type { ConfirmDialogProps } from "../components/ConfirmDialog";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import type { EventCancelModalProps } from "../components/EventCancelModal";
 import type { EventMenuItem } from "../components/EventRowMenu";
+import { usePublishToggle } from "../components/usePublishToggle";
 import { errorMessage } from "../lib/errors";
 import { type EventRowMenuKey, eventRowMenuKeys } from "./eventRowMenu";
 
@@ -65,6 +67,18 @@ import { type EventRowMenuKey, eventRowMenuKeys } from "./eventRowMenu";
  * The reason is REQUIRED by the dialog and optional at the API, which is deliberate
  * and explained in `components/EventCancelModal.tsx`.
  */
+/**
+ * What the SCREEN needs to say about itself.
+ *
+ * `onDeleted` exists because a list can refresh in place and a workspace cannot: the
+ * event manager is standing ON the row it just destroyed, and every query on that page
+ * would 404 in turn while the operator watched. The list passes nothing; the manager
+ * passes a navigation away (ClickUp `123qy9rng56`).
+ */
+export interface EventRowActionOptions {
+  onDeleted?: (eventId: string) => void;
+}
+
 export interface EventRowActions {
   /** File it away. `title` only names it in the toast. */
   archive: (eventId: string, title: string) => void;
@@ -89,6 +103,8 @@ export interface EventRowActions {
     title: string;
     status?: string;
     archived?: boolean;
+    /** Whether the public page is up — decides which way the publish entry reads. */
+    published?: boolean;
     /**
      * The caller's OWN capabilities on this event, off the list row
      * (`ListEventResponse`). Optional so a caller that has not got them yet — a
@@ -104,8 +120,10 @@ export interface EventRowActions {
   cancelModalProps: EventCancelModalProps;
 }
 
-export function useEventRowActions(): EventRowActions {
+export function useEventRowActions({ onDeleted }: EventRowActionOptions = {}): EventRowActions {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const publishing = usePublishToggle();
   const toast = useToast();
   const confirmation = useConfirmDialog();
   const [pendingEventId, setPendingEventId] = useState<string | null>(null);
@@ -171,6 +189,8 @@ export function useEventRowActions(): EventRowActions {
         await deleteApiV1EventsId(eventId, {});
         refreshEventLists();
         toast.success(`"${title}" is gone.`);
+        // Before anything else re-renders: see `EventRowActionOptions.onDeleted`.
+        onDeleted?.(eventId);
       } catch (error) {
         // The server's sentence, verbatim — it names the settlement, the signed
         // agreement or the party that stands in the way, which is the only thing
@@ -180,7 +200,9 @@ export function useEventRowActions(): EventRowActions {
         setPendingEventId(null);
       }
     },
-    [refreshEventLists, toast],
+    // `onDeleted` is destructured at the parameter rather than read off an `options`
+    // object, so this dependency is the CALLBACK and not a fresh literal every render.
+    [refreshEventLists, toast, onDeleted],
   );
 
   /**
@@ -283,6 +305,7 @@ export function useEventRowActions(): EventRowActions {
       title: string;
       status?: string;
       archived?: boolean;
+      published?: boolean;
       capabilities?: readonly string[];
     }): EventMenuItem[] => {
       const inFlight = pendingEventId === event.id;
@@ -292,6 +315,31 @@ export function useEventRowActions(): EventRowActions {
       // here, beside the callbacks they fire. The split is what let the rule be
       // tested after QA4-9 without dragging Firebase into the test run.
       const items: Record<EventRowMenuKey, EventMenuItem> = {
+        // The two READS, from `123qy9rng56`'s list of quick actions. Neither asks a
+        // question first: publishing is one press with its own capability, and the
+        // settlement is a page.
+        publish: {
+          key: "publish",
+          label: event.published ? "Unpublish" : "Publish",
+          onSelect:
+            inFlight || publishing.isPending
+              ? undefined
+              : () => publishing.toggle(event.id, event.published === true),
+          refusal: inFlight || publishing.isPending ? "Working on it…" : undefined,
+          hint:
+            inFlight || publishing.isPending
+              ? undefined
+              : event.published
+                ? "Takes the public event page down. The link keeps working and reads “not public”."
+                : "Puts the public event page up. Anyone with the link can open it and RSVP.",
+        },
+        settlement: {
+          key: "settlement",
+          label: "Settlement",
+          onSelect: () =>
+            navigate({ to: "/events/$eventId/settlement", params: { eventId: event.id } }),
+          hint: "The money for this night — what each party is owed, and what has moved.",
+        },
         unarchive: {
           key: "unarchive",
           label: "Unarchive",
@@ -329,7 +377,7 @@ export function useEventRowActions(): EventRowActions {
 
       return eventRowMenuKeys(event).map((key) => items[key]);
     },
-    [archive, unarchive, askToCancel, askToDelete, pendingEventId],
+    [archive, unarchive, askToCancel, askToDelete, pendingEventId, publishing, navigate],
   );
 
   return {

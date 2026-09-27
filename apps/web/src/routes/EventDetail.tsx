@@ -23,6 +23,7 @@ import {
   Icon,
   type Status,
   TabPanels,
+  useToast,
 } from "@showme/design-system";
 import { eventParticipantRoleLabel, humanizeEnumValue } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
@@ -47,6 +48,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CostSplitModal } from "../components/CostSplitModal";
 import { CurrencyPeekControl } from "../components/CurrencyPeek";
 import { DateText } from "../components/DateText";
+import { EventCancelModal } from "../components/EventCancelModal";
 import { EventChangeRequestBanner } from "../components/EventChangeRequestBanner";
 import { EventCollaboratorEditModal } from "../components/EventCollaboratorEditModal";
 import { EventCollaboratorInviteModal } from "../components/EventCollaboratorInviteModal";
@@ -71,10 +73,12 @@ import { ErrorState, LoadingState } from "../components/states";
 import { useBudgetEditor } from "../components/useBudgetEditor";
 import { type EventTicketTier, useBudgetSeed } from "../components/useBudgetSeed";
 import { useBudgetToolbar } from "../components/useBudgetToolbar";
+import { publicEventPageUrl } from "../components/useEventPublishing";
 import { usePerformingRightsTerritory } from "../components/usePerformingRightsTerritory";
 import { useEventChangeRequest } from "../hooks/useEventChangeRequest";
 import { useEventCollaborators } from "../hooks/useEventCollaborators";
 import { useEventPermissionSets } from "../hooks/useEventPermissionSets";
+import { useEventRowActions } from "../hooks/useEventRowActions";
 import { formatDay } from "../lib/format";
 import { toMinorUnits } from "../lib/moneyUnits";
 import { eventDisplayStatus } from "../lib/status";
@@ -182,6 +186,23 @@ export function EventDetail() {
    */
   const changeRequest = useEventChangeRequest(eventId);
 
+  const detailToast = useToast();
+  const rowActions = useEventRowActions({
+    onDeleted: () => navigate({ to: "/events" }),
+  });
+
+  /** The public page's address, copied without leaving the screen. */
+  const copyPublicLink = async () => {
+    try {
+      await navigator.clipboard.writeText(publicEventPageUrl(eventId));
+      detailToast.success("Link copied");
+    } catch {
+      // Clipboard access can be refused (permissions, an insecure origin). Say so
+      // rather than failing silently — the address is also on the Event Information card.
+      detailToast.error("Couldn't copy — the link is on the Event Information card.");
+    }
+  };
+
   if (isPending) return <LoadingState label="Loading event" />;
   if (isError) return <ErrorState error={error} title="Couldn't load this event" />;
 
@@ -283,6 +304,17 @@ export function EventDetail() {
   // the PATCH and the DELETE on `/events/:id/participants/:pid` authorize.
   const canManageParticipants = capabilities.includes("participants.manage");
 
+  /**
+   * The row menu's actions, reused whole (`123qy9rng56`). `onDeleted` is the one thing
+   * this screen needs that the list does not: the workspace is standing on the event it
+   * just destroyed, so it has to leave rather than re-render into a wall of 404s.
+   *
+   * ABOVE the `isPending` / `isError` guards below, with every other hook. Written under
+   * them first, which React answered with *"Rendered more hooks than during the previous
+   * render"* the moment the event finished loading — the screen renders twice, and the
+   * second pass reached two hooks the first had returned before. Caught by opening the
+   * page; neither the typecheck nor the unit suite can see it.
+   */
   const tabs: EventTab[] = [
     { key: "todo", label: "To Do" },
     ...(canSeeBudget ? [{ key: "budget", label: "Budget Planner" }] : []),
@@ -456,6 +488,39 @@ export function EventDetail() {
           >
             Share &amp; Export
           </Button>
+          {/* THE ⋮ RAN ASKED FOR (ClickUp `123qy9rng56`: *"add the three dots UI on the
+              top right side of the event manager"*).
+              
+              It draws the SAME menu the events list row draws, from the same hook — so
+              archive, cancel, delete and publish cannot mean one thing in the list and
+              another here, and each is offered only to a reader who holds the capability
+              for it. Two of his five entries are missing on purpose and the loop doc says
+              why: Duplicate and Make recurring are features (a copy rule plus a date
+              flow; a recurrence model the schema has no column for), not menu items.
+              
+              "Share event link" is here rather than in the shared menu because it is the
+              only entry that is about this SCREEN's event rather than about a row — and
+              the list has the link in its own column already. */}
+          <EventRowMenu
+            label={`Actions for ${event.title}`}
+            items={[
+              ...rowActions.menuItems({
+                id: event.id,
+                title: event.title,
+                status: event.status,
+                published: event.published,
+                capabilities,
+              }),
+              {
+                key: "share-link",
+                label: "Share event link",
+                onSelect: () => void copyPublicLink(),
+                hint: event.published
+                  ? "Copies the public page's address."
+                  : "Copies the address the public page WILL have — it is not up yet.",
+              },
+            ]}
+          />
         </div>
       </div>
 
@@ -584,6 +649,12 @@ export function EventDetail() {
         fullControlPermissionSetId={fullControlPermissionSetId}
         initialRole={inviteRole}
       />
+
+      {/* The ⋮'s own two dialogs (`123qy9rng56`): the delete confirmation and the cancel
+          reason, both raised by the same hook the events list uses — so the wording of
+          the most destructive question in the product is written once. */}
+      <ConfirmDialog {...rowActions.confirmDialogProps} />
+      <EventCancelModal {...rowActions.cancelModalProps} />
     </>
   );
 }

@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { formatDayWithWeekday } from "../lib/format";
 import type { CalendarEvent } from "./CalendarEventChip";
 import { PickerPopoverPanel } from "./PickerPopoverPanel";
-import { useCalendarPublishToggle } from "./useCalendarPublishToggle";
+import { usePublishToggle } from "./usePublishToggle";
 
 /** The little card that hangs off a calendar chip when you click it: what this
  * entry is, when it is, who it involves — and, for a real event, the way through
@@ -59,7 +59,7 @@ export function CalendarEntryPreview({
   panelRef,
   onOpenEvent,
 }: CalendarEntryPreviewProps) {
-  const publishing = useCalendarPublishToggle();
+  const publishing = usePublishToggle();
   /**
    * WHO GETS THE PUBLISH BUTTON — the three conditions the API itself applies, asked
    * here so the popover never offers a press it knows will be refused (the lesson of

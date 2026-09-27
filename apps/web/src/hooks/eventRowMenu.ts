@@ -22,6 +22,8 @@
 export interface EventRowMenuSubject {
   status?: string;
   archived?: boolean;
+  /** Whether the show has a public page right now — decides which way the entry reads. */
+  published?: boolean;
   /**
    * The caller's OWN capabilities on this event, from the list row
    * (`ListEventResponse.capabilities`). Absent means "not known", which resolves to
@@ -32,7 +34,13 @@ export interface EventRowMenuSubject {
 }
 
 /** The entries, in the order the menu draws them. */
-export type EventRowMenuKey = "unarchive" | "cancel" | "archive" | "delete";
+export type EventRowMenuKey =
+  | "publish"
+  | "settlement"
+  | "unarchive"
+  | "cancel"
+  | "archive"
+  | "delete";
 
 /**
  * ORDER IS THE LADDER, and it differs by shelf.
@@ -54,8 +62,32 @@ export function eventRowMenuKeys(event: EventRowMenuSubject): EventRowMenuKey[] 
   // Cancelling is a `PATCH /events/:id`; deleting is `DELETE /events/:id`.
   const mayCancel = capabilities.includes("event.edit") && !cancelled;
   const mayDelete = capabilities.includes("event.delete") && (cancelled || Boolean(event.archived));
+  /*
+   * PUBLISH (ClickUp `123qy9rng56`) — the same three questions the API asks, so the menu
+   * never offers a press it knows will be refused. `event.publish` is the capability;
+   * only a CONFIRMED show has a public page (A-22), which is why an already-published
+   * night can still be taken down while a pending one is offered nothing.
+   */
+  const mayPublish =
+    capabilities.includes("event.publish") &&
+    (event.published === true || event.status === "confirmed");
+  /*
+   * SETTLEMENT is a navigation, so the question is only whether the reader has anything
+   * to see there. `settlement.view.own` is the floor every party holds — a performer
+   * reads their own line, an operator reads the pool — so it is the honest gate, and a
+   * reader without it would land on a 403.
+   */
+  const maySettle = capabilities.includes("settlement.view.own");
 
+  /*
+   * The READING actions first, then the ladder. Publishing and opening the settlement are
+   * things you do WITH a show; cancelling, filing and destroying are things you do TO it,
+   * and the ladder below is ordered by how hard each is to undo. Mixing the two orders
+   * would put "Delete permanently…" next to "Settlement".
+   */
   const keys: EventRowMenuKey[] = [];
+  if (mayPublish) keys.push("publish");
+  if (maySettle) keys.push("settlement");
   if (event.archived) keys.push("unarchive");
   if (mayCancel) keys.push("cancel");
   // Archiving is the one entry that needs no capability: it is written on the

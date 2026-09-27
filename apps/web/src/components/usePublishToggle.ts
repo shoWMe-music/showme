@@ -9,14 +9,18 @@ import { useCallback } from "react";
 import { errorMessage } from "../lib/errors";
 
 /**
- * PUBLISH OR UNPUBLISH FROM THE DAY POPOVER (ClickUp `123qy9rnk21`'s quick actions).
+ * PUBLISH OR UNPUBLISH FROM A QUICK ACTION — the calendar's day popover
+ * (`123qy9rnk21`) and the events row menu (`123qy9rng56`).
  *
- * A hook inside the popover rather than a handler drilled down from the calendar
- * screen. The chain is Calendar → month/week/day grid → day cell → chip → preview, and
- * threading one button through four layers of props that care about none of it is worse
- * than a hook at the leaf — which is also what this codebase asks for: *"Fetching,
- * mutation and derivation belong in a `use*` hook; the component takes values and emits
- * events."*
+ * It was `useCalendarPublishToggle` for about an hour, until the second caller arrived
+ * and the name started naming one of them. Both surfaces want the same thing: one press,
+ * no form, and the lists refreshed afterwards.
+ *
+ * A hook at the leaf rather than a handler drilled down from the screen. For the popover
+ * the chain is Calendar → month/week/day grid → day cell → chip → preview, and threading
+ * one button through four layers of props that care about none of it is worse — which is
+ * also what this codebase asks for: *"Fetching, mutation and derivation belong in a
+ * `use*` hook; the component takes values and emits events."*
  *
  * It does NOT break the preview's "no fetch" rule. A mutation hook issues no request
  * until it is called, so a month grid with forty chips still makes zero extra requests;
@@ -27,12 +31,12 @@ import { errorMessage } from "../lib/errors";
  * — a capability this button's readers may not hold — and is now its own route gated on
  * `event.publish`, the same capability as its opposite.
  */
-export interface CalendarPublishToggle {
+export interface PublishToggle {
   toggle: (eventId: string, published: boolean) => void;
   isPending: boolean;
 }
 
-export function useCalendarPublishToggle(): CalendarPublishToggle {
+export function usePublishToggle(): PublishToggle {
   const toast = useToast();
   const queryClient = useQueryClient();
 
