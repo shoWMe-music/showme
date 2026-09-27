@@ -105,6 +105,8 @@ export interface DetailsPerformer {
   /** The act's public profile slug, when they have a published page. */
   slug?: string | null;
   sub: string;
+  /** What the act calls itself, from their own profile. Empty renders nothing. */
+  genres: string[];
   connected: boolean;
 }
 export interface DetailsRider {
@@ -271,6 +273,15 @@ function EventInformationCard({
                   <ProfileNameMenu name={performer.name} slug={performer.slug} />
                 </div>
                 <div style={{ color: "var(--muted)", fontSize: 12.5 }}>{performer.sub}</div>
+                {/* The act's genres, under the venue line (ClickUp `86cbcf6gr`). A
+                    middot list rather than chips: this is a reading line on a details
+                    card, and a row of pills here would compete with the status dot
+                    beside it for the eye. */}
+                {performer.genres.length > 0 && (
+                  <div style={{ color: "var(--dim)", fontSize: 12 }}>
+                    {performer.genres.join(" · ")}
+                  </div>
+                )}
               </div>
               <span
                 style={{

@@ -1,6 +1,7 @@
 import type { schema } from "@showme/db";
 import type { Capability } from "@showme/shared";
 import { resolveImageUrl } from "./image";
+import { readGenres } from "./profile";
 
 type ParticipantRow = typeof schema.eventParticipants.$inferSelect;
 
@@ -23,6 +24,16 @@ export interface ParticipantProfileFace {
    * without them the picture was reachable and the person behind it was not. */
   slug: string | null;
   isPublic: boolean;
+  /**
+   * The act's own `details.genres` (ClickUp `86cbcf6gr`: *"genres exist on the profile
+   * and are not shown on the event"*).
+   *
+   * It is the performer's word about themselves and is already public on their profile
+   * page, so nothing here is disclosure — what was missing is that the one screen where
+   * the act is being BOOKED never repeated it, and the operator had to open the profile
+   * to answer "what kind of act is this again?".
+   */
+  details?: unknown;
 }
 
 export interface SerializedParticipant {
@@ -41,6 +52,9 @@ export interface SerializedParticipant {
    */
   name: string | null;
   avatarUrl: string | null;
+  /** What the act calls itself — `details.genres` off their profile; empty for anyone
+   *  who has named none, and for a row whose profile has been erased. */
+  genres: string[];
   /** Where this face's public page lives, or null when it has none.
    *
    * Resolved here rather than left to the caller: only the serializer knows
@@ -192,6 +206,9 @@ export function serializeParticipant(
     role: participant.role,
     status: participant.status,
     performerTag: participant.performerTag,
+    // The act's own genres, from the profile rather than from the participant row:
+    // a booking does not restate what the performer says about themselves, it reads it.
+    genres: profile ? readGenres(profile.details) : [],
   };
 
   if (canManageParticipants(capabilities)) {

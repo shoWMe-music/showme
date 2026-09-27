@@ -1774,6 +1774,43 @@ describe("events — a change to a booked night is a question", () => {
    * `/invitations`, so on both real paths the night stayed `draft` until somebody
    * accepted, and then jumped to `pending`. `suggested` never happened.
    */
+  it("puts the act's own genres on the roster row", async () => {
+    /**
+     * ClickUp `86cbcf6gr`: the genres are on the profile and were not on the event, so
+     * the one screen where an act is being booked could not say what kind of act it is.
+     * They travel with the roster — read from the profile, never copied onto the
+     * booking, because a genre is the performer's word about themselves.
+     */
+    const seeded = await seedEventWithHost("genres");
+    await harness.db
+      .update(schema.profiles)
+      .set({ details: { genres: ["Nordic folk", "Ambient"], tagline: "ignored here" } })
+      .where(eq(schema.profiles.id, seeded.performer.profileId));
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seeded.event.id}/participants`,
+      headers: auth("genres-op"),
+      payload: { profileId: seeded.performer.profileId, role: "performer" },
+    });
+
+    const roster = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seeded.event.id}/participants`,
+      headers: auth("genres-op"),
+    });
+    expect(roster.statusCode).toBe(200);
+    const act = roster
+      .json()
+      .find((party: { profileId: string }) => party.profileId === seeded.performer.profileId);
+    expect(act.genres).toEqual(["Nordic folk", "Ambient"]);
+    // The host named none, and none is an empty list rather than a missing field —
+    // every row answers the question the same way.
+    const host = roster
+      .json()
+      .find((party: { profileId: string }) => party.profileId === seeded.operator.profileId);
+    expect(host.genres).toEqual([]);
+  });
+
   it("moves a draft to suggested when the wizard names an act on it", async () => {
     const operator = await seedMemberWithSet(
       "wizrung-op",

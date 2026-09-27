@@ -90,6 +90,8 @@ const ParticipantResponse = z.object({
   profileId: z.string().nullable(),
   name: z.string().nullable(),
   avatarUrl: z.string().nullable(),
+  /** The act's own genres (`86cbcf6gr`). Declared here or the response drops them. */
+  genres: z.array(z.string()),
   /** Null unless the profile is published — Fastify strips what is not declared
    *  here, so without this slot the serializer's value never reaches a caller. */
   publicSlug: z.string().nullable(),
@@ -134,6 +136,9 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           // 404 for every unpublished act.
           slug: schema.profiles.slug,
           isPublic: schema.profiles.isPublic,
+          // `details` for the act's own genres (`86cbcf6gr`) — a jsonb leaf read with
+          // its parent, which is why it is a leaf (`serialize/profile.ts`).
+          profileDetails: schema.profiles.details,
           // The permission set BY VALUE, not by id. Serialized only for the
           // operator tier, but joined for everyone because the join is free —
           // one LEFT JOIN on an indexed primary key against a table of presets.
@@ -182,6 +187,7 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
             // LEFT JOIN: a participant row can outlive its profile, and no
             // profile is not a published one.
             isPublic: row.isPublic ?? false,
+            details: row.profileDetails,
           },
           imageUrls,
           selfProfileIds,

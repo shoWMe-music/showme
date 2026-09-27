@@ -14,6 +14,7 @@ export type PostApiV1EventsIdParticipantsOffPlatform201 = {
   name: string | null;
   /** @nullable */
   avatarUrl: string | null;
+  genres: string[];
   /** @nullable */
   publicSlug: string | null;
   role: string;

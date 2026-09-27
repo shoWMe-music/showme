@@ -247,3 +247,30 @@ or repeating.
 Proven live: the list reads 6 Jan 2027 · 3 Dec 2026 · 14 Oct 2026 · 4 Oct 2026 · 20 May
 2026 — a diary backwards, where it used to read in the order the rows were typed in.
 Suites: biome 712 · api 1312 (1 new) · e2e 112.
+
+### `86cbcf6gr` — the bill says what kind of act it is
+
+**Verdict: the small half is real; the big half is a separate feature and stays on the
+board.** The ticket holds two asks. *Genres exist on the profile and are not shown on the
+event* — true, and done here. *Mood / Style with a coloured-pill taxonomy and
+de-duplication* does not exist at all, is its own data model and its own vocabulary
+question, and is not something to start inside a line item called "small".
+
+**Read, never copied.** The genres travel with the roster row from the performer's own
+profile (`readGenres`, the same reader the public profile page uses). The event gets no
+second, editable copy: a genre is the act's word about themselves, and a booking that
+stored its own version would drift from the profile the moment either changed.
+
+**Nothing is disclosed that was not already public** — this is on their public page. What
+was missing is that the one screen where the act is being BOOKED never repeated it, so an
+operator had to open the profile to answer "what kind of act is this again?".
+
+Rendered as a middot line under the venue/capacity line rather than as chips: it is a
+reading line on a details card, and a row of pills there would compete with the status dot
+beside it. An act with no genres renders nothing at all, and `genres` is an empty list
+rather than a missing field so every row answers the question the same way.
+
+Mutation-checked (the roster forgets the genres → red). Proven live: the bill reads
+*"Marlo Vance · The Lantern Hall — 400 cap. · Nordic folk · Ambient"*, and Neon Tide,
+who has named none, shows the venue line alone. Suites: biome 712 · api 1313 (1 new) ·
+web 330 · e2e 112.

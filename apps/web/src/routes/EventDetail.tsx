@@ -647,6 +647,15 @@ function performersFrom(roster: Participant[], event: EventDetailData): DetailsP
         // offered exactly when there is a page at the other end of it.
         slug: party.publicSlug,
         sub,
+        /**
+         * WHAT KIND OF ACT THIS IS (ClickUp `86cbcf6gr`).
+         *
+         * The act's own `details.genres`, read off their profile by the roster rather
+         * than restated on the booking: a genre is the performer's word about
+         * themselves, and the event is not the place it gets a second, editable copy.
+         * Empty for anyone who has named none, which renders nothing at all.
+         */
+        genres: party.genres ?? [],
         connected: party.status === "confirmed" || party.status === "accepted",
       };
     });

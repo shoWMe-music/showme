@@ -2684,6 +2684,12 @@
                         "type": "string",
                         "nullable": true
                       },
+                      "genres": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
                       "publicSlug": {
                         "type": "string",
                         "nullable": true
@@ -2735,6 +2741,7 @@
                       "profileId",
                       "name",
                       "avatarUrl",
+                      "genres",
                       "publicSlug",
                       "role",
                       "status",
@@ -2821,6 +2828,12 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "genres": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
                     "publicSlug": {
                       "type": "string",
                       "nullable": true
@@ -2872,6 +2885,7 @@
                     "profileId",
                     "name",
                     "avatarUrl",
+                    "genres",
                     "publicSlug",
                     "role",
                     "status",
@@ -3012,6 +3026,12 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "genres": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
                     "publicSlug": {
                       "type": "string",
                       "nullable": true
@@ -3063,6 +3083,7 @@
                     "profileId",
                     "name",
                     "avatarUrl",
+                    "genres",
                     "publicSlug",
                     "role",
                     "status",
@@ -3159,6 +3180,12 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "genres": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
                     "publicSlug": {
                       "type": "string",
                       "nullable": true
@@ -3210,6 +3237,7 @@
                     "profileId",
                     "name",
                     "avatarUrl",
+                    "genres",
                     "publicSlug",
                     "role",
                     "status",
@@ -3266,6 +3294,12 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "genres": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
                     "publicSlug": {
                       "type": "string",
                       "nullable": true
@@ -3317,6 +3351,7 @@
                     "profileId",
                     "name",
                     "avatarUrl",
+                    "genres",
                     "publicSlug",
                     "role",
                     "status",

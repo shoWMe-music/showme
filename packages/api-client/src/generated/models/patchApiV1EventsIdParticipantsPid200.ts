@@ -14,6 +14,7 @@ export type PatchApiV1EventsIdParticipantsPid200 = {
   name: string | null;
   /** @nullable */
   avatarUrl: string | null;
+  genres: string[];
   /** @nullable */
   publicSlug: string | null;
   role: string;
