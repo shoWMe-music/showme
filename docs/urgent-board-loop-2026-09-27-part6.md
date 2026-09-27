@@ -248,3 +248,102 @@ Testcontainers flake, both green alone) · web **366** (10 new) · e2e 112.
 "performer"` while yesterday's agent-assignment test passes `"agent"` — a type error that a
 green `vitest` run cannot see, because the runner does not typecheck. Every package's
 `tsc --noEmit` is clean now, which is the check that catches it.
+
+## The calendar cluster — `123qy9rnk21` + what is left of `86cbcn189`
+
+**Verdict on `86cbcn189`: mostly already done, and the audit's "remaining" list is now
+shorter than it was this morning.** Checked bullet by bullet against the code:
+
+| Bullet | State |
+|---|---|
+| v2 marking (X-cursor multi-select, "Done marking") | **done** (ticked by Ran) |
+| "Jump to date" rework | **done** (ticked by Ran) |
+| No modal after marking | **done** — `useMarkUnavailable.finishMarking` goes straight to the write, with the consequence (no `reason` input any more) stated in its own comment |
+| Unavailability on the dates, not a side box | **done** — drawn on the grid |
+| Remove "Archive" from the date box | **done** — the word does not appear in any calendar component |
+| Venue first, then room / space | **done** — built as item 1 of this loop (`123qy9rpqp0`, `lib/calendarChoice.ts`) |
+| Remove the four side-panel cards | **three of four done.** "From your calendar" stays, with the argument recorded in `Calendar.tsx`: it is not a read-out, it carries the only two controls an imported entry has anywhere (turn it into a show; decide whether it blocks public availability). Deleting it would delete two features rather than tidy a duplicate — **Ran's call, with that on the table** |
+| Clicking a date jumps to it on the calendar | **done** — `DateText` links every date to `/calendar?date=` |
+| **Clicking a date in a SETTLEMENT jumps to the event manager** | **open, and small** — see below |
+| Calendar is view-only | **see the contradiction below** |
+
+### The contradiction between the two tickets, and how it is resolved
+
+`86cbcn189` says *"Calendar is view-only: no event edits from the calendar; send users to
+the event manager."* `123qy9rnk21` — written **three days later** — asks the day popover for
+quick actions including **Publish/Unpublish** and **Invite**, which are edits by any reading.
+Two urgent tickets, opposite instructions, one popover.
+
+**Taken as a refinement rather than a reversal:** "view-only" is about the event's FACTS —
+its date, venue, room, status, the things the event workspace owns and the calendar used to
+let you change in place. A named one-press act is not a field edit. So the popover gets the
+details in full and the actions that are unambiguous, and **Ran gets told which two were
+left and why** rather than having them guessed at:
+
+- **View** — already there ("Open event").
+- **Publish / Unpublish** — built. One press, its own capability (`event.publish`), routes
+  that already exist, and it needs no fetch: `published` and `capabilities` are both on the
+  events list the calendar already reads.
+- **Print details** — NOT built. There is no print sheet for an event anywhere in the app;
+  this is a feature with a design question in it, not a button.
+- **Invite** — NOT built. The invite flow is a modal with its own state, its own permission
+  set picker and its own credit gate; mounting it from a calendar popover is not a small fix,
+  and it is the one action on his list that is unambiguously an "event edit" of the kind the
+  other ticket rules out.
+
+### `123qy9rnk21` — what the popover is missing, and where it comes from
+
+Ran lists nine things; the popover shows four (name, date, performer, status pill). The rest
+were never a fetch problem: **every missing field is already on the events list the calendar
+draws from** (`venueName`, `venueLocation.city`, `holdRank`, `holdAutoPromote`, `published`,
+and `capabilities` as of this afternoon). So the preview keeps its *"deliberately no fetch"*
+property — the month grid draws dozens of chips and a request per click would be a storm —
+and simply carries more of what it already had.
+
+| File | What changes |
+|---|---|
+| `apps/web/src/components/CalendarEventChip.tsx` | `CalendarEvent` carries venue, city, hold and publish facts |
+| `apps/web/src/routes/Calendar.tsx` | maps them from the list rows it already has |
+| `apps/web/src/components/CalendarEntryPreview.tsx` | the rows, the hold section, the publish action |
+| `apps/web/src/components/DateText.tsx` | an optional `eventId`, so a settlement's date goes to the event manager |
+
+### Built
+
+**The popover now carries seven of Ran's nine**, and every one came off the chip — no
+fetch was added, because `venueName`, `venueLocation.city`, `holdRank`,
+`holdAutoPromote`, `published` and `capabilities` are all columns of the events list the
+calendar already drains.
+
+Two judgements inside it:
+
+- **Venue and city are ONE row** — *"The Lantern Hall · Stockholm"*. They answer the same
+  question, and two labels in a 268px panel to say "where" would be padding. The city is
+  dropped rather than shown empty for a venue that is free text with no profile behind it.
+- **Status appears as a row only for a real EVENT.** The pill at the top is doing double
+  duty: on a calendar item it says the KIND ("Appointment"), which is not a status at all.
+  Spelling it out again only where the pill means something else keeps both readings honest.
+
+**The publish action asks the three questions the API asks**, so it never offers a press it
+knows will be refused (the QA4-9 lesson, applied before the fact): `event.publish` in the
+reader's own capabilities, a real event, and either already published or `confirmed` — A-22
+means only a confirmed show has a public page. The mutation lives in a hook at the leaf
+rather than being drilled Calendar → grid → cell → chip → preview, and a mutation hook
+issues no request until pressed, so the "no fetch" property holds.
+
+**Hold settings are read-only**, on purpose: a queue position is the hold panel's to change,
+and editing one from a calendar chip is precisely the in-place editing `86cbcn189` rules out.
+
+Proven live as `operator@`:
+
+| | |
+|---|---|
+| Album release popover | `CONFIRMED` · Date `Wed, 14 Oct 2026` · Performer `Marlo Vance + Neon Tide` · Venue `The Lantern Hall · Stockholm` · Status `Confirmed` · **Unpublish** · Open event |
+| Pressing **Unpublish** | `published=false` in Postgres, and the agent, co-host and performer all told through the same notifier built for `123qy9rpe3q` |
+| Nordic Synth Showcase (a hold) | `ON HOLD` · **HOLD SETTINGS** → Queue position `#1`, Auto-promote `On — moves up if a hold above it falls`, and **no publish button** (not confirmed, not published) |
+| Spring Warmup settlement | both dates now read `Open the event manager for 20 May 2026` → `/events/<id>` |
+
+Suites: biome 725 · web 366 · e2e 112.
+
+**Left for Ran, deliberately, with the reasons above:** *Print details* and *Invite* from the
+popover, and whether "From your calendar" should go from the rail. Three decisions, all of
+them his, none of them guessed at.

@@ -558,6 +558,14 @@ export function Calendar() {
         // ClickUp `123qy9rnfab` — which country each night is in, on the surface
         // a touring act reads most.
         country: event.venueLocation?.country ?? null,
+        // The day popover's facts (`123qy9rnk21`). Carried on the chip rather than
+        // fetched when it opens: these are columns of the row already in hand.
+        venueName: event.venueName ?? null,
+        city: event.venueLocation?.city ?? null,
+        holdRank: event.holdRank ?? null,
+        holdAutoPromote: event.holdAutoPromote ?? false,
+        published: event.published,
+        capabilities: event.capabilities,
       }));
     // Third source: unanswered invitations. Placed last so that if an event and
     // an invitation ever named the same night, the real event draws over it.

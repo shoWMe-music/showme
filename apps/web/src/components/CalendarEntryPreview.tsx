@@ -4,18 +4,26 @@ import { useEffect } from "react";
 import { formatDayWithWeekday } from "../lib/format";
 import type { CalendarEvent } from "./CalendarEventChip";
 import { PickerPopoverPanel } from "./PickerPopoverPanel";
+import { useCalendarPublishToggle } from "./useCalendarPublishToggle";
 
 /** The little card that hangs off a calendar chip when you click it: what this
  * entry is, when it is, who it involves — and, for a real event, the way through
  * to its workspace.
  *
- * READ-ONLY, deliberately. Nothing here changes an event: the calendar is a view
- * of the schedule, and the acts that alter a show (archiving among them) live on
- * the Events list and in the event workspace, which is where "Open event" goes.
+ * NO FIELD EDITS, and one named act. `86cbcn189` says the calendar is *"view-only:
+ * no event edits from the calendar; send users to the event manager"*, and
+ * `123qy9rnk21` — three days later — asks this popover for quick actions including
+ * Publish/Unpublish. Both are urgent and they disagree, so the later one is read as a
+ * refinement of the earlier: the event's FACTS (date, venue, room, status) are the
+ * event workspace's business and are not editable here, while a named one-press act
+ * with its own capability is. Archiving stays off it entirely — that is the Events
+ * list's, by Ran's own separate bullet.
  *
  * Everything on it comes from the chip's own data. Deliberately no fetch: the
  * month grid draws dozens of chips, and a request per click would turn a glance
- * at the schedule into a request storm for information the grid already has. */
+ * at the schedule into a request storm for information the grid already has — which
+ * is also why the facts `123qy9rnk21` asks for are carried on `CalendarEvent` rather
+ * than looked up when the panel opens. */
 
 const PANEL_WIDTH = 268;
 
@@ -51,6 +59,21 @@ export function CalendarEntryPreview({
   panelRef,
   onOpenEvent,
 }: CalendarEntryPreviewProps) {
+  const publishing = useCalendarPublishToggle();
+  /**
+   * WHO GETS THE PUBLISH BUTTON — the three conditions the API itself applies, asked
+   * here so the popover never offers a press it knows will be refused (the lesson of
+   * QA4-9 on the events row menu).
+   *
+   * `event.publish` is the capability; a standalone calendar item has no event to
+   * publish; and only a CONFIRMED show has a public page at all (A-22), which is why an
+   * already-published concluded night can still be taken down but a pending one is
+   * offered nothing.
+   */
+  const mayPublish =
+    entry.eventId != null &&
+    (entry.capabilities?.includes("event.publish") ?? false) &&
+    (entry.published === true || entry.status === "confirmed");
   const color = STATUS_COLOR[entry.status];
   // "Confirmed" for an event, "Appointment" for a calendar item — the palette is
   // shared between the two, so the WORD is the only thing that tells them apart.
@@ -125,6 +148,57 @@ export function CalendarEntryPreview({
           ))}
         </div>
 
+        {/* HOLD SETTINGS — Ran: *"If there are hold it should also have a 'Hold
+            settings' section"* (`123qy9rnk21`). Read-only here: the rank and the
+            auto-promote switch are the hold panel's to change, and changing a queue
+            position from a calendar chip is exactly the in-place editing `86cbcn189`
+            rules out. Shown only for a night that IS a hold. */}
+        {entry.holdRank != null && (
+          <div
+            style={{
+              borderTop: "1px solid var(--border)",
+              paddingTop: 8,
+              display: "flex",
+              flexDirection: "column",
+              gap: 2,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 10.5,
+                fontWeight: 600,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "var(--muted)",
+              }}
+            >
+              Hold settings
+            </span>
+            <KeyValueRow label="Queue position" value={`#${entry.holdRank}`} />
+            <KeyValueRow
+              label="Auto-promote"
+              value={entry.holdAutoPromote ? "On — moves up if a hold above it falls" : "Off"}
+            />
+          </div>
+        )}
+
+        {mayPublish && entry.eventId && (
+          <Button
+            variant="ghost"
+            onClick={() => publishing.toggle(entry.eventId as string, entry.published === true)}
+            disabled={publishing.isPending}
+            style={{ alignSelf: "stretch", justifyContent: "center" }}
+          >
+            {publishing.isPending
+              ? entry.published
+                ? "Unpublishing…"
+                : "Publishing…"
+              : entry.published
+                ? "Unpublish"
+                : "Publish"}
+          </Button>
+        )}
+
         {onOpenEvent ? (
           <Button
             variant="secondary"
@@ -156,6 +230,30 @@ function entryFacts(entry: CalendarEvent, time: string | null): { label: string;
     // the performer resolved from the participants, on a calendar item it is the
     // free-text entity the item was written against ("Nordic Synth Showcase").
     facts.push({ label: entry.eventId ? "Performer" : "Related to", value: entry.performer });
+  }
+  /*
+   * VENUE AND CITY (ClickUp `123qy9rnk21`: *"Performer/s name/s + Venue name + City"*).
+   *
+   * One row, not two. A venue and the city it stands in read as one answer to "where" —
+   * "The Lantern Hall · Stockholm" — and splitting them would put two labels in a
+   * 268px panel to say one thing. The city is dropped rather than shown empty for a
+   * venue that is free text with no profile behind it.
+   */
+  if (entry.venueName) {
+    facts.push({
+      label: "Venue",
+      value: entry.city ? `${entry.venueName} · ${entry.city}` : entry.venueName,
+    });
+  }
+  /*
+   * STATUS as a ROW as well as the pill at the top. Ran lists it among the details, and
+   * the pill is doing double duty: for a calendar item it says the KIND
+   * ("Appointment"), so on those the word is not a status at all. Spelling it out
+   * again only for a real event keeps both readings honest without repeating itself on
+   * the entries where the pill already is the answer.
+   */
+  if (entry.eventId && entry.statusLabel) {
+    facts.push({ label: "Status", value: entry.statusLabel });
   }
   return facts;
 }

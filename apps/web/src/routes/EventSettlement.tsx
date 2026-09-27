@@ -175,7 +175,9 @@ export function EventSettlement() {
                 PROFILE — so the line renders what it has rather than a blank
                 separator, and gains the city when the event serves one. */}
             {event.data.venueName && <span>{event.data.venueName} ·</span>}
-            <DateText value={event.data.eventDate} />
+            {/* To the event manager, not the calendar: this screen is already about
+                one show, so the month view would be a detour (`86cbcn189`). */}
+            <DateText value={event.data.eventDate} eventId={eventId} />
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -308,7 +310,11 @@ function OverviewTab({ event, settlement }: { event: EventData; settlement: Even
           <CardTitle>Event details</CardTitle>
           <DetailGrid
             cells={[
-              { key: "date", label: "Date", value: <DateText value={event.eventDate} /> },
+              {
+                key: "date",
+                label: "Date",
+                value: <DateText value={event.eventDate} eventId={event.id} />,
+              },
               { key: "venue", label: "Venue", value: event.venueName ?? "Not set" },
               ...settlement.shares.map((share) => ({
                 key: share.key,

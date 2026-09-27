@@ -38,6 +38,27 @@ export interface CalendarEvent {
    * event whose venue is free text — neither has a country to claim.
    */
   country?: string | null;
+  /**
+   * WHAT THE DAY POPOVER SHOWS (ClickUp `123qy9rnk21`). Every one of these is
+   * already on the events list the calendar draws from, which is why the preview
+   * keeps its "deliberately no fetch" property — a month grid draws dozens of chips
+   * and a request per click would be a storm for facts the grid already holds.
+   *
+   * All optional: a standalone calendar item has none of them, and an event whose
+   * venue is free text has a name but no city.
+   */
+  venueName?: string | null;
+  /** The venue's city, from its profile's primary location (`123qy9rnfab`). */
+  city?: string | null;
+  /** The hold's place in the queue, when this night is a hold at all. */
+  holdRank?: number | null;
+  /** Whether losing a higher hold promotes this one automatically. */
+  holdAutoPromote?: boolean;
+  /** Whether the show has a public page right now — the publish action's state. */
+  published?: boolean;
+  /** The reader's OWN capabilities on this event, so the popover offers only what
+   * they may actually do (the lesson of QA4-9 on the events row menu). */
+  capabilities?: readonly string[];
 }
 
 export function chipLabel(event: CalendarEvent, mode: CalendarLabelMode): string {
