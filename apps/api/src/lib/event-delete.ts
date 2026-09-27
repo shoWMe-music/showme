@@ -67,9 +67,12 @@ import type { Transaction } from "./audit";
  *    does not imply a cancel; they mean different things, and either one is a
  *    deliberate first rung.
  *
- * The order is deliberate: the permanent facts are reported before the
- * procedural one, so nobody is ever told "cancel it first" about a show they
- * will never be allowed to delete.
+ * The order is deliberate, and it is the order of the LIST ABOVE only in spirit:
+ * the ABSOLUTE clauses are checked first — a settlement, then an invoice — then the
+ * two a cancellation can satisfy, then the procedural one. So nobody is ever told
+ * "cancel it first" about a show they will never be allowed to delete. Getting that
+ * backwards is not a cosmetic bug: the advice a refusal gives is acted on, and
+ * cancelling broadcasts to every party and cannot be withdrawn (QA4-1).
  *
  * What this costs, said plainly: a cancelled show with a performer on it and a
  * signed agreement CAN now be destroyed by its operator, and the performer's copy
@@ -116,7 +119,47 @@ export async function assertEventIsDeletable(
     );
   }
 
-  // 2. Anybody else on the bill. Named, because the way out is to take each of
+  /*
+   * THE ABSOLUTE CLAUSES RUN FIRST, and that ordering is a fix rather than a taste
+   * (QA sweep run 4, QA4-1).
+   *
+   * They used to run fourth and fifth, behind the two clauses a cancellation can
+   * satisfy — so on a show carrying money AND another party, the FIRST refusal was
+   * the conditional one, and since #25.3 that refusal ends with "if the show is off,
+   * CANCEL it: a cancelled show can then be deleted". The sweep followed that advice
+   * on a concluded, settled, invoiced night: the show was cancelled, the performer
+   * who had played it in May and been paid got a bell saying it was off, and the
+   * delete was refused anyway by the settlement. The advice cost a broadcast that
+   * cannot be taken back and bought nothing.
+   *
+   * The docstring above already stated the rule — "nobody is ever told 'cancel it
+   * first' about a show they will never be allowed to delete" — and the code simply
+   * did not match it. Money first; only then the clauses that have a way out.
+   */
+  // 2. A settlement, finalized or not. ABSOLUTE — a cancellation does not reach
+  //    back through money that has been computed and read (decisions #25.3).
+  const settlements = await database
+    .select({ id: schema.settlements.id })
+    .from(schema.settlements)
+    .where(eq(schema.settlements.eventId, event.id));
+  if (settlements.length > 0) {
+    throw conflict(
+      `"${event.title}" has a settlement on it, which is the financial record of the night — its figures, its snapshots and its planned-versus-actual. That cannot be thrown away. Leave the show archived.`,
+    );
+  }
+
+  // 3. An invoice. Absolute, for the same reason.
+  const invoices = await database
+    .select({ id: schema.invoices.id })
+    .from(schema.invoices)
+    .where(eq(schema.invoices.eventId, event.id));
+  if (invoices.length > 0) {
+    throw conflict(
+      `"${event.title}" has ${invoices.length === 1 ? "an invoice" : "invoices"} raised against it. An invoice is a money-out document and outlives the show. Leave it archived.`,
+    );
+  }
+
+  // 4. Anybody else on the bill. Named, because the way out is to take each of
   //    them off it, which is a decision about a person rather than a row count —
   //    or, since #25.3, to cancel the show, which tells them instead of hiding it.
   const others: OtherParty[] = cancelled
@@ -140,7 +183,7 @@ export async function assertEventIsDeletable(
     );
   }
 
-  // 3. A signed agreement. Same reading of "signed" as the settlement gate
+  // 5. A signed agreement. Same reading of "signed" as the settlement gate
   //    (decisions #21): `confirmed` is every signature being in.
   const signed = cancelled
     ? []
@@ -157,29 +200,6 @@ export async function assertEventIsDeletable(
     const named = signed.map((deal) => `"${deal.name}"`).join(", ");
     throw conflict(
       `${named} ${signed.length === 1 ? "is" : "are"} a signed agreement on "${event.title}", and a signed agreement is a record of what the parties agreed. Cancel the show if it is no longer happening — then it can be deleted. Otherwise leave it archived.`,
-    );
-  }
-
-  // 4. A settlement, finalized or not. ABSOLUTE — a cancellation does not reach
-  //    back through money that has been computed and read (decisions #25.3).
-  const settlements = await database
-    .select({ id: schema.settlements.id })
-    .from(schema.settlements)
-    .where(eq(schema.settlements.eventId, event.id));
-  if (settlements.length > 0) {
-    throw conflict(
-      `"${event.title}" has a settlement on it, which is the financial record of the night — its figures, its snapshots and its planned-versus-actual. That cannot be thrown away. Leave the show archived.`,
-    );
-  }
-
-  // 5. An invoice. Absolute, for the same reason.
-  const invoices = await database
-    .select({ id: schema.invoices.id })
-    .from(schema.invoices)
-    .where(eq(schema.invoices.eventId, event.id));
-  if (invoices.length > 0) {
-    throw conflict(
-      `"${event.title}" has ${invoices.length === 1 ? "an invoice" : "invoices"} raised against it. An invoice is a money-out document and outlives the show. Leave it archived.`,
     );
   }
 

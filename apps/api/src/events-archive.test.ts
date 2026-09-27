@@ -1093,6 +1093,85 @@ describe("DELETE /events/:id — the cancel-then-delete ladder (#25.3)", () => {
     expect(response.json().error.message).toContain("invoice");
   });
 
+  /**
+   * THE REFUSAL MUST NOT RECOMMEND A BROADCAST THAT ACHIEVES NOTHING — QA sweep run 4,
+   * QA4-1.
+   *
+   * The other-party clause ends with "if the show is off, CANCEL it: a cancelled show
+   * can then be deleted", which is true only when no money exists. It used to be
+   * checked BEFORE the settlement clause, so on a settled night with a performer on it
+   * the first refusal was that one — the sweep followed it, the show was cancelled, the
+   * performer who had played it got a bell saying it was off, and the delete was
+   * refused anyway. Cancelling cannot be withdrawn.
+   *
+   * So: the money clauses answer first. This test is the ordering, not the wording —
+   * it asserts the settlement is named and the cancel advice is ABSENT.
+   */
+  it("names the settlement first on a settled show that others are on — never 'cancel it'", async () => {
+    const { db } = harness;
+    const { host, event } = await cancelledSharedEvent("order-settled");
+    // Back to a live, concluded night: this is the shape the sweep hit — money on it,
+    // somebody else on it, and NOT cancelled.
+    await db
+      .update(schema.events)
+      .set({ status: "concluded" })
+      .where(eq(schema.events.id, event.id));
+    const [participant] = await db
+      .select()
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, event.id),
+          eq(schema.eventParticipants.profileId, host.profileId),
+        ),
+      );
+    if (!participant) throw new Error("participant seed failed");
+    await db
+      .insert(schema.settlements)
+      .values({ eventId: event.id, participantId: participant.id });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+    });
+    expect(response.statusCode).toBe(409);
+    const message = response.json().error.message as string;
+    expect(message).toContain("settlement");
+    // The two phrases that must NOT appear: the advice, and the other-party count that
+    // carries it. Asserting their absence is the whole point — a message that merely
+    // MENTIONS the settlement while still telling the operator to cancel would pass a
+    // "contains settlement" check and reproduce the bug.
+    expect(message).not.toMatch(/cancel/i);
+    expect(message).not.toContain("other party");
+  });
+
+  it("names the invoice first too, for the same reason", async () => {
+    const { db } = harness;
+    const { host, event } = await cancelledSharedEvent("order-invoiced");
+    await db
+      .update(schema.events)
+      .set({ status: "concluded" })
+      .where(eq(schema.events.id, event.id));
+    await db.insert(schema.invoices).values({
+      eventId: event.id,
+      ownerProfileId: host.profileId,
+      direction: "issued",
+      number: "INV-ORDER-1",
+      currency: "SEK",
+    });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+    });
+    expect(response.statusCode).toBe(409);
+    const message = response.json().error.message as string;
+    expect(message).toContain("invoice");
+    expect(message).not.toMatch(/cancel/i);
+  });
+
   it("refuses a co-host on a cancelled show — whose show it is never gives way", async () => {
     const { host, act, event } = await cancelledSharedEvent("ladder-cohost");
     const response = await app.inject({
