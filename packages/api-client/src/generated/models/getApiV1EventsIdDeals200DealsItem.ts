@@ -31,6 +31,8 @@ export type GetApiV1EventsIdDeals200DealsItem = {
   agreementBodyText: string | null;
   /** @nullable */
   terms: GetApiV1EventsIdDeals200DealsItemTerms;
+  /** @nullable */
+  reopenReason: string | null;
   version: number;
   parties: GetApiV1EventsIdDeals200DealsItemPartiesItem[];
 };

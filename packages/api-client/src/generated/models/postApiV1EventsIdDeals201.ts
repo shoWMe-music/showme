@@ -31,6 +31,8 @@ export type PostApiV1EventsIdDeals201 = {
   agreementBodyText: string | null;
   /** @nullable */
   terms: PostApiV1EventsIdDeals201Terms;
+  /** @nullable */
+  reopenReason: string | null;
   version: number;
   parties: PostApiV1EventsIdDeals201PartiesItem[];
 };

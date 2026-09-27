@@ -31,6 +31,8 @@ export type PostApiV1DealsDidReopen200 = {
   agreementBodyText: string | null;
   /** @nullable */
   terms: PostApiV1DealsDidReopen200Terms;
+  /** @nullable */
+  reopenReason: string | null;
   version: number;
   parties: PostApiV1DealsDidReopen200PartiesItem[];
 };

@@ -256,6 +256,8 @@ const DealResponse = z.object({
   agreementBodyText: z.string().nullable(),
   /** Escalator tiers and the threshold bonus, or null when the deal has neither. */
   terms: DealTermsBody.nullable(),
+  /** Why the agreement was reopened, when whoever reopened it said (`123qy9rnh3f`). */
+  reopenReason: z.string().nullable(),
   version: z.number(),
   parties: z.array(DealPartyResponse),
 });
@@ -1086,7 +1088,13 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
           {
             type: "deal.reopened",
             title: `"${dealName}" was reopened for renegotiation`,
-            body: "Your confirmation was cleared — the agreement needs signing again.",
+            // The REASON, when one was given (`123qy9rnh3f`). It is asked for in the
+            // reopen dialog and was then kept from the one person it is addressed to:
+            // a performer read that their confirmation had been cleared and could not
+            // tell whether the fee, the date or a typo was being renegotiated.
+            body: reason
+              ? `${reason} — your confirmation was cleared, so the agreement needs signing again.`
+              : "Your confirmation was cleared — the agreement needs signing again.",
             eventId: deal.eventId,
             actorDisplay: request.firebaseUser?.name ?? undefined,
             link: `/events/${deal.eventId}`,

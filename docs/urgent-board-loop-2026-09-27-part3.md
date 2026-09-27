@@ -134,3 +134,30 @@ they never reach a bell, so they do not belong in the map. Checked rather than a
 
 Mutation-checked: removing the message mapping turns the new test red. Suites: web 330.
 
+
+### `123qy9rnh3f` — a reopened agreement says why
+
+**Verdict: real, and exactly as the audit described it.** `deals.reopen.reason` has been
+stored since reopening existed and was read back by nobody: the other side saw their
+confirmation vanish and the Sign button return, with no statement of what is being
+renegotiated. The reason is *asked for* in the dialog and then kept from the one person it
+is addressed to.
+
+It travels two ways now, because a party may meet either first:
+
+- **On the deal** — `reopenReason` on the serialized deal, shown on the agreement card as
+  *"Reopened because …"*, and only while the agreement is unsigned: once everybody has
+  signed again the renegotiation is over and the sentence would be describing a settled
+  thing.
+- **In the bell** — the notification body leads with it. Without a reason it reads exactly
+  as before, which matters because the field is optional by design: an operator fixing
+  their own typo owes nobody an explanation, and the absence has to read as a complete
+  sentence rather than a missing one.
+
+**Only the reason is exposed, not the whole `reopen` record.** `priorSnapshot` is the
+terms as they stood — a second copy of the agreement, with no business on a list response
+— and `reopenedBy` is a user id; the person is named by the notification and the timeline.
+
+Mutation-checked both ways (the deal stops carrying it → red; the bell stops carrying it →
+red). Suites: biome 712 · api 1311 (2 new; `contacts` and `settlement` re-run alone after
+the port flake) · web 330.

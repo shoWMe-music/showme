@@ -605,6 +605,44 @@ describe("deals — reopen (decisions #1)", () => {
       .where(eq(schema.deals.id, deal.dealId));
     expect(row?.confirmedSnapshot).toBeNull();
     expect((row?.reopen as { reason: string }).reason).toBe("renegotiate the door split");
+
+    /**
+     * AND IT REACHES THE PEOPLE IT IS ADDRESSED TO (ClickUp `123qy9rnh3f`).
+     *
+     * The reason has been stored since reopening existed and was read back by nobody:
+     * the other side saw their confirmation vanish and the Sign button return, with no
+     * statement of what is being renegotiated. It travels two ways — on the deal a
+     * party reads, and in the bell that tells them it happened.
+     */
+    expect(reopened.json().reopenReason).toBe("renegotiate the door split");
+    const bells = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, deal.aUid));
+    const reopenBell = bells.find((bell) => bell.type === "deal.reopened");
+    expect(reopenBell?.body).toContain("renegotiate the door split");
+  });
+
+  it("says the plain thing when a reopen gives no reason", async () => {
+    // Optional by design — an operator correcting their own typo owes nobody an
+    // explanation — so the absence must read as a complete sentence rather than as a
+    // missing one.
+    const deal = await seedSplitDeal("dr-noreason");
+    await confirm(deal.dealId, deal.opUid);
+    await confirm(deal.dealId, deal.aUid);
+    await confirm(deal.dealId, deal.bUid);
+
+    const reopened = await reopen(deal.dealId, deal.opUid);
+    expect(reopened.statusCode).toBe(200);
+    expect(reopened.json().reopenReason).toBeNull();
+
+    const bells = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, deal.aUid));
+    expect(bells.find((bell) => bell.type === "deal.reopened")?.body).toBe(
+      "Your confirmation was cleared — the agreement needs signing again.",
+    );
   });
 
   it("refuses to reopen an agreement that is not confirmed (409)", async () => {

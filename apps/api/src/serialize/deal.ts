@@ -48,6 +48,8 @@ export interface SerializedDeal {
    * the terms it signed. `null` when the deal has neither.
    */
   terms: SerializedDealTerms | null;
+  /** Why the agreement was reopened, when a reason was given. */
+  reopenReason: string | null;
   paymentTiming: string;
   /** How several disclosed commissions stack — `parallel` | `cascading` (86cba8wmb). */
   commissionMode: string;
@@ -141,6 +143,19 @@ export function serializeDealUnredacted(deal: DealRow, parties: DealPartyRow[]):
   return { ...build(deal), parties: parties.map(partyRecord) };
 }
 
+/**
+ * The reason off a `deals.reopen` record — a jsonb column, so it is read defensively
+ * rather than cast: a row written before the field existed carries no `reason`, and a
+ * blank one is the same as none to everybody reading it.
+ */
+function reopenReasonOf(reopen: unknown): string | null {
+  if (reopen == null || typeof reopen !== "object") return null;
+  const reason = (reopen as { reason?: unknown }).reason;
+  if (typeof reason !== "string") return null;
+  const trimmed = reason.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
 function build(deal: DealRow): Omit<SerializedDeal, "parties"> {
   return {
     id: deal.id,
@@ -163,6 +178,21 @@ function build(deal: DealRow): Omit<SerializedDeal, "parties"> {
     // deal sees none of it — the tiers ARE the agreement, so a party to it reads
     // the terms it signed.
     terms: (deal.terms as SerializedDealTerms | null) ?? null,
+    /**
+     * WHY THE AGREEMENT WAS REOPENED, when whoever reopened it said (ClickUp
+     * `123qy9rnh3f`).
+     *
+     * `deals.reopen` has recorded the reason since reopening existed and nothing ever
+     * read it back: the other side saw their confirmation disappear and the Sign button
+     * return, with no statement of what is being renegotiated. Ran's ticket is exactly
+     * that — the reason is asked for and then kept from the person it is addressed to.
+     *
+     * Only the reason travels, not the whole `reopen` record. `priorSnapshot` is the
+     * terms as they stood before, which is a second copy of the agreement and has no
+     * business on a list response; `reopenedBy` is a user id, and the person is named
+     * by the notification and the timeline instead.
+     */
+    reopenReason: reopenReasonOf(deal.reopen),
     version: deal.version,
   };
 }

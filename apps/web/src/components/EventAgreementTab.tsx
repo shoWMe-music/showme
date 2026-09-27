@@ -316,6 +316,17 @@ function dealStructureFields(deal: Deal, fallbackCurrency: string): AgreementFie
       PAYMENT_TIMING_OPTIONS.find((option) => option.value === deal.paymentTiming)?.label ??
       deal.paymentTiming,
   });
+  /**
+   * WHY IT WAS REOPENED (ClickUp `123qy9rnh3f`).
+   *
+   * Last, because it is about the agreement's state rather than its terms — and only
+   * while it is unsigned: once everybody has signed again, the renegotiation that
+   * prompted it is over and the sentence would be describing a settled thing. The
+   * reason is recorded on the deal either way.
+   */
+  if (deal.reopenReason && deal.agreementStatus !== "confirmed") {
+    rows.push({ label: "Reopened because", value: deal.reopenReason });
+  }
   return rows;
 }
 

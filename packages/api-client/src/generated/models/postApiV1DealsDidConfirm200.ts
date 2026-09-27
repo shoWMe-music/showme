@@ -31,6 +31,8 @@ export type PostApiV1DealsDidConfirm200 = {
   agreementBodyText: string | null;
   /** @nullable */
   terms: PostApiV1DealsDidConfirm200Terms;
+  /** @nullable */
+  reopenReason: string | null;
   version: number;
   parties: PostApiV1DealsDidConfirm200PartiesItem[];
 };
