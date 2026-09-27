@@ -10,7 +10,16 @@
 import { describe, expect, it } from "vitest";
 import { type EventFilterKey, eventListQuery } from "./useEventList";
 
-const ALL_CHIPS: EventFilterKey[] = ["all", "pending", "on_hold", "concluded", "draft", "archived"];
+const ALL_CHIPS: EventFilterKey[] = [
+  "all",
+  "pending",
+  "confirmed",
+  "on_hold",
+  "concluded",
+  "cancelled",
+  "draft",
+  "archived",
+];
 
 describe("eventListQuery", () => {
   /**
@@ -27,6 +36,11 @@ describe("eventListQuery", () => {
     expect(eventListQuery("on_hold").status).toEqual(["on_hold"]);
     expect(eventListQuery("concluded").status).toEqual(["concluded"]);
     expect(eventListQuery("draft").status).toEqual(["draft"]);
+    // The two the row was missing (ClickUp `123qy9rpdup`): a confirmed booking could
+    // only be found under "All", and a cancelled one had no chip at all — it sat among
+    // the live shows and could be neither singled out nor excluded.
+    expect(eventListQuery("confirmed").status).toEqual(["confirmed"]);
+    expect(eventListQuery("cancelled").status).toEqual(["cancelled"]);
   });
 
   /**

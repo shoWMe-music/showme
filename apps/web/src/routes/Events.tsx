@@ -31,8 +31,14 @@ import styles from "./Events.module.css";
 const FILTER_CHIPS: [value: EventFilterKey, label: string][] = [
   ["all", "All"],
   ["pending", "Pending"],
+  // In the ladder's own order: an answered offer becomes `confirmed`, which is the
+  // rung after `pending` (ClickUp `123qy9rpdup`).
+  ["confirmed", "Confirmed"],
   ["on_hold", "On hold"],
   ["concluded", "Concluded"],
+  // Beside `concluded` because both are end states — a night that happened and a
+  // night that will not. Before `draft`, which is where a booking starts.
+  ["cancelled", "Cancelled"],
   ["draft", "Draft"],
   // The shelf. Every other chip asks about the BOOKING; this one asks what this
   // profile has filed away (`archived=only`). It sits last because it is where

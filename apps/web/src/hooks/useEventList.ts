@@ -5,7 +5,15 @@ import { useDebouncedValue } from "./useDebouncedValue";
 
 export type EventItem = Awaited<ReturnType<typeof getApiV1Events>>["items"][number];
 
-export type EventFilterKey = "all" | "pending" | "on_hold" | "concluded" | "draft" | "archived";
+export type EventFilterKey =
+  | "all"
+  | "pending"
+  | "confirmed"
+  | "on_hold"
+  | "concluded"
+  | "cancelled"
+  | "draft"
+  | "archived";
 export type EventView = "list" | "board";
 
 /** The `events.status` values the list filters on (mirrors the API's enum). */
@@ -29,8 +37,14 @@ type EventStatus =
 const CHIP_STATUSES: Record<EventFilterKey, readonly EventStatus[]> = {
   all: [],
   pending: ["pending", "suggested"],
+  // The two the row was missing (ClickUp `123qy9rpdup`). A CONFIRMED booking — the
+  // thing the whole ladder climbs towards — could only be found under "All" or in the
+  // board view's column, and a CANCELLED one had no chip at all: it sat in "All" with
+  // the live shows and could not be singled out or excluded.
+  confirmed: ["confirmed"],
   on_hold: ["on_hold"],
   concluded: ["concluded"],
+  cancelled: ["cancelled"],
   draft: ["draft"],
   // "Archived" is the one chip that asks a question about the READER rather than
   // about the booking, so it selects no status at all — see `ARCHIVED_CHIP`.

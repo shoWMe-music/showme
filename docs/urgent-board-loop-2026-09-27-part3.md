@@ -300,3 +300,38 @@ since two copies drifting apart is exactly how this started.
 Proven live: on the calendar's Status filter, External renders `rgb(143, 163, 184)` and
 Concluded `rgb(184, 169, 155)` — two different dots where there was one. Suites: biome
 712 · web 330 · e2e 112.
+
+### `123qy9rpdup` (half 1 of 2) — the Confirmed and Cancelled filter chips
+
+**Verdict: real, and the audit is right that this is the cheap half.** `CHIP_STATUSES` in
+`useEventList.ts` carried six keys — `all`, `pending`, `on_hold`, `concluded`, `draft`,
+`archived` — and the row rendered exactly those. Two statuses the API serves had no chip:
+
+- **`confirmed`** — the thing the whole booking ladder climbs towards. Findable only under
+  **All**, or by leaving the list for the board view's column.
+- **`cancelled`** — no chip at all, so a withdrawn night sat in **All** beside the live
+  shows and could be neither singled out nor excluded.
+
+**Settled in:** `apps/web/src/hooks/useEventList.ts` (the `EventFilterKey` union and
+`CHIP_STATUSES`), `apps/web/src/routes/Events.tsx` (`FILTER_CHIPS`).
+
+**Scope: two map entries and two labels.** No API change — `events-list.ts` already
+accepts any status in `status[]`, and both values are in its enum. No new query, no new
+state: the chip row is data, and the missing chips were missing data.
+
+**Placement is the one judgement.** Confirmed goes directly after Pending (the ladder's
+own order: a request is pending, then it is confirmed), and Cancelled after Concluded, so
+the two ENDINGS of a night sit together — one that happened, one that did not — with the
+working statuses ahead of them and the two dispositions (Draft, Archived) behind.
+
+**No decision hidden.** The second half of this ticket is where the decision lives
+(#25.3 — cancel-with-reason and the delete ladder, split on whether money exists); the
+chips are the part that needed no ruling.
+
+Mutation-checked properly: emptying `cancelled: []` turns 2 tests red (the all-chips
+sweep and the single-status assertion). Proven live at `127.0.0.1:5180/events` as
+`operator@` — the row reads *All · Pending · Confirmed · On hold · Concluded · Cancelled ·
+Draft · Archived*; **Confirmed** lists only *Marlo Vance — Album Release* and
+**Cancelled** only *Winter Gala*
+(`docs/screenshots/urgent-loop-2026-09-27/chips-confirmed-cancelled.png`).
+Suites: biome 712 · web 330 (2 new).
