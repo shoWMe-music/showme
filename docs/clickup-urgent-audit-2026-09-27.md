@@ -7,13 +7,13 @@ read** — the ClickUp MCP hit its 100-call daily limit; the ten are named at th
 **Nothing was written to ClickUp.** This file is the finding; the board is untouched.
 
 The headline, which is the same finding as 2026-09-04: **the board's count is not the
-work's size.** Of 36 urgent tickets assessed, **12 are already done or nearly**, four
+work's size.** Of 36 urgent tickets assessed, **13 are already done or nearly**, four
 more are a mechanism that exists with one caller, and the biggest single item is **one
 flow described five times**.
 
 ---
 
-## 1. Already done — verify and close (12)
+## 1. Already done — verify and close (13)
 
 | Ticket | Why it is done | Where |
 |---|---|---|
@@ -29,6 +29,7 @@ flow described five times**.
 | `86cbcn1ue` (3 of its 7 open items) Collaborators / ticketing / deal type + fee in the Overview | Built and commented against this ticket; shipped as `123qy9rng5y` | `EventSettlement.tsx:348`, `:507`, `:1003` |
 | `86cbcn189` (item 4) Venue filter then room sub-filter | Two selects, venue then room | `Calendar.tsx:1052-1058` |
 | `123qy9rnfyx` In-house management | Call times, private notes and assigned tasks are all there — it *was* the empty placeholder of shipped `86cbaxxj9` | `EventCrewPanel.tsx:249-290` |
+| `123qy9rnfa4` Event names follow the venue | **Corrected mid-audit — I first called this open.** `calendarEventLabel` labels an event by its venue name unless the reader hosts it, which is exactly the ask. I had only checked the performer/eventName/both switch and missed the helper | `apps/web/src/lib/calendarEventLabel.ts:23-30`, cited at `Calendar.tsx:545` |
 
 `86cbcn189` item 8 ("clicking a date in a settlement jumps to the event manager") is
 also already ticked as done inside `86cbcn1ue` — the same item in two urgent tickets.
@@ -143,13 +144,12 @@ Daniel is sending. Until then no label moves — `PAYS IT` / `CARRIES IT` includ
 
 | Ticket | What is actually wrong | File |
 |---|---|---|
-| `123qy9rpdum` | `Concluded` and `External` are both `#B8A99B` — identical, as reported | `Calendar.tsx:113` vs `:138` |
+| `123qy9rpdum` | Both really are `#B8A99B` — but **deliberately**: `Calendar.tsx:76-81` says imported entries take the muted `concluded` tint because *"the palette is fixed by the design system and every hue is already spoken for, so the tint is shared and the WORD does the telling apart."* Ran's ask overrides that, which makes it a new `Status` member plus a hue picked the way `showday`'s was — rendered into the real legend and compared against all ten dots (`design-system/src/lib/status.ts:38-60`). Small, with a defined method; not the one-liner it looks like | `Calendar.tsx:113` vs `:138` |
 | `123qy9rnh3f` | The reopen reason IS stored (`deals.reopen.reason`) but is in neither the deal payload nor the notification body, so the other side cannot see it | `routes/deals.ts:1036-1040` |
 | `123qy9rnf9d` | Two fields, "Artist / performer" and "Performer profile" — confirmed live in the wizard | `NewEventWizard.tsx` |
 | `123qy9rprbx` §2 | `useDateConflicts` is only asked **while the date field is open**, so an event at rest shows no clash | `EventInlineInformation.tsx:159-166` |
 | `123qy9rpe3y` | The list orders by **created-at**, and the keyset cursor is built on it — show-date order is an API change, not a UI tweak. No per-column sort exists | `events-list.ts:335-353` |
 | `123qy9rnk3m` | Auto logout: nothing exists. (Duplicated on the old board as `86c9mhqu6`) | — |
-| `123qy9rnfa4` | Label modes are performer / event name / both — there is no **venue** option, which is what a performer needs | `CalendarEventChip.tsx:11` |
 | `86cbcf6gr` | Genres exist on the profile and are not shown on the event (small). Mood/Style does not exist at all, and the coloured-pill taxonomy with de-duplication is its own feature | `Profiles.tsx:108`, event details |
 | `123qy9rpdup` | The **Cancelled** and **Confirmed** filter chips are genuinely missing, and there is no cancel-with-reason | `useEventList.ts:29-37` |
 | `123qy9rpe3q` | Bullets 2–3: a performer cannot publish (`event.publish` is operator-only), and publishing notifies nobody | `presets.ts:23` |
@@ -172,6 +172,31 @@ board it double-counts work that is either done or deliberately deprioritised.
 
 ---
 
+## 6a. A prior analysis of this board exists, and it covers three of the ten
+
+`docs/bug-analysis-2026-09-04.md` — twenty tickets tagged `bug`/`needs fixing`, read
+against the code three weeks ago. It is the measurement CLAUDE.md quotes. Two things
+follow:
+
+- **It covers `86cbcn1q4` (Performer profile & media) and `86cbcn1rr` (Venue profile)**
+  — two of the ten I could not read today. Its verdict on both: *design work, blocked on
+  rendering the prototype*, with two performer items already done (all performer types
+  are offered; image preview + crop exists and is wired), one already true server-side
+  (setups are not emitted publicly), and two that are decisions — the missing map (the
+  public page makes zero third-party requests **by design**) and the Assets page (a new
+  feature that should leave the ticket, overlapping `123qy9rnfbe`).
+- **It found the same booking cluster** and named the gap more precisely than I did:
+  `booking_requests` models the **inbound** direction (someone approaches an operator);
+  Ran is describing the **outbound** one (an operator invites, and the performer must
+  answer before anything is granted). Same shape, opposite direction.
+
+**And it is stale in two places, both in our favour** — `123qy9rng4z` (*"no showday
+anywhere… nothing ever moves a confirmed event to concluded"*) and `123qy9rnfz1`'s first
+half have both been built since. Its step 6 (date-change requests) is now
+`lib/event-change-requests.ts`. So of that epic's six steps, **4 and 6 are done** and the
+remaining hole is precisely steps 1, 2, 3 and 5: invite moves the event to `suggested`,
+it arrives as a request, accept moves it to `pending`, decline takes a note.
+
 ## 7. Not yet read — the MCP daily limit (10)
 
 `86cbcn1f8` Deals · `86cbcn1rr` Venue profile (public + edit) · `86cbcn1q4` Performer
@@ -179,6 +204,9 @@ profile & media · `123qy9rng8p` Setlists page + event manager · `123qy9rnk3h` 
 Crew issues · `123qy9rnge6` Team and Crew account + admin role · `123qy9rngc8` Contacts
 UI/UX · `123qy9rnk1u` Uploading files — riders and documents · `123qy9rnfbe` Poster →
 Promo material + Assets · `123qy9rng6d` W5 terminology session.
+
+**Two of those ten are answered by §6a above** (`86cbcn1q4`, `86cbcn1rr`), so eight
+genuinely remain unread.
 
 Four of those (`86cbcn1f8`, `86cbcn1rr`, `86cbcn1q4`, plus the shipped `86cbcn1g5`)
 belong to the same `86cbcn1*` family as the ones read here — a section-by-section
