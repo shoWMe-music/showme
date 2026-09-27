@@ -12,6 +12,7 @@ import {
 } from "firebase/auth";
 import { type ReactNode, createContext, useContext, useEffect, useMemo, useState } from "react";
 import { setActiveProfileId } from "../lib/activeProfile";
+import { recordSignInActivity } from "../lib/idleLogout";
 import { auth, googleProvider } from "./firebase";
 
 export type AccountKind = "operator" | "performer" | "team_and_crew" | "agent";
@@ -152,9 +153,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       async signInEmail(email, password) {
         await signInWithEmailAndPassword(auth, email, password);
+        // Somebody is here. See `recordSignInActivity` for why the idle clock is
+        // stamped by the sign-in ACTIONS and not by the silent session restore.
+        recordSignInActivity();
       },
       async signUpEmail(email, password) {
         await createUserWithEmailAndPassword(auth, email, password);
+        recordSignInActivity();
         // onAuthStateChanged → fetchSession → onboarding (no account yet).
       },
       async signInGoogle() {
@@ -166,6 +171,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // collected by `getRedirectResult` when the browser comes back.
           await signInWithRedirect(auth, googleProvider);
         }
+        // Reached on the popup path; the redirect path stamps when it comes back, on
+        // the first thing the returning user touches.
+        recordSignInActivity();
       },
       async signOut() {
         await firebaseSignOut(auth);

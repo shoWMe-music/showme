@@ -4,6 +4,7 @@ import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { NotificationBell } from "../components/NotificationBell";
+import { useIdleLogout } from "../hooks/useIdleLogout";
 import { useRealtimeStream } from "../hooks/useRealtimeStream";
 import { NewEventProvider, TopbarNewEventButton } from "./NewEventProvider";
 import { type NavRoute, navigationFor } from "./navigation";
@@ -152,6 +153,11 @@ export function AppShell() {
   // the only component alive for all of it. Frames invalidate queries; no component
   // reads the stream directly.
   useRealtimeStream(import.meta.env.VITE_STREAM_URL);
+
+  // Sign out an unattended screen (ClickUp `123qy9rnk3m`). Mounted here for the same
+  // reason the stream is: the shell is the only component alive for the whole session,
+  // and an idle timer that unmounted with a screen would restart on every navigation.
+  useIdleLogout();
 
   /**
    * The Requests badge counts UNREAD incoming booking requests, not pending ones.

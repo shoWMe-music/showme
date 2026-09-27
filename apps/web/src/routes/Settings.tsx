@@ -38,6 +38,13 @@ import { useTeamAccess } from "../hooks/useTeamAccess";
 import { errorMessage } from "../lib/errors";
 import { formatDay } from "../lib/format";
 import {
+  DEFAULT_IDLE_MINUTES,
+  IDLE_TIMEOUT_OPTIONS,
+  IDLE_TIMEOUT_STORAGE_KEY,
+  idleMinutesFromStored,
+  storedFromIdleMinutes,
+} from "../lib/idleLogout";
+import {
   notificationSoundMuted,
   playNotificationSound,
   setNotificationSoundMuted,
@@ -517,12 +524,73 @@ function SecurityPanel() {
         <KeyValueRow label="Sign-in method" value="Email & password" />
         <KeyValueRow label="Identity provider" value="Firebase Auth" />
       </div>
+      <AutoLogoutField />
       <EmptyState
         icon={<Icon name="eye" />}
         title="Password &amp; two-factor"
         description="Managed through your identity provider. In-app password change and 2FA aren't available yet."
       />
     </PanelCard>
+  );
+}
+
+/**
+ * AUTO LOGOUT (ClickUp `123qy9rnk3m`) — *"Log out from the account If no activity for 1
+ * hour (default). Add to security settings and allow changing the time or disabling."*
+ *
+ * The rule and its storage are in `lib/idleLogout.ts`; the timer is in
+ * `hooks/useIdleLogout.ts`, mounted by the shell. This is the control, and the two
+ * things it has to say:
+ *
+ *  - **What counts as activity**, because a user who is reading rather than clicking
+ *    needs to know whether they are about to be thrown out mid-sentence.
+ *  - **That it is this device.** The setting is in `localStorage`, so it is a statement
+ *    about the browser in front of you and not about the account. Saying so is the
+ *    difference between a limitation and a lie — and it is what keeps somebody from
+ *    believing their phone is covered because they set it on a laptop.
+ *
+ * Written on change rather than behind a Save button: there is one value, the effect is
+ * immediate (the shell re-reads it on its next check), and a security setting that
+ * silently needed saving would be the worst kind of half-applied.
+ */
+function AutoLogoutField() {
+  const [minutes, setMinutes] = useState<number | null>(() => {
+    try {
+      return idleMinutesFromStored(window.localStorage.getItem(IDLE_TIMEOUT_STORAGE_KEY));
+    } catch {
+      // A private window with site data blocked. The default is the safe end.
+      return DEFAULT_IDLE_MINUTES;
+    }
+  });
+
+  const choose = (value: string) => {
+    const next = value === "off" ? null : Number(value);
+    setMinutes(next);
+    try {
+      window.localStorage.setItem(IDLE_TIMEOUT_STORAGE_KEY, storedFromIdleMinutes(next));
+    } catch {
+      // Nothing to do but keep the in-session choice — the shell reads the same key and
+      // falls back to the default, so the protection stays on either way.
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <Select
+        label="Sign me out when idle"
+        value={storedFromIdleMinutes(minutes)}
+        options={IDLE_TIMEOUT_OPTIONS.map((option) => ({
+          value: storedFromIdleMinutes(option.minutes),
+          label: option.label,
+        }))}
+        onChange={choose}
+      />
+      <span style={{ color: "var(--muted)", fontSize: 12.5, lineHeight: 1.5 }}>
+        Typing, clicking and scrolling all count as activity. This is set for{" "}
+        <strong style={{ color: "var(--text)" }}>this device</strong> — your other browsers and your
+        phone keep their own setting.
+      </span>
+    </div>
   );
 }
 
