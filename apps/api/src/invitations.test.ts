@@ -780,45 +780,50 @@ describe("invitations — the PROFILE-level grant_admin gate (A-37)", () => {
  * profile-level sibling has no event to have a history, and a row with a null
  * `event_id` is unreachable from every feed — so it is deliberately not written.
  */
-describe("invitations — what reaches an event's history", () => {
-  async function seedOwner(id: string) {
-    const { db } = harness;
-    await seedUser(id, "operator");
-    const [profile] = await db
-      .insert(schema.profiles)
-      .values({ kind: "operator", ownerUserId: id, name: id, slug: id, claimedAt: new Date() })
-      .returning();
-    if (!profile) throw new Error("profile seed failed");
-    await db
-      .insert(schema.profileMembers)
-      .values({ profileId: profile.id, userId: id, role: "owner", status: "active" });
-    // Two sets: the host's own operator bundle (which carries
-    // `participants.manage`, so they may invite at all) and the view-only bundle
-    // the invitee is granted — an admin-grade grant would trip the paid-plan gate.
-    const [operatorSet] = await db
-      .insert(schema.permissionSets)
-      .values({
-        profileId: profile.id,
-        name: "operator_full",
-        capabilities: [...PRESET_PERMISSION_SETS.operator_full],
-      })
-      .returning();
-    const [performerSet] = await db
-      .insert(schema.permissionSets)
-      .values({
-        profileId: profile.id,
-        name: "performer",
-        capabilities: [...PRESET_PERMISSION_SETS.performer],
-      })
-      .returning();
-    if (!operatorSet || !performerSet) throw new Error("permission set seed failed");
-    return {
+/**
+ * A host profile with two permission sets: its own operator bundle (so it may invite
+ * at all) and the view-only bundle an invitee is granted — an admin-grade grant would
+ * trip the paid-plan gate. Shared by the suites below.
+ */
+async function seedOwner(id: string) {
+  const { db } = harness;
+  await seedUser(id, "operator");
+  const [profile] = await db
+    .insert(schema.profiles)
+    .values({ kind: "operator", ownerUserId: id, name: id, slug: id, claimedAt: new Date() })
+    .returning();
+  if (!profile) throw new Error("profile seed failed");
+  await db
+    .insert(schema.profileMembers)
+    .values({ profileId: profile.id, userId: id, role: "owner", status: "active" });
+  // Two sets: the host's own operator bundle (which carries
+  // `participants.manage`, so they may invite at all) and the view-only bundle
+  // the invitee is granted — an admin-grade grant would trip the paid-plan gate.
+  const [operatorSet] = await db
+    .insert(schema.permissionSets)
+    .values({
       profileId: profile.id,
-      permissionSetId: operatorSet.id,
-      granteeSetId: performerSet.id,
-    };
-  }
+      name: "operator_full",
+      capabilities: [...PRESET_PERMISSION_SETS.operator_full],
+    })
+    .returning();
+  const [performerSet] = await db
+    .insert(schema.permissionSets)
+    .values({
+      profileId: profile.id,
+      name: "performer",
+      capabilities: [...PRESET_PERMISSION_SETS.performer],
+    })
+    .returning();
+  if (!operatorSet || !performerSet) throw new Error("permission set seed failed");
+  return {
+    profileId: profile.id,
+    permissionSetId: operatorSet.id,
+    granteeSetId: performerSet.id,
+  };
+}
 
+describe("invitations — what reaches an event's history", () => {
   it("writes activity for an EVENT invite and its acceptance, and none for a PROFILE invite", async () => {
     const { db } = harness;
     const host = await seedOwner("inv-act-host");
@@ -2534,5 +2539,210 @@ describe("GET /profiles/:id/invitations — the account's open invitations", () 
       headers: auth("team-list-stranger-out"),
     });
     expect(listed.statusCode).toBe(404);
+  });
+});
+
+/**
+ * THE INVITATION PATH ATTACHES THE ACT'S AGENT TOO — QA sweep run 4, QA4-7.
+ *
+ * `autoAssignAgentOnPerformerJoin` is the future-events rule of decisions #14, and it
+ * had three callers: the create wizard, the inbound path, and
+ * `POST /events/:id/participants` — which commit `3cf3d17` established is *"a route
+ * apps/web never calls"*. So of the two paths a real operator takes, this one skipped
+ * it: the same act with the same active representation reached a bill with their agent
+ * when the wizard drew it and without them when the operator invited from the
+ * Collaborators tab, and the act's row carried no delegation stamp either, so the agent
+ * held no authority anywhere.
+ *
+ * And nobody was told on any path. The wizard attached the agent in the same
+ * transaction as the performer and notified only the performer.
+ */
+describe("invitations — accepting attaches the act's agent, and tells them (`123qy9rnk3h`/QA4-7)", () => {
+  it("puts the agent on the bill, stamps the delegation, and notifies the agency", async () => {
+    const { db } = harness;
+    const host = await seedOwner("inv-agent-host");
+
+    // The act, and the agency that represents them — an ACTIVE, both-confirmed
+    // worldwide representation, which is what `isRepresentationActiveAt` asks for.
+    await seedUser("inv-agent-act", "performer");
+    const [actProfile] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "performer",
+        ownerUserId: "inv-agent-act",
+        name: "Ada Act",
+        slug: "inv-agent-act",
+      })
+      .returning();
+    if (!actProfile) throw new Error("act profile seed failed");
+    await db.insert(schema.profileMembers).values({
+      profileId: actProfile.id,
+      userId: "inv-agent-act",
+      role: "owner",
+      status: "active",
+    });
+
+    await seedUser("inv-agent-agency", "agent");
+    const [agencyProfile] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "agent",
+        ownerUserId: "inv-agent-agency",
+        name: "Astra Booking",
+        slug: "inv-agent-agency",
+      })
+      .returning();
+    if (!agencyProfile) throw new Error("agency profile seed failed");
+    await db.insert(schema.profileMembers).values({
+      profileId: agencyProfile.id,
+      userId: "inv-agent-agency",
+      role: "owner",
+      status: "active",
+    });
+    await db.insert(schema.representations).values({
+      agentProfileId: agencyProfile.id,
+      performerProfileId: actProfile.id,
+      isWorldwide: true,
+      commissionRate: 1000,
+      commissionableBasis: "deal_income",
+      proposedBy: "agent",
+      status: "active",
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+    });
+
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: host.profileId,
+        title: "Agent Assignment By Invite",
+        baseCurrency: "SEK",
+        createdBy: "inv-agent-host",
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: host.profileId,
+      role: "host",
+      permissionSetId: host.permissionSetId,
+      status: "confirmed",
+    });
+
+    const invited = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("inv-agent-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "inv-agent-act@example.showme.test",
+        recipientName: "Ada Act",
+        targetEventId: event.id,
+        role: "performer",
+        permissionSetId: host.granteeSetId,
+      },
+    });
+    expect(invited.statusCode).toBe(201);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${invited.json().token}/accept`,
+      headers: { ...auth("inv-agent-act"), "x-profile-id": actProfile.id },
+    });
+    expect(accepted.statusCode).toBe(200);
+
+    const participants = await db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, event.id));
+    const agentRow = participants.find((row) => row.profileId === agencyProfile.id);
+    expect(agentRow?.role).toBe("agent");
+    // The stamp is what actually moves the authority — without it the agent stands on
+    // the event holding nothing (`authorize.ts` reads it to find a delegation).
+    const actRow = participants.find((row) => row.profileId === actProfile.id);
+    expect(
+      (actRow?.details as { delegatedToAgentProfileId?: string } | null)?.delegatedToAgentProfileId,
+    ).toBe(agencyProfile.id);
+
+    // …and the agency is told, naming the ACT. An agency with thirty on its roster
+    // gets these all week; "you were added to an event" does not say which artist.
+    const bell = await db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "inv-agent-agency"));
+    expect(bell).toHaveLength(1);
+    expect(bell[0]?.type).toBe("event.participant_added");
+    expect(bell[0]?.title).toContain("Ada Act");
+    expect(bell[0]?.body).toContain("agent");
+  });
+
+  it("attaches nobody for an unrepresented act, and tells nobody", async () => {
+    const { db } = harness;
+    const host = await seedOwner("inv-solo-host");
+    await seedUser("inv-solo-act", "performer");
+    const [actProfile] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "performer",
+        ownerUserId: "inv-solo-act",
+        name: "Solo Act",
+        slug: "inv-solo-act",
+      })
+      .returning();
+    if (!actProfile) throw new Error("act profile seed failed");
+    await db.insert(schema.profileMembers).values({
+      profileId: actProfile.id,
+      userId: "inv-solo-act",
+      role: "owner",
+      status: "active",
+    });
+
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: host.profileId,
+        title: "No Agent Here",
+        baseCurrency: "SEK",
+        createdBy: "inv-solo-host",
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: host.profileId,
+      role: "host",
+      permissionSetId: host.permissionSetId,
+      status: "confirmed",
+    });
+
+    const invited = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("inv-solo-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "inv-solo-act@example.showme.test",
+        recipientName: "Solo Act",
+        targetEventId: event.id,
+        role: "performer",
+        permissionSetId: host.granteeSetId,
+      },
+    });
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${invited.json().token}/accept`,
+      headers: { ...auth("inv-solo-act"), "x-profile-id": actProfile.id },
+    });
+    expect(accepted.statusCode).toBe(200);
+
+    const participants = await db
+      .select()
+      .from(schema.eventParticipants)
+      .where(eq(schema.eventParticipants.eventId, event.id));
+    // Host + act, and nothing invented for an act nobody represents.
+    expect(participants).toHaveLength(2);
+    expect(participants.every((row) => row.role === "host" || row.role === "performer")).toBe(true);
   });
 });

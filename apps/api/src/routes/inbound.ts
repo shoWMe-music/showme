@@ -16,7 +16,11 @@ import {
   tooManyRequests,
 } from "../errors";
 import { writeActivity } from "../lib/activity";
-import { autoAssignAgentOnPerformerJoin } from "../lib/agent-assignment";
+import {
+  type AgentAssignment,
+  autoAssignAgentOnPerformerJoin,
+  notifyAgentsOfAssignment,
+} from "../lib/agent-assignment";
 import type { Transaction } from "../lib/audit";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
@@ -711,6 +715,18 @@ function isAllowedPublicOrigin(request: FastifyRequest): boolean {
 type AttachedSender = z.infer<typeof DraftEventSenderResponse>;
 
 /**
+ * What the attach did, plus WHO ELSE it put on the event.
+ *
+ * `AttachedSender` is a response shape (it is `z.infer` of the route's own schema),
+ * so the agents ride beside it rather than in it: they are news to deliver, not a
+ * field the caller asked for. See `notifyAgentsOfAssignment` (QA sweep run 4, QA4-7).
+ */
+interface AttachedSenderWithAgents {
+  attached: AttachedSender;
+  agents: AgentAssignment[];
+}
+
+/**
  * Put the person who asked ONTO the draft event, through whichever of the two
  * doors their sender identity opens (`resolveBookingRequestSender`).
  *
@@ -734,12 +750,15 @@ async function attachSenderToEvent(
     operatorUserId: string;
     actingProfileId: string | null;
   },
-): Promise<AttachedSender> {
+): Promise<AttachedSenderWithAgents> {
   const { sender, event, operatorUserId, actingProfileId } = input;
   // A `venue_handoff` row can carry neither an account nor an address. Nothing to
   // add and nobody to write to — said plainly in the response, not papered over.
   if (sender.channel === "none") {
-    return { channel: "none", profileId: null, email: null, emailed: false };
+    return {
+      attached: { channel: "none", profileId: null, email: null, emailed: false },
+      agents: [],
+    };
   }
 
   // The act IS the host. `POST /offers` does not refuse a profile addressing
@@ -748,7 +767,10 @@ async function attachSenderToEvent(
   // is a 23505 the caller would see as a bare 500. Nobody is added and nobody is
   // told, which is the truth — you cannot support your own show.
   if (sender.channel === "profile" && sender.actProfileId === event.hostProfileId) {
-    return { channel: "none", profileId: null, email: null, emailed: false };
+    return {
+      attached: { channel: "none", profileId: null, email: null, emailed: false },
+      agents: [],
+    };
   }
 
   const profileId =
@@ -788,8 +810,11 @@ async function attachSenderToEvent(
     // their agent in the same breath — the same call `POST /events/:id/participants`
     // makes, so an act reaches an event with the same standing whichever door it
     // came through. A stub has no representations, so this is the profile branch only.
-    await autoAssignAgentOnPerformerJoin(tx, event, profileId);
-    return { channel: "notification", profileId, email: null, emailed: false };
+    const agents = await autoAssignAgentOnPerformerJoin(tx, event, profileId);
+    return {
+      attached: { channel: "notification", profileId, email: null, emailed: false },
+      agents,
+    };
   }
 
   await tx.insert(schema.invitations).values({
@@ -810,7 +835,11 @@ async function attachSenderToEvent(
     createdByProfile: actingProfileId,
   });
 
-  return { channel: "invitation", profileId, email: sender.email, emailed: false };
+  // A stub profile has no representations, so nothing to report here.
+  return {
+    attached: { channel: "invitation", profileId, email: sender.email, emailed: false },
+    agents: [],
+  };
 }
 
 /**
@@ -1698,7 +1727,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
           targetId: event.id,
           eventId: event.id,
           before: bookingRequest,
-          after: { event, bookingRequestId: id, sender: attached },
+          after: { event, bookingRequestId: id, sender: attached.attached },
         });
         await writeActivity(tx, request, {
           eventId: event.id,
@@ -1708,7 +1737,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
           summary: { title: event.title, fromBookingRequestId: id },
         });
 
-        return { event, attached };
+        return { event, attached: attached.attached, agents: attached.agents };
       });
 
       // Delivery, after the commit and best-effort: the act is ON the event and
@@ -1723,6 +1752,16 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         event: created.event,
         attached: created.attached,
       });
+
+      // The act's agent, when the act joining handed them this draft (decisions #14;
+      // QA4-7). Beside the two deliveries above and for the same reason: the rows are
+      // committed, so a delivery failure costs a message and never the draft.
+      await notifyAgentsOfAssignment(
+        database,
+        request,
+        { id: created.event.id, title: created.event.title },
+        created.agents,
+      );
 
       // A FRESH read of the entitlement layer (decisions #4 — never conflated with
       // authorization, never cached): what the plan allows RIGHT NOW, so the

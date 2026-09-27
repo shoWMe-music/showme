@@ -1,7 +1,9 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
-import { schema } from "@showme/db";
+import { type Database, schema } from "@showme/db";
+import { notifyProfileMembers } from "@showme/db/notify";
 import { CLOSED_EVENT_STATUSES } from "@showme/db/representation-termination";
 import { and, eq, inArray, notInArray } from "drizzle-orm";
+import type { FastifyRequest } from "fastify";
 import type { Transaction } from "./audit";
 import { assertRepresentationPartyKinds, isRepresentationActiveAt } from "./representation-rules";
 
@@ -208,15 +210,34 @@ export async function assignAgentToEvents(
 }
 
 /**
+ * ONE AGENT PUT ON ONE EVENT, reported back so somebody can be told.
+ *
+ * The assignment is a write inside a transaction; telling the agent is a delivery
+ * that cannot be taken back. So this function reports rather than notifies, and the
+ * caller tells them after the commit — the rule every notification in this app
+ * follows. See {@link notifyAgentsOfAssignment}.
+ */
+export interface AgentAssignment {
+  agentProfileId: string;
+  /** WHOSE agent they are on this event — the only fact that makes the news useful. */
+  performerProfileId: string;
+}
+
+/**
  * Auto-assignment for FUTURE events (decisions #14): when a performer joins an
  * in-region event, any of their ACTIVE representations covering that territory
  * takes control automatically — no per-event opt-in for future events.
+ *
+ * Returns what it actually attached (empty for an unrepresented act, an out-of-region
+ * venue, or an agent already standing on the event), because decisions #14 also
+ * requires the agent to be TOLD and that cannot happen in here — see
+ * `AgentAssignment` above.
  */
 export async function autoAssignAgentOnPerformerJoin(
   tx: Transaction,
   event: EventRow,
   performerProfileId: string,
-): Promise<void> {
+): Promise<AgentAssignment[]> {
   const now = new Date();
   // `status = 'active'` is only the SQL prefilter — a row can carry an agreed
   // future termination and still be `active`, and one whose moment has passed is
@@ -232,9 +253,78 @@ export async function autoAssignAgentOnPerformerJoin(
         ),
       )
   ).filter((representation) => isRepresentationActiveAt(representation, now));
+  const assigned: AgentAssignment[] = [];
   for (const representation of activeReps) {
     if (await venueInRegion(tx, event.venueProfileId, representation)) {
-      await assignAgentToEvent(tx, representation, event.id);
+      // The boolean is whether a row was actually written — `assignAgentToEvent`
+      // refuses a closed event, the wrong party kinds, a performer who is not on the
+      // bill, and an agent who is already standing here. Only a real attachment is
+      // news, so only a real attachment is reported.
+      if (await assignAgentToEvent(tx, representation, event.id)) {
+        assigned.push({
+          agentProfileId: representation.agentProfileId,
+          performerProfileId: representation.performerProfileId,
+        });
+      }
+    }
+  }
+  return assigned;
+}
+
+/**
+ * TELL THE AGENT THEIR ACT PUT THEM ON A SHOW — QA sweep run 4, QA4-7.
+ *
+ * decisions #14 says an agent must be told when their act is invited, and until now
+ * that half of the rule had no mechanism at all: the wizard path attached the agent
+ * to the event in the same transaction as the performer and notified only the
+ * performer. Somebody was given authority over a night and nobody said so.
+ *
+ * ONE implementation, called by every path that can attach an agent
+ * (`routes/events.ts`, `routes/invitations.ts`, `routes/participants.ts`,
+ * `routes/inbound.ts`), for the reason this loop has now met three times in one day:
+ * a rule that lives at one caller is a rule the other callers skip in silence.
+ *
+ * The message names the PERFORMER, not the role. An agency with thirty acts on its
+ * roster gets these all week, and "you were added to an event" is the one sentence
+ * that does not say which of their artists it is about. `story.md`: an agent exists
+ * to act for a named performer.
+ *
+ * Best-effort by contract, like every notification here — the participant rows are
+ * already committed, and a delivery failure must not suggest otherwise.
+ */
+export async function notifyAgentsOfAssignment(
+  database: Database,
+  request: FastifyRequest,
+  event: { id: string; title: string },
+  assignments: readonly AgentAssignment[],
+): Promise<void> {
+  if (assignments.length === 0) return;
+  for (const assignment of assignments) {
+    try {
+      const [performer] = await database
+        .select({ name: schema.profiles.name })
+        .from(schema.profiles)
+        .where(eq(schema.profiles.id, assignment.performerProfileId));
+      const act = performer?.name ?? "an act you represent";
+      await notifyProfileMembers(
+        database,
+        assignment.agentProfileId,
+        request.principal?.userId ?? null,
+        {
+          type: "event.participant_added",
+          title: `${act} is on "${event.title}"`,
+          body: `You were added to the show as ${act}'s agent, so their deal and their settlement are yours to handle.`,
+          eventId: event.id,
+          actorDisplay: request.firebaseUser?.name ?? undefined,
+          link: `/events/${event.id}`,
+          metadata: { eventId: event.id, performerProfileId: assignment.performerProfileId },
+        },
+      );
+    } catch (error) {
+      request.log.error(
+        { error, eventId: event.id, agentProfileId: assignment.agentProfileId },
+        "agent-assignment notification failed",
+      );
     }
   }
 }

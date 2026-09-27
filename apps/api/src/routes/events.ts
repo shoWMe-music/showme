@@ -18,7 +18,11 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { changedFieldNames, writeActivity } from "../lib/activity";
-import { autoAssignAgentOnPerformerJoin } from "../lib/agent-assignment";
+import {
+  type AgentAssignment,
+  autoAssignAgentOnPerformerJoin,
+  notifyAgentsOfAssignment,
+} from "../lib/agent-assignment";
 import type { Transaction } from "../lib/audit";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
@@ -317,11 +321,13 @@ async function joinParticipants(
     hostProfileId: string;
     participants: z.infer<typeof CreateEventParticipant>[];
   },
-): Promise<Map<string, string>> {
+): Promise<{ participantIdByProfile: Map<string, string>; agents: AgentAssignment[] }> {
   const participantIdByProfile = new Map<string, string>([
     [input.hostProfileId, input.hostParticipantId],
   ]);
-  if (input.participants.length === 0) return participantIdByProfile;
+  /** Agents this join actually attached — reported out so they can be TOLD (QA4-7). */
+  const agents: AgentAssignment[] = [];
+  if (input.participants.length === 0) return { participantIdByProfile, agents };
   const principal = request.principal;
   if (!principal) throw new Error("principal missing after authentication");
 
@@ -388,14 +394,14 @@ async function joinParticipants(
     // name-only row), but a participant this code just inserted always has one —
     // the check is the type system's, and costs nothing.
     if (event && participant.profileId) {
-      await autoAssignAgentOnPerformerJoin(tx, event, participant.profileId);
+      agents.push(...(await autoAssignAgentOnPerformerJoin(tx, event, participant.profileId)));
     }
   }
   if (invitesAnAct) {
     await advanceEventStatus(tx, { eventId: input.eventId, trigger: "performer_invited" });
   }
 
-  return participantIdByProfile;
+  return { participantIdByProfile, agents };
 }
 
 /** Write the stated agreement as a real `deals` + `deal_parties` record. */
@@ -1062,6 +1068,8 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       // idempotent replay, because the closure below does not run a second time
       // — a retried create must not re-announce itself.
       let joinedProfileIds: string[] = [];
+      /** Agents the bill attached — told after the commit, never inside it (QA4-7). */
+      let assignedAgents: AgentAssignment[] = [];
 
       const { statusCode, body } = await withIdempotency(request, "POST /events", async () => {
         const created = await database.transaction(async (tx) => {
@@ -1181,7 +1189,7 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
           // it happened. Same transaction on purpose: a deal whose parties are
           // half-written is not a deal, and a wizard that reported success on
           // the event while dropping the terms is the bug this closes.
-          const participantIdByProfile = await joinParticipants(tx, request, {
+          const joined = await joinParticipants(tx, request, {
             eventId: event.id,
             hostParticipantId: hostParticipant.id,
             hostProfileId: actingProfileId,
@@ -1192,10 +1200,11 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
               eventId: event.id,
               deal: request.body.deal,
               currency: request.body.baseCurrency,
-              participantIdByProfile,
+              participantIdByProfile: joined.participantIdByProfile,
             });
           }
           joinedProfileIds = joiningProfileIds;
+          assignedAgents = joined.agents;
           return event;
         });
         const imageUrls = await signProfileImageUrls(database, request.server.storageSigner, [
@@ -1235,6 +1244,16 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
           );
         }
       }
+
+      // AND THE AGENTS the bill attached on their act's behalf (QA4-7). Not in the
+      // loop above: `joinedProfileIds` is who was INVITED, and an auto-assigned agent
+      // was never invited by anybody — which is exactly why they need telling.
+      await notifyAgentsOfAssignment(
+        database,
+        request,
+        { id: body.id, title: body.title },
+        assignedAgents,
+      );
 
       return reply.status(statusCode as 201).send(body);
     },

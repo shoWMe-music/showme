@@ -9,6 +9,11 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { HttpError, badRequest, conflict, forbidden, isUniqueViolation, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
+import {
+  type AgentAssignment,
+  autoAssignAgentOnPerformerJoin,
+  notifyAgentsOfAssignment,
+} from "../lib/agent-assignment";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import {
@@ -1005,6 +1010,9 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       }
 
       let updated: InvitationRow;
+      /** Agents this acceptance attached, told after the commit (QA4-7). */
+      let assignedAgents: AgentAssignment[] = [];
+      let joinedEventTitle = "";
       try {
         updated = await database.transaction(async (tx) => {
           if (grantsProfileMember && invitation.targetProfileId) {
@@ -1046,6 +1054,37 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
               // `invited` and still need answering. See `off-platform.test.ts`.
               status: "accepted",
             });
+
+            /*
+             * THE FOURTH CALLER of the future-events rule (decisions #14; QA sweep
+             * run 4, QA4-7).
+             *
+             * `autoAssignAgentOnPerformerJoin` had three: the create wizard, the
+             * inbound path, and `POST /events/:id/participants` — which `3cf3d17`
+             * established is *"a route apps/web never calls"*. So of the two paths a
+             * real person takes, this one skipped it: the same act with the same
+             * active representation ended up on a bill with their agent when the
+             * operator used the wizard, and without them when the operator invited
+             * from the Collaborators tab. The act's row also carried no
+             * `delegatedToAgentProfileId`, so the agent had no authority anywhere.
+             *
+             * It runs for whatever role was accepted rather than only for a performer:
+             * the function itself decides (it looks for the accepting profile's active
+             * representations, and an operator or a crew member has none), which keeps
+             * the judgement in one place instead of two.
+             */
+            const [joinedEvent] = await tx
+              .select()
+              .from(schema.events)
+              .where(eq(schema.events.id, invitation.targetEventId));
+            if (joinedEvent) {
+              assignedAgents = await autoAssignAgentOnPerformerJoin(
+                tx,
+                joinedEvent,
+                principal.actingProfileId,
+              );
+              joinedEventTitle = joinedEvent.title;
+            }
           } else {
             throw badRequest("This invitation cannot be accepted directly");
           }
@@ -1116,6 +1155,17 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
         request.log.error(
           { error, invitationId: updated.id },
           "invitation-accept notification failed",
+        );
+      }
+
+      // And the agent the acceptance put on the show — see the block inside the
+      // transaction for why this path had neither the row nor the message.
+      if (updated.targetEventId) {
+        await notifyAgentsOfAssignment(
+          database,
+          request,
+          { id: updated.targetEventId, title: joinedEventTitle },
+          assignedAgents,
         );
       }
 

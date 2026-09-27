@@ -203,7 +203,7 @@ dialog has been selling all along.
 |---|---|
 | **QA4-2** (major) a co-host can rename and CANCEL the host's show | **A decision, not a defect.** `event-delete.ts` says *"the show is not theirs to end"* and the date move is already protected by a change request every party must answer — so the sweep's argument is strong. But a co-promoter legitimately calling off a night they co-produce would be blocked, and the mechanism that would fix it properly (a cancel REQUEST, like the date one) is a feature. Recommendation: require the host profile to cancel, mirroring delete. **Ran's call.** |
 | **QA4-5** (major) the co-host's Budget Planner prints a break-even it promises to leave out | **FIXED** — see below. Deferring it to the vocabulary session was wrong: this is a figure being drawn, not a word being chosen. |
-| **QA4-7** (major) an invite never attaches the act's agent, and the agent is never told | The outbound invite chain (item 2 of this loop). A real gap, separate from what was built today, and the biggest of the four left. |
+| **QA4-7** (major) an invite never attaches the act's agent, and the agent is never told | **FIXED** — see the entry above and the outcome below. |
 | **QA4-10 … QA4-20** (minors + cosmetics) | Queued behind the remaining §2/§5 items. None blocks a journey; each is named in the sweep report with its route and account. |
 
 **The seed after this iteration** is mutated again (the album release is cancelled and
@@ -249,3 +249,91 @@ Results panel now goes straight from the note to the breakdowns with no chart; a
 `operator@` the chart is still there, reading *"Revenue never passes total cost inside 400
 capacity"* — and its image label now says the same thing. biome 718 · web 341 (3 new) ·
 e2e 112.
+
+## QA4-7 — the invitation path skips the agent, and the agent is never told
+
+**Verdict: real, two defects, and the first is the audit's own recurring pattern —
+a built mechanism with a missing caller.**
+
+`autoAssignAgentOnPerformerJoin` attaches a represented act's agent to the event and
+stamps the act's row with `delegatedToAgentProfileId`. It has three callers:
+`routes/events.ts:391` (the wizard), `routes/inbound.ts:791`, `routes/participants.ts:373`
+— and commit `3cf3d17` established that day that `POST /events/:id/participants` is *"a
+route apps/web never calls"*. So of the two paths a real person takes, the invitation one
+skips it: `routes/invitations.ts` inserts the participant row directly and calls nothing.
+Same act, same active representation, two creation paths, two different bills.
+
+**The second defect is a rule with no mechanism at all.** decisions #14 requires that the
+agent be told when their act is invited. After the wizard path — which DOES attach the
+agent, in the same transaction — `notifications` holds `event.participant_added` for the
+performer and nothing for the agent. The agent was put on an event and nobody said so.
+
+### Which files settle it
+
+| File | What changes |
+|---|---|
+| `apps/api/src/lib/agent-assignment.ts` | `autoAssignAgentOnPerformerJoin` RETURNS what it attached; a sibling tells them |
+| `apps/api/src/routes/invitations.ts` | the accept path calls it — the fourth caller |
+| `apps/api/src/routes/events.ts`, `participants.ts`, `inbound.ts` | notify from the returned assignments |
+
+### The shape, and the one judgement in it
+
+**The assignment happens inside the transaction; the telling happens after the commit.**
+That is the rule every notification in this app follows, so the function cannot notify —
+it must report. It returns `{ agentProfileId, performerProfileId }` per attachment, and
+`notifyAgentsOfAssignment` (beside it, one implementation, four callers) does the telling
+after. A notification written inside the assignment would be a delivery that cannot be
+rolled back inside a write that can.
+
+**The wording names the ACT, not the event role.** An agent added to a bill does not need
+to be told they are an agent; they need to know *which of their performers* put them there
+— an agency with a roster of thirty gets `event.participant_added` messages that are
+otherwise indistinguishable. `story.md`'s agent exists to act for a named performer.
+
+**No new capability, no new visibility.** The agent row this creates is the row the wizard
+path already creates, with the same preset and the same ceiling. The only thing that
+changes is that the second path produces it too, and that somebody is told.
+
+### QA4-7 — built
+
+**The fourth caller.** `routes/invitations.ts`'s accept path now calls
+`autoAssignAgentOnPerformerJoin`, so the two paths a real operator takes produce the same
+bill. It runs for whatever role was accepted rather than only for a performer: the
+function itself looks for the accepting profile's active representations, and an operator
+or a crew member has none — keeping the judgement in one place instead of two.
+
+**The rule with no mechanism.** `autoAssignAgentOnPerformerJoin` now RETURNS what it
+attached, and `notifyAgentsOfAssignment` beside it does the telling — one implementation,
+reached from all four paths (`events.ts`, `invitations.ts`, `participants.ts`,
+`inbound.ts`). The assignment is a write inside a transaction and the notification is a
+delivery that cannot be taken back, so the function reports and the caller tells, after
+the commit. **Only a real attachment is reported**: `assignAgentToEvent` already refuses a
+closed event, the wrong party kinds, a performer who is not on the bill and an agent
+already standing there, and its boolean is what gets pushed.
+
+The message names the **act**, not the role: an agency with thirty on its roster gets
+these all week, and *"you were added to an event"* is the one sentence that does not say
+which artist it is about.
+
+Proven live against the sweep's own scenario — the operator invites Marlo Vance (whose
+representation by Astra Booking is active and both-confirmed) to *Open Mic Wednesdays*
+through `POST /invitations`, and the act accepts:
+
+```
+on the bill: The Lantern Hall (host)
+on the bill: Marlo Vance (performer) — delegated to the agent
+on the bill: Astra Booking Agency (agent)
+agent's bell: "Marlo Vance is on "Open Mic Wednesdays"" — You were added to the show as
+              Marlo Vance's agent, so their deal and their settlement are yours to handle.
+```
+
+Before: one host row, no agent, `details` NULL, and nothing in the bell. Two new tests,
+both mutation-checked (removing the caller, and short-circuiting the notifier). Suites:
+biome 718 · api **1344** (2 new; `google-mirror-push` and `settlement` lost to the
+Testcontainers flake, both green when run alone) · web 341 · e2e 112.
+
+**A note on the probe, worth keeping:** the first attempt to reproduce this by hand was
+refused `entitlement_required — Granting admin requires a paid plan`, because I passed the
+host's own `operator_full` set as the invitee's grant. The API was right and the probe was
+wrong; the flow needs a performer-grade set. A refusal that looks like an obstacle is
+sometimes the rule working.

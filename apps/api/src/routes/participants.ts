@@ -10,7 +10,11 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
-import { autoAssignAgentOnPerformerJoin } from "../lib/agent-assignment";
+import {
+  type AgentAssignment,
+  autoAssignAgentOnPerformerJoin,
+  notifyAgentsOfAssignment,
+} from "../lib/agent-assignment";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { renderOffPlatformPerformerEmail } from "../lib/email-templates";
@@ -322,6 +326,8 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         "POST /events/:id/participants",
         async () => {
           let created: typeof schema.eventParticipants.$inferSelect;
+          /** Agents the add attached, told after the commit (QA4-7). */
+          let assignedAgents: AgentAssignment[] = [];
           try {
             created = await database.transaction(async (tx) => {
               const [participant] = await tx
@@ -370,7 +376,11 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
                 // `profile_id` is nullable since 0032, but a row this code just
                 // inserted always carries one.
                 if (event && participant.profileId) {
-                  await autoAssignAgentOnPerformerJoin(tx, event, participant.profileId);
+                  assignedAgents = await autoAssignAgentOnPerformerJoin(
+                    tx,
+                    event,
+                    participant.profileId,
+                  );
                 }
               }
               return participant;
@@ -406,6 +416,20 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
             request.log.error(
               { error, eventId: id, profileId: created.profileId },
               "participant-add notification failed",
+            );
+          }
+
+          // And the act's agent, if the join handed them the event (decisions #14).
+          {
+            const [event] = await database
+              .select({ title: schema.events.title })
+              .from(schema.events)
+              .where(eq(schema.events.id, id));
+            await notifyAgentsOfAssignment(
+              database,
+              request,
+              { id, title: event?.title ?? "an event" },
+              assignedAgents,
             );
           }
 
