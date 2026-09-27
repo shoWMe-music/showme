@@ -132,3 +132,83 @@ HOLDS ON THIS DATE
 ```
 
 Screenshot: `docs/screenshots/qa-2026-09-27-run5/qa5-4-queue-takes-a-number.png`.
+
+---
+
+## Run 5's nine minors — planned before building, cheapest first
+
+Read against the code while sweep run 6 drives the app. **Two are not what the report says**,
+and one of those is a decision already written down in the source.
+
+| | Verdict | The file that settles it | Cost |
+|---|---|---|---|
+| **QA5-7** | **real — a claim the engine makes about the screen that the screen never honoured** | `packages/shared/src/budget-planning.ts` + `components/budgetPlannerView.ts` | small |
+| **QA5-10** | **real — one guard, and the pattern already exists three times** | `routes/Audience.tsx` | small |
+| **QA5-8** | **real — the condition asks the wrong question** | `routes/EventSettlement.tsx` | small |
+| **QA5-6** | **real — nothing carries the reason across a sign-out** | `hooks/useIdleLogout.ts` + `auth/AuthScreen.tsx` | small |
+| **QA5-9** | **mis-scoped — the missing write is deliberate, and `replace: true` gets the rest** | `routes/EventDetail.tsx` | small |
+| **QA5-12** | real — an append with no way to say "replace" | `components/useScheduleTemplates.ts` | medium |
+| **QA5-13** | real — a summary from local state over a record that has not caught up | the Ticket Information card | medium |
+| **QA5-14** | real, and **three separate faults** on two screens | the Settlements dashboard | medium |
+| **QA5-11** | **decision** — #14's view floor against an agent's private pipeline | `routes/booking-requests` scoping | medium |
+
+### QA5-7 — the engine already says "no break-even"; the screen prints `0`
+
+`computeBudgetProjection`'s own docstring, twice: *"there is no break-even, and 0 says so (the
+screen renders that as 'no break-even', **never as 'none needed'**)"*. The screen renders `0`.
+
+But `0` is **two** answers and the value cannot tell them apart:
+
+| | Meaning |
+|---|---|
+| `contributionPerHead <= 0`, or the attendance scan found no crossing inside its bound | **no break-even exists** |
+| `uncovered <= 0` — standing revenue already covers the entered costs | **break even at zero tickets**, which is a true `0` |
+
+So the reason has to travel. **Scope:** a `breakEvenReachable: boolean` on `BudgetProjection`,
+false in exactly the two unreachable cases; `budgetPlannerView.ts` renders `No break-even` in
+both KPI strips when it is false. *The decision it hides:* none — the engine's docstring
+already committed to this wording; this is the caller catching up. Mutation-tested per branch,
+because a boolean that is always true is the easiest kind of dead flag.
+
+### QA5-10 — `/audience` has no boundary sentence, and three screens next door do
+
+`shell/navigation.ts:138` withholds Audience from `team_and_crew` and `agent` with the
+reasoning quoted from story.md, and both sidebars honour it; typing the URL renders the screen.
+`/setlists`, `/reports` and `/projections` each answer the same situation with
+`isDestinationForKind(<path>, kind)` + an `EmptyState` carrying a boundary sentence. **Scope:**
+the fourth instance of that wrapper, with the sentence story.md supports — the fanbase is the
+act's and the room's, not the agency's or the engineer's. *The decision it hides:* none; the
+kind rule is already decided and written twice.
+
+### QA5-8 — the chooser asks "are there lines?" where it means "is it still open?"
+
+`EntryMethodCard` and `chooserIsShowing` both test `editor.lines.length === 0`, so a
+**finalized** settlement with no captured lines still offers *Start from the Budget Planner* —
+and pressing it now raises the server's refusal as a toast, which is run 4's half-fix. The
+status is on the hook already (`settlement.isFinalized`). **Scope:** both conditions gain it,
+so a frozen settlement shows the locked view whether or not it captured a line. *The decision
+it hides:* none — the server already refuses; this stops offering what will be refused.
+
+### QA5-6 — a sign-out that says nothing
+
+`useIdleLogout` calls `void signOut()` and the reason dies with the React tree. **Scope:** a
+one-shot key beside the two `showme.security.*` keys the feature already owns, written at the
+moment it fires and read-and-cleared by `AuthScreen`, which shows one line naming the timeout
+and where to change it. `localStorage` is the right carrier rather than router state precisely
+because the sign-out tears the tree down — and the timeout is already a per-device
+`localStorage` setting (§25.6). Both accessors go through the same wrapped reader the feature
+uses, because `localStorage` **throws** rather than returning null in some contexts.
+
+### QA5-9 — the missing write is a decision, but `replace: true` costs it nothing
+
+`EventDetail.tsx:109` says it plainly: *"clicking a tab afterwards moves this state and
+deliberately does not rewrite the URL, so the workspace still behaves as one screen rather than
+pushing a history entry per tab."* The sweep read that as a bug and its second symptom —
+`history.back()` leaves the event — is the thing the decision **buys**.
+
+What the decision costs is real though: a reload lands on Event Details, and a reader cannot
+copy the URL of the panel they are looking at. Both are fixed by writing the tab with
+`replace: true` — the URL follows the panel, no history entry is pushed, and `back` still
+leaves the event exactly as designed. **Scope:** one `navigate({ replace: true })` in the
+tab-change handler, `?tab=` omitted for the default panel so the bare URL stays bare. *The
+decision it hides:* nothing new — it keeps the recorded one and removes its only cost.
