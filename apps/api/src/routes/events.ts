@@ -27,6 +27,7 @@ import type { Transaction } from "../lib/audit";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability, requireProfileRole } from "../lib/authorize";
 import { assertEventCapAllows } from "../lib/entitlements";
+import { eventChangeNotice } from "../lib/event-change-notice";
 import {
   BOOKING_PARTY_ROLES,
   NEGOTIATED_FIELDS,
@@ -1451,6 +1452,13 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
           ? and(eq(schema.events.id, id), eq(schema.events.version, expectedVersion))
           : eq(schema.events.id, id);
 
+      /**
+       * The fields this save actually moved, carried OUT of the transaction so the
+       * notification can be sent after the commit — a delivery that cannot be taken back
+       * must not sit inside a write that can (`86cbcftg3`).
+       */
+      let changedFields: string[] = [];
+
       const updated = await database.transaction(async (tx) => {
         // Re-snapshot the timezone when the venue changes or an explicit zone is given
         // (decisions #10). Untouched otherwise — a title edit never re-resolves it.
@@ -1528,6 +1536,7 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         // What the venue filled in counts as changed too — an operator reading
         // the timeline must see that the capacity moved, not just the venue.
         const changed = changedFieldNames(before, { ...fields, ...fromVenue });
+        changedFields = changed;
         if (changed.length > 0) {
           // A status move is the headline (`draft` → `confirmed` is the booking
           // itself), so it gets its own type and carries its values: `status` is
@@ -1659,28 +1668,49 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         }
       }
 
-      const renamedByAnother =
-        before.title !== updated.title &&
-        request.principal?.actingProfileId != null &&
-        request.principal.actingProfileId !== before.hostProfileId;
-      if (renamedByAnother) {
+      /**
+       * TELL THE BILL WHAT CHANGED — ClickUp `86cbcftg3`, last line: *"the system should
+       * always notify the users of any change — where it happened and by who."*
+       *
+       * This REPLACES a rename-only notice that went to the host profile alone. That one
+       * existed because a co-host renaming somebody else's show was invisible (QA sweep,
+       * 2026-09-27), and it left two holes: a PATCH that moved the door time, the
+       * capacity, the curfew or the notes told nobody at all, and a PERFORMER whose show
+       * was renamed was never told either, because the notice was addressed to the host.
+       * One notice to everyone on the bill closes both, and sends one message per save
+       * rather than two for a rename.
+       *
+       * `eventChangeNotice` decides what is worth saying: field NAMES and not values
+       * (except the title, which is the event's identifying fact), nothing about a status
+       * or a publish because those have their own notices above, and null when that
+       * leaves nothing.
+       *
+       * The negotiated fields normally never reach here — a date, venue or room move on a
+       * `pending`-or-beyond event is diverted into a change request — so this is the
+       * ordinary-edit channel, and below `pending` it is also the one that says the date
+       * moved.
+       */
+      const notice = eventChangeNotice(changedFields, {
+        title: updated.title,
+        previousTitle: before.title,
+      });
+      if (notice) {
         try {
-          await notifyProfileMembers(
-            database,
-            before.hostProfileId,
-            request.principal?.userId ?? null,
-            {
-              type: "event.renamed",
-              title: `"${before.title}" was renamed`,
-              body: `It is now "${updated.title}".`,
-              eventId: id,
-              actorDisplay: request.firebaseUser?.name ?? undefined,
-              link: `/events/${id}`,
-              metadata: { from: before.title, to: updated.title },
-            },
-          );
+          const actorUserId = request.principal?.userId ?? null;
+          const recipients = await eventParticipantRecipients(database, id, actorUserId);
+          await notifyUsers(database, recipients, actorUserId, {
+            type: "event.updated",
+            title: notice.title,
+            body: notice.body,
+            eventId: id,
+            // WHO, which is the other half of Ran's sentence. The bell renders this
+            // beside the message; the fields in the body are the WHERE.
+            actorDisplay: request.firebaseUser?.name ?? undefined,
+            link: `/events/${id}`,
+            metadata: { fields: notice.fields },
+          });
         } catch (error) {
-          request.log.error({ error, eventId: id }, "event-rename notification failed");
+          request.log.error({ error, eventId: id }, "event-change notification failed");
         }
       }
 

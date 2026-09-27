@@ -1901,9 +1901,13 @@ describe("events — a change to a booked night is a question", () => {
       .from(schema.notifications)
       .where(eq(schema.notifications.userId, "rename-op"));
     expect(toHost).toHaveLength(1);
-    expect(toHost[0]?.type).toBe("event.renamed");
+    // `event.updated` rather than a rename-specific type since `86cbcftg3`: ONE notice
+    // per save, naming whatever moved, to everyone on the bill. The rename-only notice
+    // it replaces reached the host profile alone, so a performer whose show was renamed
+    // was never told — and a door time moving told nobody at all.
+    expect(toHost[0]?.type).toBe("event.updated");
     expect(toHost[0]?.title).toBe('"Roster Night" was renamed');
-    expect(toHost[0]?.body).toBe('It is now "Co-host renamed this".');
+    expect(toHost[0]?.body).toBe('The name changed. It is now "Co-host renamed this".');
 
     // Their colleague hears about it too — it is their profile's show.
     const toColleague = await db
@@ -1912,9 +1916,25 @@ describe("events — a change to a booked night is a question", () => {
       .where(eq(schema.notifications.userId, "rename-op2"));
     expect(toColleague).toHaveLength(1);
 
-    // The host profile renaming its OWN show tells its own people nothing: it is not
-    // news to them, and a notification about your own side's act is the fastest way to
-    // teach people to ignore the bell.
+    /**
+     * THE AUDIENCE CHANGED WITH `86cbcftg3`, and this is the assertion that used to say
+     * the opposite.
+     *
+     * It read: *"The host profile renaming its OWN show tells its own people nothing: it
+     * is not news to them, and a notification about your own side's act is the fastest
+     * way to teach people to ignore the bell."* That was the rename-only notice's rule,
+     * and it was addressed to a PROFILE.
+     *
+     * The notice is now "what changed", addressed to everyone standing on the event minus
+     * the person who did it — the same audience as the cancellation and the publication
+     * notices built the same day. So a colleague of the acting profile DOES hear, and the
+     * three notices behave alike rather than each having its own idea of who counts.
+     *
+     * The noise argument has not gone away; it has moved to where a user can act on it.
+     * `notification_preferences` already carries an `events` switch, and a preference is
+     * the right home for "I do not want these" — better than an audience rule nobody can
+     * see or change.
+     */
     const byHost = await app.inject({
       method: "PATCH",
       url: `/api/v1/events/${seeded.event.id}`,
@@ -1922,11 +1942,18 @@ describe("events — a change to a booked night is a question", () => {
       payload: { title: "Back to the host's name" },
     });
     expect(byHost.statusCode).toBe(200);
+    const colleagueAfter = await db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "rename-op2"));
+    expect(colleagueAfter).toHaveLength(2);
+    expect(colleagueAfter[1]?.body).toBe('The name changed. It is now "Back to the host\'s name".');
+    // And never the actor themselves, whichever side they are on.
     expect(
       await db
         .select()
         .from(schema.notifications)
-        .where(eq(schema.notifications.userId, "rename-op2")),
+        .where(eq(schema.notifications.userId, "rename-op")),
     ).toHaveLength(1);
   });
 

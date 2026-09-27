@@ -85,3 +85,91 @@ Proven live as `operator@`: both menus render as above; **Settlement** navigates
 `/events/<id>/settlement`; **Share event link** toasts *"Link copied"*.
 
 Suites: biome 725 clean · web **368** (2 new) · e2e 112.
+
+## `86cbcftg3` — the last sentence of it
+
+**Verdict: substantially built, and the messages-box half is built too.** The audit named
+two gaps; one closed in an earlier session. `NEGOTIATED_FIELDS` is date/venue/room —
+exactly the three Ran named — with a Confirm/Decline banner, and `MessagesTab` already
+mounts that banner above the thread, citing his *"such things and UI should also be in the
+messages box as well"* verbatim.
+
+**What is left is his final sentence:** *"And the system should always notify the users of
+any change — where it happened and by who."*
+
+Today a PATCH that moves the **door time**, the **capacity**, the **curfew** or the
+**notes** writes an activity row and **tells nobody**. The only field with a notice of its
+own is the title, and even that goes to the host profile alone.
+
+### One mechanism, replacing two
+
+`event.renamed` is deleted, not kept alongside. It exists because a co-host renaming the
+host's show was invisible; a general "what changed" notice covers that case **and** the
+four it never covered — a performer whose show was renamed was never told at all, because
+the notice was addressed to the host profile only. Keeping both would send two
+notifications for one act.
+
+| File | What changes |
+|---|---|
+| `apps/web/src/lib/…` → no, API side: `apps/api/src/lib/event-change-notice.ts` | **new** — which fields are announced, and the sentence. Pure, tested |
+| `apps/api/src/routes/events.ts` | the notice replaces the rename-only one |
+| `apps/api/src/participants.test.ts` | the co-host rename test now expects the general type |
+
+### The two rules inside it
+
+**1. A field that has its own notification is not named twice.** `status` and `published`
+are excluded: a cancellation already says the night is off (with its reason) and a publish
+already says the page went up. Naming them again in a list of changed fields is noise on
+top of the message that mattered. If the exclusions leave nothing, nothing is sent.
+
+**2. Field NAMES, never values — except the title.** `changedFieldNames`'s own docstring
+sets this rule for the activity log: the guest list and the poster are in `extras`, and
+echoing a patch body to every participant would undo the redaction `serialize/event.ts`
+performs. The title is the exception because it is the event's identifying fact, it is
+event-public, and *"it is now X"* is the whole content of that news.
+
+### Built
+
+One notice per save, to everyone standing on the event minus the person who made it,
+naming the fields that moved and carrying who moved them. `event.renamed` is gone.
+
+**The audience rule changed with it, deliberately.** The old rename notice was addressed to
+the HOST PROFILE and its test asserted that a host renaming their own show *"tells its own
+people nothing"*. The new notice tells everyone on the bill except the actor — the same
+audience as the cancellation and publication notices built the same day, so the three
+behave alike instead of each having its own idea of who counts. The noise argument that
+justified the old rule has not gone away; it has moved to where a user can act on it, since
+`notification_preferences` already carries an `events` switch. A preference is a better
+home for "I do not want these" than an audience rule nobody can see.
+
+**And a guard that did nothing, deleted — the second today.** The file had an
+`ANNOUNCED_ELSEWHERE` set naming `status` and `published`; mutating it away turned no test
+red, because the phrase map is an allow-list and neither field has a phrase in it. The set
+was a line claiming to do work the design already did. Its reasoning moved into the
+allow-list's docstring, where it now explains why those two fields are *absent* rather than
+pretending to exclude them.
+
+**A probe of my own that proved nothing, caught and redone.** The first check that a
+cancellation does not also send an "updated" notice ran against *Open Mic Wednesdays* —
+which has only the host on it, so **no notification of either kind was possible** and the
+check passed vacuously. Re-run on the album release (six parties): `event.cancelled: 5` and
+no `event.updated` beside it. "Green means the thing I measured was fine", exactly as
+`CLAUDE.md` warns.
+
+Proven live — the case that told nobody until today, a door time and a capacity on a
+confirmed show:
+
+```
+agent@ · co.host@ · performer.a@ · performer.b@ · professional@
+  "Marlo Vance — Album Release" was updated
+  The doors time and the capacity changed.
+  by The Lantern Hall (operator) · fields: ["doorTime","capacity"]
+```
+
+Suites: biome 727 clean · api **1356** (10 new; `off-platform` and `settlement` lost to the
+Testcontainers flake, both green alone) · web 368 · e2e 112.
+
+**§2 and §5 of the audit are now closed.** What remains on the board: the three design
+tickets blocked on `/design-login`, the features this loop deliberately did not invent
+(Duplicate, Make recurring, Print details, Invite-from-a-menu, the Assets library, the
+Repertoire table, Contacts merge, Team-admin seats), and the sweep's eleven minors.
