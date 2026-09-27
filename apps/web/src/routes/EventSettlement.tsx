@@ -1427,7 +1427,21 @@ function FinancialsTab({
         />
       )}
       <Card padding="lg" style={CARD_COLUMN}>
-        <CardTitle subtitle="What this night was budgeted to make, against what it actually did.">
+        {/* WHEN the plan was captured, not just that there is one.
+            "What this night was budgeted to make" reads as the budget AS IT STANDS,
+            and it is not: the plan is the snapshot taken when the settlement first
+            ran, and the actual is the settlement's own copy of it. Both are sealed
+            from the planner from that moment (`lib/settlement-lines.ts`), so a cost
+            typed into the budget afterwards moves neither — which is correct, and
+            read as a broken panel by a careful QA pass on 2026-09-27 precisely
+            because nothing here said which budget it meant. */}
+        <CardTitle
+          subtitle={
+            data.plan.capturedAt
+              ? `The budget as it stood when this settlement was first run (${formatDay(data.plan.capturedAt)}), against what the settlement has since recorded.`
+              : "What this night was budgeted to make, against what it actually did."
+          }
+        >
           Planned vs actual
         </CardTitle>
         <PlannedActualRow

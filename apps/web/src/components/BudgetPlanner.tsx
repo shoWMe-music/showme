@@ -1,5 +1,6 @@
 import { Button, Card, Icon, type IconName, Input, Select } from "@showme/design-system";
 import type { RevenueBasis } from "@showme/shared";
+import type { ReactNode } from "react";
 import { BudgetBreakEvenChart } from "./BudgetBreakEvenChart";
 import { BudgetBreakdownCard } from "./BudgetBreakdownCard";
 import {
@@ -181,6 +182,22 @@ export interface BudgetPlannerProps {
   readMoneyAs?: (majorUnitDraft: string) => string;
   advisory?: string;
   /**
+   * THE NIGHT HAS BEEN SETTLED, so what is typed here no longer reaches it.
+   *
+   * The settlement takes its copy of this budget on the first run and is sealed from
+   * it thereafter — the product owner's rule, 2026-08-27: *"The settlement has a copy
+   * of the budget. The budget is never changed from the settlement."* A forecast
+   * revised after the night has no standing over what happened.
+   *
+   * That rule is right and it was invisible. The planner stayed fully editable, kept
+   * counting a cost added afterwards in its own totals, and the settlement silently
+   * ignored it: a co-host typed a SEK 10,000 van hire into the shared ledger, watched
+   * TOTAL COSTS move, pressed Recalculate, and the reconciliation did not budge (QA
+   * sweep, 2026-09-27). Nothing on either screen said why, and the honest answer —
+   * record a late cost in the settlement's own actuals — was nowhere near them.
+   */
+  sealedNote?: ReactNode;
+  /**
    * Everyone on the event, for the collected-by / paid-by / borne-by selectors
    * the 2026-08 settlements meeting made mandatory. Empty (or absent) draws no
    * attribution strip at all — a planner on an event with no roster has nobody
@@ -280,6 +297,7 @@ export function BudgetPlanner({
   currencySymbol = "€",
   readMoneyAs,
   advisory = "This is an estimate only and should be reviewed before final decisions.",
+  sealedNote,
   participants = [],
   deals = [],
   defaultParticipantId = null,
@@ -371,6 +389,27 @@ export function BudgetPlanner({
         </span>
         <span style={{ color: "var(--text)", fontSize: 12.5, lineHeight: 1.45 }}>{advisory}</span>
       </Card>
+
+      {/* ABOVE THE FIGURES, because it changes what every one of them means: they are
+          still the plan, and the plan is no longer what the night settled on. */}
+      {sealedNote && (
+        <Card
+          padding="sm"
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 9,
+            background: "color-mix(in srgb, var(--brand-amber) 12%, transparent)",
+          }}
+        >
+          <span style={{ color: "#F4A046", display: "inline-flex", flexShrink: 0, marginTop: 1 }}>
+            <Icon name="lock" size={16} />
+          </span>
+          <span style={{ color: "var(--text)", fontSize: 12.5, lineHeight: 1.45 }}>
+            {sealedNote}
+          </span>
+        </Card>
+      )}
 
       {toolbar.length > 0 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

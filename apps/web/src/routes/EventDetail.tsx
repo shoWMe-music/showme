@@ -11,6 +11,7 @@ import {
   useGetApiV1EventsIdParticipants,
   useGetApiV1EventsIdRiders,
   useGetApiV1EventsIdSchedule,
+  useGetApiV1EventsIdSettlements,
   usePatchApiV1EventsId,
 } from "@showme/api-client";
 import {
@@ -777,6 +778,19 @@ function BudgetTab({
     [capacity, eventTicketTiers, performerIdsKey],
   );
   const seed = useBudgetSeed(eventId, seedSources);
+  /**
+   * HAS THIS NIGHT BEEN SETTLED? — which decides whether the planner is still the
+   * night's plan or a document the settlement has stopped reading.
+   *
+   * `ensureSettlementLines` takes the settlement's copy of the budget on the FIRST
+   * compute and is sealed from it thereafter, so "any settlement has been computed"
+   * is exactly "the copy is taken". The query is the same one the settlement
+   * workspace uses and is served from cache when the reader has been there.
+   */
+  const settlementsForSeal = useGetApiV1EventsIdSettlements(eventId);
+  const budgetIsSealed = (settlementsForSeal.data?.settlements ?? []).some(
+    (settlement) => settlement.computed != null,
+  );
   // `?budgetScope=mine` opens the private book instead of the shared ledger
   // (r3:173). Read as an INITIAL value, like `?tab=` above it; switching books
   // afterwards writes it back with `replace`, so a reload stays on the book you
@@ -917,6 +931,11 @@ function BudgetTab({
       </div>
       {editor.readOnlyReason && <Eyebrow>{editor.readOnlyReason}</Eyebrow>}
       <BudgetPlanner
+        sealedNote={
+          budgetIsSealed
+            ? "This night has been settled, and the settlement keeps its own copy of this budget from the moment it was first run. Anything changed here from now on is a revision of the plan — it will not move the reconciliation. A cost that arrived late belongs in the settlement's own figures, on the Financials tab."
+            : undefined
+        }
         currencySymbol={currencySymbol(currency)}
         readMoneyAs={readMoneyAs}
         kpis={view.kpis}

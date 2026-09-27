@@ -269,6 +269,39 @@ property worth pinning: the sentence names A PERCENTAGE THAT IS THE PARTY'S, and
 if that regresses to the deal's. Suites: biome 712 · settlement 64 (2 new) · web 328
 (2 new) · api 1307 (`profiles.test.ts` re-run alone after the port flake) · e2e 112.
 
+**QA-5 — the sealed budget now says it is sealed, and the two screens the sweep misread
+say which budget they mean.**
+
+**Verdict: the seal is correct and was invisible.** `copyBudgetOnce` returning early on
+every run after the first is the product owner's own rule (2026-08-27): *"The settlement
+has a copy of the budget. The budget is never changed from the settlement."* A forecast
+revised after the night has no standing over what happened, and re-pulling would throw
+away the actuals somebody typed. So the fix is not to break the seal — it is to stop the
+product hiding it.
+
+- **The planner says it.** Once any settlement on the event has been computed — which is
+  exactly when the copy was taken — a banner above the figures says the night has been
+  settled, that changes here no longer move the reconciliation, and **where a late cost
+  actually belongs** (the settlement's own figures, Financials tab). Without that, a
+  co-host typed a SEK 10,000 van hire, watched TOTAL COSTS move, pressed Recalculate and
+  saw nothing happen, with no explanation anywhere.
+- **Planned vs actual says which budget it means.** *"What this night was budgeted to
+  make"* reads as the budget as it stands, and it is not: `plan` is the snapshot captured
+  at the first compute and `actual` is the settlement's own copy
+  (`lib/budget-snapshot.ts`). It now reads *"The budget as it stood when this settlement
+  was first run (27 Sept 2026), against what the settlement has since recorded."*
+
+**A correction to the sweep, on the evidence:** it calls that panel *"structurally
+incapable of ever reporting a variance"*. It is not — edit a figure in the settlement's
+own actuals and the variance appears, which is what the panel is for. Both sides read the
+same numbers right after a first compute **because nothing has changed inside the
+settlement yet**, and the budget edited afterwards is out of scope by design. The panel
+was behaving correctly and saying so ambiguously.
+
+Proven live: the planner banner appears on a settled event, and the Financials subtitle
+names the capture date. Suites: biome 712 · web 328 · e2e 112 (one run failed transiently
+without surfacing a spec name in the capture; two consecutive re-runs were fully green).
+
 **Left as an open question rather than silently skipped:** events created *during the
 regression window* (between `f996c14` and this commit) still carry both books, and
 migration `0046` cannot heal them — its guard is "the event has no shared ledger yet". If
