@@ -12700,6 +12700,110 @@
         }
       }
     },
+    "/api/v1/profiles/{id}/availability-share": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "profileSlug": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "room": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "nullable": true
+                  },
+                  "from": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "to": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "weekdays": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 6
+                    },
+                    "maxItems": 7
+                  },
+                  "availableDates": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    "maxItems": 550
+                  },
+                  "confirmedCountsAsBusy": {
+                    "type": "boolean"
+                  },
+                  "heldCountsAsBusy": {
+                    "type": "boolean"
+                  },
+                  "generatedOn": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  }
+                },
+                "required": [
+                  "profileSlug",
+                  "room",
+                  "from",
+                  "to",
+                  "weekdays",
+                  "availableDates",
+                  "confirmedCountsAsBusy",
+                  "heldCountsAsBusy",
+                  "generatedOn"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["token"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/profiles/{id}/stages": {
       "get": {
         "parameters": [
@@ -18026,6 +18130,14 @@
                     },
                     "maxItems": 5
                   },
+                  "venueProfileId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "stageId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
                   "pitch": {
                     "allOf": [
                       {
@@ -18184,6 +18296,18 @@
                               "type": "string"
                             }
                           },
+                          "venueProfileId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "stageId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "stageName": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "readAt": {
                             "type": "string",
                             "nullable": true
@@ -18246,6 +18370,9 @@
                           "onBehalfOfName",
                           "wantedDate",
                           "additionalDates",
+                          "venueProfileId",
+                          "stageId",
+                          "stageName",
                           "pitch",
                           "note",
                           "musicUrl",
@@ -18417,6 +18544,18 @@
                         "type": "string"
                       }
                     },
+                    "venueProfileId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "stageId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "stageName": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "readAt": {
                       "type": "string",
                       "nullable": true
@@ -18479,6 +18618,9 @@
                     "onBehalfOfName",
                     "wantedDate",
                     "additionalDates",
+                    "venueProfileId",
+                    "stageId",
+                    "stageName",
                     "pitch",
                     "note",
                     "musicUrl",
@@ -18618,6 +18760,14 @@
                   "onBehalfOfProfileId": {
                     "type": "string",
                     "format": "uuid"
+                  },
+                  "venueProfileId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "stageId": {
+                    "type": "string",
+                    "format": "uuid"
                   }
                 },
                 "required": ["targetProfileId", "wantedDate"],
@@ -18683,6 +18833,18 @@
                         "type": "string"
                       }
                     },
+                    "venueProfileId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "stageId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "stageName": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "readAt": {
                       "type": "string",
                       "nullable": true
@@ -18745,6 +18907,9 @@
                     "onBehalfOfName",
                     "wantedDate",
                     "additionalDates",
+                    "venueProfileId",
+                    "stageId",
+                    "stageName",
                     "pitch",
                     "note",
                     "musicUrl",
@@ -21656,6 +21821,49 @@
                     "startTime",
                     "imageUrl"
                   ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/public/availability/{token}": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "in": "path",
+            "name": "token",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profileName": {
+                      "type": "string"
+                    },
+                    "profileSlug": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "snapshot": {
+                      "type": "object",
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": ["profileName", "profileSlug", "snapshot"],
                   "additionalProperties": false
                 }
               }

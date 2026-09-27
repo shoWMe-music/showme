@@ -174,3 +174,29 @@ e2e 112.
 
 **Still to come on this ticket:** B2b (the modal creating the link instead of computing
 it), then C (Venue-then-Room) and D (which rooms are free per date).
+
+**B2b — the modal mints the link instead of computing it. `123qy9rpqn0` is closed.**
+The snapshot stays live with the controls; the LINK is minted when the operator asks for
+one. Minting on every keystroke would write a share row for every state the form passed
+through on the way to the one they meant, so the button is the trigger: *Create link* →
+mint → copy, and *Copy* thereafter.
+
+**The correctness detail is the staleness rule.** Changing anything — the window, a
+weekday, which states count as busy — empties the field and the button says *Create link*
+again, because the token now points at a snapshot that is no longer on screen and a copied
+stale link is worse than no link: nothing about it looks wrong. Proven in the browser:
+toggling **Mon** cleared `.../a/CuGoKoMECRgL` and reset the button.
+
+**Deleted rather than deprecated:** `buildAvailabilityShareLink` and
+`publicAvailabilityUrl` have no callers now, and a builder nobody calls is an invitation to
+mint a 700-character link again. Its test went with it — the fragment FORMAT is asserted
+where it has to keep working, on the marketing reader. The `AvailabilitySnapshot` type
+stays, and the module now describes a shape rather than building a URL.
+
+Proven live: the modal's field starts empty with "Create a link to share these dates",
+one press produced `/a/CuGoKoMECRgL`, and the clipboard write happens in the press's own
+gesture chain (an `await` in between is what Safari refuses). Suites: biome clean · web 303
+· api 1304 (shares.test.ts re-run alone after the port flake) · e2e 112.
+
+**Item 1 status:** A, B1, B2a, B2b done — `123qy9rpqn0` is closed and `123qy9rpqp0` §3 is
+done. **C** (Venue-then-Room chooser) and **D** (which rooms are free per date) remain.

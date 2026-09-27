@@ -27,6 +27,12 @@ export type PatchApiV1BookingRequestsId200 = {
   wantedDate: string;
   additionalDates: string[];
   /** @nullable */
+  venueProfileId: string | null;
+  /** @nullable */
+  stageId: string | null;
+  /** @nullable */
+  stageName: string | null;
+  /** @nullable */
   readAt?: string | null;
   /** @nullable */
   readByUserId?: string | null;

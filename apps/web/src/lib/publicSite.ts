@@ -43,11 +43,16 @@ export function publicEventUrl(eventId: string): string {
 }
 
 /**
- * The shared availability page. The whole snapshot rides in the FRAGMENT, which
- * is why this one takes a pre-serialized string rather than building it: the
- * dates are deliberately not public, so they travel in the link itself and never
- * through an endpoint (`availabilityShareLink.ts`).
+ * A SHARED AVAILABILITY LINK — `/a/<token>` (ClickUp `123qy9rpqn0`).
+ *
+ * The snapshot used to ride in the URL fragment, which made a link ~700 characters and
+ * left nowhere to put the room each free date belongs to. `decisions.md` #25.4 moved it
+ * into `shares.payload`, so this is a token in a path: 35 characters, and the public page
+ * fetches what it stands for.
+ *
+ * The path shape matches the other two public pages (`/profile/<slug>`, `/event/<id>`) and
+ * is served by a Hosting rewrite onto `availability.html`.
  */
-export function publicAvailabilityUrl(fragment: string): string {
-  return `${origin()}/availability#${fragment}`;
+export function publicAvailabilityTokenUrl(token: string): string {
+  return `${origin()}/a/${encodeURIComponent(token)}`;
 }

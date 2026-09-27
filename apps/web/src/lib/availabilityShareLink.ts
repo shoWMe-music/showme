@@ -1,9 +1,18 @@
-import { publicAvailabilityUrl } from "./publicSite";
-
 /**
- * The "Check & Share Availability" link — a self-contained snapshot of what the
- * sharer chose to publish, pointed at the public availability page on the
- * marketing site (`apps/marketing/availability.html`).
+ * WHAT A "Check & Share Availability" LINK PUBLISHES — the shape, not the link.
+ *
+ * Until ClickUp `123qy9rpqn0` this module also BUILT the link, serializing the whole
+ * snapshot into a URL fragment. It no longer does: the snapshot is posted to
+ * `POST /profiles/:id/availability-share` and the link is a token
+ * (`publicAvailabilityTokenUrl`), so the builder and the fragment URL were deleted rather
+ * than deprecated — a builder nobody calls is an invitation to mint a 700-character link
+ * again. The fragment READER stays, on the marketing side
+ * (`apps/marketing/src/availabilitySnapshot.ts`), because every link sent before today is
+ * a fragment in somebody's inbox; its format is asserted there, where it has to keep
+ * working.
+ *
+ * What remains here is the snapshot itself: what the sharer chose to publish, and the
+ * reasoning about which parts of it the platform vouches for.
  *
  * WHY the whole snapshot travels in the URL rather than in a `shares` row: the
  * only share-creation route the API has is `POST /events/:id/shares`, which is
@@ -58,28 +67,4 @@ export interface AvailabilitySnapshot {
   heldCountsAsBusy: boolean;
   /** `yyyy-mm-dd` the link was built — the "as of" the modal talks about. */
   generatedOn: string;
-}
-
-/** Serialize a snapshot into the public page's URL. Empty when there is no slug. */
-export function buildAvailabilityShareLink(snapshot: AvailabilitySnapshot): string {
-  if (!snapshot.profileSlug) return "";
-
-  const unavailable: string[] = [];
-  if (snapshot.confirmedCountsAsBusy) unavailable.push("confirmed");
-  if (snapshot.heldCountsAsBusy) unavailable.push("held");
-
-  const parameters = new URLSearchParams({
-    profile: snapshot.profileSlug,
-    // Only when there is one. An absent `room` reads as "the whole calendar",
-    // which is what a venue-wide or single-schedule share means.
-    ...(snapshot.room ? { room: snapshot.room } : {}),
-    from: snapshot.from,
-    to: snapshot.to,
-    weekdays: snapshot.weekdays.join(","),
-    dates: snapshot.availableDates.join(","),
-    unavailable: unavailable.join(","),
-    generated: snapshot.generatedOn,
-  });
-
-  return publicAvailabilityUrl(parameters.toString());
 }

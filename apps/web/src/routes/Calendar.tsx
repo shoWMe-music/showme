@@ -1136,6 +1136,7 @@ export function Calendar() {
         availableDates={share.availableDates}
         onCopyDates={share.copyDates}
         shareLink={share.shareLink}
+        isCreatingLink={share.isCreatingLink}
         onCopyLink={share.copyLink}
       />
 

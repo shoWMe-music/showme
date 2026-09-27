@@ -125,6 +125,7 @@ import type {
   GetApiV1ProfilesIdUnavailability200Item,
   GetApiV1ProfilesSearch200,
   GetApiV1ProfilesSearchParams,
+  GetApiV1PublicAvailabilityToken200,
   GetApiV1PublicEventsId200,
   GetApiV1PublicProfilesSlug200,
   GetApiV1PublicProfilesSlugAvailability200,
@@ -302,6 +303,8 @@ import type {
   PostApiV1PlansProfileIdRequestBody,
   PostApiV1Profiles201,
   PostApiV1ProfilesBody,
+  PostApiV1ProfilesIdAvailabilityShare201,
+  PostApiV1ProfilesIdAvailabilityShareBody,
   PostApiV1ProfilesIdContacts201,
   PostApiV1ProfilesIdContactsBody,
   PostApiV1ProfilesIdContactsImport200,
@@ -6094,7 +6097,66 @@ export function useGetApiV1ProfilesIdAvailability<TData = Awaited<ReturnType<typ
 
 
 
-export const getApiV1ProfilesIdStages = (
+export const postApiV1ProfilesIdAvailabilityShare = (
+    id: string,
+    postApiV1ProfilesIdAvailabilityShareBody: PostApiV1ProfilesIdAvailabilityShareBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1ProfilesIdAvailabilityShare201>(
+      {url: `/api/v1/profiles/${id}/availability-share`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1ProfilesIdAvailabilityShareBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1ProfilesIdAvailabilityShareMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1ProfilesIdAvailabilityShare>>, TError,{id: string;data: PostApiV1ProfilesIdAvailabilityShareBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1ProfilesIdAvailabilityShare>>, TError,{id: string;data: PostApiV1ProfilesIdAvailabilityShareBody}, TContext> => {
+
+const mutationKey = ['postApiV1ProfilesIdAvailabilityShare'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1ProfilesIdAvailabilityShare>>, {id: string;data: PostApiV1ProfilesIdAvailabilityShareBody}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  postApiV1ProfilesIdAvailabilityShare(id,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1ProfilesIdAvailabilityShareMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1ProfilesIdAvailabilityShare>>>
+    export type PostApiV1ProfilesIdAvailabilityShareMutationBody = PostApiV1ProfilesIdAvailabilityShareBody
+    export type PostApiV1ProfilesIdAvailabilityShareMutationError = unknown
+
+    export const usePostApiV1ProfilesIdAvailabilityShare = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1ProfilesIdAvailabilityShare>>, TError,{id: string;data: PostApiV1ProfilesIdAvailabilityShareBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1ProfilesIdAvailabilityShare>>,
+        TError,
+        {id: string;data: PostApiV1ProfilesIdAvailabilityShareBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1ProfilesIdAvailabilityShareMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const getApiV1ProfilesIdStages = (
     id: string,
  signal?: AbortSignal
 ) => {
@@ -12019,6 +12081,92 @@ export function useGetApiV1PublicEventsId<TData = Awaited<ReturnType<typeof getA
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetApiV1PublicEventsIdQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const getApiV1PublicAvailabilityToken = (
+    token: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1PublicAvailabilityToken200>(
+      {url: `/api/v1/public/availability/${token}`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1PublicAvailabilityTokenQueryKey = (token?: string,) => {
+    return [
+    `/api/v1/public/availability/${token}`
+    ] as const;
+    }
+
+    
+export const getGetApiV1PublicAvailabilityTokenQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>, TError = unknown>(token: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1PublicAvailabilityTokenQueryKey(token);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>> = ({ signal }) => getApiV1PublicAvailabilityToken(token, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(token), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1PublicAvailabilityTokenQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>>
+export type GetApiV1PublicAvailabilityTokenQueryError = unknown
+
+
+export function useGetApiV1PublicAvailabilityToken<TData = Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>, TError = unknown>(
+ token: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1PublicAvailabilityToken<TData = Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>, TError = unknown>(
+ token: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1PublicAvailabilityToken<TData = Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>, TError = unknown>(
+ token: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1PublicAvailabilityToken<TData = Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>, TError = unknown>(
+ token: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1PublicAvailabilityToken>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1PublicAvailabilityTokenQueryOptions(token,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

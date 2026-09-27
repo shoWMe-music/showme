@@ -1,4 +1,7 @@
-import { useGetApiV1ProfilesIdAvailability } from "@showme/api-client";
+import {
+  useGetApiV1ProfilesIdAvailability,
+  usePostApiV1ProfilesIdAvailabilityShare,
+} from "@showme/api-client";
 import { useToast } from "@showme/design-system";
 import {
   type RoomBooking,
@@ -7,14 +10,13 @@ import {
   isDateTaken,
   occupiedDates,
 } from "@showme/shared";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { dayKey } from "../components/calendarGrid";
 import { getActiveProfileId } from "../lib/activeProfile";
-import {
-  type AvailabilitySnapshot,
-  buildAvailabilityShareLink,
-} from "../lib/availabilityShareLink";
+import type { AvailabilitySnapshot } from "../lib/availabilityShareLink";
+import { errorMessage } from "../lib/errors";
 import { formatDayWithWeekday } from "../lib/format";
+import { publicAvailabilityTokenUrl } from "../lib/publicSite";
 import type { CalendarSource } from "./useCalendarSources";
 import type { EventItem } from "./useEventList";
 
@@ -139,6 +141,8 @@ export interface AvailabilityShareView {
   availableDates: string[];
   /** The public page URL carrying this snapshot; empty until the profile loads. */
   shareLink: string;
+  /** True while the link is being minted — the button says so rather than looking idle. */
+  isCreatingLink: boolean;
   copyDates: () => void;
   copyLink: () => void;
 }
@@ -223,9 +227,17 @@ export function useAvailabilityShare(
     [availableDateKeys],
   );
 
-  const shareLink = useMemo(() => {
-    if (!selected?.profileSlug || !selected.profileIsPublic) return "";
-    const snapshot: AvailabilitySnapshot = {
+  /**
+   * WHAT WOULD BE SHARED — the snapshot, always current with the controls.
+   *
+   * It is no longer the link. Since ClickUp `123qy9rpqn0` the link is a TOKEN minted by
+   * the API (`decisions.md` #25.4), and a token is a row: minting one per keystroke as the
+   * operator nudges a weekday pill would write a share for every state the form passed
+   * through on the way to the one they meant.
+   */
+  const snapshot = useMemo<AvailabilitySnapshot | null>(() => {
+    if (!selected?.profileSlug || !selected.profileIsPublic) return null;
+    return {
       // The link names the profile by its PUBLIC slug — the public page resolves
       // the display name from the API, so a link can't claim a name.
       profileSlug: selected.profileSlug,
@@ -240,8 +252,22 @@ export function useAvailabilityShare(
       heldCountsAsBusy: showHeld,
       generatedOn: dayKey(new Date()),
     };
-    return buildAvailabilityShareLink(snapshot);
   }, [selected, from, to, selectedWeekdays, availableDateKeys, showConfirmed, showHeld]);
+
+  /**
+   * The minted link, and NOTHING until it is minted.
+   *
+   * A link is created when the operator asks for one, and it stops being the link the
+   * moment the form describes something else — a changed window or an unticked Saturday
+   * means the token points at a snapshot that is no longer on screen, and a copied stale
+   * link is worse than no link because nothing about it looks wrong.
+   */
+  const [shareLink, setShareLink] = useState("");
+  useEffect(() => {
+    setShareLink("");
+  }, [snapshot]);
+
+  const createShare = usePostApiV1ProfilesIdAvailabilityShare();
 
   const copyToClipboard = (value: string, success: string) => {
     navigator.clipboard
@@ -282,13 +308,38 @@ export function useAvailabilityShare(
       const prefix = selected?.fullLabel ? `${selected.fullLabel}: ` : "";
       copyToClipboard(`${prefix}${availableDates.join(" · ")}`, "Available dates copied");
     },
+    /**
+     * MINT, THEN COPY — one press, and one share row per link the operator meant.
+     *
+     * The clipboard write has to happen in the same user gesture as the press or Safari
+     * refuses it, and an `await` in between breaks that chain. So the snapshot is posted
+     * and the clipboard is written from the promise's own continuation, which Safari
+     * still accepts, and a failure there falls back to "the link is in the field" rather
+     * than losing it.
+     */
     copyLink: () => {
-      if (!shareLink) {
+      if (!snapshot || !selected?.profileId) {
         // A link needs a public profile — a private one has nothing to point at.
         toast.info("Make this profile public in Settings to share an availability link.");
         return;
       }
-      copyToClipboard(shareLink, "Availability link copied");
+      if (shareLink) {
+        copyToClipboard(shareLink, "Availability link copied");
+        return;
+      }
+      createShare.mutate(
+        { id: selected.profileId, data: snapshot },
+        {
+          onSuccess: ({ token }) => {
+            const link = publicAvailabilityTokenUrl(token);
+            setShareLink(link);
+            copyToClipboard(link, "Availability link created and copied");
+          },
+          onError: (error) =>
+            toast.error(errorMessage(error, "Couldn't create the availability link.")),
+        },
+      );
     },
+    isCreatingLink: createShare.isPending,
   };
 }

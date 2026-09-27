@@ -30,4 +30,6 @@ export type PostApiV1OffersBody = {
   musicUrl?: PostApiV1OffersBodyMusicUrl;
   videoUrl?: PostApiV1OffersBodyVideoUrl;
   onBehalfOfProfileId?: string;
+  venueProfileId?: string;
+  stageId?: string;
 };

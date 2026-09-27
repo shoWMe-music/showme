@@ -55,6 +55,8 @@ export interface AvailabilityShareModalProps {
   availableDates: string[];
   onCopyDates?: () => void;
   shareLink: string;
+  /** True while the link is being minted (ClickUp `123qy9rpqn0`). */
+  isCreatingLink?: boolean;
   onCopyLink?: () => void;
   helperText?: string;
 }
@@ -79,6 +81,7 @@ export function AvailabilityShareModal({
   availableDates,
   onCopyDates,
   shareLink,
+  isCreatingLink = false,
   onCopyLink,
   helperText = "Availabilities may change. This link reflects availability as of when it was generated.",
 }: AvailabilityShareModalProps) {
@@ -272,9 +275,16 @@ export function AvailabilityShareModal({
                 in place; `minWidth: 0` removes it, so the row fits at any font
                 width rather than fitting this machine's. */}
             <div style={{ flex: 1, minWidth: 0 }}>
+              {/* EMPTY UNTIL THE LINK EXISTS (ClickUp `123qy9rpqn0`). A link is a token
+                  now, minted by the API when the operator asks for one — so before that
+                  there is genuinely nothing to show, and the placeholder says which press
+                  produces it rather than leaving an unexplained empty field. It empties
+                  again the moment the form describes something else, because the token
+                  would then point at a snapshot that is no longer on screen. */}
               <Input
                 value={shareLink}
                 readOnly
+                placeholder="Create a link to share these dates"
                 aria-label="Shareable link"
                 leftIcon={<Icon name="link" size={14} />}
               />
@@ -282,10 +292,11 @@ export function AvailabilityShareModal({
             {onCopyLink && (
               <Button
                 variant="secondary"
-                leftIcon={<Icon name="copy" size={14} />}
+                leftIcon={<Icon name={shareLink ? "copy" : "link"} size={14} />}
                 onClick={onCopyLink}
+                disabled={isCreatingLink}
               >
-                Copy
+                {isCreatingLink ? "Creating…" : shareLink ? "Copy" : "Create link"}
               </Button>
             )}
           </div>

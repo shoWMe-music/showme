@@ -20,6 +20,8 @@ export type PostApiV1BookingRequestsBody = {
   wantedDate: string;
   /** @maxItems 5 */
   additionalDates?: string[];
+  venueProfileId?: string;
+  stageId?: string;
   pitch?: PostApiV1BookingRequestsBodyPitch;
   /** @pattern ^\d+$ */
   offerFeeMin?: string;
