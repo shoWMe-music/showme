@@ -28,13 +28,21 @@
  * bump and the API is what actually has to change; the audit lives in
  * `docs/handoff-2026-08-25-remaining-work.md`.
  *
- * The dates themselves are a SNAPSHOT carried in the URL fragment, because the
- * sharer's confirmed and held events are deliberately not public — the API can
- * never tell this page which days an event blocks, and it should not be able to.
- * The one thing the live call adds is the right to RETRACT: unavailability the
- * profile recorded after the link was made strikes dates out. It can only ever
- * remove a date, never add one, so a stale link errs toward "ask me" rather than
- * promising a day that is gone.
+ * The dates themselves are a SNAPSHOT — since ClickUp `123qy9rpqn0` fetched by token from
+ * `GET /public/availability/:token`, and still readable from the old URL fragment for
+ * every link sent before that. Either way it is what the sharer chose to publish at a
+ * moment, not a live read of their calendar: their confirmed and held events are
+ * deliberately not public, and the API can never tell this page which days an event
+ * blocks. The one thing the live call adds is the right to RETRACT: unavailability the
+ * profile recorded after the link was made strikes dates out. It can only ever remove a
+ * date, never add one, so a stale link errs toward "ask me" rather than promising a day
+ * that is gone.
+ *
+ * SINCE `123qy9rpqp0` §2 the snapshot also says WHICH ROOM each free night belongs to, so
+ * clicking a date can answer the question a stranger is actually asking — "which room can
+ * I have on the 12th?" — and the request they send names it. The rooms are derived per
+ * date from their own free lists; this page never receives, and never shows, a roster of
+ * the building.
  */
 
 import {
@@ -48,6 +56,7 @@ import {
   parseSnapshot,
   readShareToken,
   readSnapshotObject,
+  roomsFreeOn,
 } from "./availabilitySnapshot";
 import { element } from "./element";
 
@@ -272,7 +281,10 @@ function renderSnapshot(
     deselectChip();
     chip.setAttribute("aria-pressed", "true");
     selectedChip = chip;
-    panel?.openForDate(isoDate, label);
+    // WHICH ROOMS ARE FREE THAT NIGHT (ClickUp `123qy9rpqp0` §2) — derived from the
+    // rooms' own lists, so a room that is already sold on this date is never offered,
+    // and a room that is never free is never mentioned at all.
+    panel?.openForDate(isoDate, label, roomsFreeOn(snapshot, isoDate));
   };
 
   const datesCard = element("section", "card");
@@ -290,7 +302,13 @@ function renderSnapshot(
     datesCard.append(list);
     if (panel) {
       datesCard.append(
-        element("p", "dates__hint", "Pick a date to ask about it — one click, then a short note."),
+        element(
+          "p",
+          "dates__hint",
+          snapshot.rooms.length > 1
+            ? "Pick a date to see which rooms are free that night — one click, then a short note."
+            : "Pick a date to ask about it — one click, then a short note.",
+        ),
       );
     }
   }

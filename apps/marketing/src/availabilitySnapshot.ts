@@ -18,6 +18,27 @@
 /** A bare calendar date, the only date shape this page accepts. */
 export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * ONE ROOM'S OWN FREE NIGHTS — what lets this page answer *"which room can I have on the
+ * 12th?"* (ClickUp `123qy9rpqp0` §2).
+ *
+ * It arrives only through the token door: a legacy fragment link predates rooms entirely,
+ * and every reader below treats "no rooms" as the ordinary case rather than an error.
+ *
+ * The `id` is the only field here that leaves this page again — a booking request may
+ * name it — and it is never trusted on the way out either: `POST /booking-requests`
+ * refuses a room that does not belong to the venue being asked. So a hand-edited payload
+ * buys its author a 400, not somebody else's room.
+ */
+export interface SnapshotRoom {
+  id: string;
+  name: string;
+  /** The headline capacity, or null when the venue has not recorded one. */
+  capacity: number | null;
+  /** This room's own free nights, `yyyy-mm-dd`. */
+  availableDates: string[];
+}
+
 export interface AvailabilitySnapshot {
   profileSlug: string;
   /** The room these dates are for, or null for the whole calendar. */
@@ -29,6 +50,9 @@ export interface AvailabilitySnapshot {
   confirmedCountsAsBusy: boolean;
   heldCountsAsBusy: boolean;
   generatedOn: string;
+  /** The rooms these dates are about; empty for a legacy link and for anyone who is not
+   * a venue. Never a catalogue of the building — only rooms the sharer published. */
+  rooms: SnapshotRoom[];
 }
 
 function commaList(value: string | null): string[] {
@@ -126,7 +150,58 @@ export function readSnapshotObject(value: unknown): AvailabilitySnapshot | null 
     confirmedCountsAsBusy: record.confirmedCountsAsBusy === true,
     heldCountsAsBusy: record.heldCountsAsBusy === true,
     generatedOn: ISO_DATE.test(generatedOn) ? generatedOn : "",
+    rooms: readRooms(record.rooms),
   };
+}
+
+/** How many rooms this page will believe a link is speaking for. */
+const MAX_ROOMS = 50;
+
+/**
+ * The rooms a payload claims, cleaned.
+ *
+ * A malformed room is DROPPED rather than fatal, the same way a malformed date is: the
+ * link still names real nights, and losing one room is a smaller harm than refusing to
+ * render a page that is otherwise fine. A room with no free night left is kept — the page
+ * simply never offers it, which is the same outcome by a shorter route.
+ */
+function readRooms(value: unknown): SnapshotRoom[] {
+  if (!Array.isArray(value)) return [];
+  const rooms: SnapshotRoom[] = [];
+  for (const entry of value.slice(0, MAX_ROOMS)) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const record = entry as Record<string, unknown>;
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    const name = readRoomName(typeof record.name === "string" ? record.name : null);
+    // No id means nothing can be requested for it, and no name means nothing can be
+    // said about it. Either way there is no room here to offer.
+    if (!id || !name) continue;
+    rooms.push({
+      id,
+      name,
+      capacity:
+        typeof record.capacity === "number" && Number.isInteger(record.capacity)
+          ? record.capacity
+          : null,
+      availableDates: Array.isArray(record.availableDates)
+        ? record.availableDates.filter(
+            (date): date is string => typeof date === "string" && ISO_DATE.test(date),
+          )
+        : [],
+    });
+  }
+  return rooms;
+}
+
+/**
+ * WHICH ROOMS ARE FREE ON ONE NIGHT — the question the visitor is actually asking.
+ *
+ * Derived from each room's own list rather than served as a roster, which is the whole
+ * privacy shape of this feature: a reader learns about the rooms that are free on the
+ * nights the sharer published, and nothing about a room that is never free.
+ */
+export function roomsFreeOn(snapshot: AvailabilitySnapshot, isoDate: string): SnapshotRoom[] {
+  return snapshot.rooms.filter((room) => room.availableDates.includes(isoDate));
 }
 
 /**
@@ -159,5 +234,8 @@ export function parseSnapshot(fragment: string): AvailabilitySnapshot | null {
     confirmedCountsAsBusy: unavailable.includes("confirmed"),
     heldCountsAsBusy: unavailable.includes("held"),
     generatedOn: ISO_DATE.test(generatedOn) ? generatedOn : "",
+    // A fragment link predates rooms and can never carry them: it says which room it is
+    // about in `room` above, as prose, and nothing about any other.
+    rooms: [],
   };
 }

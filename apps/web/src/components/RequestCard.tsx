@@ -37,6 +37,14 @@ export interface RequestCardData {
   source: string;
   /** Pre-formatted fee (e.g. "€65,000"). */
   fee: string;
+  /**
+   * The room being asked for, when the request names one (ClickUp `123qy9rpqp0` §3).
+   *
+   * A request off a shared availability link now says which room it is about — the
+   * stranger picked it from the rooms that were free that night — and the operator has to
+   * SEE it, or the whole chain ends one step short of the person deciding.
+   */
+  room?: string;
   email?: string;
   /** The draft event this request was turned into ("Create Draft"), if any. */
   draftEventId?: string;
@@ -332,6 +340,7 @@ function RequestBody({
         <FieldCell label="Wanted date" value={request.wantedDate} />
         <FieldCell label="Source" value={request.source} />
         <FieldCell label="Fee" value={request.fee} />
+        {request.room && <FieldCell label="Room" value={request.room} />}
         {request.email && <FieldCell label="Email" value={request.email} />}
       </div>
 

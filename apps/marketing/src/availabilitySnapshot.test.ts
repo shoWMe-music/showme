@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseSnapshot, readShareToken, readSnapshotObject } from "./availabilitySnapshot";
+import {
+  parseSnapshot,
+  readShareToken,
+  readSnapshotObject,
+  roomsFreeOn,
+} from "./availabilitySnapshot";
 
 /**
  * READING A SHARED AVAILABILITY LINK — both doors, one set of rules.
@@ -55,7 +60,9 @@ describe("readSnapshotObject", () => {
   };
 
   it("reads a snapshot the API served", () => {
-    expect(readSnapshotObject(good)).toEqual(good);
+    // `rooms` is always an array, empty for a link that names no rooms — so the page
+    // asks it the same question either way instead of testing for absence first.
+    expect(readSnapshotObject(good)).toEqual({ ...good, rooms: [] });
   });
 
   it("refuses one with no window to speak of", () => {
@@ -99,6 +106,91 @@ describe("readSnapshotObject", () => {
     });
     expect(read?.confirmedCountsAsBusy).toBe(false);
     expect(read?.heldCountsAsBusy).toBe(false);
+  });
+});
+
+describe("the rooms a link speaks for", () => {
+  const base = {
+    profileSlug: "lantern",
+    room: null,
+    from: "2026-12-01",
+    to: "2026-12-31",
+    weekdays: [3, 4],
+    availableDates: ["2026-12-03", "2026-12-10"],
+    confirmedCountsAsBusy: true,
+    heldCountsAsBusy: false,
+    generatedOn: "2026-11-20",
+  };
+  const rooms = [
+    { id: "room-main", name: "Main Room", capacity: 400, availableDates: ["2026-12-03"] },
+    {
+      id: "room-small",
+      name: "Small Room",
+      capacity: 200,
+      availableDates: ["2026-12-03", "2026-12-10"],
+    },
+  ];
+
+  it("reads the rooms the API served", () => {
+    expect(readSnapshotObject({ ...base, rooms })?.rooms).toEqual(rooms);
+  });
+
+  it("answers which rooms are free on one night, and only those", () => {
+    const snapshot = readSnapshotObject({ ...base, rooms });
+    if (!snapshot) throw new Error("snapshot should read");
+
+    expect(roomsFreeOn(snapshot, "2026-12-03").map((room) => room.name)).toEqual([
+      "Main Room",
+      "Small Room",
+    ]);
+    // The 10th is the case the whole feature exists for: the hall is gone and the small
+    // room is not, so the page must offer one room and never the other.
+    expect(roomsFreeOn(snapshot, "2026-12-10").map((room) => room.name)).toEqual(["Small Room"]);
+    expect(roomsFreeOn(snapshot, "2026-12-24")).toEqual([]);
+  });
+
+  it("drops a room it could not ask for, and keeps the rest", () => {
+    const read = readSnapshotObject({
+      ...base,
+      rooms: [
+        ...rooms,
+        { name: "No id here", capacity: 10, availableDates: ["2026-12-03"] },
+        { id: "room-nameless", name: "   ", capacity: 10, availableDates: ["2026-12-03"] },
+        "not a room",
+      ],
+    });
+    expect(read?.rooms.map((room) => room.id)).toEqual(["room-main", "room-small"]);
+  });
+
+  it("cleans what it keeps", () => {
+    const read = readSnapshotObject({
+      ...base,
+      rooms: [
+        {
+          id: "room-main",
+          name: "Main\nRoom  ",
+          capacity: "400",
+          availableDates: ["2026-12-03", "nope", 20261210],
+        },
+      ],
+    });
+    expect(read?.rooms[0]).toEqual({
+      id: "room-main",
+      name: "Main Room",
+      // A capacity that is not a number is no capacity — the page says the room's name
+      // and stays quiet about size rather than printing "(400 cap)" from a string.
+      capacity: null,
+      availableDates: ["2026-12-03"],
+    });
+  });
+
+  it("has no rooms when the link predates them", () => {
+    expect(readSnapshotObject(base)?.rooms).toEqual([]);
+    // A fragment link cannot carry rooms at all — it says which room it is about in
+    // prose, and nothing about any other.
+    expect(
+      parseSnapshot("#profile=lantern&from=2026-12-01&to=2026-12-31&room=Big%20Room")?.rooms,
+    ).toEqual([]);
   });
 });
 

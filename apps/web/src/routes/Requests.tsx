@@ -170,6 +170,10 @@ function toCardData(request: RequestItem): RequestCardData {
       ? request.source.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase())
       : "—",
     fee: formatFee(request),
+    // The room the sender asked for, named by the API (`stageName`) rather than resolved
+    // here: the room roster belongs to the venue, and the inbox should not have to fetch
+    // one to read its own post.
+    room: request.stageName ?? undefined,
     email: request.email ?? undefined,
     message: request.pitch ?? undefined,
     draftEventId: request.eventId ?? undefined,

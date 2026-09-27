@@ -4,17 +4,23 @@ import { type Plugin, defineConfig } from "vite";
 const here = import.meta.dirname;
 
 /**
- * `/profile/<slug>` → profile.html, `/event/<id>` → event.html, in dev and in `vite
- * preview`. The page itself reads the last path segment, so nothing is passed
- * through here — the rewrite only decides which HTML document is served.
+ * `/profile/<slug>` → profile.html, `/event/<id>` → event.html, `/a/<token>` →
+ * availability.html, in dev and in `vite preview`. The page itself reads the last path
+ * segment, so nothing is passed through here — the rewrite only decides which HTML
+ * document is served.
  *
- * Kept to two prefixes rather than a catch-all: this is a multi-page site, and a
+ * Kept to three prefixes rather than a catch-all: this is a multi-page site, and a
  * greedy rewrite would swallow a genuine 404 and answer it with a profile page.
+ *
+ * `/a/` arrived with the token links (ClickUp `123qy9rpqn0`) and was added to
+ * `firebase.json` and not here, which is the exact failure this plugin exists to
+ * prevent: the app minted `/a/<token>`, production served it, and a laptop answered 404.
  */
 function prettyPublicPaths(): Plugin {
   const routes: Array<[RegExp, string]> = [
     [/^\/profile\/[^/?#]+\/?(?:[?#].*)?$/, "/profile.html"],
     [/^\/event\/[^/?#]+\/?(?:[?#].*)?$/, "/event.html"],
+    [/^\/a\/[^/?#]+\/?(?:[?#].*)?$/, "/availability.html"],
   ];
   const rewrite = (request: { url?: string }) => {
     const url = request.url;
@@ -67,8 +73,8 @@ export default defineConfig({
       },
     },
   },
-  // The same two pretty paths Firebase Hosting serves in production
-  // (`firebase.json`: /profile/** and /event/** → the page files). Vite's MPA dev server
+  // The same three pretty paths Firebase Hosting serves in production
+  // (`firebase.json`: /profile/**, /event/** and /a/** → the page files). Vite's MPA dev server
   // only knows about real files, so without this a link that works on the
   // deployed site 404s on a laptop — and the address a developer tests is not
   // the address the world gets.

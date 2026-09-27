@@ -345,3 +345,50 @@ validates on arrival (`placeOfRequest`) grants its holder nothing.
 
 Suites: biome 710 clean · web 320 (9 new) · api 1306 (`participants.test.ts` re-run alone
 after the port flake) · e2e 112.
+
+**D2 — plan.** The page has the room data now; this is what the visitor sees. Clicking a
+date already opens the ask panel bound to that night, so the room belongs **in the panel**
+rather than as a step before it — it is part of the ask, and putting it there costs no
+extra click when only one room is free.
+
+- **One room free** → a statement, not a question: *"Main Room (400 cap) is the only room
+  free on this date."* It rides into the request. There is no ambiguity to make the
+  visitor resolve, and the sentence is on screen if they disagree in their message.
+- **Several free** → a select, defaulting to **"Any room — they'll decide"**. Not
+  defaulting to a named room: pre-picking one puts words in a stranger's mouth, and the
+  operator chooses the room on accept anyway. Each option carries its capacity, which is
+  the fact that decides whether a show fits.
+- **No room data** (a legacy fragment link, or a profile that is not a venue) → no room UI
+  at all, exactly the page it is today.
+- **A booked room is never offered**, by construction: the list is the rooms whose OWN
+  free nights contain that date.
+- `venueProfileId` + `stageId` are sent **together or not at all** — the API refuses a
+  room with no venue ("A room needs the venue it is in"), and refuses a room that is not
+  in that venue, so a hand-edited payload is answered by `placeOfRequest` rather than by
+  this page's trust.
+
+**D2 — the page answers per date, and the ask carries the room. Item 1 is done.**
+Clicking a date hands the panel the rooms whose OWN free nights contain it, so a room
+already sold that night is never offered — not filtered out, never constructed.
+
+Proven live, the whole chain in one pass: minted `/a/E_qlKNkuoLC0` as the operator →
+clicked **Wed · Oct 14**, the night Main Room is confirmed, and the panel said *"Back Room
+(80 cap) is the only room free on this date."* → clicked **Thu · Oct 15**, both free, and
+got the chooser with *Any room — they'll decide* selected → picked **Main Room (400 cap)**
+and sent → the row landed with `venue_profile_id` = The Lantern Hall and `stage_id` = Main
+Room → **the operator's inbox card reads "ROOM · Main Room"**. Suites: biome 710 · web 320
+· marketing 16 (5 new, mutation-checked two ways) · api 1306 (`profiles.test.ts` re-run
+alone after the port flake) · e2e 112.
+
+**Two things I got wrong earlier, found by doing this:**
+
+1. **`/a/<token>` 404'd on a laptop.** B2a added the rewrite to `firebase.json` and not to
+   `apps/marketing/vite.config.ts`, whose entire reason for existing is *"a link that
+   works on the deployed site 404s on a laptop — and the address a developer tests is not
+   the address the world gets."* I tested `?a=<token>` that day and never followed the
+   address the app actually mints. Fixed, and the plugin now carries three prefixes.
+2. **The inbox card never showed the room.** My **A** entry above says *"the inbox reads
+   'Main Room'"* — that was the API response carrying `stageName`, not the card, which
+   renders Wanted date / Source / Fee / Email and nothing else. The chain ended one step
+   short of the person who decides. `RequestCard` now has a Room cell, fed from the API's
+   own `stageName` rather than by fetching a roster the inbox has no business holding.

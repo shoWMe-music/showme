@@ -67,11 +67,30 @@ export interface PublicProfileSummary {
   kind: string;
 }
 
+/**
+ * A room the visitor may ask for — one of the rooms the sharer published as free on the
+ * night being asked about (ClickUp `123qy9rpqp0` §2).
+ *
+ * The page derives these per date and never hands over a roster: a room that is not free
+ * that night is not in this list, so the form cannot offer a room that is already sold.
+ */
+export interface RequestRoom {
+  /** `stages.id`. The API checks it belongs to the venue being asked; this page does not
+   * and could not. */
+  id: string;
+  name: string;
+  capacity: number | null;
+}
+
 export interface DateRequestPanel {
   /** The panel element — insert it in the page; it starts hidden. */
   readonly element: HTMLElement;
-  /** Open (or re-target) the form for one of the published dates. */
-  openForDate(isoDate: string, dateLabel: string): void;
+  /**
+   * Open (or re-target) the form for one of the published dates, and for the rooms that
+   * are free on it. An empty list is the ordinary case for a performer, and for every
+   * link sent before rooms existed — the form is then exactly what it always was.
+   */
+  openForDate(isoDate: string, dateLabel: string, rooms?: RequestRoom[]): void;
   /**
    * Open the form with no date CHOSEN — the public profile page, where there is
    * no list of published days to pick from. The visitor names the night in the
@@ -242,6 +261,13 @@ interface RequestPayload {
   wantedDate: string;
   /** Other nights that would also work. Sent only when there are any. */
   additionalDates?: string[];
+  /**
+   * WHERE. Sent together or not at all: the API refuses a room with no venue ("A room
+   * needs the venue it is in") and refuses a room that is not in the venue being asked,
+   * so this pair is checked at the door rather than trusted because it arrived.
+   */
+  venueProfileId?: string;
+  stageId?: string;
   pitch: string;
   artistName?: string;
 }
@@ -513,10 +539,79 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
   const dateGroup = element("div", "request__dates");
   dateGroup.append(dateField.wrapper, alternateGroup);
 
+  /**
+   * WHICH ROOM (ClickUp `123qy9rpqp0` §2) — a statement when there is one, a choice when
+   * there are several, and absent when the sharer published no rooms at all.
+   *
+   * It is not a `createField`: those are text controls with their own error line, and
+   * this can never be invalid. Every option here is a room the sharer published as free
+   * on this very night, and "no preference" is a legitimate answer.
+   */
+  let offeredRooms: RequestRoom[] = [];
+
+  const roomGroup = element("div", "field request__room");
+  roomGroup.hidden = true;
+  const roomLabel = element("label", "field__label", "Room");
+  roomLabel.setAttribute("for", "request-room");
+  const roomSelect = document.createElement("select");
+  roomSelect.id = "request-room";
+  roomSelect.name = "stageId";
+  roomSelect.className = "field__control";
+  const roomNote = element("p", "field__hint");
+  roomGroup.append(roomLabel, roomSelect, roomNote);
+
+  /** "Small Room (200 cap)" — the capacity is the fact that decides whether it fits. */
+  function roomLabelFor(room: RequestRoom): string {
+    return room.capacity === null ? room.name : `${room.name} (${room.capacity} cap)`;
+  }
+
+  /**
+   * Dress the room control for one night's worth of rooms.
+   *
+   * ONE room is stated rather than asked — there is no ambiguity for the visitor to
+   * resolve, and the sentence is on screen if they want to say otherwise in their
+   * message. SEVERAL default to "any": pre-selecting a named room would put words in a
+   * stranger's mouth, and the operator picks the room when they accept in any case.
+   */
+  function applyRooms(rooms: RequestRoom[]): void {
+    offeredRooms = rooms;
+    roomSelect.replaceChildren();
+    roomNote.textContent = "";
+
+    if (rooms.length === 0) {
+      roomGroup.hidden = true;
+      return;
+    }
+
+    roomGroup.hidden = false;
+    const only = rooms.length === 1 ? rooms[0] : undefined;
+    if (only) {
+      roomLabel.hidden = true;
+      roomSelect.hidden = true;
+      roomNote.textContent = `${roomLabelFor(only)} is the only room free on this date.`;
+      return;
+    }
+
+    roomLabel.hidden = false;
+    roomSelect.hidden = false;
+    const any = document.createElement("option");
+    any.value = "";
+    any.textContent = "Any room — they'll decide";
+    roomSelect.append(any);
+    for (const room of rooms) {
+      const option = document.createElement("option");
+      option.value = room.id;
+      option.textContent = roomLabelFor(room);
+      roomSelect.append(option);
+    }
+    roomSelect.value = "";
+  }
+
   form.append(
     honeypot,
     nameAndEmail,
     dateGroup,
+    roomGroup,
     artistField.wrapper,
     messageField.wrapper,
     actions,
@@ -551,6 +646,7 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
   function close(): void {
     selectedDate = "";
     dateComesFromThePage = false;
+    applyRooms([]);
     clearAlternates();
     if (dialog) {
       // Closed only once the way OUT has played. `dialog.close()` mid-animation
@@ -659,6 +755,11 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
     }
 
     const artistName = artistField.value();
+    // One room free means that room; several mean whichever the visitor picked, and "any"
+    // is an answer rather than a missing one. The venue rides along because the API takes
+    // the pair or neither.
+    const only = offeredRooms.length === 1 ? offeredRooms[0] : undefined;
+    const stageId = only ? only.id : roomSelect.value;
     // The clicked chip when there was one, the visitor's own answer otherwise.
     const wantedDate = selectedDate || dateField.control.value;
     const otherDates = dateComesFromThePage ? [] : alternateValues();
@@ -670,6 +771,7 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
       wantedDate,
       // Omitted rather than sent empty — the API takes the key or takes nothing.
       ...(otherDates.length > 0 ? { additionalDates: otherDates } : {}),
+      ...(stageId ? { venueProfileId: target.id, stageId } : {}),
       pitch: messageField.value(),
       // Omitted rather than sent empty: the API's schema requires at least one
       // character when the key is present.
@@ -807,10 +909,11 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
 
   return {
     element: dialog ?? panel,
-    openForDate(isoDate, dateLabel) {
+    openForDate(isoDate, dateLabel, rooms = []) {
       selectedDate = isoDate;
       dateComesFromThePage = true;
       chosenDate.textContent = dateLabel;
+      applyRooms(rooms);
       // The night is settled and named above the form; a second, empty date field
       // under it would read as a question that has already been answered.
       dateGroup.hidden = true;
@@ -820,6 +923,9 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
     open() {
       selectedDate = "";
       dateComesFromThePage = false;
+      // A profile page has no published night to name rooms for, so there is no room to
+      // ask about either — the visitor names the date and the venue answers with a room.
+      applyRooms([]);
       // No date LINE (that names a chip nobody clicked) — but the date FIELD, and
       // room for a couple of alternatives: since 2026-08-31 every request names a
       // night, and this is the host where the visitor supplies it.
