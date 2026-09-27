@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { schema } from "@showme/db";
 import {
   VIDEO_LINK_REJECTION,
@@ -16,6 +17,7 @@ import { type Transaction, writeAudit } from "../lib/audit";
 import { requireProfileRole } from "../lib/authorize";
 import { readProfileBusyTime } from "../lib/availability";
 import { validateTemplatePayload } from "../lib/budget-template-payload";
+import { calendarDate } from "../lib/calendar-date";
 import {
   assertProfileAllowanceForUser,
   assertSeatAvailableForRole,
@@ -24,6 +26,7 @@ import {
   roleConsumesSeat,
 } from "../lib/entitlements";
 import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
+import { AVAILABILITY_TOKEN_BYTES, PROFILE_AVAILABILITY_TARGET } from "../lib/share-token";
 import type { StorageSigner } from "../lib/storage";
 import { withIdempotency } from "../plugins/idempotency";
 import {
@@ -498,6 +501,37 @@ async function countEventsInStage(
     .where(eq(schema.events.stageId, stageId));
   return row?.total ?? 0;
 }
+
+/**
+ * THE SNAPSHOT A SHARED AVAILABILITY LINK CARRIES (ClickUp `123qy9rpqp0`).
+ *
+ * Every field is the sharer's own claim about their own calendar, and every bound is
+ * here because this blob is served back to an anonymous stranger: a snapshot is stored
+ * once and read many times, so anything unbounded would be a payload somebody else pays
+ * to download. The shape mirrors
+ * `apps/web/src/lib/availabilityShareLink.ts`'s `AvailabilitySnapshot` — one definition
+ * of what a shared availability IS, expressed on both sides of the wire.
+ *
+ * `room` travels as a NAME, not an id, and that is deliberate on both counts: the public
+ * page has no authenticated way to resolve a room id and should not get one, and the
+ * room is part of what the sharer is SAYING rather than something the API vouches for.
+ */
+const AvailabilitySnapshotBody = z.object({
+  /** The public slug the page resolves the display NAME from, live. */
+  profileSlug: z.string().min(1).max(120),
+  /** Which room these dates are for; null for the venue as a whole. */
+  room: z.string().min(1).max(120).nullable(),
+  from: calendarDate,
+  to: calendarDate,
+  /** Monday = 0 … Sunday = 6, as the modal's weekday pills index them. */
+  weekdays: z.array(z.number().int().min(0).max(6)).max(7),
+  /** The free nights, as of `generatedOn`. A year and a half of daily shows is the
+   * ceiling; past that the sharer is publishing a database, not an offer. */
+  availableDates: z.array(calendarDate).max(550),
+  confirmedCountsAsBusy: z.boolean(),
+  heldCountsAsBusy: z.boolean(),
+  generatedOn: calendarDate,
+});
 
 const ANY_ROLE = ["owner", "admin", "editor", "viewer", "crew"] as const;
 const WRITE_ROLES = ["owner", "admin", "editor"] as const;
@@ -1688,6 +1722,94 @@ export async function profileRoutes(fastify: FastifyInstance): Promise<void> {
    * a venue's internal geography is not something an arm's-length performer or a
    * stranger gets to enumerate.
    */
+  /**
+   * SHARE THIS CALENDAR'S FREE NIGHTS — as a token, not as a URL full of dates.
+   *
+   * ClickUp `123qy9rpqn0`: *"The links are very long. Each one lists every date, so a
+   * link can be about 700 characters long. In an email that looks broken or like spam."*
+   * And `123qy9rpqp0` §2 needs the link to carry MORE than it does today — which room
+   * each free date belongs to. Those two only reconcile one way, and `decisions.md`
+   * #25.4 took it: the snapshot moves off the URL and into `shares.payload`, addressed
+   * by a short token.
+   *
+   * **This overrides the reasoning in `apps/web/src/lib/availabilityShareLink.ts`**,
+   * which put the whole snapshot in the URL FRAGMENT so the dates never reached a server
+   * log or a `Referer` header. A token is better on that measure, not worse: the dates
+   * leave the URL entirely and the recipient's browser fetches them. What is new is a
+   * row holding dates — and they are dates we already store, as the events they were
+   * derived from.
+   *
+   * WHAT IS STORED IS THE SHARER'S CLAIM, not a computed answer. The snapshot is what
+   * the operator chose to publish at a moment, which is exactly what the modal promises
+   * ("this link reflects availability as of when it was generated"). The one thing NOT
+   * stored is the display name: the public read resolves it live from the profile, so a
+   * link can never claim an identity — the property the old fragment had and keeps.
+   *
+   * `ANY_ROLE`, like the room list above it: publishing your own free nights is a member
+   * action, not an admin one. NO EXPIRY, deliberately — a link never died before, and a
+   * lifetime is a product change nobody asked for. `shares.expires_at` is there the day
+   * it is wanted.
+   */
+  app.post(
+    "/profiles/:id/availability-share",
+    {
+      schema: {
+        params: ProfileParams,
+        body: AvailabilitySnapshotBody,
+        response: { 201: z.object({ token: z.string() }) },
+      },
+    },
+    async (request, reply) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      const membership = requireProfileRole(request, id, [...ANY_ROLE]);
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      const token = randomBytes(AVAILABILITY_TOKEN_BYTES).toString("base64url");
+      await database.transaction(async (tx) => {
+        const [share] = await tx
+          .insert(schema.shares)
+          .values({
+            token,
+            // NOT an event share: `event_id` is nullable precisely so a token can point at
+            // something else, and `capabilities` is empty because this grants no capability
+            // at all — the public read serves one stored blob and nothing else.
+            eventId: null,
+            targetKind: PROFILE_AVAILABILITY_TARGET,
+            targetId: id,
+            payload: request.body,
+            capabilities: [],
+            access: "public",
+            ownerUserId: principal.userId,
+            ownerProfileId: id,
+          })
+          .returning({ id: schema.shares.id });
+        if (!share) throw new Error("availability share create failed");
+
+        // The trail records WHAT was published, never the dates themselves — a count is
+        // enough to answer "what did this link expose", and copying 550 dates into the
+        // audit log would duplicate the payload for every link ever made.
+        await writeAudit(tx, request, {
+          capability: "event.view",
+          action: "availability_share.created",
+          targetKind: PROFILE_AVAILABILITY_TARGET,
+          targetId: id,
+          after: {
+            shareId: share.id,
+            room: request.body.room,
+            from: request.body.from,
+            to: request.body.to,
+            dates: request.body.availableDates.length,
+            role: membership.role,
+          },
+        });
+      });
+
+      return reply.status(201).send({ token });
+    },
+  );
+
   app.get(
     "/profiles/:id/stages",
     { schema: { params: ProfileParams, response: { 200: z.array(StageResponse) } } },

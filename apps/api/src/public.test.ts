@@ -529,6 +529,123 @@ describe("public profiles", () => {
   });
 });
 
+/**
+ * A SHARED AVAILABILITY LINK IS A TOKEN NOW (ClickUp `123qy9rpqn0`, `decisions.md` #25.4).
+ *
+ * The snapshot used to ride in the URL fragment — ~700 characters of dates, which reads
+ * as spam in an email and leaves no room for the venue and room `123qy9rpqp0` §2 needs.
+ * It lives in `shares.payload` and this is the door the token opens.
+ *
+ * The two refusals matter more than the read: a token pointing at anything OTHER than an
+ * availability snapshot must not resolve here (otherwise this is a back door onto an
+ * event share's payload), and the sharer must not be able to state who they are.
+ */
+describe("public shared availability", () => {
+  const snapshot = {
+    profileSlug: "lantern",
+    room: "Big Room",
+    from: "2026-12-01",
+    to: "2026-12-31",
+    weekdays: [4, 5],
+    availableDates: ["2026-12-04", "2026-12-05"],
+    confirmedCountsAsBusy: true,
+    heldCountsAsBusy: false,
+    generatedOn: "2026-11-20",
+  };
+
+  async function seedAvailabilityShare(
+    ownerId: string,
+    slug: string,
+    token: string,
+    overrides: Record<string, unknown> = {},
+  ) {
+    const profileId = await seedProfile(ownerId, slug, true, { name: "The Lantern Hall" });
+    await harness.db.insert(schema.shares).values({
+      token,
+      eventId: null,
+      targetKind: "profile_availability",
+      targetId: profileId,
+      payload: snapshot,
+      capabilities: [],
+      access: "public",
+      ownerUserId: ownerId,
+      ownerProfileId: profileId,
+      ...overrides,
+    });
+    return profileId;
+  }
+
+  it("serves the snapshot, and names the profile from the profile", async () => {
+    await seedAvailabilityShare("share-avail-owner", "lantern-a", "tok-live");
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/public/availability/tok-live",
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    // Resolved LIVE — not the `profileSlug` sitting inside the payload. A hand-edited
+    // link must not be able to put one venue's name above another's free nights.
+    expect(body.profileName).toBe("The Lantern Hall");
+    expect(body.profileSlug).toBe("lantern-a");
+    expect(body.snapshot.availableDates).toEqual(["2026-12-04", "2026-12-05"]);
+    expect(body.snapshot.room).toBe("Big Room");
+  });
+
+  it("refuses a token that points at something else", async () => {
+    // The back door this closes: an EVENT share's token resolving here would serve
+    // whatever that share's payload happens to hold, with no capability check at all.
+    const profileId = await seedProfile("avail-other", "lantern-b", true);
+    await harness.db.insert(schema.shares).values({
+      token: "tok-event",
+      targetKind: "settlement",
+      targetId: profileId,
+      payload: { secret: "not availability" },
+      capabilities: ["settlement.view.own"],
+      access: "public",
+      ownerUserId: "avail-other",
+      ownerProfileId: profileId,
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/public/availability/tok-event",
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("is a 404 once revoked, once expired, and for a token that never existed", async () => {
+    await seedAvailabilityShare("avail-revoked", "lantern-c", "tok-revoked", {
+      revokedAt: new Date(),
+    });
+    await seedAvailabilityShare("avail-expired", "lantern-d", "tok-expired", {
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+
+    for (const token of ["tok-revoked", "tok-expired", "tok-never-minted"]) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/public/availability/${token}`,
+      });
+      expect(response.statusCode).toBe(404);
+    }
+  });
+
+  it("goes with the page: a profile that unpublished stops resolving", async () => {
+    const profileId = await seedAvailabilityShare("avail-private", "lantern-e", "tok-private");
+    await harness.db
+      .update(schema.profiles)
+      .set({ isPublic: false })
+      .where(eq(schema.profiles.id, profileId));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/public/availability/tok-private",
+    });
+    expect(response.statusCode).toBe(404);
+  });
+});
+
 describe("public events", () => {
   it("serves a published event without budget/notes leaking", async () => {
     const eventId = await seedEvent("ev-owner", true, {

@@ -24,6 +24,7 @@ import {
   type BookingRequestSender,
   resolveBookingRequestSender,
 } from "../lib/booking-request-sender";
+import { calendarDate } from "../lib/calendar-date";
 import { renderInvitationEmail, renderOffPlatformPerformerEmail } from "../lib/email-templates";
 import { canUseFeature, entitlementRequired } from "../lib/entitlements";
 import { loadEventSummary } from "../lib/event-summary";
@@ -78,14 +79,6 @@ const linkUrl = z.string().transform(cleanSingleLine).pipe(z.string().url().max(
  * right and are not: 2026-02-30 normalizes to March 2nd, so comparing the
  * normalized value back against the input is what catches it.
  */
-const calendarDate = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a calendar date, e.g. 2026-09-01")
-  .refine((value) => {
-    const parsed = new Date(`${value}T00:00:00.000Z`);
-    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-  }, "Not a real calendar date");
-
 /**
  * How many OTHER nights a sender may name (`additional_dates`).
  *

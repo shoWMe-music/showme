@@ -7,6 +7,7 @@ import { conflict, forbidden, isUniqueViolation, notFound, tooManyRequests } fro
 import { mergeDateRanges, readProfileBookedDates, readProfileBusyTime } from "../lib/availability";
 import { signProfileImageUrls } from "../lib/profile-media";
 import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
+import { PROFILE_AVAILABILITY_TARGET, loadLiveShareByToken } from "../lib/share-token";
 import type { StorageSigner } from "../lib/storage";
 import { resolveImageUrl } from "../serialize/image";
 import {
@@ -503,6 +504,69 @@ export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
         event.imageFileId,
       ]);
       return serializePublicEvent(event, imageUrls);
+    },
+  );
+
+  /**
+   * A SHARED AVAILABILITY LINK, RESOLVED FROM ITS TOKEN (ClickUp `123qy9rpqn0`).
+   *
+   * The snapshot used to ride in the URL fragment, which made a link ~700 characters and
+   * left no room for the venue and room `123qy9rpqp0` §2 needs it to carry.
+   * `decisions.md` #25.4 moved it into `shares.payload`; this is the door the marketing
+   * page opens with the token.
+   *
+   * THE NAME IS RESOLVED LIVE, and the snapshot cannot override it. That is the one
+   * property the old fragment had that had to survive: the sharer states which dates and
+   * which room, and the platform states WHO — otherwise a hand-edited link could put
+   * anybody's name above somebody else's free nights. The slug inside the payload is
+   * ignored here for exactly that reason; `target_id` is the profile, and it was written
+   * by an authenticated member of it.
+   *
+   * A REVOKED OR EXPIRED TOKEN IS A 404, like every other share — and so is a token that
+   * points at something that is not an availability snapshot, which is what stops this
+   * route being a back door onto an event share's payload.
+   *
+   * Public and unauthenticated by design (the recipient is a stranger with a link), and
+   * it serves exactly one stored blob: no live availability recomputation, because the
+   * link promises what was true when it was made.
+   */
+  app.get(
+    "/public/availability/:token",
+    {
+      config: { public: true },
+      schema: {
+        params: z.object({ token: z.string().min(1).max(200) }),
+        response: {
+          200: z.object({
+            /** Resolved live — never from the payload. */
+            profileName: z.string(),
+            profileSlug: z.string().nullable(),
+            snapshot: z.record(z.unknown()),
+          }),
+        },
+      },
+    },
+    async (request) => {
+      const { database } = request.server;
+      const share = await loadLiveShareByToken(database, request.params.token);
+      if (share.targetKind !== PROFILE_AVAILABILITY_TARGET || !share.targetId) {
+        throw notFound("Share not found");
+      }
+      if (!share.payload) throw notFound("Share not found");
+
+      // The profile must still exist and still be public: a venue that unpublished has
+      // withdrawn its page, and a link into it goes with it.
+      const [profile] = await database
+        .select({ name: schema.profiles.name, slug: schema.profiles.slug })
+        .from(schema.profiles)
+        .where(and(eq(schema.profiles.id, share.targetId), eq(schema.profiles.isPublic, true)));
+      if (!profile) throw notFound("Share not found");
+
+      return {
+        profileName: profile.name,
+        profileSlug: profile.slug,
+        snapshot: share.payload as Record<string, unknown>,
+      };
     },
   );
 

@@ -47,6 +47,7 @@ import {
   narrowSharedCapabilities,
   viewerCapabilities,
 } from "../lib/share-scope";
+import { loadLiveShareByToken } from "../lib/share-token";
 
 /**
  * Module 9 — off-platform shares (decisions #6, `docs/off-platform-access.md`).
@@ -201,16 +202,16 @@ const ApproveResponse = z.object({ approvedAt: z.string() });
 type Share = typeof schema.shares.$inferSelect;
 type Recipient = typeof schema.shareRecipients.$inferSelect;
 
-/** Load a live share by token: 404 if missing, expired (`expiresAt` past), or revoked. */
+/**
+ * Load a live share by token: 404 if missing, expired (`expiresAt` past), or revoked.
+ *
+ * The rule itself moved to `lib/share-token.ts` when a second kind of tokenized read
+ * appeared (a profile's availability snapshot, `123qy9rpqn0`) — two copies of "is this
+ * link still good" is how one of them ends up honouring a revocation the other ignores.
+ * This stays as the request-shaped door onto it.
+ */
 async function loadLiveShare(request: FastifyRequest, token: string): Promise<Share> {
-  const [share] = await request.server.database
-    .select()
-    .from(schema.shares)
-    .where(eq(schema.shares.token, token));
-  if (!share) throw notFound("Share not found");
-  if (share.revokedAt) throw notFound("Share not found");
-  if (share.expiresAt && share.expiresAt.getTime() <= Date.now()) throw notFound("Share not found");
-  return share;
+  return loadLiveShareByToken(request.server.database, token);
 }
 
 /** Parse an `Authorization: ShareBearer <jwt>` header. */

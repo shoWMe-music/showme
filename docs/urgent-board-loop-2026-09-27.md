@@ -59,11 +59,30 @@ Nothing here touches that logic. What is missing is everywhere the answer travel
   room is refused unless it belongs to the named venue, and the venue unless it is the
   target profile or one of its venues. `draft-event` passes both onto the event it
   creates, which also fixes the room never being stamped. *API + migration + tests.*
-- **B — an availability share is a `shares` row.** `POST /profiles/:id/availability-share`
-  writes `{ target_kind: "profile_availability", target_id: profileId, payload: snapshot,
-  access: "public" }` and returns the token; `GET /shares/:token` already reads by token
-  and serves `payload`. The link becomes `/a/<token>`. Closes `123qy9rpqn0`. *API +
-  web + marketing.*
+- **B — an availability share is a `shares` row.** Split in two once the code was read:
+  - **B1 (API).** `POST /profiles/:id/availability-share` writes
+    `{ event_id: null, target_kind: "profile_availability", target_id: profileId,
+    payload: snapshot, capabilities: [], access: "public" }` and returns a token.
+    `GET /public/availability/:token` serves it back. **Two corrections to the sketch:**
+    `GET /shares/:token` does *not* serve `payload` — it returns
+    `{ targetKind, targetId, capabilities }` — and `createShareWithRecipients` demands a
+    non-null `eventId` plus an event capability for its audit row, so an availability
+    share writes its own row rather than borrowing that helper. The liveness rule
+    (missing / revoked / expired → 404) moves to `lib/share-token.ts` so both routes
+    share one definition instead of two.
+  - **B2 (web + marketing).** The modal creates the link instead of computing it, and
+    the public page reads a token **and still reads the legacy fragment** — links
+    already sitting in somebody's inbox must keep working. Needs a hosting rewrite for
+    `/a/<token>`.
+  - **Token length is a judgement, recorded:** Ran's example is `showme.music/a/x7k2`.
+    Four characters is enumerable, and an availability snapshot is a venue's free
+    nights — low sensitivity, but nothing anyone should be able to sweep. 9 random
+    bytes base64url = **12 characters, 72 bits**: short enough to read as a link, far
+    past guessing. (Event shares use 24 bytes → 48 hex chars, which is what Ran is
+    complaining about at the other end of the scale.)
+  - **No expiry**, deliberately: a link never died before and the modal's own promise is
+    *"reflects availability as of when it was generated"*. Adding a lifetime is a
+    product change nobody asked for; the column is there the day it is wanted.
 - **C — Venue, then Room.** Two selects in `AvailabilityShareModal`: venue (or "All
   venues"), then only that venue's rooms (or "All rooms/spaces"). Closed state reads
   "The test venue · All rooms". *Web only.*
@@ -99,3 +118,28 @@ a 201. Suites: biome 702 · api 1297 · web 309 · db 25 · e2e 112.
 **Found on the way:** `draft-event` refuses with a 400 when it cannot derive a currency
 (no country on the profile's primary location). Correct, and worth knowing — it is the
 first thing to check when a conversion fails in a fixture.
+
+**B1 — the availability share is a `shares` row with a short token.**
+`POST /profiles/:id/availability-share` (member action, `ANY_ROLE`, insert + audit in one
+transaction) and `GET /public/availability/:token` (anonymous). The liveness rule moved to
+`lib/share-token.ts` so `shares.ts` and `public.ts` cannot drift on what "still good"
+means, and `calendarDate` moved to `lib/calendar-date.ts` for the same reason — a second
+copy that accepts 30 February is a data bug nobody sees until something is denominated
+against it.
+
+Two properties held deliberately: the profile's **name is resolved live** and the
+snapshot cannot override it (a hand-edited link must not put one venue's name above
+another's free nights — the property the old fragment had), and a token pointing at
+anything that is not an availability snapshot is a **404**, which is what stops this
+being a back door onto an event share's payload. Both mutation-checked: dropping the
+target-kind guard turns that 404 into a 200 serving the other share's blob.
+
+Proven live: `POST` → `MAYGpMPsNvbf`, a **35-character** link where the shape it replaces
+was **215 characters for only three dates** (Ran's real links carry a month, hence ~700);
+anonymous read returns "The Lantern Hall · Main Room · 3 dates"; a bogus token 404s.
+Suites: biome 704 · api 1304 (settlement.test.ts re-run alone after the port flake) ·
+e2e 112.
+
+**Still to come on this ticket:** B2 (the modal creates the link; the marketing page reads
+a token *and* still reads the legacy fragment, since links already sent must keep
+working; needs a hosting rewrite for `/a/<token>`), then C and D.

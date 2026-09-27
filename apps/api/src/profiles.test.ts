@@ -1698,3 +1698,81 @@ describe("profiles — video links", () => {
     ]);
   });
 });
+
+/**
+ * SHARING FREE NIGHTS AS A TOKEN (ClickUp `123qy9rpqn0`, `decisions.md` #25.4).
+ *
+ * The round trip, because the two halves are only worth anything together: a member
+ * publishes a snapshot of their own calendar and gets a short token back, and an
+ * anonymous stranger resolves that token into the snapshot with the profile's real name
+ * above it.
+ */
+describe("profiles — a shared availability link", () => {
+  const snapshot = {
+    profileSlug: "avail-share",
+    room: "Main Room",
+    from: "2026-12-01",
+    to: "2026-12-31",
+    weekdays: [3, 4, 5],
+    availableDates: ["2026-12-03", "2026-12-10"],
+    confirmedCountsAsBusy: true,
+    heldCountsAsBusy: true,
+    generatedOn: "2026-11-25",
+  };
+
+  it("mints a short token a stranger can resolve", async () => {
+    const owner = await seedProfileOwner("avail-share", "operator");
+    await harness.db
+      .update(schema.profiles)
+      .set({ isPublic: true })
+      .where(eq(schema.profiles.id, owner.profileId));
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${owner.profileId}/availability-share`,
+      headers: auth(owner.ownerId),
+      payload: snapshot,
+    });
+    expect(created.statusCode).toBe(201);
+    const { token } = created.json();
+
+    // SHORT is the whole point: 9 bytes base64url — 12 characters, where the link it
+    // replaces ran to about 700 because every date was in the URL.
+    expect(token).toHaveLength(12);
+
+    const resolved = await app.inject({
+      method: "GET",
+      url: `/api/v1/public/availability/${token}`,
+    });
+    expect(resolved.statusCode).toBe(200);
+    expect(resolved.json().profileName).toBe("avail-share");
+    expect(resolved.json().snapshot.availableDates).toEqual(["2026-12-03", "2026-12-10"]);
+  });
+
+  it("refuses a date the calendar does not contain", async () => {
+    // `calendarDate` is shared with the inbound routes for exactly this: a regex alone
+    // accepts 30 February, and a bad date reaches Postgres as a 22008 → 500.
+    const owner = await seedProfileOwner("avail-badday", "operator");
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${owner.profileId}/availability-share`,
+      headers: auth(owner.ownerId),
+      payload: { ...snapshot, availableDates: ["2026-02-30"] },
+    });
+    expect(refused.statusCode).toBe(400);
+  });
+
+  it("is not a stranger's to publish", async () => {
+    const owner = await seedProfileOwner("avail-mine", "operator");
+    await seedUser("avail-outsider", "performer");
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${owner.profileId}/availability-share`,
+      headers: auth("avail-outsider"),
+      payload: snapshot,
+    });
+    // Non-membership is a 404, not a 403 — the same no-existence-leak rule every other
+    // profile-scoped route here follows.
+    expect(refused.statusCode).toBe(404);
+  });
+});
