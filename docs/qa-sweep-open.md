@@ -10,7 +10,8 @@ that turns out to be a decision rather than a defect moves to *Parked* with the 
 stated, and one that does not reproduce is corrected rather than quietly dropped.
 
 **Where it ended.** Every blocker, major and minor from all three runs is closed,
-parked as a product question, or recorded as deliberate. Nothing is deployed —
+parked as a product question, or recorded as deliberate. **Two of the parked questions
+were answered on 2026-09-27** and are marked below; `decisions.md` #25 holds them. Nothing is deployed —
 `main` is ahead of production by this session's commits, which is the next decision
 someone has to take, not one this pass took. Four things are parked for Ran and are
 the only open questions: the co-promoter's sight of the act's fee, the agent's
@@ -121,11 +122,12 @@ decision, or recorded as deliberate.
 
 ## Parked — a decision, not a defect
 
-- **Should a co-promoter see the act's fee?** `PLAN.md:215` says co-promoters share
-  one budget with full transparency; the fee is deliberately never a budget row, and
-  a deal is shared by making someone a `deal_party` (`decisions.md` #84). The planner
-  now withholds the figures it cannot compute rather than guessing. Three options are
-  in the status doc for Ran.
+- ~~**Should a co-promoter see the act's fee?**~~ **DECIDED 2026-09-27**
+  (`decisions.md` #25): not automatically, and the host is PROMPTED to share it — adding
+  a co-promoter offers *"share the act's deal with them?"*, one click makes them a
+  `deal_party` observer (#4's own mechanism) and the withheld figures complete. The
+  planner's withholding stays as the behaviour until nobody has been asked. Work owed:
+  the prompt.
 - **Should a reimbursed cost reduce an agent's commissionable income?**
   ClickUp `86cba8wtb`, status `re-do`. The second half of r2:804 turns on it, and so
   does the figure r2:603 was reading (the FIELD is now named for what it holds —
@@ -137,7 +139,10 @@ decision, or recorded as deliberate.
   faithfully, so run 2's "SEK 500 too high" was two measurements either side of a
   recompute, not a client defect. Nothing to fix until the base is decided.
 
-- **Should a revenue share pay a participant who has not accepted the booking?**
+- ~~**Should a revenue share pay a participant who has not accepted the booking?**~~
+  **DECIDED 2026-09-27** (`decisions.md` #25): it pays. The host writes the split
+  deliberately, often before the invitations go out, and a settlement that pays someone
+  who never turned up is theirs to correct. No work owed. Original note:
   r3:542. A `revenue_shares` row names a `participantId`, and the engine pays it
   whatever that participant's `status` is — so an invited act that has not answered can
   already be owed a cut of the door. The report filed it as *"worth a decision either

@@ -97,7 +97,27 @@ saying out loud before doing it.
 
 ---
 
-## 4. Decisions for Ran, not code (5)
+## 4. Decisions — ALL FIVE TAKEN 2026-09-27
+
+**Answered the same day the audit was written. `decisions.md` #25 is the durable
+record; this section is left as the question it was, with the answer against it.**
+
+| Question | Answer |
+|---|---|
+| Where is a deal negotiated? | **The Deals tab.** "Accept request" → pre-filled draft event + invite; Accept / Decline / Counter on the Deals tab. Unblocks five urgent tickets; `123qy9rpqp0` becomes the first piece of work, not the last |
+| Agent commission base | **Already decided — gross.** #14 says it twice and the code matches; `86cba8wtb` and W0 Q1 close with no code change. `commissionable_basis` is designed and unwired → its own ticket |
+| Deleting events | **The line is money, not status.** No settlement and no invoice → Ran's cancel-then-delete ladder, with notification. A settlement or invoice → permanently archive-only |
+| Availability links | **A token.** Snapshot to `shares.payload`, share `showme.music/a/<token>` — fixes both tickets, and is better on the privacy measure the old comment defended |
+| Bonus thresholds | **A ladder.** N ordered bands, settled against actual attendance. Money-core change, mutation-tested per band; `123qy9rp8k3` builds against the ladder |
+
+Also settled from the QA sweep's parked list: a co-promoter does **not** see the act's
+fee automatically — the host is **prompted to share the deal** (#4's observer mechanism);
+and a revenue share **does** pay a participant who has not accepted.
+
+**Still waiting on an input rather than a decision:** V2's exact settlement labels, which
+Daniel is sending. Until then no label moves — `PAYS IT` / `CARRIES IT` included.
+
+## 4a. The original questions, as put
 
 1. **Agent commission base** — `123qy9rng5m` W0 Q1 = `86cba8wtb` (`re-do`). Live:
    `entitlement + deductibles` (the gross). 15% of 10 000 = 1 500, where the other

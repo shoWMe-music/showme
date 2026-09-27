@@ -488,7 +488,7 @@ export function budgetPlannerViewFrom(
    *
    * The performer fee is derived from the deals list, and that list is scoped per
    * reader (story.md: an operator's breadth is emergent from being a party, never
-   * god-mode; decisions.md #84 shares a deal with a co-host by making them a
+   * god-mode; decisions.md #4 shares a deal with a co-host by making them a
    * `deal_party`). So a co-promoter who is not on the act's deal sees the shared
    * ledger minus that fee — and this screen used to total what it could see and
    * print `Profit / loss`, `Profit margin`, break-even and cost-per-guest off it.

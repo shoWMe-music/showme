@@ -127,7 +127,7 @@ export interface BudgetSeed {
    *
    * Every figure on this sheet that involves a performer fee is DERIVED from the
    * deals list (`performerFees`, `ticketSplit`, `venueCost`), and that list is
-   * scoped per reader: story.md gives an operator no god-mode, and decisions.md #84
+   * scoped per reader: story.md gives an operator no god-mode, and decisions.md #4
    * makes sharing a deal with a co-host an explicit `deal_party` in a read-only
    * role. So a co-promoter who is not a party to the act's deal legitimately sees
    * none of it — and the planner used to total the costs it COULD see and print a

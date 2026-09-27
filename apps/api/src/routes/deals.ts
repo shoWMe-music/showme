@@ -426,7 +426,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
          *
          * `deals` is what this caller may read — story.md: an operator's breadth is
          * *emergent* from being a party to the event's deals, never god-mode, and
-         * decisions.md #84 makes sharing one with a co-host an explicit
+         * decisions.md #4 makes sharing one with a co-host an explicit
          * `deal_party` in a read-only role. A co-host who is not a party therefore
          * correctly sees nothing, and a bare array could not tell them so.
          *

@@ -1175,6 +1175,100 @@ Total deductions, Venue rental, Adjusted net and a Total Payouts card naming the
 payout — every one of them derived from the lines just withheld. A test discloses *every*
 line to a performer and asserts their `ladder` is still null.
 
+## 25. Five calls taken on 2026-09-27, to unblock the urgent board
+
+Taken by Daniel after the urgent board was read against the code
+(`docs/clickup-urgent-audit-2026-09-27.md`). Each one was blocking tickets rather than
+being a preference, and each is recorded here with what it unblocks.
+
+### 25.1 The Deals tab is where an offer is negotiated
+
+Ran's own suggestion in ClickUp `86cbcn1je`, now decided. **"Accept request" replaces
+"Create an offer"** on an incoming request: it creates a DRAFT event pre-filled with the
+request's date, venue and room, and invites the counterpart. All offer traffic then lives
+on the **Deals tab** — propose terms, and the other side **Accepts / Declines /
+Counters**; an accepted deal moves to the Agreement tab, and declining leaves the event
+`suggested` for the host to archive.
+
+This is the hinge five urgent tickets were waiting on: `86cbcn1je`, `86cbcehmp`,
+`123qy9rnk1y`, `123qy9rprbx` §1 and `123qy9rpqp0`. It also means **every incoming request
+must carry date + venue + room** (`123qy9rpqp0` is therefore the first piece of work, not
+the last), because the double-booking check on an incoming request has nothing to compare
+without them.
+
+### 25.2 An agent's commission is a percentage of GROSS — already decided, recorded again
+
+Not a new call: #14 says *"commission on gross live/deal income"*, its 2026-07-21
+implementation note says *"from the performer's gross entitlement"*, and
+`commission-settlement.ts` matches. The 2026-09-02 change was code catching up with this
+file, not a new rule. Ran's *"comission comes out of the final performers share"* is about
+**who pays it** — the performer, not the operator — which is separately true and never
+enters the event's `Σ net = 0`.
+
+ClickUp `86cba8wtb` and `123qy9rng5m` Q1 close on this. **Loose end:**
+`representations.commissionable_basis` exists as a column, the seeds write
+`"deal_income"`, and nothing reads it — so a per-contract override is designed and
+unwired. Its own ticket, not an open question.
+
+### 25.3 Deleting an event: the line is money, not status
+
+`123qy9rpdup` asked for cancel-then-delete at any status. `lib/event-delete.ts` refused
+anything with another party, a confirmed agreement, a settlement or an invoice. **Both,
+split on whether money exists:**
+
+- **No settlement and no invoice** → Ran's ladder applies. Cancel first (with a reason,
+  sent to the collaborators), then delete, notifying every party. The other-party and
+  confirmed-agreement clauses give way here: cancelling is the notification.
+- **A settlement or an invoice exists** → deletion stays permanently refused; archive
+  only. A paid night is somebody else's record, and no cancel undoes that.
+
+The rest of `123qy9rpdup` (Cancelled + Confirmed filter chips, the cancel-reason note) is
+ordinary work.
+
+### 25.4 A shared availability link is a token, not a snapshot in the URL
+
+`123qy9rpqn0` (links are 700 characters and read as spam) and `123qy9rpqp0` §2 (the link
+must carry venue + room per date) pull in opposite directions and resolve the same way:
+**write the snapshot to `shares.payload` and share `showme.music/a/<token>`.**
+
+This overrides the reasoning in `lib/availabilityShareLink.ts`, which kept the snapshot in
+the URL fragment so the dates never reached a server log or a `Referer` header. A token is
+**better** on that measure, not worse — the dates leave the URL entirely and the recipient
+fetches them — and the only new exposure is a `shares` row holding dates we already store
+as events.
+
+### 25.5 A deal's bonus is a LADDER, not a single threshold
+
+`123qy9rnwud`: *"60/40 until 300 tickets → 70/30 from 300 → 80/20 from 900."* The engine
+models one `bonusThreshold` + `bonus` (#23.3). It becomes **N ordered bands**, settling
+against the band the ACTUAL attendance lands in.
+
+This is a money-core change and is scoped as one: `packages/settlement/src/entitlement.ts`,
+the planner's break-even solver (which currently scans attendance against a single rule),
+planned-vs-actual, and the sentence each settled figure prints to explain itself. **Every
+band gets a mutation test** before it goes near a real show. `123qy9rp8k3` (the entry UI)
+builds against the ladder, not against the single threshold.
+
+### Also settled the same day, from the QA sweep's parked list
+
+- **A co-promoter does NOT see the act's fee automatically, and the host is prompted to
+  share it.** When a co-promoter is added, offer *"share the act's deal with them?"* —
+  one click adds them as a `deal_party` observer, which is #4's own mechanism, and the
+  planner's withheld figures complete. Nothing is disclosed without the host deciding.
+  `PLAN.md:215`'s "full transparency" stands as a statement about the **ledger**, which
+  they do share.
+- **A revenue share pays a participant who has not accepted.** Left as it is: the host
+  writes the split deliberately, often before the invitations go out. A settlement that
+  pays someone who never turned up is the host's to correct. QA sweep r3:542 closes as
+  deliberate.
+
+### Still waiting on an input, not a decision
+
+The settlement vocabulary (`86cbcn1ue`'s last item, `123qy9rng6d` W5). Daniel is sending
+**V2's exact labels**; until they arrive every label stays as it is — `PAYS IT` / `CARRIES
+IT` included — because renaming this pair twice without Ran is what produced the same
+complaint twice. When the list lands, each label gets a test pinning it.
+
 ## Still-open product calls (not yet decided)
 
 - ~~**Event start/end mechanism (#16.4)**~~ **RESOLVED 2026-08-02 (see #16.4):** explicit required
