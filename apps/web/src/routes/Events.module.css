@@ -75,9 +75,10 @@
 .listHeader,
 .listRow {
   display: grid;
-  grid-template-columns:
-    minmax(0, 2.4fr) minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 0.8fr)
-    minmax(min-content, 1.2fr) minmax(0, 1fr) 32px;
+  /* Five tracks and the menu. Cap and Status left this table on 2026-09-27
+     (`123qy9rpe3y`) — the two fr values they held are given to the title and the
+     venue, which are the two columns that were truncating first. */
+  grid-template-columns: minmax(0, 2.8fr) minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 1fr) 32px;
 }
 
 /* Truncation lives here rather than inline so the phone rule below can undo it.
@@ -103,8 +104,7 @@
     grid-template-areas:
       "title      menu"
       "venue      venue"
-      "date       capacity"
-      "status     settlement";
+      "date       settlement";
     row-gap: 10px;
     align-items: center;
     padding: 16px;
@@ -122,12 +122,6 @@
   }
   .cellDate {
     grid-area: date;
-  }
-  .cellCapacity {
-    grid-area: capacity;
-  }
-  .cellStatus {
-    grid-area: status;
   }
   .cellSettlement {
     grid-area: settlement;

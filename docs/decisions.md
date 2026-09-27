@@ -1205,10 +1205,22 @@ file, not a new rule. Ran's *"comission comes out of the final performers share"
 **who pays it** — the performer, not the operator — which is separately true and never
 enters the event's `Σ net = 0`.
 
-ClickUp `86cba8wtb` and `123qy9rng5m` Q1 close on this. **Loose end:**
-`representations.commissionable_basis` exists as a column, the seeds write
-`"deal_income"`, and nothing reads it — so a per-contract override is designed and
-unwired. Its own ticket, not an open question.
+ClickUp `86cba8wtb` and `123qy9rng5m` Q1 close on this.
+
+**A correction to the audit that produced this decision.** It called
+`representations.commissionable_basis` *"designed and unwired — drop it"*, and Daniel
+agreed on that condition. **The condition is false and the column stays.** It is
+accepted by `POST /representations`, accepted by the PATCH, returned by both, and
+validated against `COMMISSIONABLE_BASES` — a vocabulary of exactly one value,
+`deal_income`, with a Zod message that explains the refusal: *"commission is on live
+deal income only; merchandise, publishing and other non-live revenue are never
+commissionable"*, and a test pinning the list to that one value.
+
+So it is not an unwired override, it is an **enforced guard** — the field that makes
+this decision's *"never merch/publishing"* refusable at the API rather than assumed.
+The engine does not branch on it because there is nothing to branch to. It widens the
+day the engine can attribute an entitlement to a deal component (guarantee-only,
+door-only), which `lib/representation-rules.ts:75-80` already anticipates.
 
 ### 25.3 Deleting an event: the line is money, not status
 

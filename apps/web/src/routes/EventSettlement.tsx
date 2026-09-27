@@ -1465,7 +1465,7 @@ function FinancialsTab({
 
       {rows.length > 0 && (
         <Card padding="lg" style={CARD_COLUMN}>
-          <CardTitle subtitle="Every line that moved, and by how much. These add up to the pool variance above.">
+          <CardTitle subtitle="Every line that moved, and by how much. These add up to the net-revenue variance above.">
             Line by line
           </CardTitle>
           <div

@@ -3,13 +3,11 @@ import {
   Button,
   EmptyState,
   Icon,
-  STATUS_COLOR,
   SearchInput,
   StatusDot,
   TabPanels,
 } from "@showme/design-system";
 import { useNavigate } from "@tanstack/react-router";
-import type { CSSProperties } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CountryTag } from "../components/CountryTag";
 import { DateText } from "../components/DateText";
@@ -23,21 +21,8 @@ import { useEventArchive } from "../hooks/useEventArchive";
 import { useEventInvitations } from "../hooks/useEventInvitations";
 import { type EventFilterKey, type EventItem, useEventList } from "../hooks/useEventList";
 import { useEventsViewMotion } from "../hooks/useEventsViewMotion";
-import { eventDisplayStatus } from "../lib/status";
 import { useNewEvent } from "../shell/NewEventProvider";
 import styles from "./Events.module.css";
-
-/** Status colour + label map — ported verbatim from the prototype's EVMETA so
- * the pills overlay the design exactly. */
-const EV_META: Record<string, { color: string; label: string }> = {
-  draft: { color: "#8C7A6C", label: "Draft" },
-  suggested: { color: "#B58BE0", label: "Suggested" },
-  pending: { color: "#F4A046", label: "Pending" },
-  confirmed: { color: "#6FC97A", label: "Confirmed" },
-  on_hold: { color: "#FFC266", label: "On hold" },
-  concluded: { color: "#B8A99B", label: "Concluded" },
-  cancelled: { color: "#EE5746", label: "Cancelled" },
-};
 
 /** The filter pill row (left of the view toggle). Each chip is answered by the
  * server (`useEventList` maps it to the status list `GET /events` filters on), so
@@ -67,61 +52,6 @@ const BOARD_DEFS: [status: string, label: string, color: string][] = [
   ["confirmed", "Confirmed", "#6FC97A"],
   ["concluded", "Concluded", "#B8A99B"],
 ];
-
-/** `#RRGGBB` → `rgba()` at the given alpha (prototype's hexA). */
-function hexA(hex: string, alpha: number): string {
-  const value = hex.replace("#", "");
-  const r = Number.parseInt(value.slice(0, 2), 16);
-  const g = Number.parseInt(value.slice(2, 4), 16);
-  const b = Number.parseInt(value.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
-
-/** The pill wrapper style for a status badge (prototype `badge(color)`). */
-function badgeStyle(color: string): CSSProperties {
-  return {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    padding: "4px 10px",
-    borderRadius: 999,
-    fontSize: 11.5,
-    fontWeight: 500,
-    fontFamily: "var(--font-mono)",
-    letterSpacing: ".01em",
-    whiteSpace: "nowrap",
-    background: hexA(color, 0.15),
-    color,
-  };
-}
-
-/** The 6px status dot inside a badge (prototype `dot(color)`). */
-function dotStyle(color: string): CSSProperties {
-  return { width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0 };
-}
-
-/**
- * The chip for one event's status.
- *
- * Takes the EVENT and not the status string because one of the answers is not in
- * the stored status at all: a confirmed show on its own local date reads "Show
- * day" (ClickUp `123qy9rng4z`). Deriving it here rather than at the call site is
- * what stops this list and the calendar disagreeing about which night is tonight.
- */
-function eventMeta(event: {
-  status: string;
-  eventDate?: string | null;
-  timezone?: string | null;
-}): {
-  color: string;
-  label: string;
-} {
-  const display = eventDisplayStatus(event);
-  if (display.status === "showday") {
-    return { color: STATUS_COLOR.showday.fg, label: display.label };
-  }
-  return EV_META[event.status] ?? { color: "#8C7A6C", label: "Draft" };
-}
 
 /** The last track is the overflow menu's — fixed, because it holds one 28px
  * button and must not steal width from the columns that carry information.
@@ -583,15 +513,19 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
         <span>Event / Artist</span>
         <span>Venue</span>
         <span>Date</span>
-        <span style={{ textAlign: "right" }}>Cap</span>
-        <span>Status</span>
+        {/* CAP AND STATUS ARE GONE FROM THIS TABLE (Ran, ClickUp `123qy9rpe3y`:
+            *"No Cap Status needed"*; Daniel confirmed both, 2026-09-27).
+            Neither is lost to the reader: the status chips above the table filter
+            on exactly that field and the Board view IS the status, grouped; a
+            room's capacity is on the event itself, next to the room it belongs to.
+            The columns were the two narrowest here and the two that pushed the
+            phone layout into a fourth row. */}
         <span>Settlement</span>
         {/* The menu's column. Unlabelled on purpose — the header names what a
             cell CONTAINS, and this one contains a control, not a fact. */}
         <span />
       </div>
       {rows.map((event) => {
-        const meta = eventMeta(event);
         // No settlement row yet means nobody has run one — the absence is the
         // answer, so the cell says so rather than borrowing a stage from the
         // ladder. Everything else goes through the shared reader, so this cell and
@@ -677,23 +611,6 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
               className={styles.cellDate}
               style={{ fontFamily: "var(--font-mono)", color: "var(--text)", fontSize: 13 }}
             />
-            <span
-              className={styles.cellCapacity}
-              style={{
-                fontFamily: "var(--font-mono)",
-                color: "var(--muted)",
-                fontSize: 13,
-                textAlign: "right",
-              }}
-            >
-              {event.capacity ?? "—"}
-            </span>
-            <span className={styles.cellStatus}>
-              <span style={badgeStyle(meta.color)}>
-                <span style={dotStyle(meta.color)} />
-                {meta.label}
-              </span>
-            </span>
             <span
               className={styles.cellSettlement}
               style={{
