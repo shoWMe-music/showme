@@ -75,6 +75,11 @@ const FILTERS: { key: string; label: string }[] = [
   { key: "expired", label: "Expired" },
 ];
 
+/** The chip's own word for itself, lower-cased so it reads inside a sentence. */
+function filterLabel(filter: string): string {
+  return (FILTERS.find((option) => option.key === filter)?.label ?? filter).toLowerCase();
+}
+
 /** The two layouts, on the toggle `Contacts` already uses for exactly this. */
 const VIEW_OPTIONS: { value: RequestViewMode; label: string }[] = [
   { value: "cards", label: "Cards" },
@@ -212,6 +217,7 @@ export function Requests() {
     moveMonth,
     requests,
     visible,
+    hiddenByFilter,
     pendingCount,
     unreadCount,
     setRead,
@@ -447,7 +453,28 @@ export function Requests() {
                 <Card padding="lg">
                   <div style={{ textAlign: "center", color: "var(--muted)", padding: "24px 0" }}>
                     <Icon name="inbox" size={28} />
-                    <p style={{ marginTop: 10 }}>No requests match this view.</p>
+                    {/* THE RAIL OFFERED THIS DAY; THE CHIP IS HIDING IT (r2:758).
+                        The "Requests by date" rail describes the whole inbox on
+                        purpose, so it can legitimately offer a day whose only
+                        request the current chip filters out — and "No requests
+                        match this view" left the reader with no way to work that
+                        out. Naming the count and carrying the way out is the
+                        difference between an empty state and a dead end. */}
+                    {hiddenByFilter > 0 ? (
+                      <>
+                        <p style={{ marginTop: 10 }}>
+                          {hiddenByFilter === 1
+                            ? "The one request on this day is not "
+                            : `All ${hiddenByFilter} requests on this day are not `}
+                          {filterLabel(filter)}.
+                        </p>
+                        <Button variant="secondary" onClick={() => setFilter("all")}>
+                          Show every status on this day
+                        </Button>
+                      </>
+                    ) : (
+                      <p style={{ marginTop: 10 }}>No requests match this view.</p>
+                    )}
                   </div>
                 </Card>
               ) : (

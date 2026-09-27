@@ -234,8 +234,34 @@ function AddTicketTier({
     party !== "" &&
     !editor.isBusy;
 
+  const commit = () => {
+    if (!canAdd) return;
+    editor.addTicketTier(name.trim(), price.trim(), count, party);
+    setName("");
+    setPrice("");
+    setQuantity("");
+    setParty("");
+    setOpen(false);
+  };
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", width: "100%" }}>
+    /* ENTER COMMITS THE ROW, ESCAPE ABANDONS IT (QA sweep run 2, r2:616).
+       A draft row that needs an explicit Add, with a keyboard that does nothing,
+       is a row a reader believes they have entered: the sweep lost three figures
+       to it before noticing the button. The rule is on the whole row rather than
+       on one field, so it holds wherever the caret happens to be. */
+    <div
+      style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", width: "100%" }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+        } else if (event.key === "Escape") {
+          event.stopPropagation();
+          setOpen(false);
+        }
+      }}
+    >
       <div style={{ flex: "2 1 160px" }}>
         <Input
           value={name}
@@ -272,18 +298,7 @@ function AddTicketTier({
           aria-label="Collected by"
         />
       </div>
-      <Button
-        variant="primary"
-        disabled={!canAdd}
-        onClick={() => {
-          editor.addTicketTier(name.trim(), price.trim(), count, party);
-          setName("");
-          setPrice("");
-          setQuantity("");
-          setParty("");
-          setOpen(false);
-        }}
-      >
+      <Button variant="primary" disabled={!canAdd} onClick={commit}>
         Add
       </Button>
       <Button variant="ghost" onClick={() => setOpen(false)}>
@@ -549,8 +564,29 @@ function AddLine({
   // required here rather than failing at compute with a 409 much later.
   const canAdd = label.trim() !== "" && amount.trim() !== "" && party !== "" && !editor.isBusy;
 
+  const commit = () => {
+    if (!canAdd) return;
+    editor.addLine(kind, label.trim(), amount.trim(), party);
+    setLabel("");
+    setAmount("");
+    setParty("");
+    setOpen(false);
+  };
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+    // Same keyboard rule as the ticket row above, and the same reason (r2:616).
+    <div
+      style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+        } else if (event.key === "Escape") {
+          event.stopPropagation();
+          setOpen(false);
+        }
+      }}
+    >
       <div style={{ flex: "2 1 160px" }}>
         <Input
           value={label}
@@ -578,17 +614,7 @@ function AddLine({
           aria-label={kind === "revenue" ? "Collected by" : "Carried by"}
         />
       </div>
-      <Button
-        variant="primary"
-        disabled={!canAdd}
-        onClick={() => {
-          editor.addLine(kind, label.trim(), amount.trim(), party);
-          setLabel("");
-          setAmount("");
-          setParty("");
-          setOpen(false);
-        }}
-      >
+      <Button variant="primary" disabled={!canAdd} onClick={commit}>
         Add
       </Button>
       <Button variant="ghost" onClick={() => setOpen(false)}>

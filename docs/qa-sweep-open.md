@@ -47,9 +47,15 @@ stated.
 | r2:894 | Nested `<button>` on the Venue row, on all five events | `9468472` |
 | r3:178 | Naming a revealed cost heading threw the row out of the table | `fdadde6` |
 | r3:173 | The budget scope chooser was nowhere in the URL | `fdadde6` |
-| r2:480 | The planner's three headline figures did not add up | *this commit* |
-| r2:880 | "Total settled SEK 0" beside "Finalized SEK 20,700" | *this commit* |
-| r2:603 | Two fields named for one thing, SEK 1,500 apart | *this commit* |
+| r2:480 | The planner's three headline figures did not add up | `db32eb0` |
+| r2:880 | "Total settled SEK 0" beside "Finalized SEK 20,700" | `db32eb0` |
+| r2:603 | Two fields named for one thing, SEK 1,500 apart | `db32eb0` |
+| r3:731 + r2:866 | Escape went past the panel to the discard guard; a Remove the reader may not use | *this commit* |
+| r2:616 | A draft line needed an explicit Add and the keyboard did nothing | *this commit* |
+| r2:752 | The counter-offer named the act when the terms go to the agent | *this commit* |
+| r2:758 | The date rail offered a day the chip hides, and the empty state said nothing | *this commit* |
+| r2:887 | "Edit" promised access it could not change for that collaborator | *this commit* |
+| r2:706 | "Place a hold" existed in exactly one place in the app | *this commit* |
 
 **Corrected, not fixed:** r2:411 (inline Status "never saves") — run 3 found it does
 save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owed.
@@ -59,21 +65,14 @@ save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owe
 ## Open — blockers and majors
 
 **None.** Every blocker and major from all three runs is either closed above, parked
-below as a decision, or corrected as a misreading. What remains is the minor list.
+below as a decision, or corrected as a misreading.
 
 ---
 
 ## Open — minors
 
-| # | ID | What is wrong |
-|---|---|---|
-| 13 | r2:616 | A line on the Financials tab needs an explicit **Add**, and nothing says so |
-| 14 | r2:706 | "Place a hold" exists only in the Calendar's day menu |
-| 15 | r2:752 | The counter-offer dialog names the act when the terms go to the agent |
-| 16 | r2:758 | The Requests date rail ignores the status filter, and the empty state hides it |
-| 19 | r2:866 | A performer is offered an enabled Remove they may not use *(the capability-name half is fixed; the enabled-control half is open)* |
-| 21 | r2:887 | "Edit" a collaborator changes role only, though the menu says access |
-| 37 | r3:731 | Escape on the venue autocomplete offers to throw the whole event away |
+**None.** Every finding from all three runs is closed above, parked below as a
+decision, or recorded as deliberate.
 
 ---
 
@@ -89,6 +88,14 @@ below as a decision, or corrected as a misreading. What remains is the minor lis
   second spelling of them. Mutation-checked both ways.
 
 ## Corrections owed to the reports
+
+- **r2:616's "blur, Enter and Recalculate all silently discard the row" does not
+  reproduce.** Driven on the running stack 2026-09-27: the draft row survived Enter and
+  survived a full Recalculate with both its typed values intact. What IS true is the
+  half the report opened with — *"it cost me three probes before I saw it"*: the row
+  needs an explicit **Add** and the keyboard did nothing at all, so a reader who
+  pressed Enter had no way to tell whether they had entered a figure. Enter now commits
+  the row and Escape abandons it.
 
 - **r2:346's "42" is wrong.** Run 2 solved break-even holding the fee at the SEK 2,000
   guarantee, but 70% of the door it solved for is SEK 2,132 — the share governs there,

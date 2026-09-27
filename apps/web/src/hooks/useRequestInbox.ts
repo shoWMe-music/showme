@@ -53,6 +53,10 @@ export interface RequestInbox {
   requests: RequestItem[];
   /** The inbox narrowed by the status chip and the selected day. */
   visible: RequestItem[];
+  /** Requests on the SELECTED DAY that the status chip is hiding — see
+   * `hiddenByFilterOn`. The empty state names them rather than leaving the reader
+   * to guess why a day the rail offered is blank. */
+  hiddenByFilter: number;
   pendingCount: number;
   /** Requests nobody on this side has opened. Always 0 on the outgoing view. */
   unreadCount: number;
@@ -87,6 +91,43 @@ export interface RequestInbox {
  * There is no server-side filter for the day selection at all (no `wantedDate`
  * query), which is the other reason the complete list has to be here.
  */
+/**
+ * DOES THE STATUS CHIP MATCH THIS REQUEST? The one rule, named, because the panel
+ * and the count below it must not disagree about it.
+ */
+function matchesFilter(request: RequestItem, filter: string): boolean {
+  if (filter === UNREAD_FILTER) return isUnread(request);
+  return filter === "all" || request.status === filter;
+}
+
+/**
+ * HOW MANY REQUESTS THE CHIP IS HIDING ON THE DAY THE READER PICKED (QA sweep run 2,
+ * r2:758).
+ *
+ * The "Requests by date" rail describes the WHOLE inbox on purpose — it must not move
+ * when a chip is clicked (see the note on this hook) — so it legitimately offers a day
+ * whose only request the chip hides. Measured: clicking 3 Oct 2026 / DJ Frostbite gave
+ * *"No requests match this view."* because that one is `Declined` and the chip was
+ * **Pending**. The rail is right and the empty state was useless: it left the reader
+ * with no way to work out why a day they had just been offered was empty.
+ *
+ * So the empty state counts them and says so. Zero when nothing is selected, or when
+ * the chip is already "all" — there is nothing to reveal then.
+ */
+export function hiddenByFilterOn(
+  requests: RequestItem[],
+  filter: string,
+  selectedDay: string | undefined,
+): number {
+  if (!selectedDay || filter === "all") return 0;
+  return requests.filter(
+    (request) =>
+      request.wantedDate != null &&
+      dayKey(new Date(request.wantedDate)) === selectedDay &&
+      !matchesFilter(request, filter),
+  ).length;
+}
+
 export function useRequestInbox(): RequestInbox {
   const [direction, setDirectionState] = useState<RequestDirection>("incoming");
   /**
@@ -152,14 +193,15 @@ export function useRequestInbox(): RequestInbox {
     [requests],
   );
 
+  const hiddenByFilter = useMemo(
+    () => hiddenByFilterOn(requests, filter, selectedDay),
+    [requests, filter, selectedDay],
+  );
+
   const visible = useMemo(
     () =>
       requests.filter((request) => {
-        if (filter === UNREAD_FILTER) {
-          if (!isUnread(request)) return false;
-        } else if (filter !== "all" && request.status !== filter) {
-          return false;
-        }
+        if (!matchesFilter(request, filter)) return false;
         if (selectedDay && dayKey(new Date(request.wantedDate)) !== selectedDay) return false;
         return true;
       }),
@@ -194,6 +236,7 @@ export function useRequestInbox(): RequestInbox {
       setMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1)),
     requests,
     visible,
+    hiddenByFilter,
     pendingCount: requests.filter((request) => request.status === "pending").length,
     unreadCount: requests.filter(isUnread).length,
     setRead,

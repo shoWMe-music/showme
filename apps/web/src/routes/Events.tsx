@@ -238,9 +238,30 @@ export function Events() {
           </div>
           <ViewToggle value={view} onChange={setView} />
           {canCreateEvent && (
-            <GradientButton onClick={openNewEvent}>
-              <Icon name="plus" size={15} /> New event
-            </GradientButton>
+            <>
+              {/* A SECOND WAY TO PLACE A HOLD (QA sweep run 2, r2:706).
+                  The hold wizard had exactly one entry point in the whole app —
+                  Calendar → click a day → Hold — so an operator working from the
+                  Events screen had no way to reach it, and the wizard's own
+                  fallback toast pointed them at a status control on the event
+                  workspace instead. A hold IS an event with `status: "on_hold"`,
+                  the same wizard in hold mode; it costs no plan slot
+                  (`CAP_COUNTING_EVENT_STATUSES` is confirmed|concluded), which is
+                  why it sits beside the CTA rather than behind it.
+
+                  No initial date: the Calendar's entry has the day that was
+                  clicked, and here there is none to pass — the wizard asks. */}
+              <Button
+                variant="secondary"
+                leftIcon={<Icon name="clock" size={14} />}
+                onClick={() => openNewEvent({ initialStatus: "on_hold" })}
+              >
+                Place a hold
+              </Button>
+              <GradientButton onClick={openNewEvent}>
+                <Icon name="plus" size={15} /> New event
+              </GradientButton>
+            </>
           )}
         </div>
       </div>

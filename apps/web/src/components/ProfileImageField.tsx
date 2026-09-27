@@ -101,8 +101,18 @@ export function ProfileImageField({
           >
             {isUploading ? "Uploading…" : previewUrl ? "Replace" : "Upload"}
           </Button>
+          {/* REMOVE OBEYS THE SAME `disabled` AS REPLACE (QA sweep run 2, r2:866).
+              It did not, so a performer looking at an event's poster got an enabled
+              Remove one line under a greyed-out Replace and a hint telling them they
+              may not change it. Pressing it answered `403` and printed the capability
+              name. Every reason to refuse a replacement refuses a removal. */}
           {previewUrl && (
-            <Button variant="ghost" leftIcon={<Icon name="trash" size={14} />} onClick={onRemove}>
+            <Button
+              variant="ghost"
+              leftIcon={<Icon name="trash" size={14} />}
+              disabled={disabled || isUploading}
+              onClick={onRemove}
+            >
               Remove
             </Button>
           )}

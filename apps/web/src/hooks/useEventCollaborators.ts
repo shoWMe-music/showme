@@ -296,9 +296,20 @@ export function useEventCollaborators({
           label: "Edit",
           onSelect: editRefusal ? undefined : () => openEditor(next, displayName),
           refusal: editRefusal,
+          /**
+           * THE HINT PROMISES WHAT THIS ROW'S DIALOG ACTUALLY OFFERS (QA sweep run 2,
+           * r2:887). It said *"and what they may touch"* for every collaborator, and
+           * the dialog shows an Access control only where the role can carry more than
+           * its own floor — `allowsFullControl`, which is `co_host` alone (decisions #4:
+           * the pool ceiling refuses full control to crew and performers). Measured on
+           * Priya Sound, crew: one control, `Role on this event`. The ceiling is right;
+           * the sentence was not.
+           */
           hint: editRefusal
             ? undefined
-            : "Change their role on this event, and what they may touch.",
+            : allowsFullControl(next.role) && fullControlPermissionSetId !== null
+              ? "Change their role on this event, and the access that role is given."
+              : "Change the role they hold on this event — what it may touch comes with it. Only a co-operator can be granted more than their role's own access.",
         },
         // Removed rows get the undo in place of the remove — the two are never
         // both on offer, and neither is a dead entry. `statusBeforeRemoval` is
@@ -332,6 +343,7 @@ export function useEventCollaborators({
     [
       canManage,
       hostProfileId,
+      fullControlPermissionSetId,
       patch.isPending,
       remove.isPending,
       remove.variables,

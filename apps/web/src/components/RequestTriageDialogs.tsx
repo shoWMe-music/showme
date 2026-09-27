@@ -41,13 +41,20 @@ export function RequestTriageDialogs({ triage, onOpenEvents }: RequestTriageDial
   const requester = request.artistName ?? request.contactName ?? "this sender";
   const hasAccount = request.senderProfileId != null;
   /**
-   * WHO a spam report actually accuses: the profile that SENT the request. On an
-   * agent's offer that is the AGENCY, not the act being offered — the report lands
-   * on `sender_profile_id`, and naming the performer here would ask the operator
-   * to accuse the wrong party (story.md: an agent acts THROUGH the performer; the
-   * performer does not answer for the agency's conduct).
+   * WHO SENT THIS, as opposed to who it is ABOUT. On an agent's offer the sender is
+   * the AGENCY and `requester` is the act being offered — `sender_profile_id` versus
+   * `on_behalf_of_profile_id`.
+   *
+   * Two sentences need this party rather than the act. A spam report accuses the
+   * sender: naming the performer would ask the operator to accuse the wrong party
+   * (story.md: an agent acts THROUGH the performer; the performer does not answer
+   * for the agency's conduct). And a counter-offer is DELIVERED to the sender —
+   * measured 2026-09-26, the dialog read *"Your terms go straight to Marlo Vance's
+   * inbox"* while the notification went to Astra Booking Agency, which is correct
+   * (decisions #14: the agent answers for the act it represents). The copy named
+   * the one party who would not receive it (QA sweep run 2, r2:752).
    */
-  const accused = request.onBehalfOfProfileId
+  const sender = request.onBehalfOfProfileId
     ? (request.contactName ?? "the agency that sent this")
     : requester;
   const draft = triage.draftResult;
@@ -120,13 +127,13 @@ export function RequestTriageDialogs({ triage, onOpenEvents }: RequestTriageDial
                 </>
               ) : (
                 <>
-                  Your terms are in <Strong>{requester}</Strong>'s inbox. The request stays pending
+                  Your terms are in <Strong>{sender}</Strong>'s inbox. The request stays pending
                   until they answer.
                 </>
               )
             ) : (
               <>
-                The terms are recorded, but we could not deliver them to {requester}. Reach them
+                The terms are recorded, but we could not deliver them to {sender}. Reach them
                 directly{request.email ? ` at ${request.email}` : ""}.
               </>
             )}
@@ -136,7 +143,7 @@ export function RequestTriageDialogs({ triage, onOpenEvents }: RequestTriageDial
             action={action}
             triage={triage}
             requester={requester}
-            accused={accused}
+            sender={sender}
             hasAccount={hasAccount}
             email={request.email ?? undefined}
             currency={request.currency ?? undefined}
@@ -170,8 +177,9 @@ interface ActionBodyProps {
   action: RequestTriageAction;
   triage: RequestTriage;
   requester: string;
-  /** The profile a Block would report — the sender, which may be an agency. */
-  accused: string;
+  /** The party that SENT the request — an agency on an agent's offer. Both the spam
+   * report and the counter-offer's delivery line name it rather than the act. */
+  sender: string;
   hasAccount: boolean;
   email?: string;
   currency?: string;
@@ -181,7 +189,7 @@ function ActionBody({
   action,
   triage,
   requester,
-  accused,
+  sender,
   hasAccount,
   email,
   currency,
@@ -223,8 +231,8 @@ function ActionBody({
           This moves the request to Flagged and{" "}
           {hasAccount ? (
             <>
-              files a spam report against <Strong>{accused}</Strong>
-              {accused !== requester ? ` — the account that sent it, not ${requester}` : ""}. Enough
+              files a spam report against <Strong>{sender}</Strong>
+              {sender !== requester ? ` — the account that sent it, not ${requester}` : ""}. Enough
               separate venues reporting the same account suspends it.
             </>
           ) : (
@@ -277,7 +285,7 @@ function ActionBody({
   return (
     <>
       <Paragraph>
-        Your terms go straight to <Strong>{requester}</Strong>
+        Your terms go straight to <Strong>{sender}</Strong>
         {hasAccount ? "'s inbox" : email ? ` at ${email}` : ""}. The request stays pending until
         they answer — this is a reply, not an agreement.
       </Paragraph>

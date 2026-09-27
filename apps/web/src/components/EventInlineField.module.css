@@ -325,8 +325,9 @@
    the venue's name — which for a short name leaves a column too narrow to read
    "The Lantern Hall" on one line. Given a floor, and anchored to the right so it
    grows into the card rather than off it.
-   (The picker root's three children are the field shell, the dismiss overlay
-   and this list; only the list is a plain div.) */
+   (The picker root has two children — the field shell and this list — and only
+   the list is a plain div. It had three until r3:731 removed the click-catcher
+   overlay that was eating the wizard's Continue click.) */
 .venueSlot > div > div {
   left: auto;
   right: 0;

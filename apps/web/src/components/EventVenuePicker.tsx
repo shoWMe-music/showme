@@ -1,8 +1,9 @@
 import { useGetApiV1Profiles, useGetApiV1ProfilesSearch } from "@showme/api-client";
 import { Icon } from "@showme/design-system";
-import { useState } from "react";
+import { useRef } from "react";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { fieldStyle } from "./eventUi";
+import { usePickerPopover } from "./usePickerPopover";
 
 /**
  * The event's Venue field — a name you can type, or a venue PROFILE you can pick.
@@ -55,7 +56,26 @@ export function EventVenuePicker({
   inputId,
   inputAriaLabel,
 }: EventVenuePickerProps) {
-  const [open, setOpen] = useState(false);
+  /**
+   * THE INNERMOST DISMISSIBLE THING TAKES THE ESCAPE (QA sweep run 3, r3:731).
+   *
+   * This field held the app's last click-catcher overlay — a `position: fixed;
+   * inset: 0` button over the whole viewport — and no Escape handler at all. Both
+   * halves were measured while creating an event: the panel opened over the wizard's
+   * **Continue** button and ate the click on it (the overlay was the thing being
+   * clicked), and Escape went straight past the panel to the wizard, which offered
+   * *"Leave without creating this event? Everything you have filled in will be lost"*
+   * over a form holding an artist, a venue, a city, a date and a capacity — with the
+   * panel still open behind the warning.
+   *
+   * `usePickerPopover` is where both rules already live, and its own comment names
+   * this exact hazard: *"no click-catcher overlay: one would swallow the first click
+   * on the modal behind it"*. Escape is caught in the CAPTURE phase, which is what
+   * makes it close this panel and not the modal around it. Only the panel is drawn
+   * here; the hook owns when it is open.
+   */
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { wrapperRef, open, openPopover, closePopover } = usePickerPopover({ inputRef });
   const term = useDebouncedValue(value.trim(), 250);
 
   const myProfiles = useGetApiV1Profiles({ query: { enabled: open } });
@@ -83,7 +103,7 @@ export function EventVenuePicker({
     // Everything the venue knows ABOUT itself is only ever offered into blanks.
     onChangeText(choice.name);
     onSelectProfile(choice);
-    setOpen(false);
+    closePopover(false);
   };
 
   // Two states, and they now LOOK different (ClickUp 86cbaxyjy). A picked venue
@@ -97,7 +117,7 @@ export function EventVenuePicker({
   // caller (which is the only side that knows what it filled in from the
   // profile) drops what came with it.
   return (
-    <div style={{ position: "relative" }}>
+    <div ref={wrapperRef} style={{ position: "relative" }}>
       {selectedProfileId ? (
         <span
           style={{
@@ -152,10 +172,11 @@ export function EventVenuePicker({
             id={inputId}
             aria-label={inputAriaLabel}
             value={value}
-            onFocus={() => setOpen(true)}
+            ref={inputRef}
+            onFocus={() => openPopover(false)}
             onChange={(changeEvent) => {
               onChangeText(changeEvent.target.value);
-              setOpen(true);
+              openPopover(false);
             }}
             placeholder={placeholder}
             style={{
@@ -172,51 +193,36 @@ export function EventVenuePicker({
       )}
 
       {open && !selectedProfileId && (
-        <>
-          <button
-            type="button"
-            aria-label="Close venue search"
-            onClick={() => setOpen(false)}
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 40,
-              border: 0,
-              background: "transparent",
-              cursor: "default",
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              top: "calc(100% + 6px)",
-              left: 0,
-              right: 0,
-              zIndex: 41,
-              maxHeight: 280,
-              overflowY: "auto",
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              boxShadow: "var(--shadow-lg)",
-              padding: 6,
-            }}
-          >
-            {mine.length > 0 && <GroupHeader>My places</GroupHeader>}
-            {mine.map((choice) => (
-              <VenueRow key={choice.profileId} choice={choice} onClick={() => choose(choice)} />
-            ))}
-            {found.length > 0 && <GroupHeader>On shoWMe</GroupHeader>}
-            {found.map((choice) => (
-              <VenueRow key={choice.profileId} choice={choice} onClick={() => choose(choice)} />
-            ))}
-            {mine.length === 0 && found.length === 0 && (
-              <div style={{ padding: "10px 12px", color: "var(--muted)", fontSize: 12.5 }}>
-                No venue profile matches. Keep typing — a name on its own is fine.
-              </div>
-            )}
-          </div>
-        </>
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            right: 0,
+            zIndex: 41,
+            maxHeight: 280,
+            overflowY: "auto",
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+            boxShadow: "var(--shadow-lg)",
+            padding: 6,
+          }}
+        >
+          {mine.length > 0 && <GroupHeader>My places</GroupHeader>}
+          {mine.map((choice) => (
+            <VenueRow key={choice.profileId} choice={choice} onClick={() => choose(choice)} />
+          ))}
+          {found.length > 0 && <GroupHeader>On shoWMe</GroupHeader>}
+          {found.map((choice) => (
+            <VenueRow key={choice.profileId} choice={choice} onClick={() => choose(choice)} />
+          ))}
+          {mine.length === 0 && found.length === 0 && (
+            <div style={{ padding: "10px 12px", color: "var(--muted)", fontSize: 12.5 }}>
+              No venue profile matches. Keep typing — a name on its own is fine.
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
