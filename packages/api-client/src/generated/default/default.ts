@@ -270,6 +270,8 @@ import type {
   PostApiV1EventsIdShares201,
   PostApiV1EventsIdSharesBody,
   PostApiV1EventsIdUnarchive200,
+  PostApiV1EventsIdUnpublish200,
+  PostApiV1EventsIdUnpublishBody,
   PostApiV1FilesUploadUrl201,
   PostApiV1FilesUploadUrlBody,
   PostApiV1Groups201,
@@ -1595,6 +1597,65 @@ const {mutation: mutationOptions} = options ?
       > => {
 
       const mutationOptions = getPostApiV1EventsIdPublishMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    export const postApiV1EventsIdUnpublish = (
+    id: string,
+    postApiV1EventsIdUnpublishBody: PostApiV1EventsIdUnpublishBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<PostApiV1EventsIdUnpublish200>(
+      {url: `/api/v1/events/${id}/unpublish`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: postApiV1EventsIdUnpublishBody, signal
+    },
+      );
+    }
+  
+
+
+export const getPostApiV1EventsIdUnpublishMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdUnpublish>>, TError,{id: string;data: PostApiV1EventsIdUnpublishBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdUnpublish>>, TError,{id: string;data: PostApiV1EventsIdUnpublishBody}, TContext> => {
+
+const mutationKey = ['postApiV1EventsIdUnpublish'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postApiV1EventsIdUnpublish>>, {id: string;data: PostApiV1EventsIdUnpublishBody}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  postApiV1EventsIdUnpublish(id,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PostApiV1EventsIdUnpublishMutationResult = NonNullable<Awaited<ReturnType<typeof postApiV1EventsIdUnpublish>>>
+    export type PostApiV1EventsIdUnpublishMutationBody = PostApiV1EventsIdUnpublishBody
+    export type PostApiV1EventsIdUnpublishMutationError = unknown
+
+    export const usePostApiV1EventsIdUnpublish = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postApiV1EventsIdUnpublish>>, TError,{id: string;data: PostApiV1EventsIdUnpublishBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof postApiV1EventsIdUnpublish>>,
+        TError,
+        {id: string;data: PostApiV1EventsIdUnpublishBody},
+        TContext
+      > => {
+
+      const mutationOptions = getPostApiV1EventsIdUnpublishMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

@@ -492,6 +492,7 @@ interface EventViewProps {
     title: string;
     status?: string;
     archived?: boolean;
+    capabilities?: readonly string[];
   }) => EventMenuItem[];
 }
 

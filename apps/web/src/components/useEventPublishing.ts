@@ -2,12 +2,14 @@ import {
   ApiError,
   getGetApiV1EventsIdQueryKey,
   useGetApiV1EventsId,
-  usePatchApiV1EventsId,
+  useGetApiV1EventsIdParticipants,
   usePostApiV1EventsIdPublish,
+  usePostApiV1EventsIdUnpublish,
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
+import { getActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
 import { publicEventUrl } from "../lib/publicSite";
 
@@ -22,11 +24,17 @@ import { publicEventUrl } from "../lib/publicSite";
  * every second click. `GET /events/:id` is already in the query cache (the event
  * screen loads it), so this costs nothing and is always the live row.
  *
- * WHY PUBLISH AND UNPUBLISH GO TO DIFFERENT ROUTES: publishing is its own act
- * with its own capability (`event.publish`), its own preconditions and its own
- * audit + activity entry — `POST /events/:id/publish`. There is no unpublish
- * route, so taking a page down is a plain `PATCH { published: false }`
- * (`event.edit`). Going dark needs no precondition; going public does.
+ * WHY PUBLISH AND UNPUBLISH GO TO DIFFERENT ROUTES: each is its own act with its
+ * own audit and activity entry, and both are gated on the same capability,
+ * `event.publish` — `POST /events/:id/{publish,unpublish}`. Going dark needs no
+ * precondition; going public needs a confirmed event with a date.
+ *
+ * Unpublishing used to be a plain `PATCH { published: false }`, which needs
+ * `event.edit` — the title, the date, the venue, the capacity. That is a capability
+ * a performer will never hold and must not, so under the old shape an act could put
+ * its own show on the public internet and then not be able to take it off again
+ * (ClickUp `123qy9rpe3q`). The API keeps honouring the PATCH for callers that still
+ * use it, and notifies from there too.
  */
 export interface EventPublishing {
   /** The live event status — the A-22 precondition the panel has to explain. */
@@ -45,6 +53,22 @@ export interface EventPublishing {
   blockedReason: string | null;
   publish: () => void;
   unpublish: () => void;
+  /**
+   * WHO ELSE THIS IS PUBLIC FOR — the names Ran's sentence needs
+   * (`123qy9rpe3q`): *"public on your profile and the {performer} or {Operator}
+   * profile"*. Everybody publicly billed on the show except the profile the caller
+   * is acting as, because one public page appears on every one of their profiles.
+   * Empty while the roster loads, or on a show with nobody else on it — the panel
+   * falls back to a sentence that names nobody rather than inventing a name.
+   */
+  otherSideNames: string[];
+  /**
+   * True from a successful publish until the panel is left. Ran asked for *"a UI
+   * text, not a confirmation box"* saying what just happened and that the other
+   * side will hear — which is a statement about the act just taken, so it is state,
+   * not a property of the event.
+   */
+  justPublished: boolean;
   isWorking: boolean;
   /** The address the public page lives at, once there is something to see. */
   publicUrl: string;
@@ -57,6 +81,17 @@ export interface EventPublishing {
  * the API refuses on its own terms regardless of what this says.
  */
 const STATUSES_WITH_A_PUBLIC_PAGE = new Set(["confirmed", "concluded"]);
+
+/**
+ * The roles whose PROFILE a published show appears on — the host and co-host who
+ * run it, and the acts billed on it. Mirrors `PUBLICLY_BILLED_ROLES` plus the
+ * operators (`apps/api/src/routes/public.ts`), and is used only to write a sentence:
+ * the API decides what is actually public.
+ */
+const PUBLIC_FACING_ROLES = new Set(["host", "co_host", "performer", "support"]);
+
+/** Participants who actually stand on the event — `invited` has agreed to nothing. */
+const STANDING_STATUSES = new Set(["accepted", "confirmed"]);
 
 /** Human status wording, matching the labels the event screen shows. */
 function describeStatus(status: string): string {
@@ -74,6 +109,7 @@ export function useEventPublishing(
   const queryClient = useQueryClient();
   const eventQuery = useGetApiV1EventsId(eventId);
   const event = eventQuery.data;
+  const participants = useGetApiV1EventsIdParticipants(eventId);
 
   const invalidateEvent = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: getGetApiV1EventsIdQueryKey(eventId) });
@@ -94,20 +130,24 @@ export function useEventPublishing(
     [toast],
   );
 
+  const [justPublished, setJustPublished] = useState(false);
+
   const publishEvent = usePostApiV1EventsIdPublish({
     mutation: {
       onSuccess: () => {
         toast.success("Event published");
+        setJustPublished(true);
         invalidateEvent();
       },
       onError: (error) => reportFailure(error, "Couldn't publish this event."),
     },
   });
 
-  const patchEvent = usePatchApiV1EventsId({
+  const unpublishEvent = usePostApiV1EventsIdUnpublish({
     mutation: {
       onSuccess: () => {
         toast.success("Event unpublished");
+        setJustPublished(false);
         invalidateEvent();
       },
       onError: (error) => reportFailure(error, "Couldn't unpublish this event."),
@@ -117,7 +157,7 @@ export function useEventPublishing(
   const status = event?.status ?? "";
   const published = event?.published ?? false;
   const hasDate = Boolean(event?.eventDate);
-  const isWorking = publishEvent.isPending || patchEvent.isPending;
+  const isWorking = publishEvent.isPending || unpublishEvent.isPending;
 
   const blockedReason = ((): string | null => {
     if (!event) return null;
@@ -145,11 +185,30 @@ export function useEventPublishing(
 
   const unpublish = useCallback(() => {
     if (!event) return;
-    patchEvent.mutate({
-      id: eventId,
-      data: { published: false, expectedVersion: event.version },
-    });
-  }, [event, eventId, patchEvent]);
+    unpublishEvent.mutate({ id: eventId, data: { expectedVersion: event.version } });
+  }, [event, eventId, unpublishEvent]);
+
+  /*
+   * The bill, for the sentence only. A cache hit — the event screen already holds
+   * this roster — and the acting profile is dropped from it because "your profile"
+   * is the other half of Ran's sentence and naming yourself twice reads as a bug.
+   *
+   * `PUBLICLY_BILLED_ROLES` on the server decides whose page a show appears on
+   * (`loadPublicShows`); this mirrors the ACT half of it plus the operators, which
+   * is what "the other side" means in his ticket. Crew and agents are not on a
+   * public page and are not named here.
+   */
+  const acting = getActiveProfileId();
+  const otherSideNames = (participants.data ?? [])
+    .filter(
+      (party) =>
+        party.profileId !== null &&
+        party.profileId !== acting &&
+        PUBLIC_FACING_ROLES.has(party.role) &&
+        STANDING_STATUSES.has(party.status),
+    )
+    .map((party) => party.name ?? "")
+    .filter((name) => name.length > 0);
 
   return {
     status,
@@ -161,6 +220,8 @@ export function useEventPublishing(
     publish,
     unpublish,
     isWorking,
+    otherSideNames,
+    justPublished,
     publicUrl: publicEventPageUrl(eventId),
   };
 }

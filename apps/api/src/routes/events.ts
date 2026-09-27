@@ -38,6 +38,7 @@ import {
   proposeEventChange,
   reopenInvitationsAfterChange,
 } from "../lib/event-change-requests";
+import { notifyPublicationChanged } from "../lib/event-publication";
 import { advanceEventStatus } from "../lib/event-status-ladder";
 import { resolveEventTimezone } from "../lib/event-timezone";
 import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
@@ -1605,6 +1606,16 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
        * and nobody else. Best-effort and outside the transaction, like every other
        * notification here.
        */
+      /*
+       * The PATCH is the THIRD door onto `events.published` (ClickUp `123qy9rpe3q`).
+       * Every operator screen takes a page down this way, so the notifier is reached
+       * from here too rather than only from the two dedicated routes — a rule hung on
+       * one door is a rule the other doors skip in silence.
+       */
+      if (before.published !== updated.published) {
+        await notifyPublicationChanged(database, request, updated, updated.published);
+      }
+
       const nowCancelled = before.status !== "cancelled" && updated.status === "cancelled";
       if (nowCancelled) {
         try {

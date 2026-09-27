@@ -13,6 +13,7 @@ import { useConfirmDialog } from "../components/ConfirmDialog";
 import type { EventCancelModalProps } from "../components/EventCancelModal";
 import type { EventMenuItem } from "../components/EventRowMenu";
 import { errorMessage } from "../lib/errors";
+import { type EventRowMenuKey, eventRowMenuKeys } from "./eventRowMenu";
 
 /**
  * What an event's own overflow menu does: file it away, take it back out, call it
@@ -88,6 +89,13 @@ export interface EventRowActions {
     title: string;
     status?: string;
     archived?: boolean;
+    /**
+     * The caller's OWN capabilities on this event, off the list row
+     * (`ListEventResponse`). Optional so a caller that has not got them yet — a
+     * cached row from an older client — falls back to offering nothing it cannot
+     * prove, rather than to offering everything.
+     */
+    capabilities?: readonly string[];
   }) => EventMenuItem[];
   /**
    * The cancel dialog this hook raises. The screen renders
@@ -248,17 +256,26 @@ export function useEventRowActions(): EventRowActions {
   /**
    * THE MENU, in the order of the ladder: cancel, file away, destroy.
    *
-   * Two rules decide what appears, and both mirror the server so the menu cannot
-   * promise what `lib/event-delete.ts` would refuse:
+   * THREE rules decide what appears, and each mirrors the server so the menu cannot
+   * promise what the API would refuse:
    *
-   *  - **Cancel** is offered on any show that is not already cancelled. Not
-   *    narrowed by status beyond that: `EVENT_STATUS_OPTIONS` is explicit that any
-   *    status may be chosen in any direction, and a menu that refused to cancel a
-   *    concluded show would be a rule this app does not have.
+   *  - **Capability first.** Cancelling is a `PATCH` (`event.edit`) and deleting is
+   *    `event.delete`; a reader holding neither is offered neither. This was missing
+   *    and it was a real boundary leak on screen (QA sweep run 4, QA4-9): a performer
+   *    was offered "Cancel show…" on a show they had merely played, and the 403 they
+   *    got for pressing it says "this part of the event isn't shared with you", which
+   *    is about sharing and not about authority. Nothing was ever damaged — the API
+   *    refused every time — but an affordance that exists to be refused is a lie.
+   *  - **Cancel** is otherwise offered on any show that is not already cancelled.
+   *    Not narrowed by status beyond that: `EVENT_STATUS_OPTIONS` is explicit that
+   *    any status may be chosen in any direction, and a menu that refused to cancel
+   *    a concluded show would be a rule this app does not have.
    *  - **Delete** is offered once the show is cancelled OR archived — the server's
-   *    clause 6 exactly. It stays OFFERED rather than hidden when other clauses
-   *    might refuse it, because the refusal names which one, and a menu that
-   *    silently lacks the entry teaches nobody anything.
+   *    clause 6 exactly. Among callers who HOLD `event.delete` it stays offered even
+   *    when another clause might refuse it, because those refusals name which one
+   *    (a settlement, an invoice) and that is more use than a missing entry. The
+   *    capability is different in kind: it is not a fact about the show that the
+   *    refusal can teach, it is a fact about the reader.
    */
   const menuItems = useCallback(
     (event: {
@@ -266,55 +283,31 @@ export function useEventRowActions(): EventRowActions {
       title: string;
       status?: string;
       archived?: boolean;
+      capabilities?: readonly string[];
     }): EventMenuItem[] => {
       const inFlight = pendingEventId === event.id;
-      const cancelled = event.status === "cancelled";
       const working = inFlight ? "Working on it…" : undefined;
 
-      const cancelEntry: EventMenuItem[] = cancelled
-        ? []
-        : [
-            {
-              key: "cancel",
-              label: "Cancel show…",
-              onSelect: inFlight ? undefined : () => askToCancel(event.id, event.title),
-              refusal: working,
-              hint: inFlight
-                ? undefined
-                : "Marks it cancelled and tells everyone on the bill why. Nothing is deleted.",
-            },
-          ];
-
-      const deleteEntry: EventMenuItem[] =
-        cancelled || event.archived
-          ? [
-              {
-                key: "delete",
-                label: "Delete permanently…",
-                onSelect: inFlight ? undefined : () => askToDelete(event.id, event.title),
-                refusal: working,
-                hint: inFlight
-                  ? undefined
-                  : "Removes the show and everything on it, for everyone. Refused once it has a settlement or an invoice.",
-              },
-            ]
-          : [];
-
-      if (event.archived) {
-        return [
-          {
-            key: "unarchive",
-            label: "Unarchive",
-            onSelect: inFlight ? undefined : () => void unarchive(event.id, event.title),
-            refusal: working,
-          },
-          ...cancelEntry,
-          ...deleteEntry,
-        ];
-      }
-      return [
-        ...cancelEntry,
-        {
+      // WHICH entries, from the pure rule (`hooks/eventRowMenu.ts`); WHAT they say,
+      // here, beside the callbacks they fire. The split is what let the rule be
+      // tested after QA4-9 without dragging Firebase into the test run.
+      const items: Record<EventRowMenuKey, EventMenuItem> = {
+        unarchive: {
+          key: "unarchive",
+          label: "Unarchive",
+          onSelect: inFlight ? undefined : () => void unarchive(event.id, event.title),
+          refusal: working,
+        },
+        cancel: {
+          key: "cancel",
+          label: "Cancel show…",
+          onSelect: inFlight ? undefined : () => askToCancel(event.id, event.title),
+          refusal: working,
+          hint: inFlight
+            ? undefined
+            : "Marks it cancelled and tells everyone on the bill why. Nothing is deleted.",
+        },
+        archive: {
           key: "archive",
           label: "Archive",
           onSelect: inFlight ? undefined : () => void archive(event.id, event.title),
@@ -323,8 +316,18 @@ export function useEventRowActions(): EventRowActions {
           // people, and this one deletes nothing and is nobody else's business.
           hint: inFlight ? undefined : "Hides it from your lists. Nobody else is affected.",
         },
-        ...deleteEntry,
-      ];
+        delete: {
+          key: "delete",
+          label: "Delete permanently…",
+          onSelect: inFlight ? undefined : () => askToDelete(event.id, event.title),
+          refusal: working,
+          hint: inFlight
+            ? undefined
+            : "Removes the show and everything on it, for everyone. Refused once it has a settlement or an invoice.",
+        },
+      };
+
+      return eventRowMenuKeys(event).map((key) => items[key]);
     },
     [archive, unarchive, askToCancel, askToDelete, pendingEventId],
   );

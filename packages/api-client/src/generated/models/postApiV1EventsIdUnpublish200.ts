@@ -4,9 +4,9 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
-import type { GetApiV1Events200ItemsItemVenueLocation } from './getApiV1Events200ItemsItemVenueLocation';
+import type { PostApiV1EventsIdUnpublish200VenueLocation } from './postApiV1EventsIdUnpublish200VenueLocation';
 
-export type GetApiV1Events200ItemsItem = {
+export type PostApiV1EventsIdUnpublish200 = {
   id: string;
   title: string;
   status: string;
@@ -22,7 +22,7 @@ export type GetApiV1Events200ItemsItem = {
   /** @nullable */
   venueName: string | null;
   /** @nullable */
-  venueLocation: GetApiV1Events200ItemsItemVenueLocation;
+  venueLocation: PostApiV1EventsIdUnpublish200VenueLocation;
   /** @nullable */
   venueSlug: string | null;
   /** @nullable */
@@ -33,12 +33,4 @@ export type GetApiV1Events200ItemsItem = {
   /** @nullable */
   holdRank?: number | null;
   holdAutoPromote?: boolean;
-  archived: boolean;
-  capabilities: string[];
-  /** @nullable */
-  headlinePerformerName: string | null;
-  /** @nullable */
-  headlinePerformerAvatarUrl: string | null;
-  /** @nullable */
-  settlementStatus: string | null;
 };

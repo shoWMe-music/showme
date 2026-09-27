@@ -1084,6 +1084,12 @@
                           "archived": {
                             "type": "boolean"
                           },
+                          "capabilities": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
                           "headlinePerformerName": {
                             "type": "string",
                             "nullable": true
@@ -1114,6 +1120,7 @@
                           "stageId",
                           "version",
                           "archived",
+                          "capabilities",
                           "headlinePerformerName",
                           "headlinePerformerAvatarUrl",
                           "settlementStatus"
@@ -2470,6 +2477,153 @@
       }
     },
     "/api/v1/events/{id}/publish": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "not": {}
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "expectedVersion": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "nullable": true
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "published": {
+                      "type": "boolean"
+                    },
+                    "baseCurrency": {
+                      "type": "string"
+                    },
+                    "eventDate": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "timezone": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "hostProfileId": {
+                      "type": "string"
+                    },
+                    "venueProfileId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "venueName": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "venueLocation": {
+                      "type": "object",
+                      "properties": {
+                        "street": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "city": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "country": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": ["street", "city", "country"],
+                      "additionalProperties": false,
+                      "nullable": true
+                    },
+                    "venueSlug": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "capacity": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "stageId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "version": {
+                      "type": "number"
+                    },
+                    "holdRank": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "holdAutoPromote": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "status",
+                    "published",
+                    "baseCurrency",
+                    "eventDate",
+                    "timezone",
+                    "hostProfileId",
+                    "venueProfileId",
+                    "venueName",
+                    "venueLocation",
+                    "venueSlug",
+                    "capacity",
+                    "stageId",
+                    "version"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/unpublish": {
       "post": {
         "requestBody": {
           "required": true,

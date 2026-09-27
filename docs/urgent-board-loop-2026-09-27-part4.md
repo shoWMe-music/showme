@@ -296,3 +296,65 @@ shows **Upload** where it used to show *"submitted by the act on the bill"*, and
 *Attach a rider* dialog opens. Suites: biome 715 · auth 30 · api **1330** (7 new — two for the
 attach, five pinning the seeds to the presets; a clean full run, no flake) · db 25 · web 330 ·
 e2e 112.
+
+## `123qy9rpe3q` — a performer can publish their own show, and the other side is told
+
+**Verdict: mixed — bullet 1 is ALREADY DONE, bullets 2 and 3 are real.** Exactly as the
+audit has it.
+
+**Bullet 1** — *"Events confirmed only appear on the operator's public page not on the
+performer's"* — is not true of the code. `loadPublicShows` (`routes/public.ts:254`)
+selects events where the profile is the venue **OR** is a confirmed participant in
+`PUBLICLY_BILLED_ROLES`, so a published, confirmed show already appears on the act's page
+with its own lineup line. Nothing to build; re-drive it in a sweep rather than trust
+either of us.
+
+### Which files settle bullets 2 and 3
+
+| File | What changes |
+|---|---|
+| `packages/auth/src/presets.ts` | `event.publish` into the `performer` preset |
+| `packages/db/src/seed-capabilities.ts` | the same, in the seeds' one copy — the equality test forces this |
+| `apps/api/src/lib/event-publication.ts` | **new** — who is told, and in what words, when a show goes public or dark |
+| `apps/api/src/routes/events-list.ts` | the publish route notifies; a new `POST /events/:id/unpublish` |
+| `apps/api/src/routes/events.ts` | the PATCH path notifies through the same helper |
+| `apps/web/src/components/useEventPublishing.ts` | unpublish via the new route; who "the other side" is |
+| `apps/web/src/components/EventPublishPanel.tsx` | Ran's sentence, after publishing |
+
+### The four decisions inside it
+
+**1. `event.publish` goes in the performer PRESET, not the performer FLOOR.** The floor is
+inalienable — what an operator may never strip (their own money, their own artistic
+content). Publishing is a shared act with one flag and a public consequence, so it is a
+default an operator can narrow by handing over a tighter permission set, not a right.
+`isGrantable` already permits it: `event.publish` is in neither `POOL_CAPABILITIES` nor
+`PERFORMER_AUTHORED_CAPABILITIES`. **The agent preset does NOT get it** — Ran named the
+performer, an agent's authority is business (negotiate, approve, sign), and announcing a
+show to the public is promotion rather than business. Say it out loud rather than infer it.
+
+**2. Unpublishing needs its own route.** Today it is `PATCH { published: false }` under
+`event.edit` — which a performer will never hold, and must not: `event.edit` is the title,
+the date, the venue, the capacity. So `POST /events/:id/unpublish`, gated on
+`event.publish`, the same capability as its opposite. The PATCH path stays for the
+operators who already use it.
+
+**3. Two paths must not mean one voice.** That is the trap the cancel work just walked
+into, so the notification is a shared helper called from BOTH the publish/unpublish routes
+and the PATCH transition (`before.published !== after.published`) — not written twice, and
+not attached to one door.
+
+**4. Ran's message is a POST-publish line, and the pre-publish dialog stays.** His words:
+*"when pressing add a UI text, not a confirmation box, 'The event is now published and
+public on your profile and the {performer} or {Operator} profile'. 'They will be
+notified'"* — present tense, after the act. The existing confirm dialog answers a
+different question (*what am I about to expose?*, transcribed from
+`serializePublicEvent`'s six columns) and was written deliberately. So: keep the dialog,
+add his sentence inline in the panel, naming the other side's profile. **If he meant the
+dialog itself should go, this is the line to overrule** — recorded here rather than
+guessed silently.
+
+### Scope note
+
+The inline text needs the other side's NAME, which the panel does not have. It comes from
+the participants query the event screen already holds — the publicly-billed profiles that
+are not the acting one — so no new request.

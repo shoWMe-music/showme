@@ -99,6 +99,14 @@ export function EventPublishPanel({
 
       {publishing.published ? (
         <>
+          {/* Ran's line, and he was specific that it is a line and not a dialog
+              (`123qy9rpe3q`): "when pressing add a UI text, not a confirmation box,
+              'The event is now published and public on your profile and the
+              {performer} or {Operator} profile'. 'They will be notified'". It
+              appears on the act of publishing rather than permanently, because it
+              describes something that just happened — the state above it is what a
+              reader who comes back later needs. */}
+          {publishing.justPublished && <JustPublishedNote names={publishing.otherSideNames} />}
           <PublicLink url={publishing.publicUrl} onCopy={copyLink} />
           <div>
             <Button
@@ -127,6 +135,55 @@ export function EventPublishPanel({
 
       <ConfirmDialog {...confirmation.dialogProps} />
     </section>
+  );
+}
+
+/**
+ * WHAT JUST HAPPENED, in Ran's words (ClickUp `123qy9rpe3q`).
+ *
+ * One flag, two (or more) public pages: a published show appears on the venue's
+ * profile AND on every act billed on it (`loadPublicShows`), which is the fact this
+ * sentence exists to state — before it, an operator pressing Publish had no way to
+ * know they had just put a page on somebody else's profile, and the performer had no
+ * way to know at all.
+ *
+ * "They have been notified", past tense, because by the time this renders the
+ * notification is written (`lib/event-publication.ts`). Ran wrote "will be"; the
+ * difference matters to a reader deciding whether to go and tell them by hand.
+ *
+ * "…and the Marlo Vance profile", which is Ran's own phrasing, because the possessive
+ * this first printed does not survive real names: the seeded bill produced *"on Marlo
+ * Vance, Neon Tide and Northlight Presents's"* — a possessive attached to the last name
+ * of a list, on a name already ending in s. His shape has no possessive in it.
+ *
+ * Nobody else on the bill yet — a show can be published before anyone is invited — so
+ * the sentence falls back to naming only the caller's own profile rather than printing
+ * an empty phrase or a stray "and".
+ */
+function JustPublishedNote({ names }: { names: string[] }) {
+  const others =
+    names.length === 0
+      ? null
+      : names.length === 1
+        ? names[0]
+        : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return (
+    <p
+      style={{
+        margin: 0,
+        fontSize: 13,
+        lineHeight: 1.5,
+        color: "var(--text)",
+        background: "var(--surface-2, rgba(127,127,127,0.08))",
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        padding: "10px 12px",
+      }}
+    >
+      {others
+        ? `The event is now published and public on your profile and the ${others} profile${names.length > 1 ? "s" : ""}. They have been notified.`
+        : "The event is now published and public on your profile. Everyone billed on it will see it on theirs, and will be notified."}
+    </p>
   );
 }
 

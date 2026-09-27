@@ -67,6 +67,9 @@ export const OPERATOR_FULL_CAPABILITIES: string[] = [
 /** `PRESET_PERMISSION_SETS.performer`. */
 export const PERFORMER_CAPABILITIES: string[] = [
   "event.view",
+  // The act can put its own show's public page up, and take it down
+  // (ClickUp `123qy9rpe3q`).
+  "event.publish",
   "deal.view.own",
   "settlement.view.own",
   "settlement.confirm",
@@ -86,6 +89,10 @@ export const CREW_SCHEDULE_ONLY_CAPABILITIES: string[] = ["event.view", "schedul
  */
 export const AGENT_CAPABILITIES: string[] = [
   "event.view",
+  // Publish for the act they represent — a delegated performer has no band of their
+  // own, so this is the only way a represented act's show reaches its public page
+  // without the operator doing it (ClickUp `123qy9rpe3q`).
+  "event.publish",
   "deal.view.own",
   "deal.edit",
   "settlement.view.own",

@@ -27,6 +27,7 @@ import { writeAudit } from "../lib/audit";
 import { eventCapabilities, requireEventCapability } from "../lib/authorize";
 import { renderEventNotificationEmail } from "../lib/email-templates";
 import { assertEventIsDeletable, deleteEventTree } from "../lib/event-delete";
+import { notifyPublicationChanged } from "../lib/event-publication";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 import { signProfileImageUrls } from "../lib/profile-media";
 import { serializeEvent } from "../serialize/event";
@@ -178,6 +179,22 @@ const EventResponse = z.object({
  */
 const ListEventResponse = EventResponse.extend({
   archived: z.boolean(),
+  /**
+   * THE CALLER'S OWN CAPABILITIES ON THIS ROW — the fourth field with the
+   * `venueName` story above, and the same cause: the route has always computed
+   * them per row (`eventCapabilities`, batched with the page) and `serializeEvent`
+   * has always returned them, but this schema never declared the field, so Fastify
+   * stripped it out of every list row.
+   *
+   * The cost was a menu that offered what the API refuses (QA sweep run 4, QA4-9): a
+   * performer was shown "Cancel show…" and "Delete permanently…" on a show they had
+   * merely played, pressed one, and got a 403 whose wording is about SHARING rather
+   * than about the authority they actually lacked. The list is the one screen that
+   * draws actions for events it does not open, so it is the one screen that needs
+   * this — and it is the caller's own answer about themselves, which the detail
+   * route already serves. No new query, no disclosure.
+   */
+  capabilities: z.array(z.string()),
   /**
    * WHO IS PLAYING — the top of the bill, or null for an event with nobody on it
    * yet. A list row names the show and then the act, and without this it named
@@ -755,6 +772,79 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
         });
         return after;
       });
+
+      // The bill hears about it (`123qy9rpe3q`). Post-commit and best-effort — the
+      // page is up either way. See `lib/event-publication.ts` for why the rule lives
+      // there rather than here.
+      await notifyPublicationChanged(database, request, updated, true);
+
+      return serializeEvent(updated, capabilities);
+    },
+  );
+
+  /**
+   * UNPUBLISH — its own route, because its opposite is (ClickUp `123qy9rpe3q`).
+   *
+   * Taking a page down used to be `PATCH { published: false }`, which needs
+   * `event.edit`. That is the title, the date, the venue and the capacity — a
+   * performer will never hold it and must not, so under the old shape an act could
+   * put their own show on the public internet and then not be able to take it off
+   * again. Same act, same capability: `event.publish` governs both directions.
+   *
+   * No preconditions, deliberately. Going public requires a confirmed event and a
+   * date (A-22); going dark requires nothing, because a page nobody should see is
+   * never worth defending. The PATCH path still works for the operators whose
+   * screens already use it — both call the same notifier.
+   */
+  app.post(
+    "/events/:id/unpublish",
+    { schema: { params: EventParams, body: OptimisticLockBody, response: { 200: EventResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const { id } = request.params;
+      const { expectedVersion } = request.body ?? {};
+
+      const capabilities = await requireEventCapability(request, id, "event.publish");
+      const [before] = await database.select().from(schema.events).where(eq(schema.events.id, id));
+      if (!before) throw notFound("Event not found");
+
+      const where =
+        expectedVersion != null
+          ? and(eq(schema.events.id, id), eq(schema.events.version, expectedVersion))
+          : eq(schema.events.id, id);
+
+      const updated = await database.transaction(async (tx) => {
+        const [after] = await tx
+          .update(schema.events)
+          .set({ published: false, version: before.version + 1, updatedAt: new Date() })
+          .where(where)
+          .returning();
+        if (!after) {
+          throw conflict("Event was changed by someone else; reload and retry");
+        }
+        await writeAudit(tx, request, {
+          capability: "event.publish",
+          action: "event.unpublish",
+          targetKind: "event",
+          targetId: id,
+          eventId: id,
+          before,
+          after,
+        });
+        // The mirror of the publish line: taking the page down is as much a fact
+        // about the night as putting it up, and the bill reads both in one timeline.
+        await writeActivity(tx, request, {
+          eventId: id,
+          type: "event.unpublished",
+          targetKind: "event",
+          targetId: id,
+        });
+        return after;
+      });
+
+      // Only when it actually MOVED. Unpublishing an event that was already dark is
+      // an idempotent no-op, and a notification for it would be news about nothing.
+      if (before.published) await notifyPublicationChanged(database, request, updated, false);
 
       return serializeEvent(updated, capabilities);
     },

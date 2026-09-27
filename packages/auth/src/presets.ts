@@ -79,6 +79,27 @@ export const PRESET_PERMISSION_SETS = {
   ],
   performer: [
     "event.view",
+    /*
+     * ANNOUNCING THEIR OWN SHOW — ClickUp `123qy9rpe3q`. Ran: *"The performer should
+     * also have the option to publish or unpublish from their page."*
+     *
+     * One flag, either side may flip it, and both public pages follow it: a published
+     * event already appears on every billed act's profile as well as the venue's
+     * (`loadPublicShows`), so the act had a public page they could not put up.
+     * story.md's performer world is "my bookings, my availability, my riders, my
+     * money" — a date they are playing is the first of those, and a poster is how an
+     * act fills a room.
+     *
+     * In the PRESET and not in `PERFORMER_FLOOR`: the floor is what an operator may
+     * never strip, which is their own money and their own artistic content. This is a
+     * shared act with a public consequence — a venue has a legitimate interest in a
+     * date not being announced before it is ready — so an operator handing over a
+     * tighter set may narrow it.
+     *
+     * The `agent` preset carries it too, for the act they represent. This line used to
+     * say the opposite; see the note beside it there for what driving it showed.
+     */
+    "event.publish",
     "deal.view.own",
     "settlement.view.own",
     "settlement.confirm",
@@ -116,6 +137,29 @@ export const PRESET_PERMISSION_SETS = {
     "agreement.confirm",
     "schedule.view",
     "message.post",
+    /*
+     * PUBLISH, for the act they represent — and this corrects the reasoning written
+     * beside `event.publish` in the `performer` preset an hour before it
+     * (ClickUp `123qy9rpe3q`).
+     *
+     * That comment argued the agent should NOT have it, because "announcing a show is
+     * promotion rather than business". Driving it showed what that costs: a performer
+     * whose participation is DELEGATED gets `DELEGATED_PERFORMER_FLOOR` and no band at
+     * all (`authorize.ts` — `if (delegated) continue`), so on the seeded album release
+     * neither Marlo Vance nor their agent could publish. The one act in the seed with
+     * representation was the one act that could not do the thing the ticket is about.
+     *
+     * The existing taxonomy answers it, and answers it the other way: delegation moves
+     * the BUSINESS action capabilities to the agent and leaves the performer their view
+     * floor plus artistic authorship (`setlist.author`). Publishing is neither viewing
+     * nor authoring, so it is on the side that moves. That is also what representation
+     * MEANS — an agent exercises the options of the act they carry.
+     *
+     * So Ran's *"the performer should also have the option"* is true for an
+     * unrepresented act through the `performer` preset, and true for a represented one
+     * through the party who acts for them.
+     */
+    "event.publish",
     // Bring crew on behalf of the performers they represent — sponsored by the
     // agent, so scoped to the agent's own reach (those performers), decisions #12.
     "crew.submit",

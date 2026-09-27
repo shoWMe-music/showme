@@ -521,6 +521,341 @@ describe("POST /events/:id/publish", () => {
     expect(after?.version).toBe(1);
   });
 
+  /**
+   * THE ACT CAN ANNOUNCE ITS OWN SHOW, AND THE OTHER SIDE HEARS — ClickUp `123qy9rpe3q`.
+   *
+   * Ran: *"The performer should also have the option to publish or unpublish from their
+   * page"* and *"Publishing notifies the other side and publishes for both."* Both were
+   * missing: `event.publish` was in `operator_full` alone, and publishing wrote a history
+   * line and told nobody.
+   */
+  it("lets a PERFORMER publish the show they are on, and tells the operator", async () => {
+    const operator = await seedMemberWithSet(
+      "pub-perf-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "pub-perf-act",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const event = await seedHostedEvent("Act's Own Night", operator, "pub-perf-op", {
+      status: "confirmed",
+      eventDate: "2026-11-02",
+    });
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: performer.profileId,
+      role: "performer",
+      permissionSetId: performer.permissionSetId,
+      status: "confirmed",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/publish`,
+      headers: auth("pub-perf-act"),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().published).toBe(true);
+
+    // The operator whose room it is, is told — and the actor is not told their own act.
+    const operatorBell = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "pub-perf-op"));
+    expect(operatorBell).toHaveLength(1);
+    expect(operatorBell[0]?.type).toBe("event.published");
+    expect(operatorBell[0]?.title).toContain("Act's Own Night");
+    expect(
+      await harness.db
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.userId, "pub-perf-act")),
+    ).toHaveLength(0);
+  });
+
+  /**
+   * A REPRESENTED ACT PUBLISHES THROUGH ITS AGENT — and this is the case that
+   * corrected the decision.
+   *
+   * `event.publish` went into the `performer` preset with a comment arguing the agent
+   * should NOT have it. Then the seeded album release, whose act is represented, could
+   * not be published by anybody but the operator: a delegated performer gets
+   * `DELEGATED_PERFORMER_FLOOR` and no band at all (`authorize.ts`: `if (delegated)
+   * continue`). Delegation moves the business action capabilities to the agent and
+   * leaves the act its view floor plus artistic authorship, so publishing is on the
+   * side that moves. Both halves are asserted here: the agent can, the delegated
+   * performer cannot.
+   */
+  it("lets the AGENT publish for a delegated act, and not the act itself", async () => {
+    const { db } = harness;
+    const operator = await seedMemberWithSet(
+      "pub-del-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "pub-del-act",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const agent = await seedMemberWithSet(
+      "pub-del-agent",
+      "performer",
+      PRESET_PERMISSION_SETS.agent,
+    );
+    const event = await seedHostedEvent("Represented Night", operator, "pub-del-op", {
+      status: "confirmed",
+      eventDate: "2026-11-09",
+    });
+    const [performerParticipant] = await db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: performer.profileId,
+        role: "performer",
+        permissionSetId: performer.permissionSetId,
+        status: "confirmed",
+      })
+      .returning();
+    if (!performerParticipant) throw new Error("participant seed failed");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: agent.profileId,
+      role: "agent",
+      permissionSetId: agent.permissionSetId,
+      status: "confirmed",
+    });
+    // Authority is resolved against the REPRESENTATION, not the stamp alone, so the
+    // fixture needs both to be a real state (see `riders.test.ts` for the same shape).
+    await db.insert(schema.representations).values({
+      agentProfileId: agent.profileId,
+      performerProfileId: performer.profileId,
+      isWorldwide: true,
+      commissionRate: 1000,
+      commissionableBasis: "deal_income",
+      proposedBy: "agent",
+      status: "active",
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+    });
+    await db
+      .update(schema.eventParticipants)
+      .set({ details: { delegatedToAgentProfileId: agent.profileId } })
+      .where(eq(schema.eventParticipants.id, performerParticipant.id));
+
+    // The act itself has no band while delegated — this is delegation working, not a
+    // bug, and it is why the agent needs the capability.
+    const byAct = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/publish`,
+      headers: auth("pub-del-act"),
+    });
+    expect(byAct.statusCode).toBe(403);
+
+    const byAgent = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/publish`,
+      headers: auth("pub-del-agent"),
+    });
+    expect(byAgent.statusCode).toBe(200);
+    expect(byAgent.json().published).toBe(true);
+  });
+
+  it("refuses a performer whose permission set does not carry event.publish", async () => {
+    const operator = await seedMemberWithSet(
+      "pub-narrow-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "pub-narrow-act",
+      "performer",
+      // The floor, minus publishing — an operator handing over a tighter set. This is
+      // why `event.publish` is in the PRESET and not in `PERFORMER_FLOOR`.
+      PRESET_PERMISSION_SETS.view_only,
+    );
+    const event = await seedHostedEvent("Narrow Night", operator, "pub-narrow-op", {
+      status: "confirmed",
+      eventDate: "2026-11-03",
+    });
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: performer.profileId,
+      role: "performer",
+      permissionSetId: performer.permissionSetId,
+      status: "confirmed",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/publish`,
+      headers: auth("pub-narrow-act"),
+    });
+    expect(response.statusCode).toBe(403);
+    const [after] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, event.id));
+    expect(after?.published).toBe(false);
+  });
+});
+
+/**
+ * UNPUBLISH — the same capability as its opposite (ClickUp `123qy9rpe3q`).
+ *
+ * Taking a page down was `PATCH { published: false }`, which needs `event.edit` — the
+ * title, the date, the venue, the capacity. A performer will never hold that, so without
+ * this route an act could put its own show on the public internet and not take it off.
+ */
+describe("POST /events/:id/unpublish", () => {
+  async function publishedSharedEvent(prefix: string) {
+    const operator = await seedMemberWithSet(
+      `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      `${prefix}-act`,
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const event = await seedHostedEvent(`${prefix} night`, operator, `${prefix}-op`, {
+      status: "confirmed",
+      eventDate: "2026-11-04",
+      published: true,
+    });
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: performer.profileId,
+      role: "performer",
+      permissionSetId: performer.permissionSetId,
+      status: "confirmed",
+    });
+    return { operator, performer, event };
+  }
+
+  it("takes the page down for a performer, audits it, and tells the operator", async () => {
+    const { event } = await publishedSharedEvent("unpub");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/unpublish`,
+      headers: auth("unpub-act"),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().published).toBe(false);
+
+    const audit = await harness.db
+      .select()
+      .from(schema.auditLog)
+      .where(
+        and(eq(schema.auditLog.targetId, event.id), eq(schema.auditLog.action, "event.unpublish")),
+      );
+    expect(audit).toHaveLength(1);
+
+    const bell = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "unpub-op"));
+    expect(bell).toHaveLength(1);
+    expect(bell[0]?.type).toBe("event.unpublished");
+  });
+
+  it("says nothing when the page was already down — an idempotent no-op is not news", async () => {
+    const operator = await seedMemberWithSet(
+      "unpub-dark-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "unpub-dark-act",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const event = await seedHostedEvent("Already dark", operator, "unpub-dark-op", {
+      status: "confirmed",
+      eventDate: "2026-11-05",
+    });
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: performer.profileId,
+      role: "performer",
+      permissionSetId: performer.permissionSetId,
+      status: "confirmed",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/unpublish`,
+      headers: auth("unpub-dark-act"),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(
+      await harness.db
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.userId, "unpub-dark-op")),
+    ).toHaveLength(0);
+  });
+
+  it("refuses a reader without event.publish", async () => {
+    const { event } = await publishedSharedEvent("unpub-narrow");
+    const stranger = await seedMemberWithSet(
+      "unpub-narrow-viewer",
+      "performer",
+      PRESET_PERMISSION_SETS.view_only,
+    );
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: stranger.profileId,
+      role: "support",
+      permissionSetId: stranger.permissionSetId,
+      status: "confirmed",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/unpublish`,
+      headers: auth("unpub-narrow-viewer"),
+    });
+    expect(response.statusCode).toBe(403);
+    const [after] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, event.id));
+    expect(after?.published).toBe(true);
+  });
+
+  /**
+   * The THIRD door. Every operator screen has always taken a page down with a PATCH,
+   * and a notification attached only to the two dedicated routes would skip it in
+   * silence — the same shape the cancel work walked into an hour earlier.
+   */
+  it("notifies from the PATCH path too, which is how the operator's screen does it", async () => {
+    const { event } = await publishedSharedEvent("unpub-patch");
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("unpub-patch-op"),
+      payload: { published: false },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().published).toBe(false);
+
+    const bell = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "unpub-patch-act"));
+    expect(bell).toHaveLength(1);
+    expect(bell[0]?.type).toBe("event.unpublished");
+  });
+});
+
+describe("POST /events/:id/publish — preconditions", () => {
   it("refuses to publish a dateless event — a poster with no date is not an announcement", async () => {
     const caller = await seedMemberWithSet(
       "pub-nodate-op",
