@@ -87,6 +87,53 @@ event somebody is trying to fill, and reverting it would erase that.
 
 ---
 
+## The QA sweep after item 1 — triage
+
+`docs/qa-sweep-2026-09-27-run3.md` (run against `b4ba17d`): **0 blocker · 8 major · 12
+minor · 4 note**, no screen failed to render, no 5xx. **All four of today's changes were
+driven end to end and verified** — the guards, the tokens, the two selects, the per-date
+room answer and the `ROOM` cell. The damage is elsewhere, and the loop's rule is to fix it
+before item 2.
+
+| # | Major | Verdict | Where it goes |
+|---|---|---|---|
+| 1 | Every new event is born with a private book nothing reads; costs typed in it never reach the settlement | **Regression of `f996c14` + migration `0046`, one line.** Fixed below | done |
+| 2 | Financial Projections forecasts the whole adjusted net as profit — the planner calls the same night a loss | Real, money-wrong, two screens of one event disagreeing by SEK 51,245 | next |
+| 3 | A request for an already-sold room creates a second event in that room, silently | Real — and it is audit §5 `123qy9rprbx`, now reachable because today's columns exist. `GET /events/date-conflicts` already answers `roomIsBusy`; the wizard already warns; the Requests inbox and Create Draft ask nothing | next |
+| 4 | Every settled figure explains itself with the DEAL's percentage instead of the PARTY's ("100 % of SEK 50,000" above a payout of SEK 30,000) | Real, and a label rather than a sum — the money is right, the sentence over it is not | next |
+| 5 | A cost added after the first settlement run can never reach it; "Planned vs actual" compares the settlement with itself | Real. `copyBudgetOnce` returns early and Recalculate imports nothing | next |
+| 6 | A co-host can rename the host's show with no change request and no notice | Real, and narrow: `NEGOTIATED_FIELDS` covers date/venue/room by design (§6 above), so the title is outside it — the question is whether renaming needs a notice, not a confirm | next, with a stated decision |
+| 7 | A public `/shares/<token>` link discloses the booking requester's email | Real and a disclosure. The cause is "Create Draft" writing `Contact: … <email>` into `events.notes`, which the share viewer renders verbatim | next — the fix is at the write, not the render |
+| 8 | Typing `50` into a pre-filled `0` tier field stores `500` | Real, 10× on a figure that reaches the settlement | next |
+
+The minors and notes are recorded in the sweep file and folded into item 4's list rather
+than repeated here.
+
+---
+
 ## Log
 
-*(appended as each piece lands)*
+**QA-1 — an event is born with one book, and it is the ledger.** `POST /events` opened a
+`private` budget for the creating operator, which is the exact shape `f996c14` and
+migration `0046` removed the day before — so every event created after them was born back
+into it. Two books on a night with nobody to keep one from, a scope chooser that can only
+be got wrong, and the settlement reading the other one: the sweep typed SEK 5,000 into "My
+budget" and settled at **Deductions − SEK 0**.
+
+The fix is the one line, but the reason it survived a suite of provisioning tests is worth
+recording: **every test in `budget.test.ts` seeds its event straight into the database** as
+a legacy row, so not one of them could fail on what `POST /events` itself opens. The suite
+was structurally incapable of catching it — CLAUDE.md's "ask what the check CAN fail on",
+exactly. So the test added registers `eventRoutes` and creates through the API, and it is
+mutation-checked: putting the private insert back turns it red.
+
+Proven live: a new event through the wizard has **one** book, `shared`, and the planner
+renders **no scope chooser**. Suites: api 1307, all 62 files, no flake.
+
+**Left as an open question rather than silently skipped:** events created *during the
+regression window* (between `f996c14` and this commit) still carry both books, and
+migration `0046` cannot heal them — its guard is "the event has no shared ledger yet". If
+that window reached production, those events need a heal that MOVES the private book's
+lines into the ledger rather than relabelling it; if the window only ever existed on
+laptops, nothing needs healing. That depends on whether `f996c14` was deployed, which is
+not something this loop may find out by deploying.

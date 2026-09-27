@@ -6,6 +6,10 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
 import { budgetRoutes } from "./routes/budget";
+// The EVENT routes too, and only for one test: everything else here seeds its event
+// straight into the database as a legacy row, which is why no test in this file could
+// ever fail on what `POST /events` itself opens — see the creation test below.
+import { eventRoutes } from "./routes/events";
 import { buildTestApp } from "./testing";
 
 /** Fake verifier: the bearer token IS the uid, so tests just send `Bearer <uid>`. */
@@ -20,7 +24,10 @@ let app: FastifyInstance;
 
 beforeAll(async () => {
   harness = await startTestDatabase();
-  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [budgetRoutes]);
+  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [
+    budgetRoutes,
+    eventRoutes,
+  ]);
   await app.ready();
 });
 
@@ -1178,6 +1185,41 @@ describe("budgets — provisioned on demand", () => {
     expect(budgets[0].scope).toBe("shared");
     expect(budgets[0].ownerProfileId).toBeNull();
     expect(budgets[0].lines).toEqual([]);
+  });
+
+  /**
+   * THE CREATION PATH, which every test above this one walks around.
+   *
+   * The fixtures here seed an event straight into the database — deliberately, as a
+   * legacy event with no books at all — so none of them could ever fail on what
+   * `POST /events` itself opens. It opened a PRIVATE book, which is the shape migration
+   * `0046` existed to remove, and so every event made after that migration was born back
+   * into it: two books on a night with nobody to keep one from, and the settlement
+   * reading only the other one. Found by driving the app (QA sweep, 2026-09-27), not by
+   * this suite, because this suite was structurally incapable of finding it.
+   */
+  it("gives an event created through the API one book, and it is the ledger", async () => {
+    const operator = await seedMemberWithSet(
+      "provision-create-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("provision-create-op"), "x-profile-id": operator.profileId },
+      payload: { title: "Created Night", baseCurrency: "SEK" },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const books = await harness.db
+      .select()
+      .from(schema.budgets)
+      .where(eq(schema.budgets.eventId, created.json().id));
+
+    expect(books).toHaveLength(1);
+    expect(books[0]?.scope).toBe("shared");
+    expect(books[0]?.ownerProfileId).toBeNull();
   });
 
   it("is idempotent — reading twice does not open a second budget", async () => {

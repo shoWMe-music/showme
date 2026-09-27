@@ -1088,13 +1088,24 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
             })
             .returning();
           if (!hostParticipant) throw new Error("host participant create failed");
-          // The host's own budget, opened with the event. Provisioning also runs
-          // lazily on the first budget read (which is what heals events made
-          // before this existed), but doing it here means a brand-new event is
-          // already complete rather than complete-once-someone-looks.
+          // THE NIGHT'S BOOK, opened with the event — the `shared` ledger, and only it.
+          //
+          // This used to open a PRIVATE book for the creating operator, which is the exact
+          // shape `f996c14` and migration `0046` existed to remove, and it put every event
+          // created after them straight back into it: two books on a night with nobody to
+          // keep one from, a scope chooser offering a choice that can only be got wrong,
+          // and the settlement reading only the other one. Measured by the QA sweep on
+          // 2026-09-27 — a SEK 5,000 production cost typed into "My budget" settled as
+          // "Deductions − SEK 0", and migration 0046 could not heal it because its guard is
+          // "the event has no shared ledger yet".
+          //
+          // A private book is the margin line an operator keeps from a CO-operator, so it
+          // comes into being when there is one. That rule lives in `ensureEventBudgets`
+          // and stays there: provisioning runs on the first budget read, so a co-host who
+          // joins later gets theirs without this path having to know.
           await tx
             .insert(schema.budgets)
-            .values({ eventId: event.id, scope: "private", ownerProfileId: actingProfileId })
+            .values({ eventId: event.id, scope: "shared", ownerProfileId: null })
             .onConflictDoNothing();
           await writeAudit(tx, request, {
             capability: "event.edit",
