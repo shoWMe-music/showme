@@ -143,3 +143,34 @@ e2e 112.
 **Still to come on this ticket:** B2 (the modal creates the link; the marketing page reads
 a token *and* still reads the legacy fragment, since links already sent must keep
 working; needs a hosting rewrite for `/a/<token>`), then C and D.
+
+**B2a — the public page reads a token, and still reads the old links.** `/a/<token>` via a
+Firebase Hosting rewrite, the same shape `/profile/<slug>` and `/event/<id>` already use —
+the page reads the last segment itself and accepts `?a=<token>` too. **The legacy fragment
+still renders**, because every availability link sent before today is a fragment sitting in
+somebody's inbox; a token wins when both are present.
+
+Three things came out of doing it:
+
+1. **The readers could not be tested at all.** `availability.ts` boots itself at module
+   scope, so importing it runs the page. They moved to `availabilitySnapshot.ts` (no side
+   effects, `readShareToken(url: URL)` instead of reaching for `window`), which is what
+   made a test possible.
+2. **`apps/marketing` had no unit runner** — the same gap `apps/web` had until ticket
+   `86cbazcf3`, and the same argument: its only tests were Playwright specs, so a pure
+   function had nowhere to be asserted. Added, with 11 tests over both doors. The one that
+   matters is *the two doors agree*: fragment and object must read to the same snapshot, or
+   one of them renders a page the other would refuse. Mutation-checked — loosening the
+   date filter or accepting truthy flags turns two of them red.
+3. **`pnpm dev` blocked the marketing origin.** `app.ts`'s own default CORS list has always
+   had `localhost:5173`; the dev stack narrowed it to the web app, so the first check of a
+   public page against a local API is a CORS wall rather than an answer. Fixed in
+   `scripts/dev-emulator.mjs`.
+
+Proven live, both doors: `?a=uudgaGsyRi3v` renders "The Lantern Hall is free on these
+dates · Thu Dec 03/10/17 · Main Room", name resolved by the API; and a legacy fragment
+renders its own snapshot unchanged. Suites: biome 707 · marketing 11 (new) · web 309 ·
+e2e 112.
+
+**Still to come on this ticket:** B2b (the modal creating the link instead of computing
+it), then C (Venue-then-Room) and D (which rooms are free per date).

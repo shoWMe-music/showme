@@ -22,6 +22,11 @@
         {
           "source": "/event/**",
           "destination": "/event.html"
+        },
+        {
+          "//": "A shared availability link: /a/<token> (ClickUp 123qy9rpqn0). The page reads the last segment itself and also accepts ?a=<token>; the OLD fragment form (/availability#profile=…&dates=…) still renders, because every link sent before the token existed is a fragment in somebody's inbox.",
+          "source": "/a/**",
+          "destination": "/availability.html"
         }
       ],
       "headers": [

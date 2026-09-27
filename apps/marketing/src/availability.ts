@@ -42,6 +42,13 @@ import {
   type PublicProfileSummary,
   createDateRequestPanel,
 } from "./availability-request";
+import {
+  type AvailabilitySnapshot,
+  ISO_DATE,
+  parseSnapshot,
+  readShareToken,
+  readSnapshotObject,
+} from "./availabilitySnapshot";
 import { element } from "./element";
 
 /**
@@ -55,88 +62,9 @@ const API_BASE_URL: string = import.meta.env.VITE_PUBLIC_API_URL ?? "";
 /** Monday-first, matching the weekday pills in the app's share modal. */
 const WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-interface AvailabilitySnapshot {
-  profileSlug: string;
-  /** The room these dates are for, or null for the whole calendar. */
-  room: string | null;
-  from: string;
-  to: string;
-  weekdays: number[];
-  availableDates: string[];
-  confirmedCountsAsBusy: boolean;
-  heldCountsAsBusy: boolean;
-  generatedOn: string;
-}
-
 interface UnavailabilityRange {
   startDate: string;
   endDate: string;
-}
-
-/* ------------------------------------------------------------------ parsing */
-
-function commaList(value: string | null): string[] {
-  if (!value) return [];
-  return value
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
-}
-
-/** How long a room name may be before this page stops believing it. */
-const MAX_ROOM_NAME_LENGTH = 200;
-
-/**
- * The room name, cleaned up, or null.
- *
- * Unlike the profile name — which this page refuses to take from the link and
- * resolves from the API instead — the room is part of what the SHARER is
- * asserting, exactly like the dates. So it is accepted, but bounded and stripped
- * of control characters and line breaks, and rendered only among "how this list
- * was made" (never as the identity line at the top), so it can never dress
- * itself up as something the API confirmed.
- */
-function readRoomName(value: string | null): string | null {
-  if (!value) return null;
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping them is the point.
-  const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, " ").trim();
-  if (cleaned === "") return null;
-  return cleaned.slice(0, MAX_ROOM_NAME_LENGTH);
-}
-
-/**
- * Read the snapshot out of the fragment. Everything is validated here — the whole
- * input is attacker-controlled, so a malformed link becomes an honest "this link
- * doesn't look right" rather than a half-rendered page.
- */
-export function parseSnapshot(fragment: string): AvailabilitySnapshot | null {
-  const parameters = new URLSearchParams(fragment.replace(/^#/, ""));
-
-  const profileSlug = parameters.get("profile") ?? "";
-  const from = parameters.get("from") ?? "";
-  const to = parameters.get("to") ?? "";
-  if (!profileSlug || !ISO_DATE.test(from) || !ISO_DATE.test(to)) return null;
-
-  const weekdays = commaList(parameters.get("weekdays"))
-    .map((entry) => Number.parseInt(entry, 10))
-    .filter((index) => Number.isInteger(index) && index >= 0 && index <= 6);
-
-  const unavailable = commaList(parameters.get("unavailable"));
-  const generatedOn = parameters.get("generated") ?? "";
-
-  return {
-    profileSlug,
-    room: readRoomName(parameters.get("room")),
-    from,
-    to,
-    weekdays,
-    availableDates: commaList(parameters.get("dates")).filter((date) => ISO_DATE.test(date)),
-    confirmedCountsAsBusy: unavailable.includes("confirmed"),
-    heldCountsAsBusy: unavailable.includes("held"),
-    generatedOn: ISO_DATE.test(generatedOn) ? generatedOn : "",
-  };
 }
 
 /* --------------------------------------------------------------- formatting */
@@ -440,7 +368,40 @@ async function render(): Promise<void> {
   const container = document.getElementById("availability");
   if (!container) return;
 
-  const snapshot = parseSnapshot(window.location.hash);
+  // A TOKEN FIRST, THE FRAGMENT AFTER (ClickUp `123qy9rpqn0`). Two doors into the same
+  // page: `/a/<token>` fetches the snapshot, and the old fragment still carries one for
+  // every link already sitting in somebody's inbox.
+  const token = readShareToken(new URL(window.location.href));
+  let snapshot: AvailabilitySnapshot | null = null;
+  // Only the token path knows the slug before the snapshot does — and it is the
+  // authoritative one: the API resolves it from the share's own profile, so it cannot be
+  // edited in the address the way a fragment's `profile=` can.
+  let resolvedSlug: string | null = null;
+
+  if (token) {
+    const shared = await fetchJson<{ profileSlug: string | null; snapshot: unknown }>(
+      `/public/availability/${encodeURIComponent(token)}`,
+    );
+    if (!shared) {
+      renderProblem(
+        container,
+        "This availability link is no longer available. It may have been withdrawn, or the profile behind it may have been made private — ask whoever sent it for a new one.",
+      );
+      return;
+    }
+    snapshot = readSnapshotObject(shared.snapshot);
+    resolvedSlug = shared.profileSlug;
+    if (!snapshot) {
+      renderProblem(
+        container,
+        "This availability link could not be read. Ask whoever sent it for a new one.",
+      );
+      return;
+    }
+  } else {
+    snapshot = parseSnapshot(window.location.hash);
+  }
+
   if (!snapshot) {
     renderProblem(
       container,
@@ -452,7 +413,8 @@ async function render(): Promise<void> {
   // Paint the snapshot immediately; the live check only ever strikes dates out.
   renderSnapshot(container, snapshot, null, []);
 
-  const encodedSlug = encodeURIComponent(snapshot.profileSlug);
+  // The share's own slug when we have it, the snapshot's only as the fragment's fallback.
+  const encodedSlug = encodeURIComponent(resolvedSlug ?? snapshot.profileSlug);
   const [profile, availability] = await Promise.all([
     fetchJson<unknown>(`/public/profiles/${encodedSlug}`),
     fetchJson<{ unavailability: UnavailabilityRange[] }>(
@@ -471,5 +433,10 @@ async function render(): Promise<void> {
 setUpThemeToggle();
 void render();
 window.addEventListener("hashchange", () => {
+  void render();
+});
+// A token link carries no fragment, so `hashchange` never fires for it — a back or
+// forward step between two shared links has to be heard here instead.
+window.addEventListener("popstate", () => {
   void render();
 });

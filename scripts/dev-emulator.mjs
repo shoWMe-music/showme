@@ -34,6 +34,12 @@ const WEB_HOST = "127.0.0.1";
 const WEB_PORT = 5180;
 const WEB_URL = `http://${WEB_HOST}:${WEB_PORT}`;
 
+// Vite's own default port, which is where `pnpm --filter @showme/marketing dev` serves
+// the public pages. This stack does not START it — but when somebody does, its browser
+// fetches `/public/*` off this API, and an origin that is not on the list is a CORS wall
+// rather than an answer. `app.ts`'s DEFAULT_CORS_ALLOWED_ORIGINS has always listed it.
+const MARKETING_URL = "http://localhost:5173";
+
 // Mirror of packages/shared/src/e2e-accounts.ts (the source of truth). Kept here
 // as plain data so this node script needs no TS import. All share one password.
 const E2E_PASSWORD = "Test123!pass";
@@ -68,7 +74,12 @@ function printCredentials() {
 }
 
 async function main() {
-  await bringUpStack({ corsOrigins: WEB_URL });
+  // The web app AND the marketing dev server: the public pages (a profile, a show, a
+  // shared availability link) fetch `/public/*` from a stranger's browser, so testing one
+  // against this stack needs its origin allowed. `app.ts`'s own default list has always
+  // had it — this stack narrowed the list to the web app and nothing else, so the first
+  // marketing check against a local API was a CORS wall rather than an answer.
+  await bringUpStack({ corsOrigins: `${WEB_URL},${MARKETING_URL}` });
 
   log("web", "starting vite dev server (HMR)");
   await freePort(WEB_PORT); // clear a leaked prior run of ours on this port
