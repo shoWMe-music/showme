@@ -32,7 +32,17 @@ export function BudgetBreakEvenChart({ breakEven }: BudgetBreakEvenChartProps) {
         viewBox={`0 0 ${chart.width} ${chart.height}`}
         style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}
         role="img"
-        aria-label={`Revenue passes total cost at ${breakEven.breakEvenLabel} of ${breakEven.capacityLabel} capacity`}
+        /* THE SAME SENTENCE THE CAPTION SAYS, both ways round. This label was
+           unconditional, so a night that never breaks even announced itself to a
+           screen reader as "Revenue passes total cost at 0 tickets of 400 capacity"
+           while the caption below it read "never passes total cost inside 400
+           capacity" — the one reader who cannot see the chart got the opposite of
+           what it shows. Noticed while proving QA4-5. */
+        aria-label={
+          chart.hasBreakEven
+            ? `Revenue passes total cost at ${breakEven.breakEvenLabel} of ${breakEven.capacityLabel} capacity`
+            : `Revenue never passes total cost inside ${breakEven.capacityLabel} capacity`
+        }
       >
         {/* The money scale. Without it the lines showed a shape and no figures —
             a reader could see that revenue overtakes cost and not what either is

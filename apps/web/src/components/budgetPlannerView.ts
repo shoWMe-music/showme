@@ -125,7 +125,15 @@ export interface BudgetPlannerView {
   ticketSplit: TicketSplitDisplay;
   barRevenue: string;
   merchRevenue: string;
-  breakEven: BreakEvenDisplay;
+  /**
+   * The break-even chart, or **null for a reader whose costs are incomplete**.
+   *
+   * Null rather than a chart with the crossing point removed, because the whole
+   * picture is wrong for them and not just its caption: the cost line itself is
+   * drawn from a partial total. See the note beside `costsIncomplete` for the
+   * measurement that made this a defect (QA sweep run 4, QA4-5).
+   */
+  breakEven: BreakEvenDisplay | null;
   revenueSources: BreakdownDisplayRow[];
   costBreakdown: BreakdownDisplayRow[];
   performingRights: PerformingRightsDisplay;
@@ -452,8 +460,22 @@ function derivedFeeMinor(editor: BudgetEditor): bigint | null {
   return derived.reduce((running, cost) => running + minorUnitsOf(cost.value), 0n);
 }
 
+/**
+ * ONE CONDITION, so two parts of the screen cannot disagree about it.
+ *
+ * They did (QA sweep run 4, QA4-5). The KPI tiles were withheld off
+ * `editor.hiddenDealCount > 0` written inline, the note came from
+ * `costsIncompleteNoteFor` written separately, and the break-even chart consulted
+ * neither — so the screen said *"break-even is left out rather than calculated
+ * without it"* and drew a break-even directly underneath. Both readers of the rule
+ * now call this, and `budgetPlannerView.test.ts` asserts they agree.
+ */
+export function costsAreIncomplete(hiddenDealCount: number): boolean {
+  return hiddenDealCount > 0;
+}
+
 export function costsIncompleteNoteFor(hiddenDealCount: number): string | null {
-  if (hiddenDealCount <= 0) return null;
+  if (!costsAreIncomplete(hiddenDealCount)) return null;
   const subject =
     hiddenDealCount === 1
       ? "One of this event's deals is"
@@ -501,7 +523,7 @@ export function budgetPlannerViewFrom(
    * mystery. Revenue, the door and the ticket count are untouched: nothing about
    * them depends on a deal.
    */
-  const costsIncomplete = editor.hiddenDealCount > 0;
+  const costsIncomplete = costsAreIncomplete(editor.hiddenDealCount);
   const money = (minor: bigint) =>
     formatFigure ? formatFigure(minor.toString()) : formatMoney(minor.toString(), currency);
 
@@ -731,12 +753,30 @@ export function budgetPlannerViewFrom(
     ),
     barRevenue: money(projection.barRevenue),
     merchRevenue: money(projection.merchRevenue),
-    breakEven: {
-      chart,
-      gridLabels: chart.gridLines.map((line) => ({ y: line.y, label: money(line.amount) })),
-      breakEvenLabel: `${chart.breakEvenTickets.toLocaleString()} tickets`,
-      capacityLabel: chart.capacity.toLocaleString(),
-    },
+    /*
+     * WITHHELD FOR THE SAME READER THE TILES ARE — QA sweep run 4, QA4-5.
+     *
+     * `costsIncomplete` already withholds Profit, Profit margin and Break-even
+     * tickets, and the screen says so in its own words: *"Profit, margin and
+     * break-even are left out rather than calculated without it."* The CHART was
+     * drawn anyway, immediately under that sentence, with a marked crossing point
+     * and a caption — *"Revenue passes total cost at 131 tickets of 400 capacity"* —
+     * computed off a cost total the sweep measured at SEK 34,770 against the host's
+     * SEK 119,770. The same night reads "Revenue never passes total cost inside 400
+     * capacity" for the host. The co-promoter was handed a concrete, optimistic
+     * break-even the app had just promised not to compute.
+     *
+     * Null, not a chart minus its caption: the cost LINE is the thing that is wrong,
+     * so there is no honest version of this picture for a reader missing a fee.
+     */
+    breakEven: costsIncomplete
+      ? null
+      : {
+          chart,
+          gridLabels: chart.gridLines.map((line) => ({ y: line.y, label: money(line.amount) })),
+          breakEvenLabel: `${chart.breakEvenTickets.toLocaleString()} tickets`,
+          capacityLabel: chart.capacity.toLocaleString(),
+        },
     revenueSources: revenueSources.map(displayRow(money)),
     costBreakdown: costBreakdown.map(displayRow(money)),
     performingRights: performingRightsDisplay(performingRights, money),

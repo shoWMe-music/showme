@@ -24,6 +24,7 @@ import { describe, expect, it } from "vitest";
 import {
   type PartitionableCostRow,
   carryRevealedHeading,
+  costsAreIncomplete,
   costsIncompleteNoteFor,
   roundToDisplayUnit,
   splitCostRows,
@@ -428,5 +429,44 @@ describe("roundToDisplayUnit", () => {
     expect(roundToDisplayUnit(240_001n, 1)).toBe(240_001n);
     // KWD has three, so the card's whole-dinar figure moves by up to 500 fils.
     expect(roundToDisplayUnit(1_500n, 1000)).toBe(2_000n);
+  });
+});
+
+/**
+ * THE NOTE AND THE WITHHOLDING CANNOT DISAGREE — QA sweep run 4, QA4-5.
+ *
+ * The screen promised *"Profit, margin and break-even are left out rather than
+ * calculated without it"* and drew the break-even chart immediately below the
+ * sentence, with a crossing point computed off a partial cost total: SEK 34,770
+ * against the host's SEK 119,770 on the same night, so the co-promoter read "passes
+ * total cost at 131 tickets" where the host read "never passes inside 400 capacity".
+ *
+ * The cause was two readings of one condition, written in two places, neither
+ * consulted by the chart. `costsAreIncomplete` is now the single one, and this is the
+ * invariant: whenever the note is shown, break-even is withheld — the note IS the
+ * explanation for the absence, so a note with a chart under it is a contradiction
+ * rather than an oversight.
+ */
+describe("costsAreIncomplete — the note and the withholding are one decision", () => {
+  it("says nothing is missing when every deal is visible", () => {
+    expect(costsAreIncomplete(0)).toBe(false);
+    expect(costsIncompleteNoteFor(0)).toBeNull();
+  });
+
+  it("agrees with the note for every count that has one", () => {
+    for (const hidden of [1, 2, 3, 17]) {
+      expect(costsAreIncomplete(hidden)).toBe(true);
+      expect(costsIncompleteNoteFor(hidden)).not.toBeNull();
+    }
+  });
+
+  it("never shows the note without withholding the figures it explains", () => {
+    for (const hidden of [0, 1, 2, 3]) {
+      const note = costsIncompleteNoteFor(hidden);
+      // The implication in both directions: the note exists exactly when the
+      // figures are withheld. A chart under that sentence is the bug.
+      expect(note !== null).toBe(costsAreIncomplete(hidden));
+      if (note) expect(note).toContain("break-even");
+    }
   });
 });

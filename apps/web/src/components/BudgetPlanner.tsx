@@ -149,7 +149,8 @@ export interface BudgetPlannerProps {
    * grid — that grid divides evenly by design, so a gap needs a stated reason.
    */
   costsIncompleteNote?: string | null;
-  breakEven: BreakEvenDisplay;
+  /** Null for a reader whose costs are incomplete — the section is not drawn (QA4-5). */
+  breakEven: BreakEvenDisplay | null;
   revenueSources: BreakdownDisplayRow[];
   costBreakdown: BreakdownDisplayRow[];
   performingRights: PerformingRightsDisplay;
@@ -1050,10 +1051,16 @@ export function BudgetPlanner({
           </span>
         )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <Eyebrow section>Break-even analysis</Eyebrow>
-          <BudgetBreakEvenChart breakEven={breakEven} />
-        </div>
+        {/* The whole section goes, not just its caption, when this reader's costs are
+            incomplete (QA4-5). The note above already says break-even is left out —
+            an empty "Break-even analysis" heading under that sentence would read as a
+            failure to render rather than as the deliberate withholding it is. */}
+        {breakEven && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <Eyebrow section>Break-even analysis</Eyebrow>
+            <BudgetBreakEvenChart breakEven={breakEven} />
+          </div>
+        )}
 
         {/* The design names this pair, and the name is the only thing that says
             why two donuts sit side by side rather than being two more panels in

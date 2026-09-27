@@ -202,10 +202,50 @@ dialog has been selling all along.
 | Finding | Why it is not fixed here |
 |---|---|
 | **QA4-2** (major) a co-host can rename and CANCEL the host's show | **A decision, not a defect.** `event-delete.ts` says *"the show is not theirs to end"* and the date move is already protected by a change request every party must answer — so the sweep's argument is strong. But a co-promoter legitimately calling off a night they co-produce would be blocked, and the mechanism that would fix it properly (a cancel REQUEST, like the date one) is a feature. Recommendation: require the host profile to cancel, mirroring delete. **Ran's call.** |
-| **QA4-5** (major) the co-host's Budget Planner prints a break-even it promises to leave out | Real, and in the settlement/planner surface whose vocabulary session (`123qy9rng6d`) is explicitly owed before more copy is written there. |
+| **QA4-5** (major) the co-host's Budget Planner prints a break-even it promises to leave out | **FIXED** — see below. Deferring it to the vocabulary session was wrong: this is a figure being drawn, not a word being chosen. |
 | **QA4-7** (major) an invite never attaches the act's agent, and the agent is never told | The outbound invite chain (item 2 of this loop). A real gap, separate from what was built today, and the biggest of the four left. |
 | **QA4-10 … QA4-20** (minors + cosmetics) | Queued behind the remaining §2/§5 items. None blocks a journey; each is named in the sweep report with its route and account. |
 
 **The seed after this iteration** is mutated again (the album release is cancelled and
 carries an operator rider and a share link). A `pnpm dev` restart re-seeds; nothing should
 be quoted from the running database without one.
+
+### QA4-5 — the break-even the screen promised not to compute · **FIXED**
+
+The co-promoter's Results panel says, in the app's own words, *"Profit, margin and
+break-even are left out rather than calculated without it"* — and drew the break-even
+chart immediately below that sentence, with a marked crossing point and the caption
+*"Revenue passes total cost at 131 tickets of 400 capacity"*. The 131 came off
+`TOTAL COSTS (PARTIAL)` SEK 34,770, which excludes the SEK 85,000 performer fee the
+co-promoter is not a party to. The same night reads *"Revenue never passes total cost
+inside 400 capacity"* on the host's screen.
+
+**I deferred this one in the last iteration on the grounds that it lives in the surface
+whose vocabulary session is owed. That was wrong**, and worth writing down: the
+terminology session is about what figures are CALLED. This was a figure being computed
+and shown after the screen had promised not to — a correctness bug with a
+straightforward answer.
+
+**The cause was two readings of one condition.** The KPI tiles were withheld off
+`editor.hiddenDealCount > 0`, written inline; the note came from
+`costsIncompleteNoteFor`, written separately; and the chart consulted neither. There is
+now one `costsAreIncomplete`, both callers use it, and the test asserts the invariant
+rather than either branch: **whenever the note is shown, break-even is withheld** — the
+note *is* the explanation for the absence, so a chart under it is a contradiction and not
+an oversight.
+
+`breakEven` is null for that reader rather than a chart with its caption removed: the cost
+LINE is what is wrong, so there is no honest version of the picture. The whole section
+goes, because an empty "Break-even analysis" heading under that sentence would read as a
+failure to render.
+
+**Found while proving it:** the chart's `aria-label` was unconditional, so a night that
+never breaks even announced itself to a screen reader as *"Revenue passes total cost at 0
+tickets of 400 capacity"* while the caption underneath read *"never passes"*. The one
+reader who cannot see the chart got the opposite of what it shows. Fixed in the same pass.
+
+Proven live on the same event and the same two accounts the sweep used: as `co.host@` the
+Results panel now goes straight from the note to the breakdowns with no chart; as
+`operator@` the chart is still there, reading *"Revenue never passes total cost inside 400
+capacity"* — and its image label now says the same thing. biome 718 · web 341 (3 new) ·
+e2e 112.
