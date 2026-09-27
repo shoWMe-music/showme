@@ -43,6 +43,30 @@ export const PRESET_PERMISSION_SETS = {
     // already true. Scope is still decided at read time (operator → all riders;
     // performer → their own, decisions #12), so this widens nothing.
     "rider.view",
+    /*
+     * ATTACHING one, not only reading them — ClickUp `123qy9rnk1u`.
+     *
+     * Ran: *"For some reason the logic now thinks only Performers can upload Rider
+     * and Documents, this is false. all Users with edit permission or over can add
+     * files."* He is right, and this list was the whole reason: `rider.submit` lived
+     * in the `performer` preset, `PERFORMER_FLOOR` and `DELEGATED_PERFORMER_FLOOR`
+     * and nowhere an operator could reach, so `POST /events/:id/riders` answered 403
+     * to the venue running the room. The half of his ticket that cannot exist
+     * without this is the venue's own paperwork — *"{Venue Name}: Technical info ·
+     * Equipment list · Rules of Behavior"*.
+     *
+     * Nothing else needed changing: the attach route is role-agnostic
+     * (`rider.submit` + the caller's participant row), and the ceiling already
+     * allowed it — `rider.submit` is not in `PERFORMER_AUTHORED_CAPABILITIES`,
+     * which holds `setlist.author` alone. The setlist is the act's ARTISTIC
+     * content and no operator may ever author it; a rider is a document a party
+     * attaches about its own requirements, and a venue has those too.
+     *
+     * This is `rider.view` one line up, one capability along: the same list, the
+     * same class of gap, the same sentence — the capability now says what was
+     * already true of the routes.
+     */
+    "rider.submit",
     // The operator's half of the setlist module (decisions.md "Setlists"): the
     // act writes the songs, the operator reports the performance to the society.
     // It appears in no other preset, and the ceiling below refuses it to any

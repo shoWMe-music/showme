@@ -654,6 +654,74 @@ describe("rider.view — an operator holds the capability for the reach it alrea
   });
 });
 
+/**
+ * THE VENUE'S OWN PAPERWORK — ClickUp `123qy9rnk1u`.
+ *
+ * Ran: *"For some reason the logic now thinks only Performers can upload Rider and
+ * Documents, this is false. all Users with edit permission or over can add files."*
+ * The cause was one missing entry in `operator_full`, so the venue running the room
+ * got a 403 from the attach route and the {Venue Name} half of his ticket — technical
+ * info, equipment list, rules of behaviour — could not exist at all.
+ *
+ * Nothing about scope moved: an operator already saw every rider on their own event.
+ */
+describe("rider.submit — the operator can attach their own documents (`123qy9rnk1u`)", () => {
+  it("is in the operator preset", () => {
+    expect(PRESET_PERMISSION_SETS.operator_full).toContain("rider.submit");
+  });
+
+  it("lets the venue create a house document and attach it to its own show", async () => {
+    const operator = await seedMemberWithSet(
+      "house-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "house-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...performer, role: "performer" },
+      ],
+      "house-op",
+    );
+    const hostParticipant = participants.find((row) => row.profileId === operator.profileId);
+    if (!hostParticipant) throw new Error("participant seed failed");
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${operator.profileId}/riders`,
+      headers: auth("house-op"),
+      payload: {
+        // `tech` because that is the whole vocabulary a venue has:
+        // `rider_type` is `tech | hospitality | stage_plot | input_list`, four
+        // PERFORMER artifacts. Ran's *"Technical info · Equipment list · Rules of
+        // Behavior"* has no home in it — noted in the loop doc, not invented here.
+        type: "tech",
+        name: "House technical info",
+        description: "FOH is a d&b V-Series. Load-in through the back yard.",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const attached = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/riders`,
+      headers: auth("house-op"),
+      payload: { sourceRiderId: created.json().id },
+    });
+    // This was a 403 until `rider.submit` reached the operator preset.
+    expect(attached.statusCode).toBe(201);
+    expect(attached.json().ownerParticipantId).toBe(hostParticipant.id);
+    expect(attached.json().name).toBe("House technical info");
+    expect(attached.json().type).toBe("tech");
+  });
+});
+
 describe("rider preview — the document opens for exactly the readers the list serves", () => {
   const RIDER_FILE_PATH = "profiles/rp-a/riders/main-tech-rider.pdf";
   const fakeDownloadUrl = (path: string) =>

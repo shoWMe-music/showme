@@ -14,6 +14,7 @@ import {
   referenceSettlement,
 } from "./reference-settlement";
 import * as schema from "./schema";
+import { OPERATOR_FULL_CAPABILITIES } from "./seed-capabilities";
 
 /**
  * Where the marketing site is served from, for the seeded pictures below.
@@ -95,51 +96,11 @@ const RIDER_IDS = {
 
 // The operator's permission set — attached to every host participant so the
 // operator resolves `budget.view` (unlocking settlements, budgets, and every
-// performer's setlist for the PRO-royalty screen). Mirrors
-// PRESET_PERMISSION_SETS.operator_full in @showme/auth (inlined to avoid a
-// db→auth import cycle). Cascades with the operator profile on delete.
+// performer's setlist for the PRO-royalty screen). Its capability bundle lives in
+// `./seed-capabilities`, shared with the e2e seed and pinned to
+// `PRESET_PERMISSION_SETS` by `apps/api/src/seed-presets.test.ts`. Cascades with the
+// operator profile on delete.
 const OPERATOR_PERMISSION_SET_ID = "5eed0000-0000-4000-8000-0000000000c1";
-const OPERATOR_FULL_CAPABILITIES = [
-  "event.view",
-  "event.edit",
-  "event.delete",
-  "event.publish",
-  "event.send_info_email",
-  "participants.manage",
-  "deal.view.own",
-  "deal.edit",
-  "budget.view",
-  "budget.edit",
-  "revenue.edit",
-  // `rider.view` drifted OUT of these seeds and back in here. `e5928ec` added it to
-  // `operator_full` because an operator has always seen every rider on their own
-  // event — but the seeds inline this list (to dodge a db→auth import cycle) and
-  // nobody updated them, so every seeded operator silently lacked it for weeks.
-  // Found by the PRO agent while adding a capability the same way.
-  //
-  // The inlining is the hazard: two copies of one list, and only one of them is
-  // type-checked against the catalog. If a third capability drifts, make the copy
-  // derive from `PRESET_PERMISSION_SETS` instead of adding a fourth comment.
-  "rider.view",
-  "settlement.view.own",
-  "settlement.edit",
-  "settlement.confirm",
-  "settlement.finalize",
-  "schedule.view",
-  "schedule.edit",
-  // The operator's PRO filing (decisions.md "Setlists"). NOTE THE HAZARD THIS
-  // LIST IS: it is a hand-copy of `PRESET_PERMISSION_SETS.operator_full`, kept
-  // because `packages/auth` imports `packages/db` and not the other way round, so
-  // a capability added to the preset does not reach a seeded operator until it is
-  // added HERE TOO — and the feature then looks broken on the only stack anyone
-  // drives by hand. That is exactly how this line came to be written.
-  "performance_report.file",
-  "crew.manage",
-  "agreement.manage",
-  "agreement.confirm",
-  "message.post",
-];
-
 const DEAL_IDS = {
   e1: "5eed0000-0000-4000-8000-0000000000d1",
   e2: "5eed0000-0000-4000-8000-0000000000d2",

@@ -3,6 +3,7 @@ import {
   postApiV1EventsIdRiders,
   postApiV1FilesUploadUrl,
   postApiV1ProfilesIdRiders,
+  useGetApiV1EventsId,
   useGetApiV1EventsIdParticipants,
   useGetApiV1Me,
 } from "@showme/api-client";
@@ -72,10 +73,19 @@ export interface RiderUploadView {
   /** The profile the rider is filed under — the one the caller stands behind here. */
   ownerProfileId: string | null;
   /**
-   * May this caller attach a rider to this event at all? True when they are on
-   * the bill as something other than the operator — a rider is the act's own
-   * document (decisions #12), so the host has no rider of their own to submit.
-   * The API decides for real; this only keeps the button from lying.
+   * May this caller attach a rider to this event at all?
+   *
+   * TWO conditions, and it used to be only the first. **(1)** They stand on the
+   * event as somebody who files documents, which is what decides WHOSE profile the
+   * rider is filed under. **(2)** Their effective capabilities on this event carry
+   * `rider.submit` — read off the event's own `capabilities`, the same way
+   * `useEventAgreements` and `useEventSettlement` answer their questions.
+   *
+   * The second condition is the one that stops the button lying, and it was
+   * missing in both directions. A CREW member passed the role test and holds no
+   * `rider.submit` in any crew preset, so they were offered an Upload that 403s;
+   * and a co-host whose permission set is view-only would be offered the same.
+   * Role alone cannot answer a question the permission set decides.
    */
   canSubmit: boolean;
   isUploading: boolean;
@@ -84,13 +94,34 @@ export interface RiderUploadView {
   clearError(): void;
 }
 
-/** Event roles whose participant HAS a rider — everyone but the managing operator. */
-const RIDER_BEARING_ROLES = new Set(["performer", "support", "agent", "crew", "crew_lead"]);
+/**
+ * Event roles whose participant can OWN a filed document.
+ *
+ * The managing operators are in it since ClickUp `123qy9rnk1u` — Ran: *"the logic
+ * now thinks only Performers can upload Rider and Documents, this is false"*. The
+ * venue has paperwork of its own (its technical info, its equipment list, its house
+ * rules) and it belongs on the show like anybody else's. `rider.submit` reached
+ * `operator_full` in the same change; this set is the half that decides which of the
+ * caller's participations the document is filed under.
+ */
+const RIDER_FILING_ROLES = new Set([
+  "host",
+  "co_host",
+  "performer",
+  "support",
+  "agent",
+  "crew",
+  "crew_lead",
+]);
 
 export function useRiderUpload(eventId: string): RiderUploadView {
   const queryClient = useQueryClient();
   const me = useGetApiV1Me();
   const participants = useGetApiV1EventsIdParticipants(eventId);
+  // A cache hit on every screen that renders this card — the event is what the
+  // screen is. Read for one thing: whether the caller's effective capabilities
+  // here carry `rider.submit`.
+  const event = useGetApiV1EventsId(eventId);
   const [error, setError] = useState<string | null>(null);
 
   // The profile the caller stands behind ON THIS EVENT. Mirrors the API's
@@ -104,7 +135,7 @@ export function useRiderUpload(eventId: string): RiderUploadView {
     (party) =>
       party.profileId !== null &&
       myProfileIds.has(party.profileId) &&
-      RIDER_BEARING_ROLES.has(party.role),
+      RIDER_FILING_ROLES.has(party.role),
   );
   const acting = getActiveProfileId();
   const participant = mine.find((party) => party.profileId === acting) ?? mine[0];
@@ -158,7 +189,7 @@ export function useRiderUpload(eventId: string): RiderUploadView {
 
   return {
     ownerProfileId,
-    canSubmit: ownerProfileId != null,
+    canSubmit: ownerProfileId != null && (event.data?.capabilities ?? []).includes("rider.submit"),
     isUploading: mutation.isPending,
     error,
     clearError: () => setError(null),

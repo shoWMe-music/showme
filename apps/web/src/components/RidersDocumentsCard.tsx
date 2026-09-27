@@ -34,11 +34,20 @@ export interface RidersDocumentsCardProps {
  * honesty, because to a performer it read as "riders cannot upload". It now does
  * the real thing (`useRiderUpload`: file → library rider → attached instance).
  *
- * The OPERATOR still cannot submit one, and that part was always right: a rider is
- * the act's own document (decisions #12), so the host has none of their own to
- * send and `rider.submit` is deliberately absent from their preset.
+ * The OPERATOR CAN submit one too, since ClickUp `123qy9rnk1u`. This comment used
+ * to say the opposite — *"a rider is the act's own document (decisions #12), so the
+ * host has none of their own to send"* — and Ran corrected it: *"the logic now
+ * thinks only Performers can upload Rider and Documents, this is false. all Users
+ * with edit permission or over can add files."* A venue has paperwork of its own
+ * (its technical info, its equipment list, its house rules) and #12's point is
+ * whose document a rider IS, not that only one kind of party has one. The
+ * capability now reaches `operator_full`.
  *
- * What changed is how that is SAID. It used to be a disabled Upload button whose
+ * Who still sees no button: anybody whose permission set does not carry
+ * `rider.submit` — a technical crew member, a view-only co-host. That is decided by
+ * the capability rather than by their role, which is what `useRiderUpload` reads.
+ *
+ * What changed before that, and still holds, is how a refusal is SAID. It used to be a disabled Upload button whose
  * only explanation lived in a `title` tooltip — which is no explanation at all on
  * a touch device, where nothing can hover, and reads as a broken button on every
  * other one. It was reported as exactly that (ClickUp 86cbaxw0w, "file uploads
@@ -85,8 +94,8 @@ export function RidersDocumentsCard({ eventId, riders }: RidersDocumentsCardProp
       )}
       {!upload.canSubmit && (
         <div style={riderNoteStyle}>
-          Riders are submitted by the act on the bill — a performer, their agent, or their crew.
-          They arrive here for you to read.
+          Riders and documents are submitted by the parties on the bill. Yours arrive here for you
+          to read.
         </div>
       )}
       <RiderUploadModal open={open} onClose={() => setOpen(false)} view={upload} />

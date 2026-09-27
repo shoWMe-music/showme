@@ -20,6 +20,12 @@ import {
   referenceSettlement,
 } from "./reference-settlement";
 import * as schema from "./schema";
+import {
+  AGENT_CAPABILITIES,
+  CREW_SCHEDULE_ONLY_CAPABILITIES,
+  OPERATOR_FULL_CAPABILITIES,
+  PERFORMER_CAPABILITIES,
+} from "./seed-capabilities";
 
 /**
  * Where the marketing site is served from, for the seeded pictures below.
@@ -142,8 +148,9 @@ const PART = {
 } as const;
 
 // Permission sets — one per (profile, tier). Cascade with their owning profile on
-// delete. Capabilities are the presets from @showme/auth, inlined to avoid a
-// db→auth import cycle (mirrors seed.ts's inlined operator_full).
+// delete. The capability bundles live in `./seed-capabilities`, which both seeds
+// share and which `apps/api/src/seed-presets.test.ts` pins to the real presets in
+// `@showme/auth` — see that file for why they cannot simply be imported from there.
 const PERMISSION_SET_IDS = {
   operatorFull: "e2e00000-0000-4000-8000-0000000000c1",
   performerAOwn: "e2e00000-0000-4000-8000-0000000000c2", // performerA's own set (concluded event)
@@ -152,79 +159,6 @@ const PERMISSION_SET_IDS = {
   agent: "e2e00000-0000-4000-8000-0000000000c5", // agent fan-out on album
   coHostFull: "e2e00000-0000-4000-8000-0000000000c6", // co-promoter on album
 } as const;
-
-// PRESET_PERMISSION_SETS.operator_full (@showme/auth), inlined.
-const OPERATOR_FULL_CAPABILITIES = [
-  "event.view",
-  "event.edit",
-  "event.delete",
-  "event.publish",
-  "event.send_info_email",
-  "participants.manage",
-  "deal.view.own",
-  "deal.edit",
-  "budget.view",
-  "budget.edit",
-  "revenue.edit",
-  // `rider.view` drifted OUT of these seeds and back in here. `e5928ec` added it to
-  // `operator_full` because an operator has always seen every rider on their own
-  // event — but the seeds inline this list (to dodge a db→auth import cycle) and
-  // nobody updated them, so every seeded operator silently lacked it for weeks.
-  // Found by the PRO agent while adding a capability the same way.
-  //
-  // The inlining is the hazard: two copies of one list, and only one of them is
-  // type-checked against the catalog. If a third capability drifts, make the copy
-  // derive from `PRESET_PERMISSION_SETS` instead of adding a fourth comment.
-  "rider.view",
-  "settlement.view.own",
-  "settlement.edit",
-  "settlement.confirm",
-  "settlement.finalize",
-  "schedule.view",
-  "schedule.edit",
-  // The operator's PRO filing (decisions.md "Setlists"). NOTE THE HAZARD THIS
-  // LIST IS: it is a hand-copy of `PRESET_PERMISSION_SETS.operator_full`, kept
-  // because `packages/auth` imports `packages/db` and not the other way round, so
-  // a capability added to the preset does not reach a seeded operator until it is
-  // added HERE TOO — and the feature then looks broken on the only stack anyone
-  // drives by hand. That is exactly how this line came to be written.
-  "performance_report.file",
-  "crew.manage",
-  "agreement.manage",
-  "agreement.confirm",
-  "message.post",
-];
-
-// PRESET_PERMISSION_SETS.performer (@showme/auth), inlined.
-const PERFORMER_CAPABILITIES = [
-  "event.view",
-  "deal.view.own",
-  "settlement.view.own",
-  "settlement.confirm",
-  "rider.submit",
-  "schedule.view",
-  "setlist.author",
-  "message.post",
-];
-
-// PRESET_PERMISSION_SETS.crew_schedule_only (@showme/auth), inlined.
-const CREW_SCHEDULE_ONLY_CAPABILITIES = ["event.view", "schedule.view"];
-
-// PRESET_PERMISSION_SETS.agent (@showme/auth) — the fanned-out agent bundle:
-// negotiate/approve on the performer's behalf; budget/pool caps are un-grantable
-// to an arm's-length party (stripped by the ceiling) regardless.
-const AGENT_CAPABILITIES = [
-  "event.view",
-  "deal.view.own",
-  "deal.edit",
-  "settlement.view.own",
-  "settlement.confirm",
-  "agreement.manage",
-  "agreement.confirm",
-  "schedule.view",
-  "message.post",
-  "crew.submit",
-];
 
 const DEAL_IDS = {
   albumSplit: "e2e00000-0000-4000-8000-0000000000d1", // shared split: performerA + performerB
