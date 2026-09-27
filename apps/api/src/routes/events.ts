@@ -268,6 +268,12 @@ function dealDraftFromBody(deal: CreateEventDealBody, currency: string): DealDra
     advanceAmount: major(deal.advanceAmount),
     splitPercent: deal.splitBasisPoints == null ? "" : basisPointsToPercent(deal.splitBasisPoints),
     paymentTiming: deal.paymentTiming ?? "at_settlement",
+    // The wizard states a simple deal and carries no ladder: a band and a bonus are
+    // terms added on the Deals tab, where `DealTermsBody` accepts them. Empty here is
+    // the truth about this body, not a placeholder.
+    escalators: [],
+    bonusThreshold: "",
+    bonusAmount: "",
     parties: deal.parties.map((party, index) => ({
       key: `party-${index}`,
       participantId: party.profileId,

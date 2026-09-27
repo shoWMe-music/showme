@@ -261,6 +261,37 @@ describe("dealEntitlement — ported math", () => {
     expect(splitBasisPointsForSales(deal, 250)).toBe(6000);
   });
 
+  it("climbs Ran's own ladder: 60/40, then 70/30 at 300, then 80/20 at 900", () => {
+    /**
+     * The example from ClickUp `123qy9rnwud`, in his figures, because "the engine
+     * already does this" is a claim and this is the evidence. The boundary is the part
+     * worth pinning: a tier applies AT its threshold, not one ticket past it, which is
+     * how a band is written in a contract ("70/30 from 300").
+     */
+    const deal: SettlementDeal = {
+      dealId: "ran",
+      structure: "door_split",
+      payeeParticipantIds: ["B"],
+      splitBasisPoints: 6000,
+      escalators: [
+        { thresholdSold: 300, splitBasisPoints: 7000 },
+        { thresholdSold: 900, splitBasisPoints: 8000 },
+      ],
+    };
+
+    expect(splitBasisPointsForSales(deal, 0)).toBe(6000);
+    expect(splitBasisPointsForSales(deal, 299)).toBe(6000);
+    expect(splitBasisPointsForSales(deal, 300)).toBe(7000);
+    expect(splitBasisPointsForSales(deal, 899)).toBe(7000);
+    expect(splitBasisPointsForSales(deal, 900)).toBe(8000);
+    expect(splitBasisPointsForSales(deal, 5000)).toBe(8000);
+
+    // And the money that comes out of it: 80% of a 10 000 adjusted net on a sold-out
+    // night, against 60% of the same pool on a quiet one.
+    expect(dealEntitlement(deal, doorOf(eur(10000)), 1200)).toBe(eur(8000));
+    expect(dealEntitlement(deal, doorOf(eur(10000)), 120)).toBe(eur(6000));
+  });
+
   it("adds the bonus when GROSS revenue clears the threshold, not the pool", () => {
     const deal: SettlementDeal = {
       dealId: "d",

@@ -146,6 +146,80 @@ export function DealComposerModal({
           )}
         </div>
 
+        {/* THE LADDER AND THE BONUS (ClickUp `123qy9rp8k3`).
+            Only where they can mean something: both ride on a door share, and a
+            guarantee pays the same whatever the night does. Offered after the base
+            split, because that is what they modify. */}
+        {structureNeedsSplit(draft.structure) && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+              <Eyebrow>If the night sells</Eyebrow>
+              <span style={{ color: "var(--muted)", fontSize: 12.5 }}>
+                The share above is what the act takes until a band below is reached.
+              </span>
+            </div>
+
+            {draft.escalators.map((band) => (
+              <div key={band.key} style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                <div style={{ flex: "1 1 140px" }}>
+                  <TextField
+                    label="From tickets sold"
+                    value={band.thresholdSold}
+                    inputMode="numeric"
+                    placeholder="300"
+                    onChange={(event) =>
+                      composer.setEscalatorThreshold(band.key, event.target.value)
+                    }
+                  />
+                </div>
+                <div style={{ flex: "1 1 140px" }}>
+                  <TextField
+                    label="Their share becomes (%)"
+                    value={band.splitPercent}
+                    inputMode="decimal"
+                    placeholder="70"
+                    onChange={(event) =>
+                      composer.setEscalatorSplitPercent(band.key, event.target.value)
+                    }
+                  />
+                </div>
+                <Button variant="ghost" onClick={() => composer.removeEscalator(band.key)}>
+                  Remove
+                </Button>
+              </div>
+            ))}
+
+            <div>
+              <Button variant="secondary" onClick={composer.addEscalator}>
+                + Add a band
+              </Button>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 160px" }}>
+                <TextField
+                  // GROSS, and the label says so: a threshold measured on what is left
+                  // after costs is one a promoter can defeat by spending more (#23.3).
+                  label={`Bonus once gross takings reach (${currency})`}
+                  value={draft.bonusThreshold}
+                  inputMode="decimal"
+                  placeholder="50000"
+                  onChange={(event) => composer.setBonusThreshold(event.target.value)}
+                />
+              </div>
+              <div style={{ flex: "1 1 160px" }}>
+                <TextField
+                  label={`It then pays (${currency})`}
+                  value={draft.bonusAmount}
+                  inputMode="decimal"
+                  placeholder="2500"
+                  onChange={(event) => composer.setBonusAmount(event.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         <div>
           <Select
             label="When it is paid"

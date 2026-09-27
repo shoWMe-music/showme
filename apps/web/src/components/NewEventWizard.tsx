@@ -181,6 +181,11 @@ function stateDeal(input: {
     // starts empty by decision (#16.3). Both are set on the event's Deals tab.
     advanceAmount: "",
     paymentTiming: "at_settlement",
+    // The wizard states a simple deal and offers no ladder: a band is a term you add on
+    // the Deals tab once the agreement exists, not something to ask for at creation.
+    escalators: [],
+    bonusThreshold: "",
+    bonusAmount: "",
     parties,
   };
 }

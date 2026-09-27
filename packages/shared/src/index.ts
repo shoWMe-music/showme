@@ -106,6 +106,7 @@ export {
 export {
   type CreateDealPayload,
   type DealDraft,
+  type DealEscalatorDraft,
   type DealPartyDraft,
   type DealPartyPayload,
   type DealKind,
@@ -132,6 +133,7 @@ export {
   dealKindLabel,
   dealTypeForKind,
   emptyDealDraft,
+  emptyDealEscalator,
   emptyDealParty,
   percentToBasisPoints,
   readTermsTemplateText,

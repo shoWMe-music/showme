@@ -299,6 +299,24 @@ export interface DealPartyDraft {
 }
 
 /** A deal as the composing screen holds it — every amount in MAJOR units, as typed. */
+/**
+ * ONE BAND OF THE LADDER, as the form holds it.
+ *
+ * ClickUp `123qy9rnwud`, in Ran's words: *"60/40 until 300 tickets, 70/30 from 300,
+ * 80/20 from 900."* Both halves are strings because they are what somebody typed; the
+ * conversion to a ticket count and basis points happens once, on the way out.
+ *
+ * `key` is the form's own handle for the row (the parties carry one for the same
+ * reason): a React list needs an identity that survives a threshold being retyped.
+ */
+export interface DealEscalatorDraft {
+  key: string;
+  /** Tickets sold at or above which this band applies, as typed. */
+  thresholdSold: string;
+  /** The split that replaces the base one once it does, as a percent. */
+  splitPercent: string;
+}
+
 export interface DealDraft {
   name: string;
   type: DealType;
@@ -312,6 +330,22 @@ export interface DealDraft {
   advanceAmount: string;
   paymentTiming: PaymentTiming;
   parties: DealPartyDraft[];
+  /**
+   * The ladder: bands that REPLACE the base split once ticket sales reach them. Empty
+   * on a deal with no escalation, which is most of them. Only meaningful where there is
+   * a split to escalate (`structureNeedsSplit`).
+   */
+  escalators: DealEscalatorDraft[];
+  /**
+   * A flat bonus once GROSS revenue reaches `bonusThreshold` — major units as typed.
+   *
+   * Gross and not the pool, deliberately (`decisions.md` #23.3): a threshold measured
+   * on what is left after costs is one a promoter can defeat by spending more. Both
+   * halves or neither — a threshold with no amount pays nothing, and an amount with no
+   * threshold would pay on every night.
+   */
+  bonusThreshold: string;
+  bonusAmount: string;
 }
 
 /** One party line in the shape `POST /events/:id/deals` accepts. */
@@ -332,6 +366,16 @@ export interface CreateDealPayload {
   splitBasisPoints?: number;
   paymentTiming: PaymentTiming;
   parties: DealPartyPayload[];
+  /**
+   * `deals.terms` — the ladder and the bonus, in the shape `DealTermsBody` accepts
+   * (`apps/api/src/routes/deals.ts`). Omitted entirely when the draft states neither,
+   * so an ordinary deal sends no empty object.
+   */
+  terms?: {
+    escalators?: { thresholdSold: number; splitBasisPoints: number }[];
+    bonusThreshold?: string;
+    bonusAmount?: string;
+  };
 }
 
 /** Whether the structure settles against a fixed amount. */
@@ -387,7 +431,17 @@ export function emptyDealDraft(currency: string): DealDraft {
     advanceAmount: "",
     paymentTiming: "at_settlement",
     parties: [emptyDealParty("party-1", "payer"), emptyDealParty("party-2", "payee")],
+    // No bands by default: most agreements have none, and a blank row on every new deal
+    // would read as a field somebody is expected to fill.
+    escalators: [],
+    bonusThreshold: "",
+    bonusAmount: "",
   };
+}
+
+/** A blank band, ready to be filled in. */
+export function emptyDealEscalator(key: string): DealEscalatorDraft {
+  return { key, thresholdSold: "", splitPercent: "" };
 }
 
 /**
@@ -421,6 +475,61 @@ export function dealDraftProblems(
       problems.push(
         "A booking agent is never an entitled party — it acts for the performer it represents, whose own line is the entitled one. Set the agent to Observes.",
       );
+    }
+  }
+
+  /**
+   * THE LADDER'S OWN RULES. Each is one the engine or the API already applies; stating
+   * them here is what turns a 400 into a sentence somebody can act on.
+   */
+  const bands = draft.escalators.filter(
+    (band) => band.thresholdSold.trim() !== "" || band.splitPercent.trim() !== "",
+  );
+  if (bands.length > 0 && !structureNeedsSplit(draft.structure)) {
+    problems.push(
+      "A band changes the SPLIT, so it needs a deal that has one — a guarantee pays the same whatever the night does.",
+    );
+  }
+  for (const band of bands) {
+    const tickets = Number(band.thresholdSold.trim());
+    const percent = percentToBasisPoints(band.splitPercent);
+    if (!Number.isInteger(tickets) || tickets < 0) {
+      problems.push("A band starts at a whole number of tickets sold.");
+    }
+    if (percent == null || percent < 0 || percent > 10_000) {
+      problems.push("A band's split is a percentage between 0 and 100.");
+    }
+  }
+  const thresholds = bands.map((band) => band.thresholdSold.trim());
+  if (thresholds.length !== new Set(thresholds).size) {
+    // Two bands at one threshold is not a ladder, it is a contradiction: the engine
+    // sorts and takes the highest reached, so one of them would silently never apply.
+    problems.push("Two bands cannot start at the same number of tickets.");
+  }
+
+  const wantsBonus = draft.bonusThreshold.trim() !== "" || draft.bonusAmount.trim() !== "";
+  if (wantsBonus) {
+    if (!structureNeedsSplit(draft.structure)) {
+      problems.push("A bonus is paid on top of a door share, so it needs a deal that has one.");
+    }
+    if (draft.bonusThreshold.trim() === "" || draft.bonusAmount.trim() === "") {
+      // The API states the same rule and for the same reason: a threshold with no
+      // amount pays nothing, and an amount with no threshold would pay every night.
+      problems.push(
+        "A bonus needs both halves: what the night has to take, and what it then pays.",
+      );
+    }
+    if (
+      amountToMinor(draft.bonusThreshold, draft.currency) == null &&
+      draft.bonusThreshold.trim() !== ""
+    ) {
+      problems.push("The bonus threshold has to be an amount.");
+    }
+    if (
+      amountToMinor(draft.bonusAmount, draft.currency) == null &&
+      draft.bonusAmount.trim() !== ""
+    ) {
+      problems.push("The bonus amount has to be an amount.");
     }
   }
 
@@ -553,6 +662,49 @@ export function createDealPayload(draft: DealDraft): CreateDealPayload {
   const chosen = draft.parties.filter((party) => party.participantId !== "");
   const entitledCount = chosen.filter((party) => ENTITLED_ROLES.includes(party.roleInDeal)).length;
 
+  /**
+   * The ladder and the bonus, in the API's shape — and only where they can mean
+   * something. A band changes a split, so a guarantee carries none; the same is true of
+   * the bonus, which the engine adds to the door arm and never to a guarantee that won.
+   * Dropping them here rather than sending them to be ignored keeps `deals.terms` a
+   * record of what the deal actually says.
+   */
+  const escalators = structureNeedsSplit(draft.structure)
+    ? draft.escalators
+        .map((band) => ({
+          thresholdSold: Number(band.thresholdSold.trim()),
+          splitBasisPoints: percentToBasisPoints(band.splitPercent),
+        }))
+        .filter(
+          (band): band is { thresholdSold: number; splitBasisPoints: number } =>
+            Number.isInteger(band.thresholdSold) &&
+            band.thresholdSold >= 0 &&
+            band.splitBasisPoints != null,
+        )
+        // Ordered on the way out even though the engine sorts: `deals.terms` is read by
+        // people too, and a ladder listed out of order reads as a mistake.
+        .sort((left, right) => left.thresholdSold - right.thresholdSold)
+    : [];
+  const bonusThreshold = structureNeedsSplit(draft.structure)
+    ? amountToMinor(draft.bonusThreshold, draft.currency)
+    : null;
+  const bonusAmount = structureNeedsSplit(draft.structure)
+    ? amountToMinor(draft.bonusAmount, draft.currency)
+    : null;
+  const hasBonus = bonusThreshold != null && bonusAmount != null;
+  const terms =
+    escalators.length > 0 || hasBonus
+      ? {
+          ...(escalators.length > 0 ? { escalators } : {}),
+          ...(hasBonus
+            ? {
+                bonusThreshold: bonusThreshold.toString(),
+                bonusAmount: bonusAmount.toString(),
+              }
+            : {}),
+        }
+      : null;
+
   return {
     type: draft.type,
     ...(draft.structure ? { structure: draft.structure } : {}),
@@ -562,6 +714,7 @@ export function createDealPayload(draft: DealDraft): CreateDealPayload {
     ...(advance != null ? { advanceAmount: advance.toString() } : {}),
     ...(split != null ? { splitBasisPoints: split } : {}),
     paymentTiming: draft.paymentTiming,
+    ...(terms ? { terms } : {}),
     parties: chosen.map((party) => {
       const share =
         entitledCount > 1 && ENTITLED_ROLES.includes(party.roleInDeal)

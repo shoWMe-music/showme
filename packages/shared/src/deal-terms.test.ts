@@ -31,6 +31,92 @@ function guaranteeDraft(): DealDraft {
   };
 }
 
+/** A door split with Ran's ladder on it (ClickUp `123qy9rnwud`). */
+function ladderDraft(): DealDraft {
+  return {
+    ...emptyDealDraft("EUR"),
+    name: "Door split with escalators",
+    structure: "door_split",
+    splitPercent: "60",
+    escalators: [
+      { key: "e1", thresholdSold: "900", splitPercent: "80" },
+      { key: "e2", thresholdSold: "300", splitPercent: "70" },
+    ],
+    parties: [
+      { key: "a", participantId: "operator", roleInDeal: "payer", sharePercent: "" },
+      { key: "b", participantId: "act", roleInDeal: "payee", sharePercent: "" },
+    ],
+  };
+}
+
+describe("the ladder, as the form holds it", () => {
+  it("sends the bands in order, whatever order they were typed in", () => {
+    // `deals.terms` is read by people as well as by the engine, and a ladder listed
+    // out of order reads as a mistake. The engine sorts either way.
+    expect(createDealPayload(ladderDraft()).terms).toEqual({
+      escalators: [
+        { thresholdSold: 300, splitBasisPoints: 7000 },
+        { thresholdSold: 900, splitBasisPoints: 8000 },
+      ],
+    });
+  });
+
+  it("sends no terms at all when the deal states none", () => {
+    // An ordinary agreement must not carry an empty object into `deals.terms`.
+    expect(createDealPayload(guaranteeDraft()).terms).toBeUndefined();
+  });
+
+  it("drops a half-typed band rather than sending a nonsense one", () => {
+    const half = {
+      ...ladderDraft(),
+      escalators: [{ key: "e1", thresholdSold: "300", splitPercent: "" }],
+    };
+    expect(createDealPayload(half).terms).toBeUndefined();
+    expect(dealDraftProblems(half)).toContainEqual(
+      "A band's split is a percentage between 0 and 100.",
+    );
+  });
+
+  it("refuses two bands starting at the same ticket count", () => {
+    const clashing = {
+      ...ladderDraft(),
+      escalators: [
+        { key: "e1", thresholdSold: "300", splitPercent: "70" },
+        { key: "e2", thresholdSold: "300", splitPercent: "80" },
+      ],
+    };
+    expect(dealDraftProblems(clashing)).toContainEqual(
+      "Two bands cannot start at the same number of tickets.",
+    );
+  });
+
+  it("refuses a ladder on a deal with no split to escalate", () => {
+    const onGuarantee = { ...guaranteeDraft(), escalators: ladderDraft().escalators };
+    expect(dealDraftProblems(onGuarantee)).toContainEqual(
+      "A band changes the SPLIT, so it needs a deal that has one — a guarantee pays the same whatever the night does.",
+    );
+    // …and nothing is sent, so a refusal the operator overrode in some future UI
+    // still cannot write a band onto a guarantee.
+    expect(createDealPayload(onGuarantee).terms).toBeUndefined();
+  });
+});
+
+describe("the threshold bonus, as the form holds it", () => {
+  it("sends both halves in minor units", () => {
+    const withBonus = { ...ladderDraft(), bonusThreshold: "50000", bonusAmount: "2500" };
+    expect(createDealPayload(withBonus).terms?.bonusThreshold).toBe("5000000");
+    expect(createDealPayload(withBonus).terms?.bonusAmount).toBe("250000");
+  });
+
+  it("refuses one half without the other", () => {
+    const halfBonus = { ...ladderDraft(), bonusAmount: "2500" };
+    expect(dealDraftProblems(halfBonus)).toContainEqual(
+      "A bonus needs both halves: what the night has to take, and what it then pays.",
+    );
+    expect(createDealPayload(halfBonus).terms?.bonusAmount).toBeUndefined();
+  });
+});
+
 describe("deal draft — what it refuses", () => {
   it("accepts an ordinary guarantee between two parties", () => {
     expect(dealDraftProblems(guaranteeDraft())).toEqual([]);

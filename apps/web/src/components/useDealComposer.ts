@@ -8,6 +8,7 @@ import {
   dealDraftProblems,
   dealTypeForKind,
   emptyDealDraft,
+  emptyDealEscalator,
   emptyDealParty,
   structureForKind,
 } from "@showme/shared";
@@ -40,6 +41,17 @@ export interface DealComposer {
   setPartySharePercent: (key: string, percent: string) => void;
   addParty: () => void;
   removeParty: (key: string) => void;
+  /**
+   * THE LADDER (ClickUp `123qy9rnwud` / `123qy9rp8k3`). The engine has settled escalator
+   * bands since it was written and `deals.terms` has stored them since the schema was
+   * written; no screen could enter one, which is the whole of the `high` ticket.
+   */
+  addEscalator: () => void;
+  removeEscalator: (key: string) => void;
+  setEscalatorThreshold: (key: string, tickets: string) => void;
+  setEscalatorSplitPercent: (key: string, percent: string) => void;
+  setBonusThreshold: (value: string) => void;
+  setBonusAmount: (value: string) => void;
   /** Everything wrong with the draft right now, in plain sentences. */
   problems: string[];
   /**
@@ -137,6 +149,20 @@ export function useDealComposer(
     if (open) reset();
   }, [open, reset]);
 
+  /** One band, changed in place — the same shape `editParty` has, for the same reason. */
+  const editEscalator = useCallback(
+    (
+      key: string,
+      change: (band: DealDraft["escalators"][number]) => DealDraft["escalators"][number],
+    ) => {
+      setDraft((current) => ({
+        ...current,
+        escalators: current.escalators.map((band) => (band.key === key ? change(band) : band)),
+      }));
+    },
+    [],
+  );
+
   const editParty = useCallback(
     (
       key: string,
@@ -197,6 +223,24 @@ export function useDealComposer(
         ...current,
         parties: current.parties.filter((party) => party.key !== key),
       })),
+    addEscalator: () => {
+      setDraft((current) => ({
+        ...current,
+        escalators: [...current.escalators, emptyDealEscalator(`band-${nextKey}`)],
+      }));
+      setNextKey((key) => key + 1);
+    },
+    removeEscalator: (key) =>
+      setDraft((current) => ({
+        ...current,
+        escalators: current.escalators.filter((band) => band.key !== key),
+      })),
+    setEscalatorThreshold: (key, thresholdSold) =>
+      editEscalator(key, (band) => ({ ...band, thresholdSold })),
+    setEscalatorSplitPercent: (key, splitPercent) =>
+      editEscalator(key, (band) => ({ ...band, splitPercent })),
+    setBonusThreshold: (bonusThreshold) => setDraft((current) => ({ ...current, bonusThreshold })),
+    setBonusAmount: (bonusAmount) => setDraft((current) => ({ ...current, bonusAmount })),
     problems,
     notices,
     submitAttempted,
