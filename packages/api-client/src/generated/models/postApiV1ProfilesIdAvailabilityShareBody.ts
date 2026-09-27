@@ -4,6 +4,7 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1ProfilesIdAvailabilityShareBodyRoomsItem } from './postApiV1ProfilesIdAvailabilityShareBodyRoomsItem';
 
 export type PostApiV1ProfilesIdAvailabilityShareBody = {
   /**
@@ -29,4 +30,6 @@ export type PostApiV1ProfilesIdAvailabilityShareBody = {
   heldCountsAsBusy: boolean;
   /** @pattern ^\d{4}-\d{2}-\d{2}$ */
   generatedOn: string;
+  /** @maxItems 50 */
+  rooms?: PostApiV1ProfilesIdAvailabilityShareBodyRoomsItem[];
 };

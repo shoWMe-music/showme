@@ -741,6 +741,7 @@ export * from './postApiV1Profiles201VenueDetails';
 export * from './postApiV1ProfilesBody';
 export * from './postApiV1ProfilesIdAvailabilityShare201';
 export * from './postApiV1ProfilesIdAvailabilityShareBody';
+export * from './postApiV1ProfilesIdAvailabilityShareBodyRoomsItem';
 export * from './postApiV1ProfilesIdContacts201';
 export * from './postApiV1ProfilesIdContacts201Persons';
 export * from './postApiV1ProfilesIdContactsBody';

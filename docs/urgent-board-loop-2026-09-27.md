@@ -273,3 +273,75 @@ is clean at 708 files.
 
 Suites: biome 708 clean · web 311 (8 new) · api 1304 (`shares.test.ts` re-run alone after
 the port flake) · e2e 112.
+
+**D — plan, written before building.** *"Which rooms are free on this date?"* — the last
+piece of `123qy9rpqp0`, and the only one that reaches the API again.
+
+**The decision D hides, and how it is taken.** The page could answer this two ways:
+
+1. **A live public route** — `GET /public/availability/:token/rooms?date=…`, computed on
+   demand. Freshest, and it would never offer a room booked since the link was sent.
+2. **The snapshot carries it** — the sharer's app already computes free nights per room
+   (`occupiedDates`), so the share row can hold them.
+
+**Taken: (2), the snapshot.** Three reasons, in order of weight. It keeps the promise the
+link already makes and the modal already prints — *"reflects availability as of when it
+was generated"*; (1) would quietly turn a snapshot into a live feed, which is a different
+product. It keeps the sharer in control of exactly what leaves: a live per-date route can
+be **swept** by a stranger with a token until it has enumerated the roster, which is the
+thing `GET /profiles/:id/stages` exists to prevent. And it keeps one rule in one place —
+the page can never name a room the modal's own list did not, because both come from the
+same `occupiedDates` call. The cost is honest and stated: a room booked after the link was
+sent is still offered, exactly as a *date* booked after the link was sent already is. The
+receiving end is where that is caught (the double-booking check, `123qy9rprbx` §2).
+
+**Two commits.**
+
+- **D1 — the snapshot carries rooms.** `AvailabilitySnapshotBody` gains an optional
+  `rooms: [{ id, name, capacity, availableDates }]`, bounded like everything else beside
+  it (≤ 50 rooms, name ≤ 120, ≤ 550 dates each). `GET /public/availability/:token` already
+  serves the payload as `z.record(z.unknown())`, so nothing there strips it. Web computes
+  the per-room lists in the **same memo** as the top-level one, so the union it already
+  shows and the per-room breakdown cannot disagree; `CalendarSource` gains `capacity`,
+  which `useCalendarSources` already fetches and drops. *API + web.*
+- **D2 — the page answers per date, and the ask carries the room.** Clicking a date names
+  the rooms free that night — *"Small Room (200 cap) is the only available room for this
+  date"* when there is one, a pick when there are several, never a booked one. The chosen
+  room rides into the existing public form as `venueProfileId` + `stageId`, which
+  `POST /booking-requests` has accepted since **A** and validates with `placeOfRequest` —
+  so a hand-edited room id is refused rather than believed. *Marketing.*
+
+**Room ids in a public payload** are fine and worth saying why: an id is an opaque handle
+to something the sharer chose to publish, and A's validator already refuses a room that
+does not belong to the venue being asked. Nothing is taken on trust because it arrived.
+
+**D1 — the snapshot carries the rooms. Built.** `AvailabilitySnapshotBody` takes an
+optional `rooms: [{ id, name, capacity, availableDates }]`, bounded like everything else
+on that blob (≤ 50 rooms, ≤ 550 dates each), and the public read already served the
+payload whole. `CalendarSource` now keeps the `capacity` it had been fetching and
+dropping since the room list was built.
+
+**The invariant, and why it is one memo.** The modal's own list and the per-room lists are
+computed in a single pass through one new pure function (`lib/availabilityWindow.ts`), so
+*the union of the rooms is exactly the list on screen* — by construction, not by two
+pieces of code agreeing. If they ever drifted, a recipient would click a date the page
+offered and be told no room is free on it. That property is the first test in
+`availabilityWindow.test.ts` (9 tests; mutation-checked — dropping the profile-wide block
+turns one red, and removing `rooms` from the API body turns two API tests red because Zod
+strips what it does not declare, which is the failure that reads exactly like a frontend
+bug).
+
+Proven live, end to end on seeded data: one press minted `/a/OQebqH5VdI5P`, and the stored
+payload holds **Back Room (cap 80) free 31 nights** and **Main Room (cap 400) free 30** —
+different lists, because Main Room has a show — with `union of rooms === availableDates`
+**true**. The stranger's door returns both rooms with "The Lantern Hall" resolved live.
+
+**Stale prose fixed on the way:** `lib/availabilityShareLink.ts` still explained at length
+why the snapshot travels in the URL fragment and why the public page "should not get" a
+room id. Both were overtaken — by `123qy9rpqn0` and by this ticket — and a file that
+argues for the design it no longer has is how the next reader inherits a wrong
+conclusion. It now states the snapshot-not-live-feed decision, and why an id the API
+validates on arrival (`placeOfRequest`) grants its holder nothing.
+
+Suites: biome 710 clean · web 320 (9 new) · api 1306 (`participants.test.ts` re-run alone
+after the port flake) · e2e 112.

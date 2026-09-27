@@ -3,17 +3,12 @@ import {
   usePostApiV1ProfilesIdAvailabilityShare,
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
-import {
-  type RoomBooking,
-  WHOLE_VENUE,
-  isDateHeld,
-  isDateTaken,
-  occupiedDates,
-} from "@showme/shared";
+import { type RoomBooking, WHOLE_VENUE, isDateHeld, isDateTaken } from "@showme/shared";
 import { useMemo, useState } from "react";
 import { dayKey } from "../components/calendarGrid";
 import { getActiveProfileId } from "../lib/activeProfile";
-import type { AvailabilitySnapshot } from "../lib/availabilityShareLink";
+import type { AvailabilitySnapshot, SnapshotRoom } from "../lib/availabilityShareLink";
+import { freeDatesFor } from "../lib/availabilityWindow";
 import { type CalendarChoice, calendarChoice } from "../lib/calendarChoice";
 import { errorMessage } from "../lib/errors";
 import { formatDayWithWeekday } from "../lib/format";
@@ -36,40 +31,11 @@ import type { EventItem } from "./useEventList";
  * link can never say something the screen did not.
  */
 
-/** How far a share window may reach, so a hand-typed year can't build a 100k-date link. */
-const MAX_WINDOW_DAYS = 366;
-
 /** What the modal's two "show as unavailable" toggles mean. `confirmed` is the
  * BOOKED set — every night an act has accepted, not only the signed ones — and
  * the label was renamed with it so the control cannot claim to be narrower than
  * it is. `held` is the separate pencil question. */
 type BusyToggles = { confirmed: boolean; held: boolean };
-
-/** Monday = 0 … Sunday = 6, matching the modal's weekday pills. */
-function mondayFirstWeekday(date: Date): number {
-  return (date.getDay() + 6) % 7;
-}
-
-/** Every `yyyy-mm-dd` from `from` to `to` inclusive; empty when the range is inverted. */
-function datesInRange(from: string, to: string): string[] {
-  if (!from || !to || from > to) return [];
-  const cursor = new Date(`${from}T00:00:00`);
-  const end = new Date(`${to}T00:00:00`);
-  if (Number.isNaN(cursor.getTime()) || Number.isNaN(end.getTime())) return [];
-
-  const days: string[] = [];
-  while (cursor <= end && days.length < MAX_WINDOW_DAYS) {
-    days.push(dayKey(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return days;
-}
-
-/** A whole-day block from `GET /profiles/:id/availability`, inclusive at both ends. */
-interface BlockedRange {
-  startDate: string;
-  endDate: string;
-}
 
 /**
  * Every event, reduced to what the room math needs.
@@ -205,32 +171,62 @@ export function useAvailabilityShare(
     { query: { enabled: Boolean(selected?.profileId) } },
   );
 
-  const availableDateKeys = useMemo(() => {
-    if (!selected) return [];
+  /**
+   * THE FREE NIGHTS — the list on screen, and the same question asked once per room.
+   *
+   * Both in ONE memo, and both through the same `freeDatesFor`: a shared link now names
+   * which rooms are free on each night (`123qy9rpqp0` §2), and the union of those rooms
+   * has to be exactly the list the modal is showing. Computing them together is what
+   * makes that true by construction rather than by two pieces of code agreeing.
+   *
+   * The per-room list is only meaningful for a VENUE. A performer has one schedule, and
+   * "which room" is not a question about them.
+   */
+  const { availableDateKeys, rooms } = useMemo(() => {
+    if (!selected) return { availableDateKeys: [] as string[], rooms: [] as SnapshotRoom[] };
 
-    // Rooms first: the nights this room (or this venue) has already sold.
-    const busy = occupiedDates(
-      { venueProfileId: selected.profileId, room: selected.room },
-      selected.rooms,
-      bookingsFor(selected, events, { confirmed: showConfirmed, held: showHeld }),
-    );
+    const window = {
+      from,
+      to,
+      weekdays: selectedWeekdays,
+      rooms: selected.rooms,
+      bookings: bookingsFor(selected, events, { confirmed: showConfirmed, held: showHeld }),
+      blocked: availability.data?.unavailability ?? [],
+    };
+    const venueProfileId = selected.profileId;
 
-    // Then the profile's own recorded unavailability — "Mark Unavailable", plus
-    // the days taken by entries imported from a connected calendar. These are
-    // NOT a display preference (the two toggles above are about how to treat
-    // SHOWS), and they are venue-wide by construction: `profile_unavailability`
-    // has no room column, and rightly so — a building closed for renovation is
-    // closed in every room of it.
-    const blocked: BlockedRange[] = availability.data?.unavailability ?? [];
-    for (const range of blocked) {
-      for (const day of datesInRange(range.startDate, range.endDate)) busy.add(day);
-    }
+    // Every room this selection speaks for: all of them when the whole venue is chosen,
+    // and just the one when it is not — so a room-scoped link still names its room and
+    // its capacity rather than going silent about where the dates are.
+    const inScope = selected.isVenue
+      ? sources.filter(
+          (source) =>
+            source.profileId === venueProfileId &&
+            source.room !== WHOLE_VENUE &&
+            (selected.room === WHOLE_VENUE || source.room === selected.room),
+        )
+      : [];
 
-    const weekdays = new Set(selectedWeekdays);
-    return datesInRange(from, to)
-      .filter((isoDate) => weekdays.has(mondayFirstWeekday(new Date(`${isoDate}T00:00:00`))))
-      .filter((isoDate) => !busy.has(isoDate));
-  }, [selected, events, availability.data, from, to, selectedWeekdays, showConfirmed, showHeld]);
+    return {
+      availableDateKeys: freeDatesFor({ venueProfileId, room: selected.room }, window),
+      rooms: inScope.map((source) => ({
+        id: source.room,
+        name: source.label,
+        capacity: source.capacity,
+        availableDates: freeDatesFor({ venueProfileId, room: source.room }, window),
+      })),
+    };
+  }, [
+    selected,
+    sources,
+    events,
+    availability.data,
+    from,
+    to,
+    selectedWeekdays,
+    showConfirmed,
+    showHeld,
+  ]);
 
   // "Thu, 28 Aug 2026" — the app's one date format (`lib/format`), weekday first
   // because a free NIGHT is chosen by which day of the week it falls on, and with
@@ -265,8 +261,13 @@ export function useAvailabilityShare(
       confirmedCountsAsBusy: showConfirmed,
       heldCountsAsBusy: showHeld,
       generatedOn: dayKey(new Date()),
+      // WHICH ROOM each free night belongs to. The recipient's question is "can I have
+      // the 12th?", and a venue's honest answer is per room — so the link carries the
+      // rooms it is speaking for, each with the nights IT is free and the capacity that
+      // decides whether the show fits.
+      rooms,
     };
-  }, [selected, from, to, selectedWeekdays, availableDateKeys, showConfirmed, showHeld]);
+  }, [selected, from, to, selectedWeekdays, availableDateKeys, rooms, showConfirmed, showHeld]);
 
   /**
    * The minted link, and NOTHING until it is minted.

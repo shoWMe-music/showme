@@ -63,6 +63,12 @@ export interface CalendarSource {
   profileIsPublic: boolean;
   /** A `stages.id`, or `WHOLE_VENUE` for "any room here" / "my whole schedule". */
   room: RoomId | typeof WHOLE_VENUE;
+  /**
+   * This room's headline capacity, null when none is recorded and on every entry that is
+   * not a room. `GET /profiles/:id/stages` has always returned it; it was dropped on the
+   * way in until a shared link needed to say "Small Room (200 cap)" (`123qy9rpqp0` §2).
+   */
+  capacity: number | null;
   /** Every room of the owning venue — what "the venue is full" is measured against. */
   rooms: RoomId[];
   /** True when the events on this calendar are the ones PLACED AT this profile. */
@@ -101,7 +107,7 @@ function fullLabelFor(profileName: string, roomLabel: string): string {
 /** A venue with no rooms recorded yet is one space, and says so plainly. */
 function calendarsForProfile(
   profile: Profile,
-  rooms: { id: string; name: string }[],
+  rooms: { id: string; name: string; capacity?: number | null }[],
 ): CalendarSource[] {
   const isVenue = isPlaceProfile(profile.kind, profile.type);
   const roomIds = rooms.map((room) => room.id);
@@ -117,6 +123,7 @@ function calendarsForProfile(
         profileSlug: profile.slug ?? null,
         profileIsPublic: profile.isPublic,
         room: WHOLE_VENUE,
+        capacity: null,
         rooms: roomIds,
         isVenue,
       },
@@ -139,6 +146,8 @@ function calendarsForProfile(
       label: WHOLE_VENUE_LABEL,
       fullLabel: fullLabelFor(profile.name, WHOLE_VENUE_LABEL),
       room: WHOLE_VENUE,
+      // The building has no capacity of its own — only its rooms do (migration 0029).
+      capacity: null,
     },
     ...rooms.map((room) => ({
       ...base,
@@ -146,6 +155,7 @@ function calendarsForProfile(
       label: room.name,
       fullLabel: fullLabelFor(profile.name, room.name),
       room: room.id,
+      capacity: room.capacity ?? null,
     })),
   ];
 }
@@ -176,14 +186,14 @@ export function useCalendarSources(): CalendarSourcesView {
     .map(
       (profile, index) =>
         `${profile.id}=${(roomQueries[index]?.data ?? [])
-          .map((room) => `${room.id}/${room.name}`)
+          .map((room) => `${room.id}/${room.name}/${room.capacity ?? ""}`)
           .join(",")}`,
     )
     .join("|");
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the signature above, on purpose.
   const roomsByProfileId = useMemo(() => {
-    const rooms = new Map<string, { id: string; name: string }[]>();
+    const rooms = new Map<string, { id: string; name: string; capacity: number | null }[]>();
     placeProfiles.forEach((profile, index) => {
       rooms.set(profile.id, roomQueries[index]?.data ?? []);
     });

@@ -1749,6 +1749,64 @@ describe("profiles — a shared availability link", () => {
     expect(resolved.json().snapshot.availableDates).toEqual(["2026-12-03", "2026-12-10"]);
   });
 
+  it("carries which rooms are free on which night, all the way to the stranger", async () => {
+    // `123qy9rpqp0` §2: the recipient's question is "can I have the 12th?", and a venue's
+    // answer is per room. The payload is stored as given and served back whole, so this
+    // is the assertion that the room list survives BOTH schemas — a strict response
+    // object at either end would silently drop it and read as a frontend bug.
+    const owner = await seedProfileOwner("avail-rooms", "operator");
+    await harness.db
+      .update(schema.profiles)
+      .set({ isPublic: true })
+      .where(eq(schema.profiles.id, owner.profileId));
+
+    const rooms = [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        name: "Main Room",
+        capacity: 600,
+        availableDates: ["2026-12-03"],
+      },
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        name: "Small Room",
+        capacity: 200,
+        availableDates: ["2026-12-03", "2026-12-10"],
+      },
+    ];
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${owner.profileId}/availability-share`,
+      headers: auth(owner.ownerId),
+      payload: { ...snapshot, rooms },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const resolved = await app.inject({
+      method: "GET",
+      url: `/api/v1/public/availability/${created.json().token}`,
+    });
+    expect(resolved.statusCode).toBe(200);
+    expect(resolved.json().snapshot.rooms).toEqual(rooms);
+  });
+
+  it("refuses a room it could never validate later", async () => {
+    // The id is the one field here the API later ACTS on: a public booking request may
+    // name it, and `placeOfRequest` checks it against the venue. Something that is not a
+    // room id at all is refused at the door rather than stored and believed.
+    const owner = await seedProfileOwner("avail-badroom", "operator");
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${owner.profileId}/availability-share`,
+      headers: auth(owner.ownerId),
+      payload: {
+        ...snapshot,
+        rooms: [{ id: "main-room", name: "Main Room", capacity: null, availableDates: [] }],
+      },
+    });
+    expect(refused.statusCode).toBe(400);
+  });
+
   it("refuses a date the calendar does not contain", async () => {
     // `calendarDate` is shared with the inbound routes for exactly this: a regex alone
     // accepts 30 February, and a bad date reaches Postgres as a 22008 → 500.

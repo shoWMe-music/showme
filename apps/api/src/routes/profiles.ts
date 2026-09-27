@@ -531,6 +531,33 @@ const AvailabilitySnapshotBody = z.object({
   confirmedCountsAsBusy: z.boolean(),
   heldCountsAsBusy: z.boolean(),
   generatedOn: calendarDate,
+  /**
+   * WHICH ROOM each free night belongs to (`123qy9rpqp0` §2) — all of the venue's rooms
+   * when the sharer published the whole building, the single one when they published a
+   * room, and empty for anybody who is not a venue.
+   *
+   * The `id` is a `stages.id` and is the one field here the API later ACTS on: a public
+   * booking request may name it, and `placeOfRequest` (`routes/inbound.ts`) refuses a
+   * room that does not belong to the venue being asked. So it is not taken on trust
+   * because it came back from a link — it is checked at the door it is used at.
+   *
+   * Optional so that a client that has not been redeployed still posts a valid snapshot;
+   * absent reads as "this link says nothing about rooms", which is what every link minted
+   * before today says.
+   */
+  rooms: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        name: z.string().min(1).max(120),
+        capacity: z.number().int().min(0).max(5_000_000).nullable(),
+        availableDates: z.array(calendarDate).max(550),
+      }),
+    )
+    // A venue with more than fifty rooms is a festival site describing itself as a
+    // building; the bound is here for the same reason every other bound on this blob is.
+    .max(50)
+    .optional(),
 });
 
 const ANY_ROLE = ["owner", "admin", "editor", "viewer", "crew"] as const;
