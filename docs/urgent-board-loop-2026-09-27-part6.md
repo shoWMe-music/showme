@@ -156,3 +156,95 @@ Proven live as `operator@`, all three states:
 | Signing in again over that same stale stamp | **stays signed in**, stamp reset to 0 min ago |
 
 Suites: biome 721 · web **356** (15 new) · e2e 112.
+
+## `123qy9rpvfq` — templates beyond `budget`, starting with the one Ran spelled out
+
+**Verdict: real, and bigger than it reads.** Ran asks for three things: *"Templates saving
+are missing from all sections of the event details tab"*, a schedule **"Load default
+template"** with ten named rows, and *"Templates anywhere possible, and offer 'Starting
+point' templates where possible."*
+
+The audit's finding is the shape of it: `template_category` already has eight values
+(`budget, deal, rider, terms, schedule, crew, settlement_overview, settlement_deal`), the
+API stores, lists and gates them (`create_template` entitlement, `templates.manage` audit),
+and **the web app has only ever written `category: "budget"`** — `useBudgetToolbar.ts` is
+the single caller. So this is not a missing mechanism, it is a mechanism with one caller
+out of eight.
+
+**"All sections" is not one unit of work**, so this does the SCHEDULE completely — the one
+section Ran specified down to the row names — and leaves the pattern for the rest. Doing one
+section end to end (starting point, save, load) is worth more than half-doing five.
+
+### Which files settle it
+
+| File | What changes |
+|---|---|
+| `apps/api/src/lib/budget-template-payload.ts` | a `schedule` payload schema — today every non-budget category is waved through unvalidated |
+| `apps/web/src/lib/scheduleTemplate.ts` | **new** — the starting point, and the payload both ways. Pure, tested |
+| `apps/web/src/components/EventScheduleCard.tsx` | the three affordances |
+| `apps/web/src/components/useEventScheduleEditor.ts` | apply many items at once |
+
+### Two decisions, and the reasoning for each
+
+**1. A saved schedule stores TIME OF DAY, not absolute instants and not offsets.** A run of
+show reused on another night is useless as absolute dates, so those are out. Between clock
+times and offsets-from-doors, clock times are what a venue actually has a routine about —
+*"we always open at 19:00"* — and they need no anchor to apply. The payload is therefore
+`{ label, category, time: "HH:MM", dayOffset: 0 | 1 }`.
+
+**`dayOffset` is the part that is not obvious and is not optional.** A 01:00 curfew belongs
+to the day AFTER the show, and a naive `HH:MM` would put it twelve hours before doors on the
+same date — which is exactly the kind of silently-wrong time this card already draws a day
+pill for. Storing the offset keeps a 01:00 curfew at 01:00 on the following morning when the
+template lands on a different night.
+
+**2. The starting point is anchored to the event's OWN times where it has them.** The event
+row already carries `doorTime`, `startTime`, `endTime` and `curfew`, so Doors Open, Show
+Time, End Time and Curfew take the real values rather than invented ones, and only the six
+rows the event knows nothing about (get-in through dinner, closing time) come from offsets.
+A starting point that contradicted the times already on the screen would be worse than none.
+
+*(Reading Ran's list: **"Get it"** is taken as **"Get in"** — the load-in sequence is get in,
+then load in, and "get it" is not a run-of-show row. Noted rather than silently corrected.)*
+
+### Built — the schedule section, end to end
+
+Three affordances on the Event Schedule card, and **no new server surface**:
+`GET`/`POST /profiles/:id/templates`, the `create_template` entitlement and the
+`templates.manage` audit were all already there, carrying one category out of eight.
+
+| | |
+|---|---|
+| **Load starting point** | Ran's ten rows, anchored to the event's own times |
+| **My templates** | lists this profile's `schedule` templates with the row count each will add |
+| **Save as template** | names the run of show on screen and stores it |
+
+**The API now validates `schedule` payloads** — until today every non-budget category was
+waved through, and the loader turns these rows straight into `schedule_items` with no
+second chance to notice a bad shape. `time` must be a 24-hour clock, `dayOffset` is capped
+at 1, and the item list at 60. The other six categories still pass through, asserted as a
+deliberate rule rather than an oversight: **a category earns a schema when a screen starts
+reading it back.**
+
+**Proven live, the whole round trip.** On *Marlo Vance — Album Release* (doors 19:00, show
+20:00, end 23:00, curfew 23:30 in the database), "Load starting point" wrote ten rows:
+
+```
+Get in 14:00 · Load in 14:30 · Line Check 15:30 · Sound Check 16:00 · Dinner 17:30
+Doors Open 19:00 · Show Time 20:00 · End Time 23:00 · Curfew 23:30
+Closing time 01:00  (+1 day pill on the card)
+```
+
+The four the event states came from the event; the six it does not were derived from doors.
+Saved as *"Club night — standard"*, the stored payload is clock times with `dayOffset: 1` on
+Closing time alone — then applied to **Open Mic Wednesdays on 4 October**: every clock time
+held and Closing time landed on **5 Oct 01:00**. The day offset survived the database and a
+different night, which is the one thing a naive `HH:MM` would have lost.
+
+Suites: biome 724 · api **1346** (4 new; `deals` and `off-platform` lost to the
+Testcontainers flake, both green alone) · web **366** (10 new) · e2e 112.
+
+**Also fixed on the way:** `seedUser` in `invitations.test.ts` took `"operator" |
+"performer"` while yesterday's agent-assignment test passes `"agent"` — a type error that a
+green `vitest` run cannot see, because the runner does not typecheck. Every package's
+`tsc --noEmit` is clean now, which is the check that catches it.

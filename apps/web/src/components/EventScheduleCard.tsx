@@ -8,6 +8,7 @@ import {
   type ScheduleItem,
   useEventScheduleEditor,
 } from "./useEventScheduleEditor";
+import { type ScheduleTemplates, useScheduleTemplates } from "./useScheduleTemplates";
 
 const CATEGORY_OPTIONS = [
   { value: "production", label: "Production" },
@@ -20,6 +21,17 @@ export interface EventScheduleCardProps {
   eventDate: string | null;
   /** `event.edit`, the same signal the rest of the tab uses. */
   canEdit: boolean;
+  /**
+   * The times the EVENT states, for the starting-point template
+   * (ClickUp `123qy9rpvfq`). Doors, show, end and curfew are taken from here rather
+   * than invented, so a starting point cannot contradict the header two cards up.
+   */
+  times?: {
+    doorTime: string | null;
+    startTime: string | null;
+    endTime: string | null;
+    curfew: string | null;
+  };
 }
 
 /**
@@ -31,8 +43,15 @@ export interface EventScheduleCardProps {
  * anchored by the event's own timezone; the card never converts them, so a
  * 01:00 curfew stays 01:00 for everyone reading the page.
  */
-export function EventScheduleCard({ eventId, eventDate, canEdit }: EventScheduleCardProps) {
+export function EventScheduleCard({ eventId, eventDate, canEdit, times }: EventScheduleCardProps) {
   const schedule = useEventScheduleEditor(eventId);
+  const templates = useScheduleTemplates(schedule, {
+    eventDate,
+    doorTime: times?.doorTime ?? null,
+    startTime: times?.startTime ?? null,
+    endTime: times?.endTime ?? null,
+    curfew: times?.curfew ?? null,
+  });
 
   return (
     <SectionCard>
@@ -42,6 +61,8 @@ export function EventScheduleCard({ eventId, eventDate, canEdit }: EventSchedule
         title="Event Schedule"
         action={<MonoPill>{schedule.items.length} items</MonoPill>}
       />
+
+      {canEdit && <ScheduleTemplateBar templates={templates} />}
 
       {schedule.isError && (
         <div style={{ color: "var(--dim)", fontSize: 13 }}>Couldn't load the schedule.</div>
@@ -70,6 +91,118 @@ export function EventScheduleCard({ eventId, eventDate, canEdit }: EventSchedule
 
       {canEdit && <AddScheduleRow eventDate={eventDate} onAdd={schedule.add} />}
     </SectionCard>
+  );
+}
+
+/**
+ * THE TEMPLATE ROW — a starting point, a load, and a save (ClickUp `123qy9rpvfq`).
+ *
+ * Three affordances and no menu: Ran asked for a button (*"Schedule 'Load default
+ * template' button missing"*), and a card that already has an Add row underneath does not
+ * need a second overflow menu above it.
+ *
+ * **"Load starting point" disappears rather than disabling** when the event has no date.
+ * There is nothing to hang ten times on, and "give the event a date first" is the date
+ * field's business — a disabled button whose only explanation lives in a tooltip is the
+ * shape this codebase has already fixed twice (see `RidersDocumentsCard`).
+ */
+function ScheduleTemplateBar({ templates }: { templates: ScheduleTemplates }) {
+  const [name, setName] = useState("");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {templates.loadStartingPoint && (
+          <Button
+            variant="ghost"
+            leftIcon={<Icon name="clock" size={14} />}
+            disabled={templates.isApplying}
+            onClick={templates.loadStartingPoint}
+          >
+            {templates.isApplying ? "Adding…" : "Load starting point"}
+          </Button>
+        )}
+        {templates.templates.length > 0 && (
+          <Button
+            variant="ghost"
+            disabled={templates.isApplying}
+            onClick={templates.isPickerOpen ? templates.closePicker : templates.openPicker}
+          >
+            My templates
+          </Button>
+        )}
+        {templates.isNaming ? (
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
+            <TextField
+              label="Template name"
+              value={name}
+              placeholder="e.g. Club night — standard"
+              onChange={(event) => setName(event.target.value)}
+            />
+            <Button
+              variant="primary"
+              disabled={name.trim() === ""}
+              onClick={() => {
+                templates.saveAs(name);
+                setName("");
+              }}
+            >
+              Save
+            </Button>
+            <Button variant="ghost" onClick={templates.cancelNaming}>
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <Button
+            variant="ghost"
+            disabled={templates.saveBlockedReason !== null}
+            title={templates.saveBlockedReason ?? undefined}
+            onClick={templates.startNaming}
+          >
+            Save as template
+          </Button>
+        )}
+      </div>
+
+      {/* The reason, in the card rather than only in a tooltip — a touch device has no
+          hover, and "why is this greyed out" is the question the operator has. */}
+      {!templates.isNaming && templates.saveBlockedReason && (
+        <span style={{ color: "var(--muted)", fontSize: 12 }}>{templates.saveBlockedReason}</span>
+      )}
+
+      {templates.isPickerOpen && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {templates.templates.map((template) => (
+            <button
+              key={template.id}
+              type="button"
+              onClick={template.apply}
+              disabled={templates.isApplying}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                textAlign: "left",
+                background: "var(--elevated)",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+                padding: "9px 12px",
+                color: "var(--text)",
+                fontSize: 13.5,
+                cursor: "pointer",
+              }}
+            >
+              <span>{template.name}</span>
+              {/* What pressing it will do, before it is pressed. A template saved on an
+                  event with no date applies nothing, and saying "0 items" is the honest
+                  version of a button that would look broken. */}
+              <MonoPill>{template.itemCount} items</MonoPill>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

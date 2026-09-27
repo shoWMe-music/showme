@@ -34,6 +34,20 @@ export interface EventScheduleEditor {
   isError: boolean;
   error: unknown;
   add: (item: NewScheduleItem) => void;
+  /**
+   * Insert several rows at once — a starting point or a saved template
+   * (ClickUp `123qy9rpvfq`).
+   *
+   * Sequential, not `Promise.all`: `POST /events/:id/schedule` is one insert per row
+   * and ten parallel writes against the same event is ten chances for the list query to
+   * refetch mid-flight and draw a half-applied run of show. Ten items in a row is fast
+   * and the card shows its saving state throughout.
+   *
+   * It APPENDS. Replacing what is on screen is a different act with a different
+   * consequence (somebody's typed times gone), and nothing in the ticket asks for it —
+   * a template loaded onto a filled schedule is the operator's call to tidy up.
+   */
+  addMany: (items: readonly NewScheduleItem[]) => Promise<void>;
   update: (scheduleItemId: string, change: ScheduleItemChange) => void;
   remove: (scheduleItemId: string) => void;
   isSaving: boolean;
@@ -82,6 +96,22 @@ export function useEventScheduleEditor(eventId: string): EventScheduleEditor {
     [createItem, eventId],
   );
 
+  const addMany = useCallback(
+    async (items: readonly NewScheduleItem[]) => {
+      for (const item of items) {
+        await createItem.mutateAsync({
+          id: eventId,
+          data: {
+            label: item.label,
+            category: item.category,
+            ...(item.localDateTime ? { localDateTime: item.localDateTime } : {}),
+          },
+        });
+      }
+    },
+    [createItem, eventId],
+  );
+
   const update = useCallback(
     (scheduleItemId: string, change: ScheduleItemChange) => {
       updateItem.mutate({ id: eventId, sid: scheduleItemId, data: change });
@@ -102,6 +132,7 @@ export function useEventScheduleEditor(eventId: string): EventScheduleEditor {
     isError: schedule.isError,
     error: schedule.error,
     add,
+    addMany,
     update,
     remove,
     isSaving: createItem.isPending || updateItem.isPending || deleteItem.isPending,

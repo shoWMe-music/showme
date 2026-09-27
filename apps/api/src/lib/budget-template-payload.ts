@@ -16,9 +16,11 @@ import { z } from "zod";
  * (`budget-template.ts`), which is the type half and is dependency-free because
  * `packages/shared` carries no zod. The two must be changed together.
  *
- * Only `budget` is validated here. The other seven categories keep passing
+ * `budget` and `schedule` are validated here. The other six categories keep passing
  * through unchecked — writing schemas for surfaces that have no reader yet would
- * be guessing at shapes nothing produces.
+ * be guessing at shapes nothing produces. `schedule` joined the moment it got a
+ * writer (ClickUp `123qy9rpvfq`), which is the rule: a category gets a schema when
+ * a screen starts reading it back.
  */
 
 /** Minor units as a whole-number string (money.md) — the same spelling of money
@@ -62,6 +64,36 @@ export const BudgetTemplatePayloadSchema = z.object({
 });
 
 /**
+ * A SAVED RUN OF SHOW (ClickUp `123qy9rpvfq`).
+ *
+ * Clock times, not instants and not offsets — the reasoning is in
+ * `apps/web/src/lib/scheduleTemplate.ts`, which is the only writer. What matters here
+ * is that every field a loader will apply is checked, because the loader turns this
+ * into `schedule_items` rows with no second chance to notice a bad shape.
+ *
+ * `dayOffset` is capped at 1 rather than left open. A run of show spills past midnight
+ * — a 01:00 curfew is the day after the show — and it does not spill past the night
+ * after that; an unbounded offset would let a template quietly place an item a week
+ * away, which no screen would explain.
+ */
+const ScheduleTemplateItem = z.object({
+  label: z.string().min(1).max(120),
+  category: z.enum(["production", "crew"]),
+  /** Offset-free wall clock (decisions #10), `HH:MM` on a 24-hour clock. */
+  time: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'time must be a 24-hour wall clock, e.g. "19:30"'),
+  /** 0 = the show day, 1 = after midnight. */
+  dayOffset: z.number().int().min(0).max(1),
+});
+
+export const ScheduleTemplatePayloadSchema = z.object({
+  // Capped because this becomes one INSERT per item on load, and a run of show with
+  // more rows than this is not a run of show.
+  items: z.array(ScheduleTemplateItem).max(60),
+});
+
+/**
  * Validate a template payload for its category, or return the reason it is
  * unusable. A category with no schema is passed through — see the note above.
  *
@@ -72,12 +104,18 @@ export function validateTemplatePayload(
   category: string,
   payload: unknown,
 ): { ok: true; payload: unknown } | { ok: false; message: string } {
-  if (category !== "budget") return { ok: true, payload };
+  const schema =
+    category === "budget"
+      ? BudgetTemplatePayloadSchema
+      : category === "schedule"
+        ? ScheduleTemplatePayloadSchema
+        : null;
+  if (!schema) return { ok: true, payload };
 
-  const parsed = BudgetTemplatePayloadSchema.safeParse(payload);
+  const parsed = schema.safeParse(payload);
   if (parsed.success) return { ok: true, payload: parsed.data };
 
   const [issue] = parsed.error.issues;
   const path = issue?.path.join(".") || "payload";
-  return { ok: false, message: `budget template payload: ${path} — ${issue?.message}` };
+  return { ok: false, message: `${category} template payload: ${path} — ${issue?.message}` };
 }

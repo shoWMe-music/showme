@@ -92,7 +92,13 @@ const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 
 /** A bare provisioned user (no memberships). The display name matters now: the
  * offer a link-holder reads names who invited them, and it reads it off here. */
-async function seedUser(id: string, kind: "operator" | "performer") {
+/**
+ * `agent` is in the union because the agent-assignment suite below seeds one, and
+ * `users.kind` carries all four account kinds — the narrower pair was just what the
+ * first caller happened to need. (It also slipped past a green `vitest` run once: the
+ * runner does not typecheck, so `tsc --noEmit` is the only thing that sees this.)
+ */
+async function seedUser(id: string, kind: "operator" | "performer" | "agent" | "team_and_crew") {
   await harness.db
     .insert(schema.users)
     .values({ id, email: `${id}@example.showme.test`, name: id, kind });

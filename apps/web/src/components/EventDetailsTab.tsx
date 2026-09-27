@@ -174,7 +174,20 @@ export function EventDetailsTab({
       />
       <EventPosterCard event={event} canEdit={canEdit} />
       <RidersDocumentsCard eventId={event.id} riders={riders} />
-      <EventScheduleCard eventId={event.id} eventDate={event.eventDate} canEdit={canEdit} />
+      {/* The four times come from the event the card is already inside, so a starting
+          point agrees with the header rather than inventing its own doors
+          (ClickUp `123qy9rpvfq`). */}
+      <EventScheduleCard
+        eventId={event.id}
+        eventDate={event.eventDate}
+        canEdit={canEdit}
+        times={{
+          doorTime: event.doorTime,
+          startTime: event.startTime,
+          endTime: event.endTime,
+          curfew: event.curfew,
+        }}
+      />
       {canSeeExtras && (
         <GuestListCard
           guestList={extras.guestList ?? {}}

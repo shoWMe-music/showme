@@ -512,6 +512,92 @@ describe("profiles — authorize + serialize + audit", () => {
   });
 
   /**
+   * A SAVED RUN OF SHOW — ClickUp `123qy9rpvfq`.
+   *
+   * `schedule` is the second category the app writes (after `budget`) and therefore the
+   * second to get a payload schema: every other one is still waved through, which is
+   * the rule — a category earns a schema when a screen starts reading it back. The
+   * loader turns these rows into `schedule_items` with no second chance to notice a bad
+   * shape, so the check belongs on the way in.
+   */
+  it("stores a schedule template as clock times, and refuses a broken one", async () => {
+    const { profileId, ownerId } = await seedProfileOwner("tmpl-sched", "operator");
+
+    const stored = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/templates`,
+      headers: auth(ownerId),
+      payload: {
+        category: "schedule",
+        name: "Club night — standard",
+        payload: {
+          items: [
+            { label: "Doors Open", category: "production", time: "19:00", dayOffset: 0 },
+            // The row the design exists for: a 01:00 curfew is the NEXT day, and a
+            // template that lost that would put it thirteen hours before doors.
+            { label: "Curfew", category: "production", time: "01:00", dayOffset: 1 },
+          ],
+        },
+      },
+    });
+    expect(stored.statusCode).toBe(201);
+    expect(stored.json().payload.items).toEqual([
+      { label: "Doors Open", category: "production", time: "19:00", dayOffset: 0 },
+      { label: "Curfew", category: "production", time: "01:00", dayOffset: 1 },
+    ]);
+
+    // A clock that is not a clock. Stored, it would reach the loader and produce an
+    // unparseable `localDateTime`.
+    const badClock = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/templates`,
+      headers: auth(ownerId),
+      payload: {
+        category: "schedule",
+        name: "Broken clock",
+        payload: { items: [{ label: "Doors", category: "production", time: "7pm", dayOffset: 0 }] },
+      },
+    });
+    expect(badClock.statusCode).toBe(400);
+    expect(badClock.json().error.message).toContain("items.0.time");
+
+    // And an offset beyond the night after the show, which no screen would explain.
+    const farOff = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/templates`,
+      headers: auth(ownerId),
+      payload: {
+        category: "schedule",
+        name: "Next week",
+        payload: {
+          items: [{ label: "Doors", category: "production", time: "19:00", dayOffset: 7 }],
+        },
+      },
+    });
+    expect(farOff.statusCode).toBe(400);
+    expect(farOff.json().error.message).toContain("items.0.dayOffset");
+  });
+
+  it("still waves through a category nothing reads back yet", async () => {
+    // Six of the eight have no writer, and inventing schemas for shapes nothing
+    // produces would be guessing. This is that rule, asserted so it is a decision
+    // rather than an oversight.
+    const { profileId, ownerId } = await seedProfileOwner("tmpl-passthrough", "operator");
+    const stored = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${profileId}/templates`,
+      headers: auth(ownerId),
+      payload: {
+        category: "crew",
+        name: "Whatever shape",
+        payload: { anything: ["at", "all"] },
+      },
+    });
+    expect(stored.statusCode).toBe(201);
+    expect(stored.json().payload).toEqual({ anything: ["at", "all"] });
+  });
+
+  /**
    * The old app had a hard rule that performers get NO templates
    * (`firestore.rules:551-556`), and `docs/old-app-analysis-data-model.md` (question
    * 5) could not tell whether the rebuild dropped it on purpose. The owner settled
