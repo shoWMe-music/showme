@@ -1764,6 +1764,95 @@ describe("events — a change to a booked night is a question", () => {
     expect((await eventRow(event.id))?.eventDate).toBe("2026-09-12");
   });
 
+  /**
+   * RENAMING SOMEBODY ELSE'S SHOW IS ALLOWED AND MUST NOT BE SILENT.
+   *
+   * The title is deliberately not a negotiated field — `NEGOTIATED_FIELDS` is the date,
+   * the venue and the room, because those are what a party agreed to, and a confirm
+   * step in front of a rename would make the mechanism hated rather than respected. But
+   * the title is the one identifying fact of the night: it is on the performers'
+   * screens, the public page and every notification. A co-host renamed the seeded show
+   * and the host learned nothing until they happened to reload (QA sweep, 2026-09-27).
+   */
+  it("tells the host when a co-operator renames their show, and says nothing when they rename it themselves", async () => {
+    const { db } = harness;
+    const seeded = await seedEventWithHost("rename");
+    const coHost = await seedMemberWithSet(
+      "rename-co",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    /**
+     * A SECOND MEMBER OF THE HOST PROFILE — and the reason this test needs one.
+     *
+     * `notifyProfileMembers` already skips the actor ("you never notify yourself"), so
+     * a host profile with one member is told nothing about its own rename however the
+     * route is written. Asserting on THAT member would pass with the guard removed,
+     * which is a test incapable of failing on the thing it names. Their colleague is
+     * the one who proves it: without the guard, the host's own team gets a
+     * notification that somebody renamed their show, naming them.
+     */
+    await db
+      .insert(schema.users)
+      .values({ id: "rename-op2", email: "rename-op2@example.showme.test", kind: "operator" });
+    await db.insert(schema.profileMembers).values({
+      profileId: seeded.operator.profileId,
+      userId: "rename-op2",
+      role: "admin",
+      status: "active",
+    });
+    await db.insert(schema.eventParticipants).values({
+      eventId: seeded.event.id,
+      profileId: coHost.profileId,
+      role: "co_host",
+      permissionSetId: coHost.permissionSetId,
+      status: "confirmed",
+    });
+
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.event.id}`,
+      headers: { ...auth("rename-co"), "x-profile-id": coHost.profileId },
+      payload: { title: "Co-host renamed this" },
+    });
+    // Allowed: a co-operator may rename the night they are co-promoting.
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json().title).toBe("Co-host renamed this");
+
+    const toHost = await db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "rename-op"));
+    expect(toHost).toHaveLength(1);
+    expect(toHost[0]?.type).toBe("event.renamed");
+    expect(toHost[0]?.title).toBe('"Roster Night" was renamed');
+    expect(toHost[0]?.body).toBe('It is now "Co-host renamed this".');
+
+    // Their colleague hears about it too — it is their profile's show.
+    const toColleague = await db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "rename-op2"));
+    expect(toColleague).toHaveLength(1);
+
+    // The host profile renaming its OWN show tells its own people nothing: it is not
+    // news to them, and a notification about your own side's act is the fastest way to
+    // teach people to ignore the bell.
+    const byHost = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.event.id}`,
+      headers: { ...auth("rename-op"), "x-profile-id": seeded.operator.profileId },
+      payload: { title: "Back to the host's name" },
+    });
+    expect(byHost.statusCode).toBe(200);
+    expect(
+      await db
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.userId, "rename-op2")),
+    ).toHaveLength(1);
+  });
+
   it("replaces an open proposal rather than stacking a second one", async () => {
     const { event } = await bookedEvent("twice2");
     for (const date of ["2026-09-19", "2026-09-26"]) {

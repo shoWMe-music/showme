@@ -1492,6 +1492,51 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         });
       }
 
+      /**
+       * SOMEBODY ELSE RENAMED THIS SHOW — tell the operator whose show it is.
+       *
+       * The title is not a negotiated field and should not become one:
+       * `NEGOTIATED_FIELDS` is the date, the venue and the room because those are what
+       * a party AGREED TO, and `lib/event-change-requests.ts` says plainly why the
+       * title is not among them — *"putting a confirm step in front of renaming a show
+       * would make the mechanism hated rather than respected"*. A co-operator may
+       * rename the night they are co-promoting.
+       *
+       * What they may not do is rename it INVISIBLY. The title is the one identifying
+       * fact of the event: it is on the performers' screens, on the public page, and in
+       * every notification about the night. A co-host renamed the seeded show through
+       * the API and the host learned nothing until they happened to reload (QA sweep,
+       * 2026-09-27) — the change was in the timeline and nowhere a person would look.
+       *
+       * So: no gate, and no silence. Outside the transaction, like every other
+       * notification here, and best-effort — a delivery failure must never undo an edit
+       * that has already landed.
+       */
+      const renamedByAnother =
+        before.title !== updated.title &&
+        request.principal?.actingProfileId != null &&
+        request.principal.actingProfileId !== before.hostProfileId;
+      if (renamedByAnother) {
+        try {
+          await notifyProfileMembers(
+            database,
+            before.hostProfileId,
+            request.principal?.userId ?? null,
+            {
+              type: "event.renamed",
+              title: `"${before.title}" was renamed`,
+              body: `It is now "${updated.title}".`,
+              eventId: id,
+              actorDisplay: request.firebaseUser?.name ?? undefined,
+              link: `/events/${id}`,
+              metadata: { from: before.title, to: updated.title },
+            },
+          );
+        } catch (error) {
+          request.log.error({ error, eventId: id }, "event-rename notification failed");
+        }
+      }
+
       const imageUrls = await signProfileImageUrls(database, request.server.storageSigner, [
         updated.imageFileId,
       ]);

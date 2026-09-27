@@ -302,6 +302,36 @@ Proven live: the planner banner appears on a settled event, and the Financials s
 names the capture date. Suites: biome 712 · web 328 · e2e 112 (one run failed transiently
 without surfacing a spec name in the capture; two consecutive re-runs were fully green).
 
+**QA-6 — a rename by somebody else reaches the operator whose show it is.**
+
+**Verdict: allowed, and it should not be silent.** The title is deliberately NOT a
+negotiated field: `NEGOTIATED_FIELDS` is the date, the venue and the room because those
+are what a party agreed to, and `lib/event-change-requests.ts` states the reason for
+leaving the title out — *"putting a confirm step in front of renaming a show would make
+the mechanism hated rather than respected"*. Adding it would overturn a recorded decision
+of Ran's, which is not this loop's to take.
+
+What was missing is the other half. The title is the one identifying fact of the night —
+on the performers' screens, the public page, every notification — and a co-host could
+change it with the host learning nothing until they happened to reload. It now notifies
+the host profile's members, outside the transaction and best-effort, like every other
+notification on that route.
+
+**The test needed a second member of the host profile to be worth anything**, and finding
+that out is the useful part: `notifyProfileMembers` already skips the actor, so a
+one-member host profile is told nothing about its own rename **however the route is
+written** — the first version of this test passed with the guard removed. It asserts on
+the host's COLLEAGUE now, who is the only person the guard actually protects.
+Mutation-checked both ways: never notifying turns it red, and notifying on the host's own
+rename turns it red.
+
+Suites: biome 712 · api 1308 (2 new).
+
+**Left as an open question, for Ran:** whether a co-operator should be able to rename at
+all. The alternative is a capability narrowing (`event.rename` held by the host alone),
+which is a product decision rather than a defect — and the notice above is what makes the
+current answer honest either way.
+
 **Left as an open question rather than silently skipped:** events created *during the
 regression window* (between `f996c14` and this commit) still carry both books, and
 migration `0046` cannot heal them — its guard is "the event has no shared ledger yet". If
