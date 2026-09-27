@@ -47,6 +47,7 @@ import {
 import { notifyPublicationChanged } from "../lib/event-publication";
 import { advanceEventStatus } from "../lib/event-status-ladder";
 import { resolveEventTimezone } from "../lib/event-timezone";
+import { placeHoldInQueue, touchesHoldQueue } from "../lib/hold-queue";
 import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
 import { withIdempotency } from "../plugins/idempotency";
 import { serializeDealUnredacted } from "../serialize/deal";
@@ -1552,6 +1553,20 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
            */
           if (after.status === "cancelled" && before.status !== "cancelled") {
             await closeChangeRequestsOnCancel(tx, id);
+          }
+
+          /*
+           * A HOLD JOINING A QUEUE TAKES A NUMBER — QA sweep run 5 (QA5-4).
+           *
+           * A hold placed against a typed venue NAME is in no queue (the pool is keyed
+           * on the venue PROFILE), so its own placement writes no rank; attaching the
+           * venue here dropped it into a queue that already had a 1st, and `?? 1` then
+           * read two holds as first with no screen able to break the tie. In the same
+           * transaction as the edit that moved it, because a queue with two firsts in it
+           * is the state this prevents. Details in `lib/hold-queue.ts`.
+           */
+          if (touchesHoldQueue(changed)) {
+            await placeHoldInQueue(tx, after);
           }
 
           const statusChanged = changed.includes("status");

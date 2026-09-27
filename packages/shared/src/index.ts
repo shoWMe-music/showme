@@ -79,6 +79,7 @@ export {
   computeRankShift,
   type HoldRankUpdate,
   type HoldSibling,
+  rankForHoldJoiningQueue,
 } from "./holds";
 export {
   CURRENCIES,

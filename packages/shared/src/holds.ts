@@ -161,6 +161,48 @@ export function computeDeclinePromotion(args: {
 }
 
 /**
+ * THE RANK A HOLD NEEDS WHEN IT JOINS A QUEUE THAT ALREADY HAS SOMEBODY IN IT —
+ * or `null` when nothing should be written (QA sweep run 5, QA5-4).
+ *
+ * `hold_rank` is nullable and every reader treats NULL as rank 1, which is right
+ * for a LONE hold — the only pencil on a night is the first one, and writing a 1
+ * would file a "hold.ranked" line for a move nobody made. It stops being right the
+ * moment a second hold shares the queue: two NULLs, or a NULL beside a real 1, and
+ * the pool shows a tie for first that no screen can break, because "Promote to 1st"
+ * is disabled on anything already reading 1st.
+ *
+ * Measured: a hold placed with a typed venue NAME (no profile) is invisible to the
+ * pool, so its own placement sees no competitors and writes no rank; attaching the
+ * venue afterwards puts it in a queue that already had a 1st, and the pool came back
+ * `[1, 1, 2]`.
+ *
+ * AT THE BACK, and only this hold's own row is written. The back is where the
+ * placement wizard already puts a new hold (its rank select defaults to the last
+ * option), and it is the honest answer for a pencil that has been in no queue until
+ * now: it never held a position, it was being *displayed* as first by a fallback.
+ * Touching nobody else also keeps this out of the authorization question the rank
+ * cascade has to answer — a queue spans operators, and one operator's authority
+ * stops at their own row.
+ */
+export function rankForHoldJoiningQueue(args: {
+  /** The joining hold's stored rank — NULL is "never ranked". */
+  holdRank: number | null;
+  /** The OTHER holds already in the queue. Empty means there is no queue to join. */
+  siblings: HoldSibling[];
+}): number | null {
+  const { holdRank, siblings } = args;
+  // Already ranked: its position is somebody's decision, and this is not the
+  // function that changes decisions.
+  if (holdRank !== null) return null;
+  if (siblings.length === 0) return null;
+  const lastRank = siblings.reduce(
+    (deepest, sibling) => Math.max(deepest, sibling.holdRank || 1),
+    0,
+  );
+  return lastRank + 1;
+}
+
+/**
  * The holds that should be cancelled when one hold is confirmed — currently
  * every sibling but the target (the caller pre-filters the target out). Kept a
  * named function so policy changes (e.g. keep auto-off holds as standby) live in

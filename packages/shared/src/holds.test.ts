@@ -4,6 +4,7 @@ import {
   competingHoldIds,
   computeDeclinePromotion,
   computeRankShift,
+  rankForHoldJoiningQueue,
 } from "./holds";
 
 /** Sort updates by id so tests don't depend on iteration order. */
@@ -196,5 +197,65 @@ describe("competingHoldIds", () => {
 
   it("returns an empty array for empty input", () => {
     expect(competingHoldIds({ siblings: [] })).toEqual([]);
+  });
+});
+
+/**
+ * THE TIE THAT NO SCREEN COULD BREAK (QA sweep run 5, QA5-4).
+ *
+ * A hold placed against a typed venue name is in no queue, so its placement writes
+ * no rank; attaching the venue afterwards drops it into a queue that already has a
+ * first. `holdRank ?? 1` then reads two holds as 1st, and "Promote to 1st" is
+ * disabled on both because each already believes it is there.
+ */
+describe("rankForHoldJoiningQueue", () => {
+  it("puts an unranked hold at the back of the queue it just joined", () => {
+    expect(
+      rankForHoldJoiningQueue({
+        holdRank: null,
+        siblings: [
+          { id: "nordic", holdRank: 1 },
+          { id: "second", holdRank: 2 },
+        ],
+      }),
+    ).toBe(3);
+  });
+
+  it("writes nothing for a lone hold — NULL is the first hold, by design", () => {
+    // Writing a 1 here would file a rank change for a move nobody made, and every
+    // reader already answers 1 for NULL.
+    expect(rankForHoldJoiningQueue({ holdRank: null, siblings: [] })).toBeNull();
+  });
+
+  it("leaves a hold that already has a rank alone", () => {
+    // Its position is somebody's decision. Re-deriving it here would undo a
+    // promotion the moment the venue or the date was edited for any other reason.
+    expect(
+      rankForHoldJoiningQueue({ holdRank: 1, siblings: [{ id: "other", holdRank: 2 }] }),
+    ).toBeNull();
+    expect(
+      rankForHoldJoiningQueue({ holdRank: 3, siblings: [{ id: "other", holdRank: 1 }] }),
+    ).toBeNull();
+  });
+
+  it("counts a sibling's own NULL rank as the 1st it is displayed as", () => {
+    // The existing lone hold keeps NULL; the joiner must land behind it, not on it.
+    expect(
+      rankForHoldJoiningQueue({
+        holdRank: null,
+        siblings: [{ id: "lone", holdRank: 0 as unknown as number }],
+      }),
+    ).toBe(2);
+  });
+
+  it("is idempotent — feeding its own answer back writes nothing", () => {
+    const first = rankForHoldJoiningQueue({
+      holdRank: null,
+      siblings: [{ id: "nordic", holdRank: 1 }],
+    });
+    expect(first).toBe(2);
+    expect(
+      rankForHoldJoiningQueue({ holdRank: first, siblings: [{ id: "nordic", holdRank: 1 }] }),
+    ).toBeNull();
   });
 });
