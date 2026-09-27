@@ -14,4 +14,5 @@ export type GetApiV1EventsIdSettlements200SettlementsItemComputedLinesItem = {
   bonus?: string;
   escalatorApplied?: boolean;
   commissionCharged?: string;
+  partyBasisPoints?: number;
 };

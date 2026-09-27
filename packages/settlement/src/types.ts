@@ -270,6 +270,19 @@ export interface EntitlementLine {
   escalatorApplied?: boolean;
   /** Disclosed commissions charged against this party's own portion. */
   commissionCharged?: bigint;
+  /**
+   * THIS PARTY'S SHARE OF THE DEAL, in basis points — 6000 for the 60 side of a
+   * 60/40 — and absent on a deal with a single payee, where the party and the deal
+   * are the same thing.
+   *
+   * It is not the same number as `basis.basisPoints`, and conflating them is a
+   * reported bug rather than a hypothetical: `basis` describes the DEAL's rule
+   * ("100% of the adjusted net"), and every payee on a shared split carried it
+   * verbatim, so a 60/40 bill told both acts they were getting 100% of the same
+   * SEK 50,000 while paying them SEK 30,000 and SEK 20,000 (QA sweep, 2026-09-27).
+   * The amounts were right; the sentence over them named the wrong percentage.
+   */
+  partyBasisPoints?: number;
 }
 
 /**

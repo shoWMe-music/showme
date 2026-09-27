@@ -7577,6 +7577,9 @@
                                 },
                                 "commissionCharged": {
                                   "type": "string"
+                                },
+                                "partyBasisPoints": {
+                                  "type": "number"
                                 }
                               },
                               "required": ["dealId", "dealTotal", "amount", "basis"],
@@ -8223,6 +8226,9 @@
                                     },
                                     "commissionCharged": {
                                       "type": "string"
+                                    },
+                                    "partyBasisPoints": {
+                                      "type": "number"
                                     }
                                   },
                                   "required": ["dealId", "dealTotal", "amount", "basis"],
@@ -8679,6 +8685,9 @@
                               },
                               "commissionCharged": {
                                 "type": "string"
+                              },
+                              "partyBasisPoints": {
+                                "type": "number"
                               }
                             },
                             "required": ["dealId", "dealTotal", "amount", "basis"],

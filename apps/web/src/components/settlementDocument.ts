@@ -246,7 +246,18 @@ export function entitlementRules(
           // identical sentence ending in the SAME total, which reads as each of them
           // being paid it. The number belongs to the agreement; the line beside it is
           // what this party takes out of it.
-          `${describeBasis(line.basis, currency)} — your share of the deal's ${formatMoney(line.dealTotal, currency)}`
+          //
+          // And the party's OWN percentage when the engine recorded one. `describeBasis`
+          // names the DEAL's rule — "100% of the adjusted net" — so without this both
+          // acts on a 60/40 were told they got 100% of the same SEK 50,000 while being
+          // paid 30,000 and 20,000 (QA sweep, 2026-09-27). A settlement snapshotted
+          // before the engine carried it says "your share" as it always did, which is
+          // true and vague rather than precise and wrong.
+          `${describeBasis(line.basis, currency)} — ${
+            line.partyBasisPoints != null
+              ? `your ${basisPointsToPercent(line.partyBasisPoints)}% of`
+              : "your share of"
+          } the deal's ${formatMoney(line.dealTotal, currency)}`
         : describeBasis(line.basis, currency),
       value: formatAmount(line.amount),
     });

@@ -107,6 +107,10 @@ const EntitlementLineResponse = z.object({
   bonus: z.string().optional(),
   escalatorApplied: z.boolean().optional(),
   commissionCharged: z.string().optional(),
+  /** This party's share OF THE DEAL, in basis points — absent on a single-payee deal.
+   * Declared here or the response serializer drops it, which is the failure that reads
+   * exactly like a frontend bug (CLAUDE.md, `details.perGuest`). */
+  partyBasisPoints: z.number().optional(),
 });
 
 /**

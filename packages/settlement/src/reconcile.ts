@@ -112,6 +112,12 @@ export function reconcile(input: SettlementInput): SettlementResult {
       return share != null ? BigInt(share) : 1n;
     });
     const portions = allocate(total, weights);
+    // What each payee's weight IS, as a percentage of the deal — the number the
+    // screen needs to say "your 60% of the deal's 50 000" instead of repeating the
+    // deal's own rule under every party. Computed from the same weights `allocate`
+    // divided by, so it can never describe a different split from the one that paid.
+    const weightTotal = weights.reduce((sum, weight) => sum + weight, 0n);
+    const shared = deal.payeeParticipantIds.length > 1 && weightTotal > 0n;
     deal.payeeParticipantIds.forEach((payee, index) => {
       // Commissions are charged per ENTITLED LINE (`commissions.ts`), so each
       // payee on a split deal carries only the commission on its own portion.
@@ -130,6 +136,13 @@ export function reconcile(input: SettlementInput): SettlementResult {
         ...(settled.bonus > 0n ? { bonus: settled.bonus } : {}),
         ...(settled.escalatorApplied ? { escalatorApplied: true } : {}),
         ...(charged > 0n ? { commissionCharged: charged } : {}),
+        ...(shared
+          ? {
+              partyBasisPoints: Number(
+                ((weights[index] ?? 0n) * 10000n + weightTotal / 2n) / weightTotal,
+              ),
+            }
+          : {}),
       });
       for (const charge of charges) {
         // A commission credited to somebody who is not a participant on this event

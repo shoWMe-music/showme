@@ -141,7 +141,11 @@ test("the Overview names each collaborator, their role and the rule behind their
 
   await expect(page.getByText("Marlo Vance").first()).toBeVisible();
   await expect(page.getByText("Performer").first()).toBeVisible();
-  await expect(page.getByText(/your share of/).first()).toBeVisible();
+  // "your 60% of the deal's …" — the party's OWN percentage since 2026-09-27, where
+  // this used to read a bare "your share of" on both acts of a 60/40 while the
+  // sentence in front of it named the DEAL's 100%. Matching the percentage rather
+  // than the words is what makes this fail if that regresses.
+  await expect(page.getByText(/your \d+% of the deal's/).first()).toBeVisible();
 });
 
 /**

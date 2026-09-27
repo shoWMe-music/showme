@@ -63,6 +63,8 @@ export interface SerializedEntitlementLine {
   bonus?: string;
   escalatorApplied?: boolean;
   commissionCharged?: string;
+  /** This party's share OF THE DEAL, in basis points. Absent on a single-payee deal. */
+  partyBasisPoints?: number;
 }
 
 /**
@@ -200,6 +202,7 @@ function serializeLine(line: EntitlementLine): SerializedEntitlementLine {
     ...(line.commissionCharged != null
       ? { commissionCharged: line.commissionCharged.toString() }
       : {}),
+    ...(line.partyBasisPoints != null ? { partyBasisPoints: line.partyBasisPoints } : {}),
   };
 }
 

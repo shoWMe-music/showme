@@ -14,4 +14,5 @@ export type PatchApiV1EventsIdSettlementsSid200ComputedLinesItem = {
   bonus?: string;
   escalatorApplied?: boolean;
   commissionCharged?: string;
+  partyBasisPoints?: number;
 };

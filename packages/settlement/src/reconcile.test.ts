@@ -659,6 +659,70 @@ describe("reconcile — a loss falls on the operator, and the floor is what puts
     assertBalanced(result);
   });
 
+  it("records each payee's own share of the deal, not the deal's rule", () => {
+    /**
+     * The bug this pins (QA sweep, 2026-09-27): every payee's line carried the DEAL's
+     * basis — "100% of the adjusted net SEK 50,000" — so a 60/40 bill told both acts
+     * they were getting 100% of the same figure while paying them 30,000 and 20,000.
+     * The money was right and the sentence over it named the wrong percentage.
+     */
+    const result = reconcile({
+      baseCurrency: "EUR",
+      participants: [
+        { participantId: "P", isOperator: true },
+        { participantId: "B" },
+        { participantId: "B2" },
+      ],
+      deals: [
+        {
+          dealId: "door",
+          structure: "door_split",
+          payeeParticipantIds: ["B", "B2"],
+          splitBasisPoints: 10000,
+          partyShares: { B: 6000, B2: 4000 },
+        },
+      ],
+      budgetLines: [
+        { kind: "revenue", revenueKind: "ticket", amount: eur(5000), collectedBy: "P" },
+      ],
+    });
+
+    const lineFor = (participantId: string) =>
+      result.breakdowns.find((party) => party.participantId === participantId)?.lines?.[0];
+
+    // The deal's rule is the same on both lines, because it is the deal's.
+    expect(lineFor("B")?.basis).toMatchObject({ kind: "door_split", basisPoints: 10000 });
+    expect(lineFor("B2")?.basis).toMatchObject({ kind: "door_split", basisPoints: 10000 });
+    // What differs is the share each one took out of it.
+    expect(lineFor("B")?.partyBasisPoints).toBe(6000);
+    expect(lineFor("B2")?.partyBasisPoints).toBe(4000);
+    expect(lineFor("B")?.amount).toBe(eur(3000));
+    expect(lineFor("B2")?.amount).toBe(eur(2000));
+    assertBalanced(result);
+  });
+
+  it("says nothing about a party's share when the deal has one payee", () => {
+    // There is no split to describe, and "your 100% of the deal" is noise over a line
+    // that already says what the deal pays.
+    const result = reconcile({
+      baseCurrency: "EUR",
+      participants: [{ participantId: "P", isOperator: true }, { participantId: "B" }],
+      deals: [
+        {
+          dealId: "door",
+          structure: "door_split",
+          payeeParticipantIds: ["B"],
+          splitBasisPoints: 5000,
+        },
+      ],
+      budgetLines: [
+        { kind: "revenue", revenueKind: "ticket", amount: eur(5000), collectedBy: "P" },
+      ],
+    });
+    const line = result.breakdowns.find((party) => party.participantId === "B")?.lines?.[0];
+    expect(line?.partyBasisPoints).toBeUndefined();
+  });
+
   it("lets a deductible eat into a floored share, and past it into the negative", () => {
     // The floor stops the SPLIT going negative; it does not stop the party's
     // position going negative afterwards. A hotel the operator fronted on the

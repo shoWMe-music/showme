@@ -243,6 +243,32 @@ tier and typing `50` reads **50**, clicking into PRICE and typing `250` reads **
 the row stores `{"max":50,"price":250}` where the sweep measured `{"max":500}`. Suites:
 biome 712 · web 326 · e2e 112.
 
+**QA-4 — a settled figure explains itself with the PARTY's percentage, not the deal's.**
+The money was never wrong: Σ = 50,000, Σ net = 0, Marlo 30,000 and Neon Tide 20,000. The
+sentence over each was. Every payee's line carried `settled.basis` verbatim — which
+describes the DEAL's rule, *"100% of the adjusted net SEK 50,000"* — so a 60/40 bill told
+both acts they were getting 100% of the same figure.
+
+The fix is to carry what the line was always missing rather than to reword around it:
+`EntitlementLine.partyBasisPoints`, computed in `reconcile` **from the same weights
+`allocate()` divided by**, so the percentage can never describe a different split from the
+one that paid. Absent on a single-payee deal, where the party and the deal are the same
+thing. It threads through four layers — engine type, `snapshot`, the API's
+`EntitlementLineResponse` (declared, or Fastify strips it), and the sentence.
+
+**A settlement finalized before today says "your share of" as it always did** — true and
+vague rather than precise and wrong. A finalized settlement is a legal record and is not
+rewritten to gain a field.
+
+Proven live on the seeded 60/40: *"100% of the adjusted net SEK 50,000 — **your 60%** of
+the deal's SEK 50,000"* over SEK 30,000, and **your 40%** over SEK 20,000.
+
+**One e2e spec caught the change and was right to** — `settlement-overview.spec.ts` pinned
+the literal words "your share of". It now asserts `/your \d+% of the deal's/`, which is the
+property worth pinning: the sentence names A PERCENTAGE THAT IS THE PARTY'S, and it fails
+if that regresses to the deal's. Suites: biome 712 · settlement 64 (2 new) · web 328
+(2 new) · api 1307 (`profiles.test.ts` re-run alone after the port flake) · e2e 112.
+
 **Left as an open question rather than silently skipped:** events created *during the
 regression window* (between `f996c14` and this commit) still carry both books, and
 migration `0046` cannot heal them — its guard is "the event has no shared ledger yet". If

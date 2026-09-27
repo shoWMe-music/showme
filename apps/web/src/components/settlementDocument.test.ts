@@ -97,6 +97,60 @@ describe("entitlementRules", () => {
     expect(keys.indexOf("collected")).toBeLessThan(keys.indexOf("deductibles"));
   });
 
+  it("names the party's OWN percentage on a shared split", () => {
+    // QA sweep, 2026-09-27: both acts on a 60/40 read "100% of the adjusted net
+    // SEK 50,000 — your share of the deal's SEK 50,000" over payouts of 30,000 and
+    // 20,000. Every number in that sentence belonged to the deal.
+    const rules = entitlementRules(
+      {
+        entitlement: "3000000",
+        collected: "0",
+        deductibles: "0",
+        lines: [
+          {
+            dealId: "door",
+            dealTotal: "5000000",
+            amount: "3000000",
+            basis: { kind: "door_split", basisPoints: 10000, base: "5000000" },
+            partyBasisPoints: 6000,
+          },
+        ],
+      } as never,
+      "SEK",
+      money,
+    );
+
+    const deal = rules.find((rule) => rule.key === "deal-door");
+    expect(deal?.label).toContain("your 60% of the deal's");
+    // The deal's own rule still reads as the deal's.
+    expect(deal?.label).toContain("100% of the adjusted net");
+  });
+
+  it("falls back to 'your share' on a settlement stored before the split was recorded", () => {
+    // A finalized settlement is a legal record and is never rewritten, so the sentence
+    // has to stay true when the number is simply not there: vague, not wrong.
+    const rules = entitlementRules(
+      {
+        entitlement: "3000000",
+        collected: "0",
+        deductibles: "0",
+        lines: [
+          {
+            dealId: "door",
+            dealTotal: "5000000",
+            amount: "3000000",
+            basis: { kind: "door_split", basisPoints: 10000, base: "5000000" },
+          },
+        ],
+      } as never,
+      "SEK",
+      money,
+    );
+    expect(rules.find((rule) => rule.key === "deal-door")?.label).toContain(
+      "your share of the deal's",
+    );
+  });
+
   it("says nothing about collected cash when there is none", () => {
     const rules = entitlementRules(
       { entitlement: "3000000", collected: "0", deductibles: "0", lines: [] } as never,

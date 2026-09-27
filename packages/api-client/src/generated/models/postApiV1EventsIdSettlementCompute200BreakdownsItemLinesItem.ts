@@ -14,4 +14,5 @@ export type PostApiV1EventsIdSettlementCompute200BreakdownsItemLinesItem = {
   bonus?: string;
   escalatorApplied?: boolean;
   commissionCharged?: string;
+  partyBasisPoints?: number;
 };
