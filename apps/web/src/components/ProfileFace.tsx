@@ -1,4 +1,4 @@
-import { Avatar, type AvatarTone } from "@showme/design-system";
+import { Avatar, type AvatarShape, type AvatarTone } from "@showme/design-system";
 import { publicProfileUrl } from "../lib/publicSite";
 
 export interface ProfileFaceProps {
@@ -8,6 +8,16 @@ export interface ProfileFaceProps {
   name: string;
   tone?: AvatarTone;
   size?: number;
+  /**
+   * Passed straight to `Avatar`, and the LINK follows it.
+   *
+   * It exists because the two rosters this was rolled out to (`86cbcn1je`) draw
+   * SQUARE faces, and a component that silently circled them would have changed the
+   * design to add a link. The wrapper used to hardcode a 50% radius, which would
+   * have clipped a square avatar into a circle from the outside — so the radius is
+   * computed the same way `Avatar` computes it rather than assumed.
+   */
+  shape?: AvatarShape;
 }
 
 /** Someone's picture, and a way to reach them.
@@ -26,7 +36,14 @@ export interface ProfileFaceProps {
  * Never use this inside an already-clickable row — a link within a link is not a
  * thing. Where the row itself opens something, draw the bare `Avatar`.
  */
-export function ProfileFace({ avatarUrl, publicSlug, name, tone, size = 40 }: ProfileFaceProps) {
+export function ProfileFace({
+  avatarUrl,
+  publicSlug,
+  name,
+  tone,
+  size = 40,
+  shape = "circle",
+}: ProfileFaceProps) {
   const face = (
     <Avatar
       src={avatarUrl ?? undefined}
@@ -34,6 +51,7 @@ export function ProfileFace({ avatarUrl, publicSlug, name, tone, size = 40 }: Pr
       initials={initialsOf(name)}
       tone={tone}
       size={size}
+      shape={shape}
     />
   );
   if (!publicSlug) return face;
@@ -43,7 +61,13 @@ export function ProfileFace({ avatarUrl, publicSlug, name, tone, size = 40 }: Pr
       target="_blank"
       rel="noreferrer"
       aria-label={`${name} — public profile`}
-      style={{ display: "inline-flex", borderRadius: "50%", flexShrink: 0 }}
+      // The same radius `Avatar` gives itself for this shape, so the focus ring and
+      // the hit area follow the picture instead of a circle around a square.
+      style={{
+        display: "inline-flex",
+        borderRadius: shape === "circle" ? "50%" : Math.round(size * 0.27),
+        flexShrink: 0,
+      }}
     >
       {face}
     </a>

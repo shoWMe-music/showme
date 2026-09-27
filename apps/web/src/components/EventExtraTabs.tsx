@@ -222,6 +222,13 @@ export interface CrewMember {
   /** The crew member's profile picture, straight off the roster. Nullable: an
    * off-platform hand added by name has no profile behind them. */
   avatarUrl: string | null;
+  /**
+   * Their public profile slug, when they have a published page (`86cbcn1je`). Null
+   * for an unpublished profile and for an off-platform hand added by name — the
+   * serializer decides, and `ProfileFace` then draws a face with no door rather than
+   * a link onto a 404.
+   */
+  publicSlug: string | null;
   role: string;
 }
 

@@ -267,6 +267,7 @@ export function EventDetail() {
         name,
         initials: initials(name),
         avatarUrl: party.avatarUrl,
+        publicSlug: party.publicSlug,
         role: eventParticipantRoleLabel(party.role),
       };
     });

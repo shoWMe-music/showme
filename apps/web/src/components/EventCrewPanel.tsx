@@ -1,7 +1,8 @@
-import { Avatar, Icon, Modal, STATUS_COLOR, TextField } from "@showme/design-system";
+import { Icon, Modal, STATUS_COLOR, TextField } from "@showme/design-system";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import type { CrewMember } from "./EventExtraTabs";
+import { ProfileFace } from "./ProfileFace";
 import { VenueNotesField } from "./VenueNotesField";
 import { Eyebrow, GradientButton, OutlineButton, SectionCard } from "./eventUi";
 import { EMPTY_IN_HOUSE, useEventCrewPanel } from "./useEventCrewPanel";
@@ -126,10 +127,13 @@ export function EventCrewPanel({
                     borderTop: index === 0 ? "none" : "1px solid var(--border)",
                   }}
                 >
-                  <Avatar
-                    src={member.avatarUrl ?? undefined}
-                    alt=""
-                    initials={member.initials}
+                  {/* A door where there is a page behind it (`86cbcn1je`). The row
+                      is a plain div — the crew list has its own menu button, so the
+                      row itself was never a click target. */}
+                  <ProfileFace
+                    avatarUrl={member.avatarUrl}
+                    publicSlug={member.publicSlug}
+                    name={member.name}
                     tone="blue"
                     shape="square"
                     size={32}
@@ -349,10 +353,10 @@ function InHouseCrewCard({
   return (
     <SectionCard>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-        <Avatar
-          src={member.avatarUrl ?? undefined}
-          alt=""
-          initials={member.initials}
+        <ProfileFace
+          avatarUrl={member.avatarUrl}
+          publicSlug={member.publicSlug}
+          name={member.name}
           tone="blue"
           shape="square"
           size={32}

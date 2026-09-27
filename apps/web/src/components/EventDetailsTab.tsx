@@ -1,5 +1,5 @@
 import { getGetApiV1EventsIdQueryKey, usePatchApiV1EventsId } from "@showme/api-client";
-import { Avatar, Button, Icon, Select, TextField, useToast } from "@showme/design-system";
+import { Button, Icon, Select, TextField, useToast } from "@showme/design-system";
 import { type GuestListEntry, guestListProblem } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -8,6 +8,7 @@ import { errorMessage } from "../lib/errors";
 import { formatMoney } from "../lib/format";
 import { EventInlineInformation } from "./EventInlineInformation";
 import { EventScheduleCard } from "./EventScheduleCard";
+import { ProfileFace } from "./ProfileFace";
 import { ProfileImageField } from "./ProfileImageField";
 import { ProfileNameMenu } from "./ProfileNameMenu";
 import { RidersDocumentsCard } from "./RidersDocumentsCard";
@@ -257,13 +258,23 @@ function EventInformationCard({
                 padding: "13px 16px",
               }}
             >
-              <Avatar
-                src={performer.avatarUrl ?? undefined}
-                alt=""
-                initials={performer.initials}
+              {/* The face is a door too, not only the name beside it
+                  (`86cbcn1je`: "Profile avatars across the platform show images but
+                  still don't link to the public profile pages"). Same slug the name's
+                  menu uses, so the two cannot disagree about whether there is a page —
+                  and `ProfileFace` draws a plain avatar when there is none, which is
+                  every unpublished act and every off-platform hand.
+
+                  Safe here, where it is not in `Events.tsx`: this row is a plain div.
+                  The list row is a click target and a link inside it would be a link
+                  within a link. */}
+              <ProfileFace
+                avatarUrl={performer.avatarUrl}
+                publicSlug={performer.slug}
+                name={performer.name}
                 tone="brand"
-                shape="square"
                 size={34}
+                shape="square"
               />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
