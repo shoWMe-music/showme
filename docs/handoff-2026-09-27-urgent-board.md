@@ -18,10 +18,12 @@ One standing instruction: work `docs/clickup-urgent-audit-2026-09-27.md` and
 running stack, run the suites, commit naming the ticket, and spin the QA agent after each
 cluster.
 
-**57 commits.** The day's reasoning is in `docs/urgent-board-loop-2026-09-27.md` and its
-`-part2` … `-part7` continuations, one entry per ticket: the verdict, the file that settled
+**60 commits.** The day's reasoning is in `docs/urgent-board-loop-2026-09-27.md` and its
+`-part2` … `-part8` continuations, one entry per ticket: the verdict, the file that settled
 it, the decision it hid, and how it was proven. Two QA sweeps:
-`docs/qa-sweep-2026-09-27-run4.md` and `-run5.md`.
+`docs/qa-sweep-2026-09-27-run4.md` and `-run5.md`, with a third running when this was
+written. **The last three commits are past midnight, so they are 2026-09-28 work** — the
+docs keep the 27th's numbering because it is one continuous session.
 
 ## The through-line, and it is the same as 2026-09-04
 
@@ -50,9 +52,18 @@ response schema never declared it (`capabilities` on the events list was the fou
   ladder in `packages/settlement` with its entry UI (`123qy9rnwud` / `123qy9rp8k3`).
 - **Every actionable major from QA sweep run 4** — including two defects in work this loop
   had shipped hours earlier.
+- **Every actionable major from QA sweep run 5**, in three commits (`-part7`, `-part8`):
+  a cancelled show no longer asks anyone to accept it and closes the change requests still
+  open on it (**QA5-2**); the bell says who made the change (**QA5-5**); an operator's
+  "Total payable" stops dropping a co-host paid only by transfer, and the entitlement-gap
+  sentence stops blaming a cause that is not the cause (**QA5-1**); a hold that gets its
+  venue attached after placement joins the queue at the back instead of tying, unbreakably,
+  for first (**QA5-4**). **QA5-3** is a decision, recorded in §25.6 rather than built.
+  One of run 5's four majors — QA5-4's "no venue picker" — **did not reproduce**; the
+  correction is in `-part8`.
 
-Suites at the last commit: **biome 727 clean · api 1356 · auth 30 · db 25 · web 368 ·
-e2e 112**. The API's full run habitually loses 1–4 files to a Testcontainers port-bind
+Suites at the last commit: **biome 729 clean · api 1366 · shared 293 · auth 30 · db 25 ·
+web 376 · e2e 112**, and `tsc --noEmit` clean in all seven packages. The API's full run habitually loses 1–4 files to a Testcontainers port-bind
 flake with zero failed tests; each was re-run alone and passed.
 
 ---
@@ -63,7 +74,7 @@ flake with zero failed tests; each was re-run alone and passed.
 
 | | The question |
 |---|---|
-| **QA4-2** | A co-host can rename **and cancel** the host's show. `event-delete.ts` says *"the show is not theirs to end"*, and the date move is already protected by a change request — but blocking a co-promoter from calling off a night they co-produce has a real cost, and the proper fix is a cancel *request*, which is a feature. **Recommendation: require the host profile, mirroring delete.** |
+| **QA4-2 / QA5-3** | A co-host can rename **and cancel** the host's show. `event-delete.ts` says *"the show is not theirs to end"*, and the date move is already protected by a change request — but blocking a co-promoter from calling off a night they co-produce has a real cost, and the proper fix is a cancel *request*, which is a feature. **Recommendation: require the host profile, mirroring delete.** |
 | **Auto logout** | The timeout is stored **per device** (`localStorage`) and the settings row says so. Account-wide would be a migration and a policy `decisions.md` does not rule on. Moving it server-side later changes one storage line. |
 | **House documents** | An operator-attached rider is now visible to every party — a widening of decisions #12, justified by the share dialog's own promise and by Ran naming *"Rules of Behavior"*. Worth a line in `decisions.md` so it stops being an inference. |
 | **"From your calendar"** | The one side-panel card `86cbcn189` asks to remove that was kept: it is not a read-out, it carries the only two controls an imported entry has. Deleting it deletes two features. |
@@ -85,8 +96,9 @@ and the **agreement PDF** (`86cbcn1f8`).
 
 ### 4. The sweeps' minors
 
-Eleven from run 4 (QA4-10 … QA4-20), each with its route and account in the report, plus
-whatever run 5 returns. None blocks a journey.
+Eleven from run 4 (QA4-10 … QA4-20) and nine from run 5 (QA5-6 … QA5-14), each with its
+route and account in its report; several run-5 entries are run-4 minors re-confirmed rather
+than new. None blocks a journey. **This is the largest single thing still open.**
 
 ### 5. The owed session
 
@@ -94,6 +106,24 @@ whatever run 5 returns. None blocks a journey.
 call: the naming has been changed three times from written notes and each was wrong.
 
 ---
+
+## Two ways a MUTATION check lied, both measured after midnight
+
+Mutation testing is this session's standard for "the test can fail on this line", and it
+mis-answered twice in the QA5 work. Both are the same shape as `CLAUDE.md`'s green-suite
+warning, one level down.
+
+- **A first-match replace can mutate the wrong occurrence.** Two attempts to delete the
+  `status = pending` filter from `closeChangeRequestsOnCancel` reported green; the string also
+  occurs twenty lines earlier in `proposeEventChange`, and that is where the edit landed.
+  **Anchor the replacement on surrounding lines and assert the match count is 1.**
+- **A mutation survives when every test happens to satisfy the clause another way.** Seven
+  survivors across the two fixes, each a filter that looked covered: the "from me" test had
+  the payee invisible as well, so the *other* filter refused it; four queue-key clauses were
+  satisfied by every fixture using one venue, one room and one date. **A test that passes
+  because the case never varies is not covering the line.** The best of them:
+  `status = "on_hold"` in the hold-queue key needed a **cancelled** hold that kept its rank,
+  because the confirm cascade writes `cancelled` and leaves `hold_rank` where it was.
 
 ## What cost time today, so it does not cost it again
 

@@ -1,5 +1,10 @@
 # Urgent board loop — 2026-09-27, part 8
 
+**The clock has passed midnight — the work in this part was done in the small hours of
+2026-09-28.** The filename keeps the 27th because the series, the audit it works from and the
+sweeps it answers all belong to that session; a new date on the file would split one
+continuous piece of work across two days of docs. Anything dated here is stated absolutely.
+
 Continues `-part7.md`. Same standing instruction; same rules — plan in this doc before
 building, prove it on the running stack, run the suites, commit naming the ticket. Nothing
 deployed, nothing written to ClickUp.
