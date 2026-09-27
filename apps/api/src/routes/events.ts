@@ -1,6 +1,6 @@
 import { PERFORMING_EVENT_ROLES, PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
-import { notifyProfileMembers } from "@showme/db/notify";
+import { eventParticipantRecipients, notifyProfileMembers, notifyUsers } from "@showme/db/notify";
 import {
   type Capability,
   type DealDraft,
@@ -601,6 +601,26 @@ const UpdateEventBody = z.object({
   extras: EventExtrasSchema.nullable().optional(),
   ...EventImageFields,
   timezone: z.string().optional(),
+  /**
+   * WHY THE SHOW IS OFF — read only when this PATCH moves `status` to
+   * `cancelled`, and ignored otherwise (decisions #25.3: *"Cancel first (with a
+   * reason, sent to the collaborators)"*).
+   *
+   * Optional here and REQUIRED BY THE DIALOG. Its whole purpose is to be sent, so
+   * the screen keeps its confirm button disabled while it is blank
+   * (`components/EventCancelModal.tsx`, the rule `DealReopenModal` already
+   * follows). But the API must not refuse a cancellation for want of prose: a
+   * called-off night is a fact about the world, and a 400 here would leave the
+   * event standing as live on everybody's calendar. So a cancel with no reason
+   * still cancels and still notifies — it just has nothing to explain itself with.
+   *
+   * It is NOT a column and NOT an `extras` leaf. It is written into the
+   * `event.status_changed` activity summary, which `components/eventHistory.ts`
+   * already renders as "Reason: …", and which is immutable and access-filtered.
+   * `extras` is client-supplied wholesale on every PATCH, so a stamp there would
+   * be both forgeable and losable on the next save.
+   */
+  cancellationReason: z.string().trim().max(2000).optional(),
   /** Expected version for optimistic locking (decisions #8); mismatch → 409. */
   expectedVersion: z.number().int().optional(),
 });
@@ -1322,7 +1342,15 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
       const [before] = await database.select().from(schema.events).where(eq(schema.events.id, id));
       if (!before) throw notFound("Event not found");
 
-      const { expectedVersion, timezone: bodyTimezone, ...fields } = request.body;
+      // `cancellationReason` is pulled OUT of `fields`: `fields` is spread straight
+      // into the `events` update below, and there is no such column — it is a
+      // sentence about a transition, not a property of the event.
+      const {
+        expectedVersion,
+        timezone: bodyTimezone,
+        cancellationReason,
+        ...fields
+      } = request.body;
 
       // Entitlement gate (decisions #4/§C, PLAN.md:613): moving an event INTO the
       // counted set (confirmed|concluded) consumes the free-tier event cap — every
@@ -1492,7 +1520,21 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
             targetKind: "event",
             targetId: id,
             summary: statusChanged
-              ? { from: before.status, to: after.status, fields: changed }
+              ? {
+                  from: before.status,
+                  to: after.status,
+                  fields: changed,
+                  // WHY THE NIGHT IS OFF, kept where it cannot be edited or lost
+                  // (decisions #25.3). `components/eventHistory.ts` already prints any
+                  // summary `reason` as "Reason: …", so the Event History tab shows it
+                  // with no change of its own. Only on the cancel — a reason sent with
+                  // any other transition is a field the writer misused, and recording
+                  // it as the explanation for, say, a confirmation would be worse than
+                  // dropping it.
+                  ...(after.status === "cancelled" && cancellationReason
+                    ? { reason: cancellationReason }
+                    : {}),
+                }
               : { fields: changed },
           });
         }
@@ -1542,6 +1584,51 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
        * notification here, and best-effort — a delivery failure must never undo an edit
        * that has already landed.
        */
+      /**
+       * THE SHOW IS OFF — tell everybody who was on it (decisions #25.3).
+       *
+       * A cancellation was, until now, a silent status move: it wrote a timeline row
+       * and nothing else. The performer holding the date, the agent who placed them
+       * and the crew booked for the load-in all kept a live show on their calendar
+       * until they next opened the event — and #25.3 leans on this notification
+       * specifically, because it is what lets the delete ladder give way on the
+       * other-party clause. **Cancelling is the notification.**
+       *
+       * Hung off the TRANSITION rather than a `POST /events/:id/cancel`, because
+       * `PATCH { status: "cancelled" }` already exists and is not going to stop
+       * existing: a second route would mean two ways to cancel a show and only one of
+       * them speaking. `before.status` is read from the row this request loaded, so a
+       * PATCH that re-sends `cancelled` on an already-cancelled show says nothing.
+       *
+       * Everyone on the bill minus the actor (`eventParticipantRecipients`) — not
+       * `notifyProfileMembers(host)`, which would tell the operator's own colleagues
+       * and nobody else. Best-effort and outside the transaction, like every other
+       * notification here.
+       */
+      const nowCancelled = before.status !== "cancelled" && updated.status === "cancelled";
+      if (nowCancelled) {
+        try {
+          const actorUserId = request.principal?.userId ?? null;
+          const recipients = await eventParticipantRecipients(database, id, actorUserId);
+          await notifyUsers(database, recipients, actorUserId, {
+            type: "event.cancelled",
+            title: `"${updated.title}" was cancelled`,
+            // The reason IS the body when there is one. A cancellation with no
+            // explanation still has to be delivered, so it says so rather than
+            // arriving as an empty line — the reader then knows to go and ask.
+            body: cancellationReason
+              ? cancellationReason
+              : "No reason was given. The show is off — ask the operator if you need to know why.",
+            eventId: id,
+            actorDisplay: request.firebaseUser?.name ?? undefined,
+            link: `/events/${id}`,
+            metadata: { from: before.status, reason: cancellationReason ?? null },
+          });
+        } catch (error) {
+          request.log.error({ error, eventId: id }, "event-cancelled notification failed");
+        }
+      }
+
       const renamedByAnother =
         before.title !== updated.title &&
         request.principal?.actingProfileId != null &&

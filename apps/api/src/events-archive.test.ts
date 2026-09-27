@@ -884,7 +884,7 @@ describe("DELETE /events/:id — only while it is nobody's record but yours", ()
     expect(response.json().error.message).toContain("invoice");
   });
 
-  it("refuses an event that has not been archived — delete lives in the archive", async () => {
+  it("refuses an event that is neither cancelled nor archived — delete is never the first step", async () => {
     const host = await seedMemberWithSet(
       "del-live-op",
       "operator",
@@ -899,7 +899,9 @@ describe("DELETE /events/:id — only while it is nobody's record but yours", ()
       payload: { expectedVersion: 1 },
     });
     expect(response.statusCode).toBe(409);
-    expect(response.json().error.message).toContain("Archive");
+    // Both rungs are named, because since #25.3 there are two: cancelling (which
+    // tells the bill) and archiving (which is reversible from its own toast).
+    expect(response.json().error.message).toContain("Cancel or archive");
     expect(
       await harness.db.select().from(schema.events).where(eq(schema.events.id, event.id)),
     ).toHaveLength(1);
@@ -946,5 +948,312 @@ describe("DELETE /events/:id — only while it is nobody's record but yours", ()
       payload: { expectedVersion: 1 },
     });
     expect(hostAttempt.statusCode).toBe(409);
+  });
+});
+
+/**
+ * Ran's ladder — `decisions.md` #25.3, ClickUp `123qy9rpdup`.
+ *
+ * The line is MONEY, not status: on a cancelled show the other-party and
+ * signed-agreement clauses give way, because cancelling is the notification; the
+ * settlement and invoice clauses do not, because no notice makes up for money.
+ */
+describe("DELETE /events/:id — the cancel-then-delete ladder (#25.3)", () => {
+  /** A cancelled show with a performer standing on it. Not archived by anyone. */
+  async function cancelledSharedEvent(prefix: string) {
+    const host = await seedMemberWithSet(
+      `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const act = await seedMemberWithSet(
+      `${prefix}-act`,
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const event = await seedHostedEvent(`${prefix} night`, host, { status: "cancelled" });
+    await addParticipant(event.id, act);
+    return { host, act, event };
+  }
+
+  it("deletes a cancelled show that somebody else is on, and tells them", async () => {
+    const { db } = harness;
+    const { host, act, event } = await cancelledSharedEvent("ladder-shared");
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(
+      await db.select().from(schema.events).where(eq(schema.events.id, event.id)),
+    ).toHaveLength(0);
+
+    // The performer whose show it was is told — and the notification SURVIVES,
+    // which is the whole reason it carries no `event_id`: that column cascades
+    // from `events`, so an announcement naming the deleted event would be swept
+    // away by the delete it announces.
+    const bell = await db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, act.userId));
+    expect(bell).toHaveLength(1);
+    expect(bell[0]?.type).toBe("event.deleted");
+    expect(bell[0]?.title).toContain("ladder-shared night");
+    expect(bell[0]?.eventId).toBeNull();
+    expect(bell[0]?.link).toBeNull();
+  });
+
+  it("deletes a cancelled show carrying a CONFIRMED agreement", async () => {
+    const { db } = harness;
+    const { host, event } = await cancelledSharedEvent("ladder-signed");
+    await db.insert(schema.deals).values({
+      eventId: event.id,
+      type: "performance",
+      structure: "guarantee",
+      name: "Signed terms",
+      agreementStatus: "confirmed",
+      createdBy: host.userId,
+    });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(
+      await db.select().from(schema.deals).where(eq(schema.deals.eventId, event.id)),
+    ).toHaveLength(0);
+  });
+
+  it("needs no archive first — the cancel IS the reversible, visible step", async () => {
+    const host = await seedMemberWithSet(
+      "ladder-live-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Called off", host, { status: "cancelled" });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("still refuses a cancelled show that has a settlement — money does not give way", async () => {
+    const { db } = harness;
+    const { host, event } = await cancelledSharedEvent("ladder-settled");
+    const [participant] = await db
+      .select()
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, event.id),
+          eq(schema.eventParticipants.profileId, host.profileId),
+        ),
+      );
+    if (!participant) throw new Error("participant seed failed");
+    await db
+      .insert(schema.settlements)
+      .values({ eventId: event.id, participantId: participant.id });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.message).toContain("settlement");
+    expect(
+      await db.select().from(schema.events).where(eq(schema.events.id, event.id)),
+    ).toHaveLength(1);
+  });
+
+  it("still refuses a cancelled show that has been invoiced", async () => {
+    const { db } = harness;
+    const { host, event } = await cancelledSharedEvent("ladder-invoiced");
+    await db.insert(schema.invoices).values({
+      eventId: event.id,
+      ownerProfileId: host.profileId,
+      direction: "issued",
+      number: "INV-CANCELLED-1",
+      currency: "SEK",
+    });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.message).toContain("invoice");
+  });
+
+  it("refuses a co-host on a cancelled show — whose show it is never gives way", async () => {
+    const { host, act, event } = await cancelledSharedEvent("ladder-cohost");
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(act.userId, act.profileId),
+    });
+    // A performer holds no `event.delete` at all, so this is the capability
+    // refusing before the ladder is even consulted — which is the order it should
+    // happen in. The host's own delete is proven above.
+    expect([403, 404]).toContain(response.statusCode);
+    expect(
+      await harness.db.select().from(schema.events).where(eq(schema.events.id, event.id)),
+    ).toHaveLength(1);
+    expect(host.profileId).not.toBe(act.profileId);
+  });
+});
+
+/**
+ * Cancelling with a reason — `PATCH { status: "cancelled", cancellationReason }`.
+ *
+ * #25.3 asks for the reason to be *sent to the collaborators*, and the delete
+ * ladder above leans on that notification existing. So the two things worth
+ * pinning are that everybody on the bill hears, and that the reason is recorded
+ * where it cannot be edited away.
+ */
+describe("cancelling a show tells the bill why (#25.3)", () => {
+  it("notifies every other party with the reason, and writes it into the timeline", async () => {
+    const { db } = harness;
+    const host = await seedMemberWithSet(
+      "cancel-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const act = await seedMemberWithSet(
+      "cancel-act",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const event = await seedHostedEvent("Cancel me", host, { status: "confirmed" });
+    await addParticipant(event.id, act);
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+      payload: { status: "cancelled", cancellationReason: "The room flooded" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().status).toBe("cancelled");
+
+    const bell = await db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, act.userId));
+    expect(bell).toHaveLength(1);
+    expect(bell[0]?.type).toBe("event.cancelled");
+    expect(bell[0]?.title).toContain("Cancel me");
+    expect(bell[0]?.body).toBe("The room flooded");
+
+    // The timeline keeps it too — `components/eventHistory.ts` renders any summary
+    // `reason` as "Reason: …", so this is the History tab's copy of the answer.
+    const [activity] = await db
+      .select()
+      .from(schema.activityLog)
+      .where(
+        and(
+          eq(schema.activityLog.eventId, event.id),
+          eq(schema.activityLog.type, "event.status_changed"),
+        ),
+      );
+    expect((activity?.summary as { reason?: string } | null)?.reason).toBe("The room flooded");
+  });
+
+  it("cancels and notifies even with no reason given, saying so", async () => {
+    const { db } = harness;
+    const host = await seedMemberWithSet(
+      "cancel-mute-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const act = await seedMemberWithSet(
+      "cancel-mute-act",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const event = await seedHostedEvent("Silent cancel", host, { status: "confirmed" });
+    await addParticipant(event.id, act);
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+      payload: { status: "cancelled" },
+    });
+    expect(response.statusCode).toBe(200);
+
+    const bell = await db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, act.userId));
+    expect(bell).toHaveLength(1);
+    expect(bell[0]?.body).toContain("No reason was given");
+  });
+
+  it("says nothing on a PATCH that re-sends the status it already had", async () => {
+    const { db } = harness;
+    const host = await seedMemberWithSet(
+      "cancel-twice-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const act = await seedMemberWithSet(
+      "cancel-twice-act",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const event = await seedHostedEvent("Already off", host, { status: "cancelled" });
+    await addParticipant(event.id, act);
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+      payload: { status: "cancelled", cancellationReason: "Saying it again" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(
+      await db
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.userId, act.userId)),
+    ).toHaveLength(0);
+  });
+
+  it("does not record a reason as the explanation for any OTHER transition", async () => {
+    const { db } = harness;
+    const host = await seedMemberWithSet(
+      "cancel-wrong-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Confirm me", host, { status: "pending" });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: actingAs(host.userId, host.profileId),
+      payload: { status: "confirmed", cancellationReason: "Misused field" },
+    });
+    expect(response.statusCode).toBe(200);
+
+    const [activity] = await db
+      .select()
+      .from(schema.activityLog)
+      .where(
+        and(
+          eq(schema.activityLog.eventId, event.id),
+          eq(schema.activityLog.type, "event.status_changed"),
+        ),
+      );
+    expect((activity?.summary as { reason?: string } | null)?.reason).toBeUndefined();
   });
 });

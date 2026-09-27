@@ -57,5 +57,7 @@ export type PatchApiV1EventsIdBody = {
    */
   imageUrl?: string | null;
   timezone?: string;
+  /** @maxLength 2000 */
+  cancellationReason?: string;
   expectedVersion?: number;
 };

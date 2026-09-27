@@ -1,10 +1,11 @@
 import { useGetApiV1ProfilesIdStages } from "@showme/api-client";
 import { Icon, StatusDot, TextField } from "@showme/design-system";
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useDateConflicts } from "../hooks/useDateConflicts";
 import { formatDay } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 import { CountryTag } from "./CountryTag";
+import { EventCancelModal } from "./EventCancelModal";
 import { EventInlineDateChoice, EventInlineOptionChoice } from "./EventInlineChoice";
 import {
   EVENT_INLINE_CONTROL_BOX,
@@ -131,6 +132,12 @@ export function EventInlineInformation({
   canEdit,
 }: EventInlineInformationProps) {
   const inline = useEventInlineFields(event);
+  /**
+   * The sentence the other parties will read, held here for the same reason
+   * `EventAgreementTab` holds the reopen reason: the dialog is a controlled
+   * component and the hook owns writes, not drafts.
+   */
+  const [cancelReason, setCancelReason] = useState("");
 
   /**
    * The venue's rooms — for the PICKER, not for the label. The event now carries
@@ -522,6 +529,27 @@ export function EventInlineInformation({
           disabled={inline.conflict !== null}
         />
       )}
+
+      {/* Choosing "Cancelled" in the Status row lands here rather than saving
+          (decisions #25.3): it is the one status move that writes to other
+          people's feeds, so it asks for the sentence they will read. Closing the
+          dialog leaves the status exactly as it was. */}
+      <EventCancelModal
+        open={inline.awaitingCancelReason}
+        eventTitle={inline.values.title}
+        otherParties={null}
+        reason={cancelReason}
+        onReasonChange={setCancelReason}
+        onClose={() => {
+          inline.abandonCancellation();
+          setCancelReason("");
+        }}
+        onConfirm={() => {
+          inline.confirmCancellation(cancelReason);
+          setCancelReason("");
+        }}
+        pending={inline.isSaving}
+      />
     </>
   );
 }

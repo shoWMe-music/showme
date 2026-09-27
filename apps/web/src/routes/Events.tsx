@@ -11,15 +11,16 @@ import { useNavigate } from "@tanstack/react-router";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CountryTag } from "../components/CountryTag";
 import { DateText } from "../components/DateText";
+import { EventCancelModal } from "../components/EventCancelModal";
 import { EventInvitationsCard } from "../components/EventInvitationsCard";
 import { type EventMenuItem, EventRowMenu, rowClickTargetStyle } from "../components/EventRowMenu";
 import { GradientButton } from "../components/eventUi";
 import ledgerTable from "../components/ledgerTable.module.css";
 import { initialsOf, settlementStatusToDisplay } from "../components/settlementDocument";
 import { ErrorState, LoadMore, LoadingState } from "../components/states";
-import { useEventArchive } from "../hooks/useEventArchive";
 import { useEventInvitations } from "../hooks/useEventInvitations";
 import { type EventFilterKey, type EventItem, useEventList } from "../hooks/useEventList";
+import { useEventRowActions } from "../hooks/useEventRowActions";
 import { useEventsViewMotion } from "../hooks/useEventsViewMotion";
 import { useNewEvent } from "../shell/NewEventProvider";
 import styles from "./Events.module.css";
@@ -97,10 +98,10 @@ export function Events() {
     loadMore,
   } = useEventList();
   const rows = items;
-  // Filing an event away, from either view. The hook owns the calls, the toast
-  // (with its Undo) and the cache invalidation; the rows below just draw what it
-  // says the menu offers.
-  const { menuItems, confirmDialogProps } = useEventArchive();
+  // The row menu, from either view: cancel, archive, unarchive, delete. The hook
+  // owns the calls, the toasts (with Undo on the reversible one), the two dialogs
+  // and the cache invalidation; the rows below just draw what it says is offered.
+  const { menuItems, confirmDialogProps, cancelModalProps } = useEventRowActions();
   // Invitations the caller has not answered. These are NOT in `rows` — an
   // unanswered participation grants no capabilities, so the events list cannot
   // see them (86cbcehmp). The card above the list is the only place they exist.
@@ -239,9 +240,10 @@ export function Events() {
           </TabPanels>
         </div>
       )}
-      {/* One dialog for the whole screen — the row menu raises it, `useEventArchive`
-          holds the question, and both layouts share it. */}
+      {/* Two dialogs for the whole screen — the row menu raises them,
+          `useEventRowActions` holds the questions, and both layouts share them. */}
       <ConfirmDialog {...confirmDialogProps} />
+      <EventCancelModal {...cancelModalProps} />
     </div>
   );
 }
@@ -481,11 +483,16 @@ function HeadlinePerformer({ name, avatarUrl }: { name: string | null; avatarUrl
 }
 
 /** What both views need: the rows, where a click goes, and what the row's
- * overflow menu offers for one event (built once by `useEventArchive`). */
+ * overflow menu offers for one event (built once by `useEventRowActions`). */
 interface EventViewProps {
   rows: EventItem[];
   onOpen: (eventId: string) => void;
-  menuItems: (event: { id: string; title: string; archived?: boolean }) => EventMenuItem[];
+  menuItems: (event: {
+    id: string;
+    title: string;
+    status?: string;
+    archived?: boolean;
+  }) => EventMenuItem[];
 }
 
 /** The List view — a bordered card with a mono header row and one grid row per

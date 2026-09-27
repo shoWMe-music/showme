@@ -1,6 +1,7 @@
 import {
   deleteApiV1EventsId,
   getGetApiV1EventsQueryKey,
+  patchApiV1EventsId,
   postApiV1EventsIdArchive,
   postApiV1EventsIdUnarchive,
 } from "@showme/api-client";
@@ -9,11 +10,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import type { ConfirmDialogProps } from "../components/ConfirmDialog";
 import { useConfirmDialog } from "../components/ConfirmDialog";
+import type { EventCancelModalProps } from "../components/EventCancelModal";
 import type { EventMenuItem } from "../components/EventRowMenu";
 import { errorMessage } from "../lib/errors";
 
 /**
- * Filing an event away, and taking it back out.
+ * What an event's own overflow menu does: file it away, take it back out, call it
+ * off, destroy it.
+ *
+ * Named for the MENU rather than for archiving, because since `decisions.md` #25.3
+ * the four are one ladder and the menu is where the rungs are chosen. Archiving
+ * used to be the whole file; it is now the least consequential thing here.
  *
  * Archiving is NOT a status (see `apps/api/src/routes/events.ts`): the event's
  * `status` says where the booking got to, archiving says whether the acting
@@ -45,7 +52,19 @@ import { errorMessage } from "../lib/errors";
  * signed agreement, somebody else on the bill — and the refusal names which one,
  * which is more use than a menu that silently lacks the option.
  */
-export interface EventArchiveActions {
+/**
+ * CANCELLING, and why it sits in this hook rather than beside the status field.
+ *
+ * `decisions.md` #25.3 makes cancel-then-delete one sequence: a cancelled show may
+ * be deleted even with another party on the bill and a signed agreement on it,
+ * because cancelling is what told them. Holding both in one place is what lets the
+ * menu offer the second rung only once the first has happened — and keeps the two
+ * sentences ("the bill is told why" / "this cannot be undone") from drifting apart.
+ *
+ * The reason is REQUIRED by the dialog and optional at the API, which is deliberate
+ * and explained in `components/EventCancelModal.tsx`.
+ */
+export interface EventRowActions {
   /** File it away. `title` only names it in the toast. */
   archive: (eventId: string, title: string) => void;
   /** Put it back. */
@@ -64,10 +83,20 @@ export interface EventArchiveActions {
    * menu, and a row that says "Archive" while the API would unarchive it is the
    * bug this closes by construction.
    */
-  menuItems: (event: { id: string; title: string; archived?: boolean }) => EventMenuItem[];
+  menuItems: (event: {
+    id: string;
+    title: string;
+    status?: string;
+    archived?: boolean;
+  }) => EventMenuItem[];
+  /**
+   * The cancel dialog this hook raises. The screen renders
+   * `<EventCancelModal {...cancelModalProps} />` once, beside the ConfirmDialog.
+   */
+  cancelModalProps: EventCancelModalProps;
 }
 
-export function useEventArchive(): EventArchiveActions {
+export function useEventRowActions(): EventRowActions {
   const queryClient = useQueryClient();
   const toast = useToast();
   const confirmation = useConfirmDialog();
@@ -146,6 +175,45 @@ export function useEventArchive(): EventArchiveActions {
     [refreshEventLists, toast],
   );
 
+  /**
+   * CALL THE SHOW OFF — `PATCH { status: "cancelled", cancellationReason }`.
+   *
+   * One patch, and no `expectedVersion`: the operator is acting on a fact about the
+   * night, not on a field somebody else might have edited, and a lost lock here
+   * would refuse a cancellation for a title change. The API notifies every other
+   * party (decisions #25.3) — this hook does not, and must not, decide who hears.
+   */
+  const cancelShow = useCallback(
+    async (eventId: string, title: string, reason: string) => {
+      setPendingEventId(eventId);
+      try {
+        await patchApiV1EventsId(eventId, { status: "cancelled", cancellationReason: reason });
+        refreshEventLists();
+        // What the operator most needs to know is that it was not silent.
+        toast.success(`"${title}" is cancelled — everyone on the bill has been told why.`);
+      } catch (error) {
+        toast.error(errorMessage(error, `Couldn't cancel "${title}".`));
+      } finally {
+        setPendingEventId(null);
+      }
+    },
+    [refreshEventLists, toast],
+  );
+
+  /** The show the cancel dialog is asking about, and the reason typed into it. */
+  const [cancelling, setCancelling] = useState<{ id: string; title: string } | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+
+  const closeCancel = useCallback(() => {
+    setCancelling(null);
+    setCancelReason("");
+  }, []);
+
+  const askToCancel = useCallback((eventId: string, title: string) => {
+    setCancelReason("");
+    setCancelling({ id: eventId, title });
+  }, []);
+
   const askToDelete = useCallback(
     (eventId: string, title: string) => {
       confirmation.ask({
@@ -154,11 +222,18 @@ export function useEventArchive(): EventArchiveActions {
           <>
             <p style={{ margin: "0 0 10px" }}>
               <strong>{title}</strong> and everything on it — its deals, its budget, its riders, its
-              schedule and its messages — are removed for good. This cannot be undone.
+              schedule and its messages — are removed for good, for everyone who was on it. This
+              cannot be undone.
             </p>
+            {/* This paragraph used to say that anybody else on the bill, or a signed
+                agreement, would stop the delete. Since decisions #25.3 neither does on
+                a CANCELLED show — cancelling is what told them — so saying so would
+                promise a refusal the server no longer makes. What does still refuse is
+                money, and that is the half worth reading. */}
             <p style={{ margin: 0 }}>
-              If anyone else is on the bill, or the show has a signed agreement, a settlement or an
-              invoice, it stays where it is: leave it archived instead.
+              Anyone else still on the bill is told the show was deleted. A show with a settlement
+              or an invoice cannot be deleted at all — those are financial records, and it stays
+              archived instead.
             </p>
           </>
         ),
@@ -170,41 +245,88 @@ export function useEventArchive(): EventArchiveActions {
     [confirmation, remove],
   );
 
+  /**
+   * THE MENU, in the order of the ladder: cancel, file away, destroy.
+   *
+   * Two rules decide what appears, and both mirror the server so the menu cannot
+   * promise what `lib/event-delete.ts` would refuse:
+   *
+   *  - **Cancel** is offered on any show that is not already cancelled. Not
+   *    narrowed by status beyond that: `EVENT_STATUS_OPTIONS` is explicit that any
+   *    status may be chosen in any direction, and a menu that refused to cancel a
+   *    concluded show would be a rule this app does not have.
+   *  - **Delete** is offered once the show is cancelled OR archived — the server's
+   *    clause 6 exactly. It stays OFFERED rather than hidden when other clauses
+   *    might refuse it, because the refusal names which one, and a menu that
+   *    silently lacks the entry teaches nobody anything.
+   */
   const menuItems = useCallback(
-    (event: { id: string; title: string; archived?: boolean }): EventMenuItem[] => {
+    (event: {
+      id: string;
+      title: string;
+      status?: string;
+      archived?: boolean;
+    }): EventMenuItem[] => {
       const inFlight = pendingEventId === event.id;
+      const cancelled = event.status === "cancelled";
+      const working = inFlight ? "Working on it…" : undefined;
+
+      const cancelEntry: EventMenuItem[] = cancelled
+        ? []
+        : [
+            {
+              key: "cancel",
+              label: "Cancel show…",
+              onSelect: inFlight ? undefined : () => askToCancel(event.id, event.title),
+              refusal: working,
+              hint: inFlight
+                ? undefined
+                : "Marks it cancelled and tells everyone on the bill why. Nothing is deleted.",
+            },
+          ];
+
+      const deleteEntry: EventMenuItem[] =
+        cancelled || event.archived
+          ? [
+              {
+                key: "delete",
+                label: "Delete permanently…",
+                onSelect: inFlight ? undefined : () => askToDelete(event.id, event.title),
+                refusal: working,
+                hint: inFlight
+                  ? undefined
+                  : "Removes the show and everything on it, for everyone. Refused once it has a settlement or an invoice.",
+              },
+            ]
+          : [];
+
       if (event.archived) {
         return [
           {
             key: "unarchive",
             label: "Unarchive",
             onSelect: inFlight ? undefined : () => void unarchive(event.id, event.title),
-            refusal: inFlight ? "Working on it…" : undefined,
+            refusal: working,
           },
-          {
-            key: "delete",
-            label: "Delete permanently…",
-            onSelect: inFlight ? undefined : () => askToDelete(event.id, event.title),
-            refusal: inFlight ? "Working on it…" : undefined,
-            hint: inFlight
-              ? undefined
-              : "Removes the show and everything on it, for everyone. Only possible while nobody else is on it.",
-          },
+          ...cancelEntry,
+          ...deleteEntry,
         ];
       }
       return [
+        ...cancelEntry,
         {
           key: "archive",
           label: "Archive",
           onSelect: inFlight ? undefined : () => void archive(event.id, event.title),
-          refusal: inFlight ? "Working on it…" : undefined,
+          refusal: working,
           // Said out loud, because "archive" reads as "delete" to plenty of
           // people, and this one deletes nothing and is nobody else's business.
           hint: inFlight ? undefined : "Hides it from your lists. Nobody else is affected.",
         },
+        ...deleteEntry,
       ];
     },
-    [archive, unarchive, askToDelete, pendingEventId],
+    [archive, unarchive, askToCancel, askToDelete, pendingEventId],
   );
 
   return {
@@ -213,5 +335,20 @@ export function useEventArchive(): EventArchiveActions {
     confirmDialogProps: confirmation.dialogProps,
     pendingEventId,
     menuItems,
+    cancelModalProps: {
+      open: cancelling !== null,
+      eventTitle: cancelling?.title ?? "",
+      // The list row does not carry a roster count, and inventing one would be
+      // worse than the general sentence the dialog falls back to.
+      otherParties: null,
+      reason: cancelReason,
+      onReasonChange: setCancelReason,
+      onClose: closeCancel,
+      onConfirm: () => {
+        if (cancelling) void cancelShow(cancelling.id, cancelling.title, cancelReason.trim());
+        closeCancel();
+      },
+      pending: cancelling !== null && pendingEventId === cancelling.id,
+    },
   };
 }

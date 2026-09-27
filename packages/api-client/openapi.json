@@ -1677,6 +1677,10 @@
                   "timezone": {
                     "type": "string"
                   },
+                  "cancellationReason": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
                   "expectedVersion": {
                     "type": "integer"
                   }

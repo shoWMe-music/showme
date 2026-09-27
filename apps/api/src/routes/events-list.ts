@@ -1,5 +1,6 @@
 import { NON_STANDING_PARTICIPANT_STATUSES } from "@showme/auth";
 import { schema } from "@showme/db";
+import { eventParticipantRecipients, notifyUsers } from "@showme/db/notify";
 import {
   type SQL,
   and,
@@ -603,6 +604,25 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
       // Every clause, before anything is written. A REFUSAL WRITES NOTHING.
       await assertEventIsDeletable(database, request, before);
 
+      /**
+       * WHO TO TELL, read BEFORE the tree comes down (decisions #25.3: *"then
+       * delete, notifying every party"*).
+       *
+       * Two orderings matter here and both are load-bearing:
+       *
+       *  1. **The recipients are resolved first**, because `deleteEventTree` removes
+       *     the `event_participants` rows `eventParticipantRecipients` reads from.
+       *     Asked afterwards, it would answer "nobody" on every delete.
+       *  2. **The notification is SENT after the commit**, because a delete that
+       *     rolls back must not leave people told their show is gone.
+       *
+       * Until #25.3 this was moot: a deletable event had nobody else on it, so there
+       * was nobody to tell. Now a cancelled show can be deleted with a performer, an
+       * agent and a crew still standing on it, and this is the notice they get.
+       */
+      const actorUserId = request.principal?.userId ?? null;
+      const bereaved = await eventParticipantRecipients(database, id, actorUserId);
+
       const where =
         expectedVersion != null
           ? and(eq(schema.events.id, id), eq(schema.events.version, expectedVersion))
@@ -634,6 +654,36 @@ export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
           before: { event: before, alsoDeleted },
         });
       });
+
+      /**
+       * NO `eventId`, AND NO LINK — and this is the one notification in the app where
+       * that is deliberate.
+       *
+       * `notifications.event_id` references `events` with `ON DELETE CASCADE`
+       * (`packages/db/src/schema/comms.ts`). A row carrying the id of the event that
+       * was just deleted would be **destroyed by the very delete it announces** —
+       * written and swept away inside the same request, leaving every party silently
+       * uninformed behind a green test. And `/events/<id>` is now a 404, so a link
+       * would only lead somewhere broken (`notificationDestination` would happily
+       * route it — the path still matches).
+       *
+       * So the title carries the show's name and the row leads nowhere. Best-effort,
+       * post-commit: the delete has already happened and cannot be undone by a
+       * delivery failure.
+       */
+      if (bereaved.length > 0) {
+        try {
+          await notifyUsers(database, bereaved, actorUserId, {
+            type: "event.deleted",
+            title: `"${before.title}" was deleted`,
+            body: "The operator removed the show and everything on it. It is no longer in your events.",
+            actorDisplay: request.firebaseUser?.name ?? undefined,
+            metadata: { title: before.title, eventDate: before.eventDate },
+          });
+        } catch (error) {
+          request.log.error({ error, eventId: id }, "event-deleted notification failed");
+        }
+      }
 
       return { id, deleted: true };
     },

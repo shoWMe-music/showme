@@ -214,6 +214,19 @@ export interface EventInlineFields {
   /** Set when saving a room moved the capacity with it, so the capacity row can
    * say where its number came from. Cleared the moment any editor opens. */
   capacityFromRoom: EventInlineCapacitySource | null;
+  /**
+   * True while a chosen "Cancelled" is WAITING FOR ITS REASON.
+   *
+   * Cancelling is the one status move that speaks to other people — every party on
+   * the bill is notified (`decisions.md` #25.3) — so the commit is held here rather
+   * than sent, and the card raises `EventCancelModal` to collect the sentence they
+   * will read. Every other status still saves on the picker's Save, unchanged.
+   */
+  awaitingCancelReason: boolean;
+  /** Send the held cancellation, with the reason typed into the dialog. */
+  confirmCancellation: (reason: string) => void;
+  /** Close the dialog without cancelling the show. The status stays as it was. */
+  abandonCancellation: () => void;
   begin: (field: EventInlineFieldName) => void;
   changeDraft: (text: string) => void;
   /** Enter, focus leaving a typed field, or Save on a picker: write it if it
@@ -374,6 +387,8 @@ export function useEventInlineFields(event: EditableEventInformation): EventInli
   const [settledVersion, setSettledVersion] = useState<number | null>(null);
   /** The venue profile must be dropped by the same patch that saves the name. */
   const [unlinkVenueProfile, setUnlinkVenueProfile] = useState(false);
+  /** A "Cancelled" the operator has chosen and not yet explained. */
+  const [awaitingCancelReason, setAwaitingCancelReason] = useState(false);
 
   /** The version the NEXT write must claim. Seeded from the loaded event and
    * advanced by every PATCH response, so consecutive writes never re-use one. */
@@ -487,11 +502,43 @@ export function useEventInlineFields(event: EditableEventInformation): EventInli
     if (field === null) return;
     if (validate(field, draft) !== null) return; // the editor stays open, saying why
     const moved = draft.trim() !== values[field].trim();
+    /*
+     * CALLING THE SHOW OFF IS NOT AN INLINE EDIT.
+     *
+     * It notifies every other party and it is the first rung of the delete ladder
+     * (decisions #25.3), so it asks for the reason those people will read instead
+     * of saving the instant the picker closes. The draft is NOT thrown away: the
+     * dialog owns the moment now, and `confirmCancellation` finishes the write
+     * that this returned before making.
+     */
+    if (field === "status" && draft === "cancelled" && moved) {
+      setAwaitingCancelReason(true);
+      return;
+    }
     if (moved || unlinkVenueProfile) {
       write(field, draft, unlinkVenueProfile ? { venueProfileId: null } : undefined);
     }
     close();
   }, [editingField, draft, values, unlinkVenueProfile, write, close]);
+
+  const confirmCancellation = useCallback(
+    (reason: string) => {
+      setAwaitingCancelReason(false);
+      // The reason travels in the SAME patch as the status. Two writes would spend
+      // one `version` twice and 409 against each other — the rule `saveRoom`
+      // states — and worse, the notification is raised by the status transition,
+      // so a reason arriving afterwards would have missed the message it exists
+      // to be.
+      write("status", "cancelled", { cancellationReason: reason.trim() });
+      close();
+    },
+    [write, close],
+  );
+
+  const abandonCancellation = useCallback(() => {
+    setAwaitingCancelReason(false);
+    close();
+  }, [close]);
 
   /**
    * Save the room the picker is holding — and, with it, what that room holds.
@@ -589,6 +636,9 @@ export function useEventInlineFields(event: EditableEventInformation): EventInli
     conflict,
     refusal,
     capacityFromRoom,
+    awaitingCancelReason,
+    confirmCancellation,
+    abandonCancellation,
     begin,
     changeDraft: setDraft,
     commitDraft,
