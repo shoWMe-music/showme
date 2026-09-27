@@ -1793,7 +1793,15 @@ function PayoutTab({ settlement }: { settlement: EventSettlementData }) {
           style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}
         >
           <Icon name="eye-off" size={13} />
-          Your own line. The other parties' figures on this event aren't shared with you.
+          {/*
+            "YOUR OWN LINE" IS ONLY TRUE WHEN THERE IS ONE LINE (QA sweep run 5, QA5-1).
+            A host reading a co-promotion sees two lines and still not the whole board —
+            the co-host's settlement is withheld — and this sentence claimed the board
+            above it held one row while it plainly held two.
+          */}
+          {lines.length > 1
+            ? "Some parties' figures on this event aren't shared with you, so these lines don't sum to zero."
+            : "Your own line. The other parties' figures on this event aren't shared with you."}
         </span>
       )}
       <Card padding="lg" style={CARD_COLUMN}>

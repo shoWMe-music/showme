@@ -34,6 +34,7 @@ import {
   ladderRows,
   netToneOf,
   transferStateOf,
+  withheldPayees,
 } from "./settlementDocument";
 
 type Settlements = Awaited<ReturnType<typeof getApiV1EventsIdSettlements>>;
@@ -809,6 +810,38 @@ export function useEventSettlement(
     return formatAmount(total.toString());
   }, [parties, formatAmount]);
 
+  const ownParticipantId = useMemo(
+    () => parties.find((party) => party.isYours)?.participantId ?? null,
+    [parties],
+  );
+
+  /**
+   * THE PARTIES THIS READER PAYS AND CANNOT READ (QA sweep run 5, QA5-1).
+   *
+   * A co-operator is party to no DEAL, so `partiesVisibleTo` withholds their
+   * settlement row from the host — while the TRANSFER that pays them is scoped
+   * separately and does arrive. Every total built from `parties` alone is therefore
+   * short by exactly what this finds. The rule itself is pure and tested in
+   * `settlementDocument.ts`; here it is only given names and formatting.
+   */
+  const withheld = useMemo(() => {
+    const rule = withheldPayees(settlements.data?.transfers ?? [], {
+      ownParticipantId,
+      visibleParticipantIds: parties
+        .map((party) => party.participantId)
+        .filter((id): id is string => id != null),
+    });
+    return rule.map((payee) => ({
+      ...payee,
+      name: nameOf(payee.participantId),
+    }));
+  }, [settlements.data, ownParticipantId, parties, nameOf]);
+
+  const withheldTotalMinor = useMemo(
+    () => withheld.reduce((running, payee) => running + BigInt(payee.amountMinor), 0n),
+    [withheld],
+  );
+
   /**
    * WHY THE ENTITLEMENTS DO NOT SUM TO THE ADJUSTED NET.
    *
@@ -833,14 +866,27 @@ export function useEventSettlement(
     const adjusted = BigInt(adjustedNetMinor);
     if (entitlements === adjusted) return null;
     const direction = entitlements > adjusted ? "more" : "less";
-    return `The entitlements below come to ${formatAmount(entitlements.toString())}, ${direction} than the adjusted net: each line also carries the cash that party collected and the deductions taken off them. The percentages are shares of the entitlements.`;
-  }, [parties, settlements.data, formatAmount]);
+    const shown = `The entitlements below come to ${formatAmount(entitlements.toString())}, ${direction} than the adjusted net`;
+    /*
+     * A WITHHELD LINE IS THE CAUSE WHEN THERE IS A WITHHELD LINE.
+     *
+     * The clause below used to be asserted unconditionally, and on a co-promotion
+     * it named a cause that was not the cause: the sweep's probe had no collections
+     * and `deductibles: 0` on every row, and the whole gap was the co-host's share
+     * (QA5-1). Saying "each line also carries the cash that party collected" there
+     * sends the reader looking for cash nobody took.
+     *
+     * The withheld total is a LOWER BOUND on the missing entitlement — it is what
+     * this reader transfers that party, which is their entitlement less any cash
+     * they already hold — so the sentence says "at least".
+     */
+    if (withheldTotalMinor > 0n) {
+      return `${shown}. At least ${formatAmount(withheldTotalMinor.toString())} of it belongs to a party whose settlement is not shared with you; it is in Total Payouts as a transfer. The percentages are shares of the entitlements shown.`;
+    }
+    return `${shown}: each line also carries the cash that party collected and the deductions taken off them. The percentages are shares of the entitlements.`;
+  }, [parties, settlements.data, formatAmount, withheldTotalMinor]);
 
   const payable = useMemo(() => parties.filter((party) => party.netTone === "positive"), [parties]);
-  const ownParticipantId = useMemo(
-    () => parties.find((party) => party.isYours)?.participantId ?? null,
-    [parties],
-  );
   /**
    * AN AGENT'S OWN MONEY ON THIS NIGHT IS A COMMISSION, NOT A SETTLEMENT NET.
    *
@@ -871,10 +917,10 @@ export function useEventSettlement(
   const totalPayable = useMemo(() => {
     const total = payable.reduce(
       (running, party) => running + BigInt(party.netMinor ?? "0"),
-      ownCommissionMinor,
+      ownCommissionMinor + withheldTotalMinor,
     );
     return formatAmount(total.toString());
-  }, [payable, ownCommissionMinor, formatAmount]);
+  }, [payable, ownCommissionMinor, withheldTotalMinor, formatAmount]);
 
   const transfers = useMemo(
     () =>
@@ -1008,6 +1054,14 @@ export function useEventSettlement(
         label: `${party.name} payout`,
         value: party.net as string,
       })),
+      // A party paid by transfer whose settlement row is withheld. Named, because
+      // the board two inches below already names them and a total that drops them
+      // is the defect this fixes.
+      ...withheld.map((payee) => ({
+        key: `withheld-${payee.participantId}`,
+        label: `${payee.name} payout`,
+        value: formatAmount(payee.amountMinor),
+      })),
       // The reader's own commission, where they have one — see `ownCommissionMinor`.
       ...(ownCommissionMinor > 0n
         ? [
@@ -1026,7 +1080,7 @@ export function useEventSettlement(
      * calling another party's payout "payable to you". An agent reading their
      * client's settlement is the case that exposed it.
      */
-    payoutsIncludeOthers: payable.some((party) => !party.isYours),
+    payoutsIncludeOthers: payable.some((party) => !party.isYours) || withheld.length > 0,
     // The review conversation is over once the figures freeze — after that the
     // only honest objection is a dispute, which stays available.
     canReview: partyRows.length > 0 && !partyRows.some((row) => FROZEN_STATUSES.has(row.status)),

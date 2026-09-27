@@ -141,6 +141,57 @@ export function isWholeBoard(nets: string[]): boolean {
   return nets.reduce((total, net) => total + Number(net), 0) === 0;
 }
 
+/**
+ * THE PARTIES THIS READER PAYS BUT CANNOT READ A SETTLEMENT FOR.
+ *
+ * Two scopes, one payload. `GET /events/:id/settlements` scopes the party list
+ * through `partiesVisibleTo` — emergent from being party to a DEAL, which a
+ * co-operator never is — and scopes the TRANSFERS separately, through `isMyEnd`,
+ * which does reach whoever pays them. So the host is handed a transfer to a party
+ * whose settlement row is deliberately withheld, and every total built from the
+ * party list alone is short by exactly that (QA sweep run 5, QA5-1: an operator's
+ * "Total payable" read SEK 56,000 above its own transfer list of 56,000 + 7,200).
+ *
+ * Returns one entry per withheld payee with the minor units owed, summed — a party
+ * paid across two legs is one payout, not two. Amounts stay strings: this is the
+ * only arithmetic, it is in `BigInt`, and nothing here formats (`docs/money.md`).
+ *
+ * NOT A LEAK. The counterparty's `participantId` is already in the transfer this
+ * caller was served, and the who-owes-whom board already renders their name. What
+ * stays withheld is their SETTLEMENT — entitlement, collections, ladder — and none
+ * of it is reconstructed here.
+ */
+export function withheldPayees(
+  transfers: readonly {
+    fromParticipantId?: string | null;
+    toParticipantId?: string | null;
+    amount: string;
+    representationId?: string | null;
+  }[],
+  options: { ownParticipantId: string | null; visibleParticipantIds: readonly string[] },
+): { participantId: string; amountMinor: string }[] {
+  const { ownParticipantId } = options;
+  if (!ownParticipantId) return [];
+  const visible = new Set(options.visibleParticipantIds);
+  const owed = new Map<string, bigint>();
+  for (const transfer of transfers) {
+    // A representation transfer is the agent's private commission, paid out of the
+    // act's entitlement — it belongs to the commission card and never to this list
+    // (decisions.md #14, and the same filter the who-owes-whom list applies).
+    if (transfer.representationId) continue;
+    if (transfer.fromParticipantId !== ownParticipantId) continue;
+    const payee = transfer.toParticipantId;
+    if (!payee || visible.has(payee)) continue;
+    owed.set(payee, (owed.get(payee) ?? 0n) + BigInt(transfer.amount));
+  }
+  return (
+    [...owed.entries()]
+      // Largest first, the same order the payout list is read in.
+      .sort((left, right) => (right[1] > left[1] ? 1 : right[1] < left[1] ? -1 : 0))
+      .map(([participantId, amount]) => ({ participantId, amountMinor: amount.toString() }))
+  );
+}
+
 /* ── The RULE behind a figure ─────────────────────────────────────────────────
    A settlement that prints only amounts asks the parties to take it on trust.
    Every number below arrives from the engine already decided — which arm of the

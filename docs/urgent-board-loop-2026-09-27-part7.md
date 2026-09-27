@@ -285,3 +285,97 @@ been widened to name the rename rather than a seventh row being added: both ride
 `event.edit`, and one answer settles both. **Still Ran's or Daniel's call** —
 recommendation unchanged, require the host profile for `status` and `title`, mirroring
 delete.
+
+---
+
+## QA sweep run 5 — `QA5-1`, the plan before the build
+
+**Verdict: real, and it is three wrong statements from one cause.** Not on the board.
+
+**The file that settles it:** `apps/web/src/components/useEventSettlement.ts` — and the
+cause is not in it. `GET /events/:id/settlements` scopes the **party list** through
+`partiesVisibleTo` (a co-operator is party to no *deal*, so their settlement row is withheld
+from the host — `routes/settlement.ts:1133`, deliberate and documented) while it scopes the
+**transfers** separately through `isMyEnd`, which does reach the host. So the API hands the
+operator both halves of the night and the screen totals only one of them.
+
+On the sweep's probe — a co-promotion with production costs split 70/30 — the operator's
+screen said:
+
+| Card | What it said | What is true |
+|---|---|---|
+| Total Payouts → **Total payable** | `SEK 56,000` | `SEK 63,200`, which the same card's own transfer list and its own `Net` line both state |
+| Overview → entitlement gap | *"each line also carries the cash that party collected and the deductions taken off them"* | nobody collected anything and `deductibles: 0` on every row — the gap is a **withheld party** |
+| Who owes whom | two parties, and beneath them *"Your own line. The other parties' figures aren't shared with you."* | two lines are visible, so it is not "your own line", and the board names three parties in its transfers |
+
+### Scope
+
+Three changes, all in the hook and its one caption, none in the API:
+
+1. **`payouts` / `totalPayable`** gain the parties the reader **pays by transfer but cannot
+   read a settlement for**. Derived from the raw transfers whose `fromParticipantId` is the
+   reader's own participant and whose `toParticipantId` has no visible party row — grouped
+   and summed in BigInt minor units, like every other total here.
+2. **`entitlementReconciliation`** says *withheld* when there is something withheld. The
+   present sentence asserts a cause unconditionally; it becomes one of two sentences, and the
+   collected/deducted clause survives only where nothing is withheld.
+3. **The redaction caption** under Who owes whom stops saying *"Your own line"* when more than
+   one line is visible.
+
+### The decision it hides
+
+**Whether naming a withheld party at all is a leak.** It is not, and the API has already
+decided so: the transfer is served to this caller with the counterparty's `participantId`,
+and the board renders their name two inches below. What is withheld is their **settlement** —
+their entitlement, their collections, their ladder — and none of that is added here. This
+change reveals no figure the caller was not already shown; it stops a total from silently
+dropping one.
+
+**The alternative, rejected:** compute the totals from the transfers *alone*. It would be
+wrong in the other direction — a payout is a party's net, a transfer is one leg of it, and a
+party paid across two legs would be listed twice.
+
+### Built, mutation-tested, and proven on the running stack
+
+The rule is pure and lives in `settlementDocument.ts` as `withheldPayees`, with eight tests.
+**Six mutations, and two of them survived the first pass** — worth writing down because both
+survivors were tests that *looked* like they covered the line:
+
+| Mutated | First pass | Why |
+|---|---|---|
+| the `from me` filter | **green** | every case had the payee visible too, so the *other* filter refused it. Fixed by a leg between two other parties. |
+| the `ownParticipantId` null guard | **green** | nothing exercised a `null` payer. Fixed by one — `fromParticipantId` is nullable, and without the guard two nulls match and an off-platform party's transfer is billed to a reader who is party to nothing. |
+
+Reproduced on the seeded co-promotion rather than a hand-built one: the *Album Release* has
+`co.host@` on it as a co-host with no deal of their own. Setting the planner's **Production
+costs split** to 70/30 and lowering the door deal from 100% to 60% of the pool leaves a
+residual for the operators to share, which is the only lever that pays a co-host
+(`operatorResidualShare`, `reconcile.ts`). The API then hands the host three settlements and
+**four** parties' worth of transfers:
+
+```
+settlements visible to the host   b1 (yours) ent 1,400,000   b2 1,800,000   b3 1,200,000
+transfers                         b1 → b2 1,800,000   b1 → b3 1,200,000   b1 → bb 600,000
+adjusted net 5,000,000            visible entitlements 4,400,000 — short by exactly bb's 600,000
+```
+
+In the browser as `operator@`, all three statements now hold:
+
+```
+Total Payouts
+  Marlo Vance payout          SEK 18,000
+  Neon Tide payout            SEK 12,000
+  Northlight Presents payout  SEK  6,000     ← the withheld party, named
+  Total payable               SEK 36,000     ← and the card's own Net reads −SEK 36,000
+
+ENTITLEMENT BY PARTY
+  The entitlements below come to SEK 44,000, less than the adjusted net. At least
+  SEK 6,000 of it belongs to a party whose settlement is not shared with you; it is
+  in Total Payouts as a transfer. The percentages are shares of the entitlements shown.
+
+WHO OWES WHOM
+  Some parties' figures on this event aren't shared with you, so these lines don't sum to zero.
+```
+
+Before the fix the headline read **SEK 30,000** beside a Net of −SEK 36,000. Screenshot:
+`docs/screenshots/qa-2026-09-27-run5/qa5-1-total-payable-fixed.png`.

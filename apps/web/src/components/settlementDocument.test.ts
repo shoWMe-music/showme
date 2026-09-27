@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { entitlementRules, matchingSettlements, settlementTotals } from "./settlementDocument";
+import {
+  entitlementRules,
+  matchingSettlements,
+  settlementTotals,
+  withheldPayees,
+} from "./settlementDocument";
 
 /**
  * The Settlements screen's whole filtering rule (ClickUp `123qy9rngbp`).
@@ -212,5 +217,109 @@ describe("settlementTotals", () => {
     const empty = settlementTotals([]);
     expect(plain(empty.paid)).toBe("—");
     expect(plain(empty.outstanding)).toBe("—");
+  });
+});
+
+/**
+ * THE PARTY A TOTAL USED TO DROP (QA sweep run 5, QA5-1).
+ *
+ * The figures are the sweep's own: a co-promotion where the host owes the act
+ * SEK 56,000 and the co-host SEK 7,200, and the co-host's settlement row is
+ * withheld from the host because a co-operator is party to no deal.
+ */
+describe("withheldPayees", () => {
+  const HOST = "host-participant";
+  const ACT = "act-participant";
+  const COHOST = "cohost-participant";
+
+  const transfer = (from: string, to: string, amount: string, representationId?: string) => ({
+    fromParticipantId: from,
+    toParticipantId: to,
+    amount,
+    representationId,
+  });
+
+  it("names the payee whose settlement is withheld, and nobody else", () => {
+    expect(
+      withheldPayees([transfer(HOST, ACT, "5600000"), transfer(HOST, COHOST, "720000")], {
+        ownParticipantId: HOST,
+        visibleParticipantIds: [HOST, ACT],
+      }),
+    ).toEqual([{ participantId: COHOST, amountMinor: "720000" }]);
+  });
+
+  it("sums two legs to one payout", () => {
+    // A payout is a party's net; a transfer is one leg of it. Listing the legs
+    // separately would double-count the payee in the total above them.
+    expect(
+      withheldPayees([transfer(HOST, COHOST, "400000"), transfer(HOST, COHOST, "320000")], {
+        ownParticipantId: HOST,
+        visibleParticipantIds: [HOST],
+      }),
+    ).toEqual([{ participantId: COHOST, amountMinor: "720000" }]);
+  });
+
+  it("leaves out a transfer this reader is not paying", () => {
+    // `isMyEnd` serves both ends, so a performer sees the leg that pays THEM.
+    // It is money coming in, and it is not theirs to pay out.
+    expect(
+      withheldPayees([transfer(HOST, ACT, "5600000")], {
+        ownParticipantId: ACT,
+        visibleParticipantIds: [ACT],
+      }),
+    ).toEqual([]);
+  });
+
+  it("leaves out an agent commission — it belongs to the commission card (#14)", () => {
+    expect(
+      withheldPayees([transfer(ACT, "agent-participant", "358100", "representation-1")], {
+        ownParticipantId: ACT,
+        visibleParticipantIds: [ACT],
+      }),
+    ).toEqual([]);
+  });
+
+  it("leaves out a leg between two other parties", () => {
+    // Not this reader's money to pay, and the payee is invisible to them too — so
+    // only the "is it FROM me" test can refuse it. `isMyEnd` should never serve
+    // this leg, and a total that would be wrong if it did is not worth having.
+    expect(
+      withheldPayees([transfer(HOST, COHOST, "720000")], {
+        ownParticipantId: ACT,
+        visibleParticipantIds: [ACT],
+      }),
+    ).toEqual([]);
+  });
+
+  it("does not read a nameless payer as a reader who has no participant", () => {
+    // `fromParticipantId` is nullable on the payload, and so is the reader's own
+    // participant id. Without the guard the two nulls match and an off-platform
+    // party's transfer is billed to a reader who is not a party to anything.
+    expect(
+      withheldPayees([{ fromParticipantId: null, toParticipantId: COHOST, amount: "720000" }], {
+        ownParticipantId: null,
+        visibleParticipantIds: [],
+      }),
+    ).toEqual([]);
+  });
+
+  it("answers empty for a reader who is not a party at all", () => {
+    // Crew reading the document, or an operator before their own line exists:
+    // there is no "from me" to test against, so there is nothing withheld to add.
+    expect(
+      withheldPayees([transfer(HOST, COHOST, "720000")], {
+        ownParticipantId: null,
+        visibleParticipantIds: [],
+      }),
+    ).toEqual([]);
+  });
+
+  it("orders the largest first, like the payout list it feeds", () => {
+    expect(
+      withheldPayees([transfer(HOST, "small", "100000"), transfer(HOST, "large", "900000")], {
+        ownParticipantId: HOST,
+        visibleParticipantIds: [HOST],
+      }).map((payee) => payee.participantId),
+    ).toEqual(["large", "small"]);
   });
 });
