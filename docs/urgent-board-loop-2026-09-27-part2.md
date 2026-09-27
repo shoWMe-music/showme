@@ -158,6 +158,42 @@ column that holds it.
   The sweep's repro reads as a public share, which the UI cannot currently make.
 - Whether an anonymous share, if it stays, should carry notes at all.
 
+**QA-2 — Projections stops calling something profit that is not profit, and stops reading
+a book the settlement refuses to read.**
+
+Three changes, and one deliberate non-change.
+
+1. **The ledger only.** It summed every budget the reader could see, so a co-operator's
+   private margin book moved the figure — a book `copyBudgetOnce` never copies and the
+   other operator cannot see, which means two co-hosts read two different numbers for one
+   night. The night's book is the shared ledger; a view over the night reads that.
+2. **A cancelled night forecasts nothing** and is out of the pipeline, under every scope —
+   the same `ne(status, 'cancelled')` the settlement engine and the planner's own fee
+   derivation already use. A `draft` stays: a night being planned is what a pipeline is.
+3. **"Net Profit" is now "Revenue − costs", and the column is "Before deals".** The
+   arithmetic was always right and the word over it was not: what the acts take is not a
+   budget line, so on a door-split night where the performers take the whole adjusted net
+   this printed SEK 50,000 profit at a 60 % margin for a night the planner called a
+   SEK 1,245 loss and the settlement left the operator nothing from. One line under the
+   KPIs now says why the two screens differ, which is the thing a reader with two numbers
+   actually needs.
+
+**The non-change, and it is the bigger half.** Projections still does not subtract what
+the deals pay. Doing it properly is not a label: a percentage deal's fee is derived from
+the door forecast (`useBudgetSeed.performerFeeOf` → `computeBudgetProjection`), scoped per
+reader, and caveated as a floor when a deal is hidden from the reader
+(`costsIncompleteNoteFor`). Reproducing that in a second React screen would put a **third**
+opinion about the same money in the codebase, which is the failure mode this repo keeps
+recording. **The recommendation is that this belongs in the API** — one projection
+endpoint over the same engine the settlement uses, server-side where the deals and budgets
+already are, with the screen rendering it. That is its own piece of work, not a fix, and
+it is written down here rather than half-built.
+
+Proven live: the KPI reads *"REVENUE − COSTS · SEK 147,700 · 68% of revenue, before
+deals"*, the column reads **BEFORE DEALS**, and the cancelled `Winter Gala` has left the
+table and every total. Suites: biome 712 · web 326 (6 new, mutation-checked both ways) ·
+e2e 112.
+
 **Left as an open question rather than silently skipped:** events created *during the
 regression window* (between `f996c14` and this commit) still carry both books, and
 migration `0046` cannot heal them — its guard is "the event has no shared ledger yet". If

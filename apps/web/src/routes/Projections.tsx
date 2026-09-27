@@ -18,6 +18,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { DateText, KpiRow, SegmentedToggle } from "../components";
 import { ErrorState, LoadingState } from "../components/states";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
+import { forecastsNothing, projectFromBudgets } from "../lib/eventProjection";
 import { formatMoney } from "../lib/format";
 import { isDestinationForKind } from "../shell/navigation";
 type BudgetList = Awaited<ReturnType<typeof getApiV1EventsIdBudgets>>;
@@ -34,45 +35,15 @@ const SCOPES: { value: Scope; label: string }[] = [
 ];
 
 /**
- * A per-event projected P&L, derived from the event's budget lines. Budgets ARE
- * the forward-looking projection (planned ticket/bar revenue vs. planned costs),
- * so this is real data — not a fabricated forecast. Events with no budget loaded
- * carry `hasBudget: false` and render as an honest "—" everywhere downstream.
+ * A per-event projection, and the night it is about. The arithmetic is in
+ * `lib/eventProjection.ts` — which ledger it reads and where it stops are rules worth
+ * asserting, not rendering details.
  */
-interface EventProjection {
-  event: EventItem;
-  hasBudget: boolean;
-  revenueMinor: number;
-  costMinor: number;
-  profitMinor: number;
-  /** Fraction (0..1), or null when there's no revenue to divide by. */
-  margin: number | null;
-}
+type EventProjection = ReturnType<typeof projectFromBudgets> & { event: EventItem };
 
-/** Sum a budget list's revenue and cost lines (minor units) into a projection. */
-function projectFromBudgets(event: EventItem, budgets: BudgetList | undefined): EventProjection {
-  if (!budgets || budgets.length === 0) {
-    return { event, hasBudget: false, revenueMinor: 0, costMinor: 0, profitMinor: 0, margin: null };
-  }
-  let revenueMinor = 0;
-  let costMinor = 0;
-  for (const budget of budgets) {
-    for (const line of budget.lines) {
-      const amount = Number(line.amount);
-      if (!Number.isFinite(amount)) continue;
-      if (line.kind === "revenue") revenueMinor += amount;
-      else if (line.kind === "cost") costMinor += amount;
-    }
-  }
-  const profitMinor = revenueMinor - costMinor;
-  return {
-    event,
-    hasBudget: true,
-    revenueMinor,
-    costMinor,
-    profitMinor,
-    margin: revenueMinor > 0 ? profitMinor / revenueMinor : null,
-  };
+/** The projection for one event, with the event carried alongside it. */
+function projectEvent(event: EventItem, budgets: BudgetList | undefined): EventProjection {
+  return { event, ...projectFromBudgets(budgets) };
 }
 
 function marginLabel(margin: number | null): string {
@@ -121,6 +92,9 @@ function noBudgetDescription(matched: number): string {
 }
 
 function scopeMatches(event: EventItem, scope: Scope, now: number): boolean {
+  // A withdrawn night forecasts nothing, under every scope including "All events" —
+  // it was counted in the pipeline and in every total on this screen.
+  if (forecastsNothing(event.status)) return false;
   if (scope === "confirmed") return event.status.toLowerCase() === "confirmed";
   if (scope === "upcoming") {
     if (!event.eventDate) return false;
@@ -161,16 +135,16 @@ function ProjectionsScreen() {
 
   const now = Date.now();
   const projections = eventItems
-    .map((event, index) => projectFromBudgets(event, budgetQueries[index]?.data))
+    .map((event, index) => projectEvent(event, budgetQueries[index]?.data))
     .filter((projection) => scopeMatches(projection.event, scope, now));
 
   const withBudget = projections.filter((projection) => projection.hasBudget);
   const hasProjection = withBudget.length > 0;
   const totalRevenueMinor = withBudget.reduce((sum, row) => sum + row.revenueMinor, 0);
   const totalCostMinor = withBudget.reduce((sum, row) => sum + row.costMinor, 0);
-  const totalProfitMinor = totalRevenueMinor - totalCostMinor;
-  const overallMargin = totalRevenueMinor > 0 ? totalProfitMinor / totalRevenueMinor : null;
-  const avgProfitMinor = hasProjection ? totalProfitMinor / withBudget.length : null;
+  const totalBeforeDealsMinor = totalRevenueMinor - totalCostMinor;
+  const overallMargin = totalRevenueMinor > 0 ? totalBeforeDealsMinor / totalRevenueMinor : null;
+  const avgBeforeDealsMinor = hasProjection ? totalBeforeDealsMinor / withBudget.length : null;
   const maxRevenueMinor = withBudget.reduce((max, row) => Math.max(max, row.revenueMinor), 0);
 
   const coverage: BudgetCoverage = {
@@ -196,15 +170,29 @@ function ProjectionsScreen() {
       tone: "red" as const,
     },
     {
-      label: "Net Profit",
-      value: hasProjection ? formatMoney(totalProfitMinor, currency) : dash,
-      hint: overallMargin === null ? "Margin —" : `${Math.round(overallMargin * 100)}% margin`,
-      tone: (totalProfitMinor < 0 ? "red" : "green") as "red" | "green",
+      /**
+       * NOT "Net Profit", which is what this said while it meant something else.
+       *
+       * The figure is the ledger's revenue less the costs entered in it. What the acts
+       * take is not a budget line — it is derived from the deals against a door
+       * forecast, which is the Budget Planner's job — so on a door-split night where
+       * the performers take the whole adjusted net this read SEK 50,000 "profit" at a
+       * 60 % margin for a night the planner called a SEK 1,245 loss and the settlement
+       * left the operator nothing from (QA sweep, 2026-09-27). The arithmetic was
+       * right; the word over it was not.
+       */
+      label: "Revenue − costs",
+      value: hasProjection ? formatMoney(totalBeforeDealsMinor, currency) : dash,
+      hint:
+        overallMargin === null
+          ? "Before the deals pay out"
+          : `${Math.round(overallMargin * 100)}% of revenue, before deals`,
+      tone: (totalBeforeDealsMinor < 0 ? "red" : "green") as "red" | "green",
     },
     {
       label: "Avg per Event",
-      value: avgProfitMinor === null ? dash : formatMoney(avgProfitMinor, currency),
-      hint: "Profit / show",
+      value: avgBeforeDealsMinor === null ? dash : formatMoney(avgBeforeDealsMinor, currency),
+      hint: "Per show, before deals",
       tone: "neutral" as const,
     },
   ];
@@ -240,7 +228,8 @@ function ProjectionsScreen() {
         ),
     },
     {
-      header: "Profit",
+      // Named for what it measures: the deals are not in it (see the KPI above).
+      header: "Before deals",
       width: "1fr",
       align: "right",
       render: (row) =>
@@ -248,10 +237,10 @@ function ProjectionsScreen() {
           <span
             style={{
               fontFamily: "var(--font-mono)",
-              color: row.profitMinor < 0 ? NEGATIVE : POSITIVE,
+              color: row.beforeDealsMinor < 0 ? NEGATIVE : POSITIVE,
             }}
           >
-            {formatMoney(row.profitMinor, currency)}
+            {formatMoney(row.beforeDealsMinor, currency)}
           </span>
         ) : (
           <span style={{ color: "var(--dim)" }}>{dash}</span>
@@ -289,7 +278,7 @@ function ProjectionsScreen() {
         <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>
           {formatMoney(revenue.data.totalRevenue, currency)}
         </span>{" "}
-        across {summary.data.eventsHosted} {pluralEvents(summary.data.eventsHosted)} you operated.
+        across {summary.data.eventsHosted} {pluralEvents(summary.data.eventsHosted)} you hosted.
       </div>
     ) : null;
 
@@ -341,6 +330,13 @@ function ProjectionsScreen() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <KpiRow items={kpiItems} />
+          {/* WHY THIS SCREEN AND THE PLANNER DIFFER, said once and plainly. Without it a
+              reader has two numbers for one night and no way to tell which is theirs. */}
+          <div style={{ color: "var(--muted)", fontSize: 12.5 }}>
+            Every figure here comes from the event's shared ledger. What the deals pay the acts is
+            not a budget line, so it is <strong>not</strong> subtracted — an event's Budget Planner,
+            which derives the performer fee from its deals, will show less for the same night.
+          </div>
           {coverage.isPartial && !budgetsPending && (
             <div style={{ color: "var(--muted)", fontSize: 12.5 }}>
               {partialCoverageNote(coverage)}
