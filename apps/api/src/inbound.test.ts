@@ -1290,8 +1290,13 @@ describe("inbound — Create Draft turns a request into a draft event", () => {
     expect(event?.hostProfileId).toBe(owner.profileId);
     expect(event?.status).toBe("draft");
     expect(event?.eventDate).toBe("2027-08-08");
-    // The contact, the fee and the pitch survive into the event the operator opens.
-    expect(event?.notes).toContain("ada@example.showme.test");
+    // The contact, the fee and the pitch survive into the event the operator opens —
+    // the contact by NAME. Their email address stays on the request row that holds it
+    // (and in the inbox's own Email cell): it is a third party's personal data, and free
+    // text is where data goes to be copied, exported and — until 2026-09-27 — rendered on
+    // a public share link.
+    expect(event?.notes).toContain("Ada Booker");
+    expect(event?.notes).not.toContain("ada@example.showme.test");
     expect(event?.notes).toContain("Touring in August.");
     expect(event?.notes).toContain("650");
 

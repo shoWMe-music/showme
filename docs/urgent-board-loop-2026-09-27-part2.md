@@ -130,6 +130,34 @@ mutation-checked: putting the private insert back turns it red.
 Proven live: a new event through the wizard has **one** book, `shared`, and the planner
 renders **no scope chooser**. Suites: api 1307, all 62 files, no flake.
 
+**QA-7 — a third party's email stops travelling in free text, and the rest of that finding
+was mine to get wrong.**
+
+The sweep filed this as *"a shared event link hands a stranger the email address of whoever
+sent the booking request"*, and my first fix was to strip `notes` out of the share document
+altogether. **That was wrong, and I reversed it before committing.** The Share & Export
+dialog says, in its own words, what the Event details section contains: *"Title, date,
+venue, capacity **and the notes on the show**."* Sharing the notes is a declared feature an
+operator ticks, not a column that leaked into a payload — I had read the publish panel's
+promise (*"they never see … your notes"*), which is about the **public marketing page**, a
+different door, and one the sweep confirmed is clean.
+
+What is left is the real defect and it is at the write: **"Create Draft" put the sender's
+email address into `events.notes`**, which the operator never typed and cannot be expected
+to audit before sharing. The address is already on the request row the event links to, and
+in the inbox's own Email cell, so free text bought nothing. Personal data goes in the
+column that holds it.
+
+**Two things recorded rather than changed, because they are Ran's call:**
+
+- The dialog says *"There are no anonymous links"*, and the app is honest about it —
+  `useShareExport.ts:242` always sends `access: "protected"`, which `resolveShareViewer`
+  refuses without a verified recipient. But the API still accepts `access: "public"`, which
+  skips that check entirely. Either the product means to offer anonymous links (and the
+  dialog's sentence is wrong) or it does not (and the API should stop accepting the mode).
+  The sweep's repro reads as a public share, which the UI cannot currently make.
+- Whether an anonymous share, if it stays, should carry notes at all.
+
 **Left as an open question rather than silently skipped:** events created *during the
 regression window* (between `f996c14` and this commit) still carry both books, and
 migration `0046` cannot heal them — its guard is "the event has no shared ledger yet". If

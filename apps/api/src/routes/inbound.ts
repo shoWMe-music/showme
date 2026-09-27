@@ -661,9 +661,12 @@ function draftEventNotes(bookingRequest: BookingRequestRow): string {
     // dates — the operator who later has to move the night needs to know which
     // others the act already said yes to.
     alternates.length > 0 ? `They could also play: ${alternates.join(", ")}.` : null,
-    bookingRequest.contactName
-      ? `Contact: ${bookingRequest.contactName}${bookingRequest.email ? ` <${bookingRequest.email}>` : ""}`
-      : null,
+    // THE NAME, NOT THE ADDRESS. The email is on the request row, which this event is
+    // linked to and which the inbox shows in its own Email cell — so putting it in free
+    // text bought the operator nothing and put a third party's address somewhere it could
+    // be copied, exported or (until the commit that removed it) rendered on a share link.
+    // Personal data goes in the column that holds it, not in prose about it.
+    bookingRequest.contactName ? `Contact: ${bookingRequest.contactName}` : null,
     bookingRequest.artistName ? `Act: ${bookingRequest.artistName}` : null,
     askedFee != null
       ? `Asked fee: ${formatMinorUnits(askedFee, bookingRequest.currency)}${
