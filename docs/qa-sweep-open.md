@@ -1,13 +1,21 @@
-# QA sweep — the open list, 2026-09-26
+# QA sweep — the list, worked to empty (2026-09-26 → 2026-09-27)
 
-Working state for the `/loop` pass. Sources: `qa-sweep-2026-09-26.md` (run 1),
-`-run2.md`, `-run3.md`. IDs are `r<run>:<line>` into those files — go there for the
-reproduction, never re-derive it from this summary.
+Working state for the `/loop` pass, and now its record. Sources:
+`qa-sweep-2026-09-26.md` (run 1), `-run2.md`, `-run3.md`. IDs are `r<run>:<line>` into
+those files — go there for the reproduction, never re-derive it from this summary.
 
-**Rules for this pass:** fix → prove on the running stack → biome + web + API + e2e →
-commit. No deploy. No ClickUp writes. Mutation-check every new rule. A finding that
-turns out to be a decision rather than a defect moves to *Parked* with the question
-stated.
+**Rules this pass was held to:** fix → prove on the running stack → biome + web + API +
+e2e → commit. No deploy. No ClickUp writes. Mutation-check every new rule. A finding
+that turns out to be a decision rather than a defect moves to *Parked* with the question
+stated, and one that does not reproduce is corrected rather than quietly dropped.
+
+**Where it ended.** Every blocker, major and minor from all three runs is closed,
+parked as a product question, or recorded as deliberate. Nothing is deployed —
+`main` is ahead of production by this session's commits, which is the next decision
+someone has to take, not one this pass took. Four things are parked for Ran and are
+the only open questions: the co-promoter's sight of the act's fee, the agent's
+commissionable base, whether a split may pay a participant who has not accepted, and
+the per-user display currency.
 
 ---
 
@@ -50,12 +58,12 @@ stated.
 | r2:480 | The planner's three headline figures did not add up | `db32eb0` |
 | r2:880 | "Total settled SEK 0" beside "Finalized SEK 20,700" | `db32eb0` |
 | r2:603 | Two fields named for one thing, SEK 1,500 apart | `db32eb0` |
-| r3:731 + r2:866 | Escape went past the panel to the discard guard; a Remove the reader may not use | *this commit* |
-| r2:616 | A draft line needed an explicit Add and the keyboard did nothing | *this commit* |
-| r2:752 | The counter-offer named the act when the terms go to the agent | *this commit* |
-| r2:758 | The date rail offered a day the chip hides, and the empty state said nothing | *this commit* |
-| r2:887 | "Edit" promised access it could not change for that collaborator | *this commit* |
-| r2:706 | "Place a hold" existed in exactly one place in the app | *this commit* |
+| r3:731 + r2:866 | Escape went past the panel to the discard guard; a Remove the reader may not use | `5610067` |
+| r2:616 | A draft line needed an explicit Add and the keyboard did nothing | `5610067` |
+| r2:752 | The counter-offer named the act when the terms go to the agent | `5610067` |
+| r2:758 | The date rail offered a day the chip hides, and the empty state said nothing | `5610067` |
+| r2:887 | "Edit" promised access it could not change for that collaborator | `5610067` |
+| r2:706 | "Place a hold" existed in exactly one place in the app | `5610067` |
 
 **Corrected, not fixed:** r2:411 (inline Status "never saves") — run 3 found it does
 save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owed.
@@ -117,11 +125,12 @@ decision, or recorded as deliberate.
   one budget with full transparency; the fee is deliberately never a budget row, and
   a deal is shared by making someone a `deal_party` (`decisions.md` #84). The planner
   now withholds the figures it cannot compute rather than guessing. Three options are
-  in the status doc for Ran. Items 1–2 above may be narrowed by the answer.
+  in the status doc for Ran.
 - **Should a reimbursed cost reduce an agent's commissionable income?**
   ClickUp `86cba8wtb`, status `re-do`. The second half of r2:804 turns on it, and so
   does the figure r2:603 was reading (the FIELD is now named for what it holds —
-  `commissionableIncome` — which is the half that was a defect). Measured today: the engine's commissionable base is
+  `commissionableIncome` — which is the half that was a defect). Measured: the engine's
+  commissionable base is
   `entitlement + deductibles` (31,500 + 3,500 = 35,000 → SEK 3,500 at 10%), which is
   what `commission-settlement.ts` and its test already assert — *a reimbursed cost
   does not shrink the agent's commission*. The screen renders the stored figure
