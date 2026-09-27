@@ -6,6 +6,31 @@ read** — the ClickUp MCP hit its 100-call daily limit; the ten are named at th
 
 **Nothing was written to ClickUp.** This file is the finding; the board is untouched.
 
+> ## ⚠️ READ THIS FIRST — the audit has been worked through (added 2026-09-27, late)
+>
+> **This file is the assessment as it stood when it was written, and it has since been
+> ACTED on.** It is kept unedited below because it is the record of what was found; it is
+> no longer a statement about the present. Per this repo's own lesson — *"a handoff doc is
+> a snapshot of a moment, not a statement about the present"* — check the code, or the
+> loop docs, before scoping anything from the tables below.
+>
+> What has happened since:
+>
+> - **§2 and §5 are closed.** Every unblocked small fix in them is built, proven on the
+>   running stack and committed naming its ticket.
+> - **§7's "not yet read" list is read.** The ClickUp daily cap reset; all eight remaining
+>   tickets have verdicts, in `docs/urgent-board-loop-2026-09-27-part4.md`.
+> - **Items 1, 2 and 3 of the day's plan are built** (the venue+room request chain and the
+>   token share link; the outbound invite chain's missing rungs; the bonus ladder and its
+>   entry UI).
+> - **Two full QA sweeps ran against the app**, and every actionable major from the first
+>   is fixed. Reports: `docs/qa-sweep-2026-09-27-run4.md` (and run 5).
+>
+> **The day's record, in order:** `docs/urgent-board-loop-2026-09-27.md` and its
+> `-part2` … `-part7` continuations. Each entry carries the verdict, the file that settled
+> the ticket, the decision it hid, and how it was proven. **The summary of where things
+> now stand is `docs/handoff-2026-09-27-urgent-board.md`.**
+
 The headline, which is the same finding as 2026-09-04: **the board's count is not the
 work's size.** Of 36 urgent tickets assessed, **13 are already done or nearly**, four
 more are a mechanism that exists with one caller, and the biggest single item is **one
