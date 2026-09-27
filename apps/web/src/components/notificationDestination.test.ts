@@ -44,6 +44,24 @@ describe("notificationDestination", () => {
       ).toMatchObject({ search: { tab: "settlement" } });
     });
 
+    it("sends a message to the thread it was posted in", () => {
+      // Two deliveries of one event — the stored bell and the realtime twin — carry the
+      // same bare link, so the rule that reads the type covers both.
+      expect(
+        notificationDestination({ link: `/events/${EVENT}`, type: "event.message_posted" }),
+      ).toMatchObject({ search: { tab: "messages" } });
+    });
+
+    it("sends an answered invitation to Collaborators, not to the crew roster", () => {
+      // The two are a real distinction: the roster lists who is standing on the event,
+      // Collaborators shows an invited party's standing — which is what just changed.
+      for (const type of ["event.invitation_accepted", "event.invitation_declined"]) {
+        expect(notificationDestination({ link: `/events/${EVENT}`, type })).toMatchObject({
+          search: { tab: "collaborators" },
+        });
+      }
+    });
+
     /**
      * An unmapped type must land on the workspace with NO tab rather than on a
      * guessed one. Event Details is what the screen opens on anyway, and asking

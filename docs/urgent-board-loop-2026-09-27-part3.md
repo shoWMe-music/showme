@@ -96,3 +96,41 @@ Proven live, end to end: typed in the browser — base 60%, bands entered **out 
 
 Suites: biome 712 · shared 288 (7 new) · settlement 65 (1 new) · web 328 · api 1310 · e2e
 112.
+
+---
+
+## Item 4 — the small fixes, cheapest first
+
+### `86cbcgq5f` — a notification lands on the panel it is about
+
+**Verdict: ALREADY BUILT, and built the better way. Two types were missing from its map;
+that is the whole of the work.**
+
+**I started this by doing it wrong, and the file I was about to edit said so.** My plan
+was to write `?tab=deals` into the links the API emits. `notificationDestination.ts`
+already derives the tab from the notification's `type` at READ time, and its header
+argues against exactly what I was doing, for two reasons I had not thought of:
+
+> *"A link written at the emitter is a thing twenty-odd call sites can each forget, and
+> forgetting is silent… And a stored link is already written: rows sitting in people's
+> bells right now would keep their bare path forever, whereas a rule applied at READ time
+> fixes the whole backlog the moment it ships."*
+
+Worse, it would have **broken the feature**: the allow-list matches
+`/^\/events\/([^/?#]+)$/`, so a link carrying `?tab=` matches nothing and the
+notification becomes unclickable. I reverted all five files before running anything.
+
+**The audit's line — "all 18 notification links send a bare `/events/<id>`" — describes
+the STORAGE, and the storage is deliberate.** What was genuinely missing was two entries
+in the map:
+
+| Type | Lands on | Why |
+|---|---|---|
+| `event.message_posted` | `messages` | Both deliveries — the stored bell and the realtime twin — carry the same bare link, so one rule covers both |
+| `event.invitation_accepted` / `_declined` | `collaborators` | Where an invited party's standing is shown. The roster on Team / Crew lists who is already standing on the event, which is a different question — and is where `event.participant_added` correctly goes |
+
+`deal.created` / `deal.updated` / `deal.deleted` are **activity rows, not notifications**;
+they never reach a bell, so they do not belong in the map. Checked rather than assumed.
+
+Mutation-checked: removing the message mapping turns the new test red. Suites: web 330.
+

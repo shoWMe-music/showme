@@ -76,6 +76,15 @@ const TAB_BY_NOTIFICATION_TYPE: Record<string, string> = {
   "deal.reopened": "deals",
   // Somebody joined the bill. The roster is Team / Crew.
   "event.participant_added": "crew",
+  // An invitation ANSWERED — accepted or declined. Collaborators is where an invited
+  // party's standing is shown, so it is where the answer is read; the roster on Team /
+  // Crew lists the people already standing on the event, which is a different question.
+  "event.invitation_accepted": "collaborators",
+  "event.invitation_declined": "collaborators",
+  // A message is read in the thread it was posted to. Both deliveries of this type —
+  // the stored bell (`routes/messages.ts`) and the realtime one (`@showme/db/notify`)
+  // — carry the same bare event link, so one rule covers both.
+  "event.message_posted": "messages",
   // The one settlement notification that does NOT already point at the dedicated
   // settlement workspace. Its stored link is a bare `/events/<id>`, so until now
   // the message that the money is final landed on the event's description.
