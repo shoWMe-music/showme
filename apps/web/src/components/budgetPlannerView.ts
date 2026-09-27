@@ -9,7 +9,7 @@ import {
   dealFigureDisagreement,
   estimatePerformingRightsFee,
 } from "@showme/shared";
-import { formatMoney, formatMoneyExact } from "../lib/format";
+import { formatMoney, formatMoneyExact, minorUnitsPer } from "../lib/format";
 import { toMinorUnits } from "../lib/moneyUnits";
 import type { KpiItem, KpiTone } from "./KpiRow";
 import { type BudgetEditor, budgetInputsFrom, minorUnitsOf } from "./useBudgetEditor";
@@ -183,6 +183,29 @@ export interface PartitionableCostRow {
  * no longer had. The label is the one thing about a standing heading that does
  * not move.
  */
+/**
+ * THE THREE HEADLINE FIGURES HAVE TO ADD UP (QA sweep run 2, r2:480).
+ *
+ * Measured: `TOTAL REVENUE SEK 6,300 · TOTAL COSTS SEK 4,805 · PROFIT / LOSS SEK
+ * 1,496`. Every one of those roundings is individually correct — costs are 480,450
+ * minor (4,804.50) and the profit 149,550 (1,495.50), both half-up — and the card
+ * still fails the one check a reader actually performs on it. Two correct numbers and
+ * a third that contradicts them reads as a broken screen, not as rounding.
+ *
+ * So the difference shown is the difference of the figures shown: round the two
+ * components to the unit the card prints, then subtract. The engine keeps its exact
+ * arithmetic — break-even, the margin and the settlement are untouched — and only the
+ * three numbers standing next to each other are made to agree.
+ */
+export function roundToDisplayUnit(minor: bigint, minorUnits: number): bigint {
+  const unit = BigInt(Math.max(1, Math.round(minorUnits)));
+  if (unit === 1n) return minor;
+  const negative = minor < 0n;
+  const magnitude = negative ? -minor : minor;
+  const rounded = ((magnitude + unit / 2n) / unit) * unit;
+  return negative ? -rounded : rounded;
+}
+
 /**
  * A RENAMED HEADING KEEPS ITS PLACE ON THE SHEET (QA sweep run 3, r3:178).
  *
@@ -482,6 +505,14 @@ export function budgetPlannerViewFrom(
   const money = (minor: bigint) =>
     formatFigure ? formatFigure(minor.toString()) : formatMoney(minor.toString(), currency);
 
+  // The headline trio, made to agree with itself — see `roundToDisplayUnit` (r2:480).
+  // Only these three: the margin, break-even and every per-guest figure stay on the
+  // engine's exact arithmetic, and none of them is a subtraction a reader can check.
+  const displayUnit = minorUnitsPer(currency);
+  const shownRevenue = roundToDisplayUnit(projection.totalRevenue, displayUnit);
+  const shownCosts = roundToDisplayUnit(projection.totalCosts, displayUnit);
+  const shownProfit = shownRevenue - shownCosts;
+
   const chart = computeBreakEvenChart({
     projection,
     capacity: inputs.capacity,
@@ -592,7 +623,7 @@ export function budgetPlannerViewFrom(
 
   return {
     kpis: [
-      { label: "Total revenue", value: money(projection.totalRevenue), tone: "green" },
+      { label: "Total revenue", value: money(shownRevenue), tone: "green" },
       // TICKET REVENUE beside the total, because the two answer different
       // questions and #23.1 made the difference matter: the total is what the
       // night takes, the DOOR is what every percentage deal is a share of. An
@@ -606,7 +637,7 @@ export function budgetPlannerViewFrom(
       // doing fine.
       {
         label: costsIncomplete ? "Total costs (partial)" : "Total costs",
-        value: money(projection.totalCosts),
+        value: money(shownCosts),
         tone: "amber",
       },
       // A PROFIT IS NOT A FIGURE WHEN A COST IS MISSING. See `costsIncomplete`.
@@ -615,7 +646,7 @@ export function budgetPlannerViewFrom(
         : [
             {
               label: "Profit / loss",
-              value: money(projection.profit),
+              value: money(shownProfit),
               tone: (projection.profit < 0n ? "red" : "green") as KpiTone,
             },
             // A COUNT, left plain. It is neither good nor bad until you know the
@@ -631,11 +662,11 @@ export function budgetPlannerViewFrom(
     // profit tile beside it already says, and "364 tickets" is neither good nor
     // bad until you know the room.
     results: [
-      { label: "Total revenue", value: money(projection.totalRevenue), tone: "green" },
+      { label: "Total revenue", value: money(shownRevenue), tone: "green" },
       { label: "Ticket revenue", value: money(projection.ticketRevenue), tone: "blue" },
       {
         label: costsIncomplete ? "Total costs (partial)" : "Total costs",
-        value: money(projection.totalCosts),
+        value: money(shownCosts),
         tone: "amber",
       },
       // EVERY FIGURE BELOW IS COST-DERIVED, so each one is withheld rather than
@@ -646,7 +677,7 @@ export function budgetPlannerViewFrom(
         : [
             {
               label: "Profit / loss",
-              value: money(projection.profit),
+              value: money(shownProfit),
               tone: (projection.profit < 0n ? "red" : "green") as KpiTone,
             },
             // MARGIN BEFORE BREAK-EVEN, which is the design's order and the

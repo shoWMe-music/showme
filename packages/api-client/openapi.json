@@ -8350,7 +8350,7 @@
                           "agentParticipantId": {
                             "type": "string"
                           },
-                          "performerEntitlement": {
+                          "commissionableIncome": {
                             "type": "string"
                           },
                           "commission": {
@@ -8371,7 +8371,7 @@
                           "representationId",
                           "performerParticipantId",
                           "agentParticipantId",
-                          "performerEntitlement",
+                          "commissionableIncome",
                           "commission",
                           "agentCollects",
                           "status",

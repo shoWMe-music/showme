@@ -129,9 +129,9 @@ export async function syncCommissionSettlements(
     if (!representation || !isRepresentationActiveAt(representation, new Date())) continue;
     if (representation.commissionRate == null) continue;
 
-    const performerEntitlement = commissionableByParticipant.get(performer.id) ?? 0n;
+    const commissionableIncome = commissionableByParticipant.get(performer.id) ?? 0n;
     const { commission, transfer } = settleRepresentation({
-      performerEntitlement,
+      commissionableIncome,
       commissionBasisPoints: representation.commissionRate,
       agentCollects: representation.agentCollects,
     });
@@ -142,7 +142,7 @@ export async function syncCommissionSettlements(
       computed: {
         performerParticipantId: performer.id,
         agentParticipantId,
-        performerEntitlement: performerEntitlement.toString(),
+        commissionableIncome: commissionableIncome.toString(),
         commission: commission.toString(),
         agentCollects: representation.agentCollects,
       },

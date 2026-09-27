@@ -67,7 +67,12 @@ export interface SerializedCommission {
   representationId: string;
   performerParticipantId: string;
   agentParticipantId: string;
-  performerEntitlement: string;
+  /**
+   * The income this commission is charged on. Called `performerEntitlement` until
+   * 2026-09-27, which named it after a DIFFERENT figure in the same response — the
+   * act's own entitlement, SEK 1,500 away from it (QA sweep run 2, r2:603).
+   */
+  commissionableIncome: string;
   commission: string;
   agentCollects: boolean;
   status: string;
@@ -196,6 +201,8 @@ export function serializeCommission(row: SettlementRow): SerializedCommission {
   const computed = (row.computed ?? {}) as {
     performerParticipantId?: string;
     agentParticipantId?: string;
+    commissionableIncome?: string;
+    /** The old spelling. Rows written before 2026-09-27 still carry it (r2:603). */
     performerEntitlement?: string;
     commission?: string;
     agentCollects?: boolean;
@@ -205,7 +212,9 @@ export function serializeCommission(row: SettlementRow): SerializedCommission {
     representationId: row.representationId as string,
     performerParticipantId: computed.performerParticipantId ?? "",
     agentParticipantId: computed.agentParticipantId ?? "",
-    performerEntitlement: computed.performerEntitlement ?? "0",
+    // Either spelling: the jsonb is stored, so a row written before the rename must
+    // keep reading as itself rather than silently as zero.
+    commissionableIncome: computed.commissionableIncome ?? computed.performerEntitlement ?? "0",
     commission: computed.commission ?? "0",
     agentCollects: computed.agentCollects ?? false,
     status: row.status,

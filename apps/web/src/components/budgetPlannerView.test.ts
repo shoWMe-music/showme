@@ -25,6 +25,7 @@ import {
   type PartitionableCostRow,
   carryRevealedHeading,
   costsIncompleteNoteFor,
+  roundToDisplayUnit,
   splitCostRows,
   ticketSplitDisplay,
 } from "./budgetPlannerView";
@@ -392,5 +393,40 @@ describe("carryRevealedHeading", () => {
       "Piano",
       "Venue",
     ]);
+  });
+});
+
+/**
+ * TWO CORRECT NUMBERS AND A THIRD THAT CONTRADICTS THEM (QA sweep run 2, r2:480).
+ *
+ * `TOTAL REVENUE SEK 6,300 · TOTAL COSTS SEK 4,805 · PROFIT / LOSS SEK 1,496`, each
+ * rounding right on its own and the card still failing the only arithmetic a reader
+ * does on it.
+ */
+describe("roundToDisplayUnit", () => {
+  it("makes the headline subtraction hold", () => {
+    const revenue = 630_000n;
+    const costs = 480_450n; // 4,804.50 → prints 4,805
+    const shownRevenue = roundToDisplayUnit(revenue, 100);
+    const shownCosts = roundToDisplayUnit(costs, 100);
+
+    expect(shownCosts).toBe(480_500n);
+    expect(shownRevenue - shownCosts).toBe(149_500n); // prints 1,495 — and 6300-4805 is 1495
+    // The exact profit is what used to be printed, and what did not add up.
+    expect(revenue - costs).toBe(149_550n); // prints 1,496
+  });
+
+  it("rounds half away from zero, in both directions", () => {
+    expect(roundToDisplayUnit(150n, 100)).toBe(200n);
+    expect(roundToDisplayUnit(149n, 100)).toBe(100n);
+    expect(roundToDisplayUnit(-150n, 100)).toBe(-200n);
+    expect(roundToDisplayUnit(-149n, 100)).toBe(-100n);
+  });
+
+  it("leaves a currency with no minor unit alone", () => {
+    // JPY: the minor unit IS the unit, so there is nothing to round away.
+    expect(roundToDisplayUnit(240_001n, 1)).toBe(240_001n);
+    // KWD has three, so the card's whole-dinar figure moves by up to 500 fils.
+    expect(roundToDisplayUnit(1_500n, 1000)).toBe(2_000n);
   });
 });

@@ -248,7 +248,7 @@ export function serializeBreakdown(breakdown: PartyBreakdown): SerializedBreakdo
 export interface SerializedCommissionSnapshot {
   performerParticipantId: string;
   agentParticipantId: string;
-  performerEntitlement: string;
+  commissionableIncome: string;
   commission: string;
   agentCollects: boolean;
 }
@@ -257,14 +257,14 @@ export interface SerializedCommissionSnapshot {
 export function serializeCommissionSnapshot(input: {
   performerParticipantId: string;
   agentParticipantId: string;
-  performerEntitlement: bigint;
+  commissionableIncome: bigint;
   commission: bigint;
   agentCollects: boolean;
 }): SerializedCommissionSnapshot {
   return {
     performerParticipantId: input.performerParticipantId,
     agentParticipantId: input.agentParticipantId,
-    performerEntitlement: input.performerEntitlement.toString(),
+    commissionableIncome: input.commissionableIncome.toString(),
     commission: input.commission.toString(),
     agentCollects: input.agentCollects,
   };

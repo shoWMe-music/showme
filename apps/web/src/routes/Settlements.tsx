@@ -183,12 +183,14 @@ export function Settlements() {
             minTileWidth={220}
             items={[
               {
-                label: <TileLabel status="confirmed">Total settled</TileLabel>,
-                value: totals.settled,
+                // NAMED FOR WHAT IT COUNTS (r2:880). "Total settled" counted `paid`
+                // alone and read `SEK 0` beside a finalized SEK 20,700.
+                label: <TileLabel status="confirmed">Paid</TileLabel>,
+                value: totals.paid,
               },
               {
-                label: <TileLabel status="pending">Pending review</TileLabel>,
-                value: totals.pending,
+                label: <TileLabel status="pending">In review</TileLabel>,
+                value: totals.inReview,
               },
               {
                 label: <TileLabel status="task">Outstanding</TileLabel>,

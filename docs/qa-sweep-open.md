@@ -45,8 +45,11 @@ stated.
 | r3:619 + r3:153 | A co-promoter's own money: listed on one screen, 403 on the event | `f70c519` |
 | r3:165 | "Room / Stage: Assigned" to everyone but the venue's own members | `9468472` |
 | r2:894 | Nested `<button>` on the Venue row, on all five events | `9468472` |
-| r3:178 | Naming a revealed cost heading threw the row out of the table | *this commit* |
-| r3:173 | The budget scope chooser was nowhere in the URL | *this commit* |
+| r3:178 | Naming a revealed cost heading threw the row out of the table | `fdadde6` |
+| r3:173 | The budget scope chooser was nowhere in the URL | `fdadde6` |
+| r2:480 | The planner's three headline figures did not add up | *this commit* |
+| r2:880 | "Total settled SEK 0" beside "Finalized SEK 20,700" | *this commit* |
+| r2:603 | Two fields named for one thing, SEK 1,500 apart | *this commit* |
 
 **Corrected, not fixed:** r2:411 (inline Status "never saves") — run 3 found it does
 save, behind a Save button run 2 never pressed. Downgraded to MINOR; no work owed.
@@ -64,14 +67,11 @@ below as a decision, or corrected as a misreading. What remains is the minor lis
 
 | # | ID | What is wrong |
 |---|---|---|
-| 11 | r2:480 | Rounding makes the planner's three headline figures disagree |
-| 12 | r2:603 | The commission's `performerEntitlement` disagrees with the act's own entitlement |
 | 13 | r2:616 | A line on the Financials tab needs an explicit **Add**, and nothing says so |
 | 14 | r2:706 | "Place a hold" exists only in the Calendar's day menu |
 | 15 | r2:752 | The counter-offer dialog names the act when the terms go to the agent |
 | 16 | r2:758 | The Requests date rail ignores the status filter, and the empty state hides it |
 | 19 | r2:866 | A performer is offered an enabled Remove they may not use *(the capability-name half is fixed; the enabled-control half is open)* |
-| 20 | r2:880 | "Total settled SEK 0" beside "Finalized SEK 20,700" |
 | 21 | r2:887 | "Edit" a collaborator changes role only, though the menu says access |
 | 37 | r3:731 | Escape on the venue autocomplete offers to throw the whole event away |
 
@@ -112,8 +112,9 @@ below as a decision, or corrected as a misreading. What remains is the minor lis
   now withholds the figures it cannot compute rather than guessing. Three options are
   in the status doc for Ran. Items 1–2 above may be narrowed by the answer.
 - **Should a reimbursed cost reduce an agent's commissionable income?**
-  ClickUp `86cba8wtb`, status `re-do`. Items 12 and the second half of r2:804 both
-  turn on it. Measured today: the engine's commissionable base is
+  ClickUp `86cba8wtb`, status `re-do`. The second half of r2:804 turns on it, and so
+  does the figure r2:603 was reading (the FIELD is now named for what it holds —
+  `commissionableIncome` — which is the half that was a defect). Measured today: the engine's commissionable base is
   `entitlement + deductibles` (31,500 + 3,500 = 35,000 → SEK 3,500 at 10%), which is
   what `commission-settlement.ts` and its test already assert — *a reimbursed cost
   does not shrink the agent's commission*. The screen renders the stored figure

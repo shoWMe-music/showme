@@ -10,7 +10,7 @@ export type GetApiV1EventsIdSettlements200CommissionsItem = {
   representationId: string;
   performerParticipantId: string;
   agentParticipantId: string;
-  performerEntitlement: string;
+  commissionableIncome: string;
   commission: string;
   agentCollects: boolean;
   status: string;

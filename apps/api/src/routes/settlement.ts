@@ -179,7 +179,7 @@ const CommissionResponse = z.object({
   representationId: z.string(),
   performerParticipantId: z.string(),
   agentParticipantId: z.string(),
-  performerEntitlement: z.string(),
+  commissionableIncome: z.string(),
   commission: z.string(),
   agentCollects: z.boolean(),
   status: z.string(),

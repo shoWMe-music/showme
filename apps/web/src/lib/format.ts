@@ -19,7 +19,7 @@ import { CURRENCIES } from "@showme/shared";
  * number. So the table is read directly and an unknown code falls back to 2, which
  * is what every caller already assumed.
  */
-function minorUnitsPer(currencyCode: string): number {
+export function minorUnitsPer(currencyCode: string): number {
   const exponent =
     (CURRENCIES as Record<string, { minorUnitExponent: number } | undefined>)[currencyCode]
       ?.minorUnitExponent ?? 2;

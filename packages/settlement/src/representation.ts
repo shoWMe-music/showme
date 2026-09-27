@@ -8,8 +8,19 @@ import { applyBasisPoints } from "@showme/shared";
  * produces one of these per agented performer).
  */
 export interface RepresentationInput {
-  /** The performer's entitled amount on this deal line, gross (from the event settlement). */
-  performerEntitlement: bigint;
+  /**
+   * THE COMMISSIONABLE INCOME this deal line produces — not the performer's
+   * entitlement, which is a different figure on the same night.
+   *
+   * It was called `performerEntitlement` and measured 2026-09-26 on one API response:
+   * `commissions[0].performerEntitlement` SEK 32,100 next to
+   * `settlements[Marlo].computed.entitlement` SEK 33,600 — two fields named for the
+   * same thing, SEK 1,500 apart (QA sweep run 2, r2:603). The engine's base is
+   * `entitlement + deductibles`, which decisions #14 calls commissionable income, and
+   * that is what the name now says. WHAT the base should be is still a product call
+   * (ClickUp `86cba8wtb`); what it is called is not.
+   */
+  commissionableIncome: bigint;
   /** Commission as basis points of commissionable income (4000 = 40.00%). */
   commissionBasisPoints: number;
   /** True → the agent is the payout destination and collected the gross on the performer's behalf. */
@@ -32,10 +43,10 @@ export interface RepresentationSettlement {
  * the payout destination.
  */
 export function settleRepresentation(input: RepresentationInput): RepresentationSettlement {
-  const commission = applyBasisPoints(input.performerEntitlement, input.commissionBasisPoints);
+  const commission = applyBasisPoints(input.commissionableIncome, input.commissionBasisPoints);
 
   if (input.agentCollects) {
-    const owedToPerformer = input.performerEntitlement - commission;
+    const owedToPerformer = input.commissionableIncome - commission;
     return {
       commission,
       transfer:

@@ -162,7 +162,7 @@ export interface SettlementComment {
 export interface SettlementCommissionRow {
   id: string;
   performerLabel: string;
-  performerEntitlement: string;
+  commissionableIncome: string;
   commissionLabel: string;
   commission: string;
 }
@@ -955,8 +955,12 @@ export function useEventSettlement(
     transfers,
     commissions: (settlements.data?.commissions ?? []).map((commission) => ({
       id: commission.id,
-      performerLabel: `${nameOf(commission.performerParticipantId)} entitlement`,
-      performerEntitlement: formatAmount(commission.performerEntitlement),
+      // NAMED FOR WHAT IT IS (r2:603). The row used to be labelled "<act>
+      // entitlement" beside a figure that is not their entitlement — the act's own
+      // settlement says SEK 33,600 where this said 32,100, and the two were 1,500
+      // apart under one word. The commission is charged on commissionable income.
+      performerLabel: `${nameOf(commission.performerParticipantId)} commissionable income`,
+      commissionableIncome: formatAmount(commission.commissionableIncome),
       commissionLabel: `Commission to ${nameOf(commission.agentParticipantId)}`,
       commission: formatAmount(commission.commission),
     })),

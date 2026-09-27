@@ -9,7 +9,7 @@ const eur = (major: string | number) => majorToMinor(major, "EUR");
 describe("settleRepresentation", () => {
   it("bills the performer when the performer collected", () => {
     const result = settleRepresentation({
-      performerEntitlement: eur(3000),
+      commissionableIncome: eur(3000),
       commissionBasisPoints: 1500,
       agentCollects: false,
     });
@@ -19,7 +19,7 @@ describe("settleRepresentation", () => {
 
   it("forwards net to the performer when the agent collected", () => {
     const result = settleRepresentation({
-      performerEntitlement: eur(3000),
+      commissionableIncome: eur(3000),
       commissionBasisPoints: 1500,
       agentCollects: true,
     });
@@ -64,7 +64,7 @@ describe("split deal: one agented performer, one self-managed", () => {
     const aGross = result.breakdowns.find((p) => p.participantId === "A")?.entitlement ?? 0n;
 
     const aRepresentation = settleRepresentation({
-      performerEntitlement: aGross,
+      commissionableIncome: aGross,
       commissionBasisPoints: 2000,
       agentCollects: true,
     });

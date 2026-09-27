@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { entitlementRules, matchingSettlements } from "./settlementDocument";
+import { entitlementRules, matchingSettlements, settlementTotals } from "./settlementDocument";
 
 /**
  * The Settlements screen's whole filtering rule (ClickUp `123qy9rngbp`).
@@ -105,5 +105,58 @@ describe("entitlementRules", () => {
     );
 
     expect(rules.find((rule) => rule.key === "collected")).toBeUndefined();
+  });
+});
+
+/**
+ * "TOTAL SETTLED SEK 0" BESIDE "FINALIZED SEK 20,700" (QA sweep run 2, r2:880).
+ *
+ * Both figures were true and the card still read as broken: "settled" counted `paid`
+ * alone, and a finalized settlement is exactly what "settled" means to the person
+ * reading it. The same tile row also counted an `open` row — whose own chip said
+ * **Open** — under a label reading **Pending review**.
+ */
+describe("settlementTotals", () => {
+  // Intl puts a NARROW NO-BREAK SPACE between symbol and figure; the assertions read
+  // better with a plain one than with an escape in every expected string.
+  const plain = (text: string) => text.replace(/\u00a0|\u202f/g, " ");
+  const item = (status: string, entitlement: string) => ({
+    id: status,
+    version: 1,
+    participantId: null,
+    net: entitlement,
+    status,
+    entitlement,
+    currency: "SEK",
+    event: { id: status, status: "concluded", title: status, eventDate: null },
+  });
+
+  it("counts paid money as paid and says nothing about it being settled", () => {
+    const totals = settlementTotals([item("finalized", "2070000"), item("open", "159000")]);
+    expect(plain(totals.paid)).toBe("SEK 0");
+    expect(plain(totals.finalized)).toBe("SEK 20,700");
+    // Outstanding is everything not paid — the finalized money included, because it
+    // has not moved.
+    expect(plain(totals.outstanding)).toBe("SEK 22,290");
+  });
+
+  it("does not call an untouched settlement a review", () => {
+    // The row's chip says "Open"; the tile must not claim it is under review.
+    expect(plain(settlementTotals([item("open", "159000")]).inReview)).toBe("SEK 0");
+    expect(plain(settlementTotals([item("pending_review", "100000")]).inReview)).toBe("SEK 1,000");
+    expect(plain(settlementTotals([item("comments_received", "100000")]).inReview)).toBe(
+      "SEK 1,000",
+    );
+    expect(plain(settlementTotals([item("revised", "100000")]).inReview)).toBe("SEK 1,000");
+    // A dispute is outstanding, not a review.
+    const dispute = settlementTotals([item("dispute", "100000")]);
+    expect(plain(dispute.inReview)).toBe("SEK 0");
+    expect(plain(dispute.outstanding)).toBe("SEK 1,000");
+  });
+
+  it("prints an em dash rather than a zero when there is nothing at all", () => {
+    const empty = settlementTotals([]);
+    expect(plain(empty.paid)).toBe("—");
+    expect(plain(empty.outstanding)).toBe("—");
   });
 });

@@ -1489,7 +1489,7 @@ async function main() {
     // deal no longer pays.
     const albumPerformerALine = REFERENCE_DOOR_SPLIT_SHARES.headlinerAmount; // 30 000.00 SEK
     const albumCommission = settleRepresentation({
-      performerEntitlement: albumPerformerALine,
+      commissionableIncome: albumPerformerALine,
       commissionBasisPoints: 1000, // 10.00%, per the representation above
       agentCollects: false,
     });
@@ -1504,7 +1504,7 @@ async function main() {
         computed: serializeCommissionSnapshot({
           performerParticipantId: PART.albumPerformerA,
           agentParticipantId: PART.albumAgent,
-          performerEntitlement: albumPerformerALine,
+          commissionableIncome: albumPerformerALine,
           commission: albumCommission.commission,
           agentCollects: false,
         }),

@@ -457,9 +457,13 @@ export type SettlementListItem = Awaited<ReturnType<typeof getApiV1Settlements>>
 
 /** The four headline figures, already formatted. */
 export interface SettlementTotals {
-  settled: string;
-  pending: string;
+  /** Money that has actually moved — `paid`, and nothing else. */
+  paid: string;
+  /** Under review right now: sent for review, commented on, or revised. */
+  inReview: string;
+  /** Everything not yet paid, whatever stage it is at. */
   outstanding: string;
+  /** Figures locked and frozen with their FX rate — whether or not paid. */
   finalized: string;
 }
 
@@ -507,6 +511,25 @@ export function matchingSettlements<
  * figure is an em dash: nothing has settled, and "0" would assert a total that was
  * never calculated.
  */
+/**
+ * WHAT "SETTLED" MEANT, AND WHY THE TILE READ ZERO (QA sweep run 2, r2:880).
+ *
+ * Measured on every account kind: `TOTAL SETTLED SEK 0` next to `FINALIZED SEK 20,700`.
+ * Both were true — `settled` counted `paid` alone, and nothing had been paid — but in
+ * this domain "settled" is what a finalized settlement IS, so the card read as broken
+ * arithmetic rather than as two different facts. The tile is now called what it counts:
+ * **Paid**.
+ *
+ * The second half of the same finding: a row whose own chip said **Open** was counted
+ * under a tile labelled **Pending review**, because `open` was bucketed with
+ * `comments_received`. A settlement nobody has sent out is not in review. It is
+ * outstanding — which the Outstanding tile beside it already says — so `open` money is
+ * counted there and nowhere else, and the review tile counts the three statuses the
+ * review machine actually writes. A `dispute` stays out of it too: it is outstanding,
+ * and calling an argument a review would flatter it.
+ */
+const IN_REVIEW_STATUSES = new Set(["pending_review", "comments_received", "revised"]);
+
 export function settlementTotals(settlements: SettlementListItem[]): SettlementTotals {
   const sum = (predicate: (row: SettlementListItem) => boolean) =>
     settlements
@@ -520,8 +543,8 @@ export function settlementTotals(settlements: SettlementListItem[]): SettlementT
         ? formatMoney(amount.toString(), currency)
         : formatAmount(amount.toString());
   return {
-    settled: format(sum((row) => row.status === "paid")),
-    pending: format(sum((row) => row.status === "open" || row.status === "comments_received")),
+    paid: format(sum((row) => row.status === "paid")),
+    inReview: format(sum((row) => IN_REVIEW_STATUSES.has(row.status))),
     outstanding: format(sum((row) => row.status !== "paid")),
     finalized: format(sum((row) => row.status === "finalized")),
   };

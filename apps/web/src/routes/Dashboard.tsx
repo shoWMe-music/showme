@@ -503,15 +503,15 @@ export function Dashboard() {
         <div className={styles.kpiGrid}>
           <KpiTile
             dot="#6FC97A"
-            label="Total settled"
-            value={settlementFigures.settled}
+            label="Paid"
+            value={settlementFigures.paid}
             valueSize={34}
             onClick={() => navigate({ to: "/settlements" })}
           />
           <KpiTile
             dot="#F4A046"
-            label="Pending review"
-            value={settlementFigures.pending}
+            label="In review"
+            value={settlementFigures.inReview}
             valueSize={34}
             onClick={() => navigate({ to: "/settlements" })}
           />

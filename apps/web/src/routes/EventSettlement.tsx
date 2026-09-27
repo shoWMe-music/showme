@@ -846,7 +846,7 @@ function SettlementTab({
           <Eyebrow>Agent commission — private to you and your agent</Eyebrow>
           <KeyValueRow
             label={commission.performerLabel}
-            value={commission.performerEntitlement}
+            value={commission.commissionableIncome}
             mono
           />
           <KeyValueRow
