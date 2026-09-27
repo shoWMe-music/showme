@@ -224,6 +224,25 @@ asks", which a unit test of the same wiring cannot catch any better than the liv
 above; the durable guard would be an e2e spec, and that needs seeded data with a clash
 that the seed does not currently carry.
 
+**QA-8 — a clicked numeric cell selects what is in it, so a typed 50 is 50.**
+The three ticket-tier cells start at `0` — a figure the system put there, not one anybody
+typed — and a caret landing before it turned a typed "50" into "500" and a typed "250"
+into "0250". Tabbing in was always fine, because a tab selects the contents; so the defect
+only ever bit the reader who reached for the mouse, and it bit silently, on a number that
+feeds `seedTicketTiersIntoBudget` and reaches the settlement.
+
+The fix is in `NumericField`, which is every numeric cell on that tab (the tiers and the
+guest-list limits), so a click now behaves exactly as a tab already did. The `mouseup`
+default is prevented alongside it, because Chrome collapses a focus-time selection when
+the button comes back up — which would have undone the fix for the one input method it
+exists for. **The trade, stated:** a click no longer places a caret mid-number. For a
+figure of a few digits retyping is the cheaper of the two.
+
+Proven live with real key presses, not a programmatic fill: clicking into MAX on a fresh
+tier and typing `50` reads **50**, clicking into PRICE and typing `250` reads **250**, and
+the row stores `{"max":50,"price":250}` where the sweep measured `{"max":500}`. Suites:
+biome 712 · web 326 · e2e 112.
+
 **Left as an open question rather than silently skipped:** events created *during the
 regression window* (between `f996c14` and this commit) still carry both books, and
 migration `0046` cannot heal them — its guard is "the event has no shared ledger yet". If

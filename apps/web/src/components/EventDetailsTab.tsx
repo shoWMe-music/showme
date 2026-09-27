@@ -725,7 +725,31 @@ function NumericField({
         const parsed = Number(raw);
         onDraft(raw.trim() === "" || !Number.isFinite(parsed) ? emptyValue : parsed);
       }}
-      onFocus={() => setFocused(true)}
+      /**
+       * A CLICK SELECTS WHAT IS THERE, exactly as a tab already does.
+       *
+       * These cells start at `0` — a figure the system put there, not one anybody
+       * typed — and a caret landing before it turns a typed "50" into "500" and a
+       * typed "250" into "0250". Tabbing in was always fine, because a tab selects
+       * the contents; so the defect only ever bit the reader who reached for the
+       * mouse, which is most of them, and it bit silently: the number feeds
+       * `seedTicketTiersIntoBudget` and reaches the settlement, so a tenfold error
+       * arrives with nothing on screen to question it (QA sweep, 2026-09-27).
+       *
+       * The trade is that a click no longer places a caret mid-number. For a figure
+       * of a few digits, retyping it is the cheaper of the two, and it is what every
+       * other numeric cell in this app now does too.
+       */
+      onFocus={(focusEvent) => {
+        setFocused(true);
+        focusEvent.currentTarget.select();
+      }}
+      onMouseUp={(mouseEvent) => {
+        // Chrome collapses a focus-time selection when the mouse button comes back
+        // up, which would undo the line above for the one input method it exists
+        // for. Preventing the default keeps the selection the focus made.
+        mouseEvent.preventDefault();
+      }}
       onBlur={() => {
         setFocused(false);
         onCommit();
