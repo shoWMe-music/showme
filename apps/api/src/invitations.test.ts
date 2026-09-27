@@ -914,6 +914,75 @@ describe("invitations — what reaches an event's history", () => {
       .where(isNull(schema.activityLog.eventId));
     expect(eventless).toHaveLength(0);
   });
+
+  /**
+   * RUNG 1 OF THE BOOKING LADDER, on the path "Invite Collaborator" takes
+   * (ClickUp `86cbcehmp`).
+   *
+   * Ran: *"Inviting performers from the system in the flow or from the event manager
+   * should move the event from draft to suggested."* The rung fired only from
+   * `POST /events/:id/participants`, which the web app never calls — the modal posts
+   * here (`useEventCollaboratorInvite`). So an operator invited an act, the night stayed
+   * `draft`, and the act's acceptance moved it straight to `pending`: `suggested`, the
+   * whole of step 1, never happened on any path a person could take.
+   */
+  it("moves a draft to suggested when an ACT is invited, and leaves it alone for a co-operator", async () => {
+    const { db } = harness;
+    const host = await seedOwner("inv-rung-host");
+
+    const eventFor = async (title: string) => {
+      const [event] = await db
+        .insert(schema.events)
+        .values({
+          hostProfileId: host.profileId,
+          title,
+          baseCurrency: "SEK",
+          createdBy: "inv-rung-host",
+        })
+        .returning();
+      if (!event) throw new Error("event seed failed");
+      await db.insert(schema.eventParticipants).values({
+        eventId: event.id,
+        profileId: host.profileId,
+        role: "host",
+        permissionSetId: host.permissionSetId,
+        status: "confirmed",
+      });
+      return event;
+    };
+    const statusOf = async (eventId: string) => {
+      const [row] = await db
+        .select({ status: schema.events.status })
+        .from(schema.events)
+        .where(eq(schema.events.id, eventId));
+      return row?.status;
+    };
+    const invite = (eventId: string, role: string, email: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/invitations",
+        headers: { ...auth("inv-rung-host"), "x-profile-id": host.profileId },
+        payload: {
+          type: "event_participant",
+          source: "collaborator",
+          recipientEmail: email,
+          targetEventId: eventId,
+          role,
+          permissionSetId: host.granteeSetId,
+        },
+      });
+
+    const forAct = await eventFor("Act Invited");
+    expect((await invite(forAct.id, "performer", "act@example.showme.test")).statusCode).toBe(201);
+    expect(await statusOf(forAct.id)).toBe("suggested");
+
+    // A co-operator is not the act, and the ladder is about the ACT's answer: inviting
+    // somebody to help run the night suggests it to nobody. Same rule, same set, as
+    // `POST /events/:id/participants` applies to a direct add.
+    const forCoHost = await eventFor("Co-operator Invited");
+    expect((await invite(forCoHost.id, "co_host", "co@example.showme.test")).statusCode).toBe(201);
+    expect(await statusOf(forCoHost.id)).toBe("draft");
+  });
 });
 
 describe("GET /events/:id/invitations — the event's open invitations", () => {

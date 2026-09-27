@@ -1,4 +1,9 @@
-import { usePostApiV1Invitations } from "@showme/api-client";
+import {
+  getGetApiV1EventsIdInvitationsQueryKey,
+  getGetApiV1EventsIdQueryKey,
+  usePostApiV1Invitations,
+} from "@showme/api-client";
+import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { errorMessage } from "../lib/errors";
 import { combineName } from "./InviteNameFields";
@@ -111,6 +116,7 @@ export function useEventCollaboratorInvite({
   const [sentTo, setSentTo] = useState<string | null>(null);
 
   const createInvitation = usePostApiV1Invitations();
+  const queryClient = useQueryClient();
 
   // Every open is a fresh invite — a refusal or a "sent" panel left over from last
   // time would describe someone who is no longer on screen.
@@ -161,6 +167,21 @@ export function useEventCollaboratorInvite({
       setRefusal(errorMessage(error, "Couldn't send the invitation."));
       return;
     }
+
+    /**
+     * THE EVENT ITSELF, not just its invitation list.
+     *
+     * Inviting an ACT moves the night `draft` → `suggested` (the booking ladder,
+     * `86cbcehmp`), and that status is on the header of the screen this modal is sitting
+     * over. Without this the invite succeeded, the status moved in the database, and the
+     * chip went on saying "Draft" until a reload — the same shape as the settlement
+     * toast that reported success over a card which had not moved (`useEventSettlement`).
+     * Measured in the browser on 2026-09-27, which is the only place it shows.
+     */
+    await queryClient.invalidateQueries({ queryKey: getGetApiV1EventsIdQueryKey(eventId) });
+    await queryClient.invalidateQueries({
+      queryKey: getGetApiV1EventsIdInvitationsQueryKey(eventId),
+    });
 
     setSentTo(recipientEmail);
   }

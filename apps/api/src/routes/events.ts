@@ -1,4 +1,4 @@
-import { PRESET_PERMISSION_SETS } from "@showme/auth";
+import { PERFORMING_EVENT_ROLES, PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { notifyProfileMembers } from "@showme/db/notify";
 import {
@@ -38,6 +38,7 @@ import {
   proposeEventChange,
   reopenInvitationsAfterChange,
 } from "../lib/event-change-requests";
+import { advanceEventStatus } from "../lib/event-status-ladder";
 import { resolveEventTimezone } from "../lib/event-timezone";
 import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
 import { withIdempotency } from "../plugins/idempotency";
@@ -317,6 +318,25 @@ async function joinParticipants(
   const principal = request.principal;
   if (!principal) throw new Error("principal missing after authentication");
 
+  /**
+   * RUNG 1 OF THE BOOKING LADDER, on the path the wizard takes (ClickUp `86cbcehmp`).
+   *
+   * Ran: *"Inviting performers from the system in the flow or from the event manager
+   * should move the event from draft to suggested"* — **both paths**, and this is the
+   * first of them. The rung existed and fired only from
+   * `POST /events/:id/participants`, which `apps/web` never calls: the wizard writes its
+   * bill through here, so naming an act while creating a night left the event at
+   * `draft` and the ladder's own comment blamed the resulting `draft`-with-invitations
+   * rows on history.
+   *
+   * Once, not per performer. The ladder is forward-only and idempotent, so a loop would
+   * be harmless — and it would read as though a second act could move the status again,
+   * which is exactly the misreading this rung exists to prevent.
+   */
+  const invitesAnAct = input.participants.some((joining) =>
+    PERFORMING_EVENT_ROLES.has(joining.role),
+  );
+
   for (const joining of input.participants) {
     if (participantIdByProfile.has(joining.profileId)) continue;
     const [participant] = await tx
@@ -364,6 +384,10 @@ async function joinParticipants(
       await autoAssignAgentOnPerformerJoin(tx, event, participant.profileId);
     }
   }
+  if (invitesAnAct) {
+    await advanceEventStatus(tx, { eventId: input.eventId, trigger: "performer_invited" });
+  }
+
   return participantIdByProfile;
 }
 

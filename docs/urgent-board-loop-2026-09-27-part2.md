@@ -113,6 +113,44 @@ than repeated here.
 
 ## Log
 
+**Item 2 — rung 1 now fires on the two paths a person can take. `86cbcehmp` step 1 is
+done.** The rung existed, was correct, and fired only from `POST /events/:id/participants`
+— which `apps/web` never calls. So on both real paths the night stayed `draft` until
+somebody accepted and then jumped to `pending`; `suggested`, the whole of Ran's step 1,
+never happened.
+
+- **The wizard** (`POST /events` → `joinParticipants`) fires it once when the bill it
+  writes names a performing role. Once, not per performer: the ladder is forward-only and
+  idempotent, so a loop would be harmless and would read as though a second act could move
+  the status again.
+- **Invite Collaborator** (`POST /invitations` with a `targetEventId`) fires it when the
+  invited role is a performing one. A co-operator or a crew invite must not: the ladder is
+  about the ACT's answer, the same rule the direct-add route states at its own call site.
+  An invitation is a deferred grant, which is exactly what `suggested` means — an offer
+  out, unanswered.
+
+**Nothing moves it back** on a decline or a revoke. The ladder is forward-only by design
+and Ran's step 5 is explicit that a refusal produces a notification and the operator's
+choice of what to do next, not a status change.
+
+**Found while proving it, and fixed:** the invite succeeded, the status moved in the
+database, and the header went on reading **Draft** until a reload — the modal invalidated
+nothing. That is the same shape as the settlement toast that reported success over a card
+which had not moved, and it only shows in a browser. `useEventCollaboratorInvite` now
+invalidates the event and its invitation list.
+
+**A note on method, because it bit twice today:** two mutation checks came back green
+because the `python`/`perl` pattern silently failed to match after biome reformatted the
+line. Both were re-run against the real text and then failed correctly. **A mutation check
+that does not print "mutated" is not a mutation check.**
+
+Proven live: a seeded draft with only the host on it → Invite Collaborator → **Performer**
+→ the chip moves **Draft → Suggested** on screen without a reload, and the row reads
+`suggested`, version 2, with a pending performer invitation. Mutation-checked three ways
+(neither path firing; the invitation path firing for every role).
+
+Suites: biome 712 · web 328 · api 1310 (3 new) · e2e 112.
+
 **QA-1 — an event is born with one book, and it is the ledger.** `POST /events` opened a
 `private` budget for the creating operator, which is the exact shape `f996c14` and
 migration `0046` removed the day before — so every event created after them was born back

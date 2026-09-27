@@ -1765,6 +1765,46 @@ describe("events — a change to a booked night is a question", () => {
   });
 
   /**
+   * RUNG 1 ON THE TWO PATHS A PERSON CAN ACTUALLY TAKE (ClickUp `86cbcehmp`).
+   *
+   * Ran's step 1 is *"inviting performers from the system in the flow or from the event
+   * manager should move the event from draft to suggested"*. The rung existed and fired
+   * from `POST /events/:id/participants` alone — a route `apps/web` never calls. The
+   * wizard writes its bill inside `POST /events`, and Invite Collaborator posts
+   * `/invitations`, so on both real paths the night stayed `draft` until somebody
+   * accepted, and then jumped to `pending`. `suggested` never happened.
+   */
+  it("moves a draft to suggested when the wizard names an act on it", async () => {
+    const operator = await seedMemberWithSet(
+      "wizrung-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "wizrung-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("wizrung-op"), "x-profile-id": operator.profileId },
+      payload: {
+        title: "Wizard Night",
+        baseCurrency: "SEK",
+        participants: [{ profileId: performer.profileId, role: "performer" }],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect((await eventRow(created.json().id))?.status).toBe("suggested");
+    // The negative belongs to the OTHER path, not this one: the wizard's own body
+    // accepts `performer` and `support` and nothing else (`CreateEventParticipant`), so
+    // a crew member cannot be named here at all. `invitations.test.ts` covers a
+    // co-operator invite leaving a draft where it is.
+  });
+
+  /**
    * RENAMING SOMEBODY ELSE'S SHOW IS ALLOWED AND MUST NOT BE SILENT.
    *
    * The title is deliberately not a negotiated field — `NEGOTIATED_FIELDS` is the date,

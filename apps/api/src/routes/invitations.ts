@@ -1,4 +1,5 @@
 import { randomBytes, randomInt } from "node:crypto";
+import { type EventRole, PERFORMING_EVENT_ROLES } from "@showme/auth";
 import { type Database, schema } from "@showme/db";
 import { notifyUsers } from "@showme/db/notify";
 import { invitationExpiresAt } from "@showme/shared";
@@ -24,6 +25,7 @@ import {
   roleConsumesSeat,
   spendCollaborationCredit,
 } from "../lib/entitlements";
+import { advanceEventStatus } from "../lib/event-status-ladder";
 import {
   MAX_VERIFY_ATTEMPTS,
   OTP_TTL_MS,
@@ -544,6 +546,34 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
                 targetId: invitation.id,
                 summary: { recipientName: invitation.recipientName, role: invitation.role },
               });
+              /**
+               * RUNG 1 OF THE BOOKING LADDER, on the path the event manager takes
+               * (ClickUp `86cbcehmp`). Ran: *"Inviting performers from the system in the
+               * flow or from the event manager should move the event from draft to
+               * suggested"* — this is the second of the two, and the one "Invite
+               * Collaborator" actually uses (`useEventCollaboratorInvite`).
+               *
+               * ONLY A PERFORMING ROLE. Inviting a co-operator or a sound engineer
+               * suggests the night to nobody: the ladder is about the act's answer, and
+               * that is the same rule `POST /events/:id/participants` states at its own
+               * call site. An invitation is a deferred grant, which is exactly what
+               * `suggested` means — an offer out, unanswered.
+               *
+               * Nothing moves it back if the invitation is declined or revoked: the
+               * ladder is forward-only by design, and Ran's step 5 is explicit that a
+               * refusal produces a notification and the operator's choice of what to do
+               * next, not a status change. A night whose only act said no is still a
+               * night somebody is trying to fill.
+               */
+              // `invitations.role` is free text on the column (it serves profile
+              // memberships too, whose roles are a different vocabulary), so the set is
+              // asked rather than the type asserted.
+              if (invitation.role && PERFORMING_EVENT_ROLES.has(invitation.role as EventRole)) {
+                await advanceEventStatus(tx, {
+                  eventId: invitation.targetEventId,
+                  trigger: "performer_invited",
+                });
+              }
             }
             return invitation;
           });
