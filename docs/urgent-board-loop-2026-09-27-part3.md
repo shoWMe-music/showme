@@ -182,3 +182,25 @@ renamed in the data, and the act's name is still offered into the blank.
 
 Proven live: the step reads `EVENT NAME *` over that line, and picking **Neon Tide** in
 the picker fills the name field with "Neon Tide". Suites: biome 712 · web 330 · e2e 112.
+
+### `123qy9rprbx` §2 — an event at rest says the night is double-booked
+
+**Verdict: real, and the same mechanism's fourth caller.** `useDateConflicts` asked only
+while the date field was OPEN, on the stated reasoning that otherwise every event page
+would ask about a date nobody is changing. True — and it left the commonest case silent:
+two of your own shows in one room on one night said nothing at all until somebody happened
+to open the date field. **A double booking that only announces itself while you are
+editing is one you find on the night.**
+
+It asks with the saved date when the field is closed and the draft while it is open. The
+sentence renders under the field grid at rest (the grid is two columns, so a third child
+would take a cell and shunt the field after it) and inside the field while editing —
+never both, or the card would say it twice about two different dates.
+
+**The cost, stated:** one cached request per event page, to a route already gated on
+membership of the venue, and an event with no venue asks nothing.
+
+Proven live on a second show seeded into Main Room on 2026-10-14: the card reads *"Main
+Room already has "Marlo Vance — Album Release" on this night. You can book it anyway."*
+with nothing touched, and opening the date field keeps the count at exactly one. Suites:
+biome 712 · web 330 · e2e 112.

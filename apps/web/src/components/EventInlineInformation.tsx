@@ -166,10 +166,21 @@ export function EventInlineInformation({
 
   const dateConflicts = useDateConflicts({
     venueProfileId: event.venueProfileId ?? null,
-    // The draft, so the warning tracks what is being typed rather than what is
-    // already saved. Only while the field is open — otherwise every event page
-    // would ask this on load for a date nobody is changing.
-    date: inline.editingField === "eventDate" ? inline.draft : null,
+    /**
+     * WHILE EDITING: the draft, so the warning tracks what is being typed rather than
+     * what is saved. AT REST: the saved date (ClickUp `123qy9rprbx` §2).
+     *
+     * This used to ask only while the field was open, on the reasoning that otherwise
+     * every event page would ask about a date nobody is changing. True, and it left the
+     * commonest case silent: two of your own shows in one room on one night say nothing
+     * at all until somebody happens to open the date field. A double booking that only
+     * announces itself while you are editing is one you find on the night.
+     *
+     * The cost is one cached request per event page, to a route already gated on
+     * membership of the venue — and it answers nothing for an event with no venue,
+     * which never asks.
+     */
+    date: inline.editingField === "eventDate" ? inline.draft : inline.values.eventDate || null,
     stageId: inline.values.stageId || null,
     excludeEventId: event.id,
   });
@@ -462,6 +473,25 @@ export function EventInlineInformation({
           />
         </EventInlineField>
       </EventInlineFieldGrid>
+
+      {/* THE CLASH, WITH THE FIELD CLOSED (ClickUp `123qy9rprbx` §2).
+          Under the grid rather than beside the date, because the grid is two columns
+          and a third child would take a cell and shunt the field after it. While the
+          date IS being edited the same sentence renders inside the field, against the
+          draft — printing both would say it twice about two different dates. */}
+      {!isEditing("eventDate") && dateConflicts.message && (
+        <output
+          style={{
+            display: "block",
+            marginTop: 10,
+            fontSize: 12,
+            lineHeight: 1.45,
+            color: "var(--brand-amber)",
+          }}
+        >
+          {dateConflicts.message}
+        </output>
+      )}
 
       {inline.isSaving && (
         <output
