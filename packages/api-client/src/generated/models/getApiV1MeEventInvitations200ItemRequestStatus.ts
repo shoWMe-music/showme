@@ -14,4 +14,5 @@ export const GetApiV1MeEventInvitations200ItemRequestStatus = {
   accepted: 'accepted',
   declined: 'declined',
   expired: 'expired',
+  cancelled: 'cancelled',
 } as const;

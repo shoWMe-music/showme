@@ -142,6 +142,21 @@ function NotificationRow({
         <span className={styles.time}>{relativeTime(notification.createdAt)}</span>
       </span>
       {notification.body && <span className={styles.body}>{notification.body}</span>}
+      {/* WHO DID IT (QA sweep run 5, QA5-5).
+          
+          `actorDisplay` has been written by `@showme/db/notify` for every notification
+          with an actor, reaches the browser on every row, and had exactly one reader in
+          the whole app — the Event History tab. So the bell said "The capacity changed."
+          and never whose hand did it, which is half of what ClickUp `86cbcftg3` asks for:
+          *"always notify the users of any change — where it happened AND BY WHO."*
+          
+          Rendered as its own line rather than folded into the body, because the body is
+          written by twenty-odd emitters and none of them expects a name appended to its
+          sentence. Absent where the notification has no actor — a task reminder or a
+          show-day notice is the system speaking, and "by nobody" is not worth a line. */}
+      {notification.actorDisplay && (
+        <span className={styles.actor}>by {notification.actorDisplay}</span>
+      )}
     </>
   );
 

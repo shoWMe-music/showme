@@ -48,7 +48,13 @@ export interface EventInvitation {
   /** The participation's own state: `invited` until it is answered. */
   status: string;
   /** Which inbox tab this belongs in — `expired` is derived from the date. */
-  requestStatus: "pending" | "accepted" | "declined" | "expired";
+  /**
+   * `cancelled` is derived by the API from the EVENT's status (QA sweep run 5, QA5-2) —
+   * a night that has been called off is not a pending question, and the Events screen's
+   * filter below drops it for that reason. A party still hears about the cancellation
+   * itself: the notice goes to every participant, `invited` ones included.
+   */
+  requestStatus: "pending" | "accepted" | "declined" | "expired" | "cancelled";
 }
 
 export interface EventInvitationsView {

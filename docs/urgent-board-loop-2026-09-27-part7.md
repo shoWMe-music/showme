@@ -173,3 +173,115 @@ Testcontainers flake, both green alone) · web 368 · e2e 112.
 tickets blocked on `/design-login`, the features this loop deliberately did not invent
 (Duplicate, Make recurring, Print details, Invite-from-a-menu, the Assets library, the
 Repertoire table, Contacts merge, Team-admin seats), and the sweep's eleven minors.
+
+---
+
+## QA sweep run 5 — `QA5-2` and `QA5-5`, planned before building
+
+Two findings from `docs/qa-sweep-2026-09-27-run5.md`, taken together because they are both
+**a field the API already had and nobody read**. Neither is on the board; both are mine.
+
+| | Verdict | The file that settles it |
+|---|---|---|
+| **QA5-5** — the bell never says who did it | **one mechanism, missing caller** | `components/NotificationBell.tsx` |
+| **QA5-2** — cancelling closes nothing still open on the night | **real, at two surfaces** | `routes/participants.ts` + `lib/event-change-requests.ts` |
+
+### QA5-5 — `actorDisplay` had exactly one reader, and it was not the bell
+
+`notifications.actorDisplay` is written by every route that raises a notice (`events.ts`
+three times, `deals.ts`, and the rest) and is declared on the activity response — so the
+**timeline** says *"by The Lantern Hall (operator)"* while the bell, the surface a person
+actually looks at, dropped it. Ran's own line on `86cbcftg3` asks for *"where it happened
+and by who"*; half of that was being thrown away in the renderer.
+
+Scope: one conditional line and one CSS class. **No decision hidden** — the value is
+already event-public (it is the profile's display name, already visible to every party) and
+nullable, so a notice raised by the system rather than a person simply renders no line.
+
+### QA5-2 — a cancelled night is not a question, at two surfaces
+
+The sweep found the same defect twice, and run 4 had found it once already (`QA4-16`):
+
+1. **`GET /me/event-invitations`** derived `requestStatus` from the *participation* alone —
+   `invited` → `pending` — never looking at the event. So an invitation to a **cancelled**
+   show still sat in the Pending tab offering **Accept** and **Decline**, and accepting it
+   joined a night that was off.
+2. **A pending change request survived the cancellation.** The Confirm/Decline banner asking
+   three people to agree a new date stayed live on top of a cancelled event.
+
+Scope, and the decision each hides:
+
+- `inboxStatusFor` gains the event's status as its fourth argument and answers `cancelled`
+  **first**, before the past-date test. *The decision:* a show cancelled before its date is
+  **not "expired"** — expired means the date came and went unanswered, and telling a reader
+  "expired" about a night somebody called off names the wrong cause. `cancelled` is a fifth
+  value on the response enum and on the web union.
+- `closeChangeRequestsOnCancel` moves every `pending` request on the event to **`superseded`**
+  inside the cancellation's own transaction. *The decision:* `superseded`, not `declined` —
+  nobody refused anything, and it is the state a second proposal already puts the first one
+  in. The row survives for the timeline.
+- `EventInvitationsCard` renders a **Cancelled badge**, and only for that status. Every other
+  bucket is named by the tab the reader chose; `cancelled` belongs to no chip, so it appears
+  only under **All**, beside pending invitations it would otherwise be identical to — same
+  title, same date, and now no buttons, with nothing on the row to say why.
+
+### Mutation-tested, and the first attempt at it was worthless
+
+Three mutations, each one red:
+
+| Mutated | Result |
+|---|---|
+| `if (eventStatus === "cancelled") return "cancelled"` → removed | `expected [ … ] to match object [ { requestStatus: 'cancelled' } ]` |
+| `await closeChangeRequestsOnCancel(tx, id)` → removed | `expected [ … ] to have a length of +0 but got 1` |
+| the `status = pending` filter → removed | `expected [ …, … ] to have a length of 1 but got 2` |
+
+**The third one is the lesson.** The first two attempts to mutate that filter reported
+*green*, and the mutation had been applied to the **wrong occurrence**: `proposeEventChange`
+supersedes prior pending requests with a nearly identical `where`, twenty lines earlier in
+the same file, and a first-match replace hit that instead. A mutation check that mutates
+something else is not a mutation check — the same trap as a green suite over real breakage,
+one level down. Anchoring the replacement on the surrounding lines and asserting the match
+count is 1 is what made it honest, and then it went red.
+
+That third mutation only has something to fail on because the test now seeds an **already
+answered** request on the same event and asserts it stays `confirmed`. A cancellation closes
+what is still open; it does not rewrite what the bill already decided.
+
+### Proven on the running stack, before e2e
+
+Invited *Neon Tide* to *Nordic Synth Showcase*, cancelled it as the operator, then read it
+back as the performer — API first, then the browser:
+
+```
+performerB GET /me/event-invitations   before → "requestStatus": "pending"
+operator   PATCH /events/…e4 {"status":"cancelled","cancellationReason":"Room flooded"}
+performerB GET /me/event-invitations   after  → "requestStatus": "cancelled"
+```
+
+In the browser as `performer.b@`, **Pending** reads *"No requests match this view"* — the
+invitation that would have offered Accept is gone — and **All** shows:
+
+```
+1 event invitation
+Nordic Synth Showcase   [Cancelled]
+Fri, 4 Dec 2026 · The Lantern Hall · from The Lantern Hall
+```
+
+with no action bar. The bell, on the same page:
+
+```
+"Nordic Synth Showcase" was cancelled      2m ago
+Room flooded
+by The Lantern Hall (operator)
+```
+
+Screenshot: `docs/screenshots/qa-2026-09-27-run5/qa5-2-and-5-proof.png`.
+
+### `QA5-3` — recorded, not built
+
+The sweep's third major is that a **co-host can rename** the host's show. That is the same
+capability `decisions.md` §25.6 already carries an open call on for *cancel*, so its row has
+been widened to name the rename rather than a seventh row being added: both ride on
+`event.edit`, and one answer settles both. **Still Ran's or Daniel's call** —
+recommendation unchanged, require the host profile for `status` and `title`, mirroring
+delete.

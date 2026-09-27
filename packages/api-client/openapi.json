@@ -3572,7 +3572,7 @@
                       },
                       "requestStatus": {
                         "type": "string",
-                        "enum": ["pending", "accepted", "declined", "expired"]
+                        "enum": ["pending", "accepted", "declined", "expired", "cancelled"]
                       }
                     },
                     "required": [

@@ -1,4 +1,4 @@
-import { Button, Icon, Modal, TextField } from "@showme/design-system";
+import { Badge, Button, Icon, Modal, TextField } from "@showme/design-system";
 import { useState } from "react";
 import type { EventInvitation } from "../hooks/useEventInvitations";
 import { DateText } from "./DateText";
@@ -146,6 +146,23 @@ export function EventInvitationsCard({
                 >
                   {show}
                 </div>
+                {/*
+                  THE ONE STATUS THIS ROW HAS TO SAY OUT LOUD (QA sweep run 5, QA5-2).
+
+                  Every other bucket is named by the tab the reader chose, so a badge
+                  would repeat it. `cancelled` is not: it belongs to no chip, so it
+                  surfaces only under "All", beside pending invitations it is otherwise
+                  indistinguishable from — same title, same date, and now no buttons,
+                  with nothing on the row to say why. The night being off is also the
+                  only one of these states the reader did not cause.
+                */}
+                {invitation.requestStatus === "cancelled" && (
+                  <div style={{ marginTop: 4 }}>
+                    <Badge status="cancelled" dot>
+                      Cancelled
+                    </Badge>
+                  </div>
+                )}
                 <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
                   {/* No link: the calendar cannot show a night you have not
                       accepted, and a dead link is worse than plain text. */}

@@ -34,6 +34,7 @@ import {
   answerChangeRequest,
   callerParticipantOrNull,
   changeNeedsAgreement,
+  closeChangeRequestsOnCancel,
   counterpartCount,
   hasAnswered,
   isEmptyChange,
@@ -1542,6 +1543,17 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
           // itself), so it gets its own type and carries its values: `status` is
           // event-public in `serialize/event.ts`. Every other field is named but
           // not valued — `extras` is the operator's guest list.
+          /*
+           * A CANCELLATION CLOSES THE QUESTIONS STILL OPEN ON THE NIGHT — QA sweep run 5
+           * (QA5-2) and run 4 (QA4-16). A pending proposal asks the bill to agree a new
+           * date for a show that is off; answering it either way means nothing. In the
+           * same transaction as the cancellation, because a cancelled event with a live
+           * proposal on it is the state this prevents.
+           */
+          if (after.status === "cancelled" && before.status !== "cancelled") {
+            await closeChangeRequestsOnCancel(tx, id);
+          }
+
           const statusChanged = changed.includes("status");
           await writeActivity(tx, request, {
             eventId: id,

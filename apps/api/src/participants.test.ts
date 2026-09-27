@@ -1270,6 +1270,55 @@ describe("participants — an invitation must be answered", () => {
     expect(forOperator.json()).toEqual([]);
   });
 
+  /**
+   * A CANCELLED SHOW STOPS ASKING — QA sweep run 5, QA5-2.
+   *
+   * An agent and a performer were both still shown *"You have an invitation — Accept /
+   * Decline"* for a night the operator had called off, with nothing on the card saying so.
+   * The cancellation took the public page down and notified every party, and left this
+   * question standing.
+   *
+   * Derived from `events.status`, like `expired` and for the same reason the expiry note
+   * gives: a stored state would need a sweep to stay truthful.
+   */
+  it("reports an invitation to a CANCELLED show as cancelled, not pending", async () => {
+    const { performer, event } = await seedEventWithHost("cancel-inv");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("cancel-inv-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/v1/me/event-invitations",
+          headers: auth("cancel-inv-perf"),
+        })
+      ).json(),
+    ).toMatchObject([{ requestStatus: "pending" }]);
+
+    const cancelled = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("cancel-inv-op"),
+      payload: { status: "cancelled", cancellationReason: "The room flooded" },
+    });
+    expect(cancelled.statusCode).toBe(200);
+
+    // The row stays — the act can still see what happened to it — but it no longer
+    // claims to be a question. The Events screen filters on `pending`, so the
+    // "Accept / Decline" card disappears there by construction.
+    const after = await app.inject({
+      method: "GET",
+      url: "/api/v1/me/event-invitations",
+      headers: auth("cancel-inv-perf"),
+    });
+    expect(after.json()).toMatchObject([{ requestStatus: "cancelled" }]);
+  });
+
   it("keeps an answered invitation, tagged for the tab it belongs in", async () => {
     const { performer, event } = await seedEventWithHost("tabs");
 
@@ -1549,6 +1598,66 @@ describe("events — a change to a booked night is a question", () => {
     });
     return seeded;
   }
+
+  /**
+   * THE SAME FINDING AT ITS OTHER SURFACE — run 4's QA4-16: a cancelled show went on
+   * asking three people to agree a new date. `superseded`, not `declined`, because nobody
+   * refused anything: the question was overtaken by events.
+   */
+  it("closes a pending change request when the show is cancelled", async () => {
+    const { event } = await bookedEvent("cancel-cr");
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("cancel-cr-op"),
+      payload: { eventDate: "2026-11-30" },
+    });
+    const proposals = await harness.db
+      .select()
+      .from(schema.eventChangeRequests)
+      .where(eq(schema.eventChangeRequests.eventId, event.id));
+    expect(proposals.filter((row) => row.status === "pending")).toHaveLength(1);
+
+    // An ALREADY ANSWERED question from earlier in the night's history. A cancellation
+    // closes what is still open; it does not rewrite what the bill already decided, and
+    // without this row the `status = pending` filter would be free to disappear.
+    const [answered] = await harness.db
+      .insert(schema.eventChangeRequests)
+      .values({
+        eventId: event.id,
+        changes: { eventDate: "2026-10-01" },
+        previous: { eventDate: "2026-09-12" },
+        status: "confirmed",
+        resolvedAt: new Date("2026-09-20T10:00:00Z"),
+      })
+      .returning({ id: schema.eventChangeRequests.id });
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("cancel-cr-op"),
+      payload: { status: "cancelled", cancellationReason: "Called off" },
+    });
+
+    const afterCancel = await harness.db
+      .select()
+      .from(schema.eventChangeRequests)
+      .where(eq(schema.eventChangeRequests.eventId, event.id));
+    expect(afterCancel.filter((row) => row.status === "pending")).toHaveLength(0);
+    expect(afterCancel.filter((row) => row.status === "superseded")).toHaveLength(1);
+    expect(afterCancel.find((row) => row.id === answered?.id)?.status).toBe("confirmed");
+    // And the caller who was waiting is not left with a live banner: the read route
+    // answers with no open request.
+    const open = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/change-request`,
+        headers: auth("cancel-cr-perf"),
+      })
+    ).json().request;
+    expect(open).toBeNull();
+  });
 
   /**
    * NOBODY TO ASK IS NOT THE SAME AS WAITING FOR AN ANSWER (QA sweep run 3).

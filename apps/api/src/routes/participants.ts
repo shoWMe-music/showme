@@ -1061,16 +1061,31 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
        * night having passed, so it is derived here rather than swept by a job
        * that would have to run to make the inbox truthful.
        */
-      requestStatus: z.enum(["pending", "accepted", "declined", "expired"]),
+      requestStatus: z.enum(["pending", "accepted", "declined", "expired", "cancelled"]),
     }),
   );
 
-  /** `invited` → pending, and anything whose night is past → expired. */
+  /**
+   * `invited` → pending, a past night → expired, and a CANCELLED show → cancelled.
+   *
+   * The last one is QA sweep run 5 (QA5-5… QA5-2): an agent and a performer were both
+   * still being shown *"You have an invitation — Accept / Decline"* for a night the
+   * operator had called off, with nothing on the card saying so. Cancelling closed the
+   * public page and notified every party and left this question standing.
+   *
+   * DERIVED, exactly like `expired`, and for the same reason the expiry note gives: a
+   * stored state would need a sweep to stay truthful, and the truth is already in
+   * `events.status`. It is checked FIRST because it is the more useful fact — a show
+   * cancelled before its date is not "expired", and a reader told "expired" about a
+   * night three months away learns nothing.
+   */
   function inboxStatusFor(
     status: string,
     eventDate: string | null,
     today: string,
-  ): "pending" | "accepted" | "declined" | "expired" {
+    eventStatus: string,
+  ): "pending" | "accepted" | "declined" | "expired" | "cancelled" {
+    if (eventStatus === "cancelled") return "cancelled";
     if (eventDate && eventDate < today) return "expired";
     if (status === "accepted") return "accepted";
     if (status === "declined") return "declined";
@@ -1129,6 +1144,9 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
           venueName: schema.events.venueName,
           hostName: host.name,
           invitedAt: schema.eventParticipants.createdAt,
+          // For the `cancelled` reading below — never serialized: the response shape is
+          // the inbox's, and `requestStatus` is what it says about the night.
+          eventStatus: schema.events.status,
         })
         .from(schema.eventParticipants)
         .innerJoin(schema.events, eq(schema.events.id, schema.eventParticipants.eventId))
@@ -1158,11 +1176,11 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
       // could put two rows on opposite sides of midnight in the same response.
       const today = new Date().toISOString().slice(0, 10);
 
-      return rows.map((row) => ({
+      return rows.map(({ eventStatus, ...row }) => ({
         ...row,
         eventDate: row.eventDate ?? null,
         invitedAt: row.invitedAt.toISOString(),
-        requestStatus: inboxStatusFor(row.status, row.eventDate ?? null, today),
+        requestStatus: inboxStatusFor(row.status, row.eventDate ?? null, today, eventStatus),
       }));
     },
   );

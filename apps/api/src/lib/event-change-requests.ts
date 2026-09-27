@@ -4,6 +4,7 @@ import { notifyProfileMembers } from "@showme/db/notify";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyRequest } from "fastify";
 import { writeActivity } from "./activity";
+import type { Transaction } from "./audit";
 
 /**
  * CHANGING A NIGHT SOMEBODY HAS ALREADY AGREED TO.
@@ -765,4 +766,38 @@ export async function hasAnswered(
       ),
     );
   return Boolean(row);
+}
+
+/**
+ * CANCELLING A SHOW CLOSES THE QUESTIONS STILL OPEN ON IT — QA sweep run 5 (QA5-2) and
+ * run 4 (QA4-16), which are the same finding at two surfaces: *"cancelling closes nothing
+ * that is still open on the event."*
+ *
+ * A pending change request asks the bill to agree a new date for a night that is now off.
+ * Answering it either way is meaningless, and leaving it live means the Confirm/Decline
+ * banner sits on top of a cancelled event asking three people to agree its date.
+ *
+ * `superseded`, not `declined`: nobody refused anything. It is the same state a second
+ * proposal puts the first one in (`proposeEventChange` above) — "this question was
+ * overtaken by events" — and it keeps the row for the timeline rather than deleting it.
+ *
+ * Returns how many it closed, so the caller can log or test it. Takes a transaction: this
+ * belongs in the same write as the cancellation, because a show that is off with a live
+ * proposal on it is the state this exists to prevent.
+ */
+export async function closeChangeRequestsOnCancel(
+  tx: Transaction,
+  eventId: string,
+): Promise<number> {
+  const closed = await tx
+    .update(schema.eventChangeRequests)
+    .set({ status: "superseded", resolvedAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.eventChangeRequests.eventId, eventId),
+        eq(schema.eventChangeRequests.status, "pending"),
+      ),
+    )
+    .returning({ id: schema.eventChangeRequests.id });
+  return closed.length;
 }
