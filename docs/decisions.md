@@ -1181,6 +1181,10 @@ Taken by Daniel after the urgent board was read against the code
 (`docs/clickup-urgent-audit-2026-09-27.md`). Each one was blocking tickets rather than
 being a preference, and each is recorded here with what it unblocks.
 
+**25.6 is different in kind** — six rules settled in code while building the five above,
+because the work could not proceed without them. They are NOT Daniel's or Ran's yet and are
+labelled as such.
+
 ### 25.1 The Deals tab is where an offer is negotiated
 
 Ran's own suggestion in ClickUp `86cbcn1je`, now decided. **"Accept request" replaces
@@ -1273,6 +1277,23 @@ builds against the ladder, not against the single threshold.
   writes the split deliberately, often before the invitations go out. A settlement that
   pays someone who never turned up is the host's to correct. QA sweep r3:542 closes as
   deliberate.
+
+### 25.6 Calls taken while BUILDING #25, and not yet confirmed
+
+Six rules were settled in code during the 2026-09-27 build-out because the work could not
+proceed without them. **None is Ran's or Daniel's yet.** They are here rather than only in
+comments and loop docs for the reason `123qy9rng6d` exists: *"the outcome has never been
+recorded anywhere that outranks a handoff note."* Each names where it is implemented, so
+overruling one is a change to a known line rather than an archaeology exercise.
+
+| The call | Where | The argument, and what overruling it costs |
+|---|---|---|
+| **A co-host may still CANCEL the host's show** (they hold `event.edit`) | `routes/events.ts` PATCH | `lib/event-delete.ts` says *"the show is not theirs to end"* and the QA sweep calls this a hole; against that, blocking a co-promoter from calling off a night they co-produce is real, and the clean fix is a cancel REQUEST like the date one — a feature. **Recommendation: require the host profile, mirroring delete.** |
+| **The idle-logout timeout is per DEVICE** | `lib/idleLogout.ts` (`localStorage`) | An account-wide timeout is a policy about every browser the user signs in on, needs a migration, and nothing here rules on it. What is protected is an unattended screen. Server-side later = one storage line. |
+| **An operator-attached rider is a HOUSE document** — visible to every party on the event, crew included | `routes/riders.ts` `scopedEventRiders`, `lib/share-document.ts` | This WIDENS #12, which says a rider is the act's own artifact. #12's rule survives intact (no act sees another act's rider); what it never considered is a document whose only purpose is to be read BY the acts — which is exactly what Ran named: *"{Venue Name}: Technical info · Equipment list · Rules of Behavior"*. The share dialog had already promised it in copy. |
+| **`event.publish` belongs to the performer preset AND the agent preset** | `packages/auth/src/presets.ts` | Either side may announce a show (`123qy9rpe3q`). The agent has it because a DELEGATED performer has no band at all, so without it the one seeded act with representation was the one act that could not publish. It is a preset, not a floor: a venue may narrow it, because a date announced early is a real cost. |
+| **A change notice goes to everyone on the bill minus the actor** — including the actor's own colleagues | `lib/event-change-notice.ts` | It replaced a rename-only notice addressed to the host PROFILE, whose test asserted that your own side hears nothing. The cancellation and publication notices already behave this way, so all three now agree. The noise argument moves to the `events` switch in `notification_preferences`, where a person can act on it. |
+| **The calendar's day popover may PUBLISH, and nothing else** | `components/CalendarEntryPreview.tsx` | `86cbcn189` says the calendar is view-only; `123qy9rnk21`, three days later, asks that popover for Publish/Unpublish and Invite. Read as a refinement: the event's FACTS stay the workspace's, a named one-press act does not. Invite and Print details were left out for that reason. |
 
 ### Still waiting on an input, not a decision
 
