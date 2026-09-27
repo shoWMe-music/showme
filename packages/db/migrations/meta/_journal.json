@@ -330,6 +330,13 @@
       "when": 1788912245015,
       "tag": "0046_a_night_run_alone_still_has_one_book",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1790498489699,
+      "tag": "0047_a_request_names_the_room_it_wants",
+      "breakpoints": true
     }
   ]
 }

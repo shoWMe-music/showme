@@ -222,6 +222,179 @@ describe("inbound — public booking request + listing", () => {
   });
 });
 
+/**
+ * A REQUEST NAMES THE ROOM IT WANTS (ClickUp `123qy9rpqp0` §3).
+ *
+ * `booking_requests` carried a date and nothing about WHERE, which is why the
+ * double-booking check cannot run on an incoming request: that question is about a
+ * physical space, and the row held one of its three facts. Both columns arrive from a
+ * form — one of them anonymous — so neither is trusted, and these are the four refusals
+ * plus the one acceptance that `placeOfRequest` exists for.
+ */
+describe("inbound — a request names the venue and room it is asking about", () => {
+  it("stores the pair, prints the room's name, and carries both onto the drafted event", async () => {
+    const owner = await seedOwnerWithProfile("place-owner");
+    const [room] = await harness.db
+      .insert(schema.stages)
+      .values({ venueProfileId: owner.profileId, name: "Big Room", capacity: 400 })
+      .returning();
+    if (!room) throw new Error("room seed failed");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: owner.profileId,
+        contactName: "Ada Booker",
+        email: "ada-place@example.showme.test",
+        wantedDate: "2026-12-05",
+        venueProfileId: owner.profileId,
+        stageId: room.id,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const requestId = created.json().id as string;
+
+    // The inbox reads the room by NAME — a uuid is not an answer.
+    const listed = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests",
+      headers: auth("place-owner"),
+    });
+    const row = listed.json().items.find((item: { id: string }) => item.id === requestId);
+    expect(row.venueProfileId).toBe(owner.profileId);
+    expect(row.stageId).toBe(room.id);
+    expect(row.stageName).toBe("Big Room");
+
+    // And "Accept request" pre-fills the draft with both, which nothing did before:
+    // `stage_id` has pointed at `stages` since migration 0000 and this conversion
+    // never set it, so every drafted event arrived roomless.
+    const drafted = await app.inject({
+      method: "POST",
+      url: `/api/v1/booking-requests/${requestId}/draft-event`,
+      headers: auth("place-owner"),
+      // The fixture's profile has no primary location, so the currency cannot be
+      // derived — it is named here rather than seeding a country this case is not
+      // about. (`venueCurrency` → null → 400 is a separate, correct refusal.)
+      payload: { baseCurrency: "SEK" },
+    });
+    expect(drafted.statusCode).toBe(201);
+    const [event] = await harness.db
+      .select({
+        venueProfileId: schema.events.venueProfileId,
+        stageId: schema.events.stageId,
+        eventDate: schema.events.eventDate,
+      })
+      .from(schema.events)
+      .where(eq(schema.events.id, drafted.json().eventId));
+    expect(event?.venueProfileId).toBe(owner.profileId);
+    expect(event?.stageId).toBe(room.id);
+    expect(event?.eventDate).toBe("2026-12-05");
+  });
+
+  it("refuses a room that is not in the named venue", async () => {
+    const owner = await seedOwnerWithProfile("place-theirs");
+    const other = await seedOwnerWithProfile("place-mine");
+    const [elsewhere] = await harness.db
+      .insert(schema.stages)
+      .values({ venueProfileId: other.profileId, name: "Somebody Else's Room" })
+      .returning();
+    if (!elsewhere) throw new Error("room seed failed");
+
+    const refused = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: owner.profileId,
+        contactName: "Ada",
+        email: "ada-wrong-room@example.showme.test",
+        wantedDate: "2026-12-06",
+        venueProfileId: owner.profileId,
+        stageId: elsewhere.id,
+      },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toBe("That room is not in this venue");
+
+    // A REFUSAL WRITES NOTHING — the check runs before the insert.
+    const rows = await harness.db
+      .select({ id: schema.bookingRequests.id })
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.targetProfileId, owner.profileId));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("refuses a venue that is not the profile being asked", async () => {
+    const owner = await seedOwnerWithProfile("place-asked");
+    const other = await seedOwnerWithProfile("place-claimed");
+    const refused = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: owner.profileId,
+        contactName: "Ada",
+        email: "ada-wrong-venue@example.showme.test",
+        wantedDate: "2026-12-07",
+        venueProfileId: other.profileId,
+      },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toBe(
+      "A request can only name the venue it is being sent to",
+    );
+  });
+
+  it("refuses a room with no venue behind it", async () => {
+    const owner = await seedOwnerWithProfile("place-roomonly");
+    const [room] = await harness.db
+      .insert(schema.stages)
+      .values({ venueProfileId: owner.profileId, name: "Orphaned" })
+      .returning();
+    const refused = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: owner.profileId,
+        contactName: "Ada",
+        email: "ada-roomonly@example.showme.test",
+        wantedDate: "2026-12-08",
+        stageId: room?.id,
+      },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toBe(
+      "A room needs the venue it is in — send venueProfileId with stageId",
+    );
+  });
+
+  it("still accepts a request that names no place at all", async () => {
+    // The commonest case, and a real state: an act's own public page has no venue to
+    // name. It must not become a required field by the back door.
+    const performer = await seedOwnerWithProfile("place-none", "performer");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: performer.profileId,
+        contactName: "A Promoter",
+        email: "promoter-place@example.showme.test",
+        wantedDate: "2026-12-09",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+  });
+});
+
 describe("inbound — performer offers", () => {
   it("creates an offer and 409s a duplicate pending offer for the same target+date", async () => {
     const target = await seedOwnerWithProfile("inb-tgt");

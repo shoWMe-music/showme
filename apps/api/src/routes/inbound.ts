@@ -152,6 +152,50 @@ const bookingRequestStatus = z.enum(["pending", "accepted", "declined", "archive
  * into a `date` column. It now uses exactly the sanitizers the AUTHENTICATED
  * `CreateOfferBody` below already used.
  */
+/**
+ * WHICH (VENUE, ROOM) A REQUEST MAY CLAIM (ClickUp `123qy9rpqp0` §3).
+ *
+ * A request now says where it wants to happen, and both halves arrive from a form —
+ * including an anonymous one on the marketing site. So neither is trusted:
+ *
+ *  - **The venue must be the profile being asked.** It is the only claim a request can
+ *    make that is checkable without inventing a relationship: a stranger asking The
+ *    Lantern Hall for a night is asking about The Lantern Hall's building. Anything
+ *    else would let a public form attach a request to somebody else's venue.
+ *  - **The room must belong to that venue.** `stages.venue_profile_id` settles it in
+ *    one read. Without this a caller could name any room id in the database and the
+ *    inbox would print another venue's room name back to the operator.
+ *
+ * A room with no venue is refused rather than silently dropped: "the Back Room" means
+ * nothing without the building, and accepting it would store a fact nobody can read.
+ *
+ * Returns the pair to store — both `undefined` when the request names no place, which
+ * is a real state (a request to a PERFORMER has no venue at all).
+ */
+async function placeOfRequest(
+  database: FastifyInstance["database"],
+  targetProfileId: string,
+  venueProfileId: string | undefined,
+  stageId: string | undefined,
+): Promise<{ venueProfileId?: string; stageId?: string }> {
+  if (!venueProfileId && !stageId) return {};
+  if (stageId && !venueProfileId) {
+    throw badRequest("A room needs the venue it is in — send venueProfileId with stageId");
+  }
+  if (venueProfileId !== targetProfileId) {
+    throw badRequest("A request can only name the venue it is being sent to");
+  }
+  if (!stageId) return { venueProfileId };
+
+  const [room] = await database
+    .select({ id: schema.stages.id })
+    .from(schema.stages)
+    .where(and(eq(schema.stages.id, stageId), eq(schema.stages.venueProfileId, venueProfileId)))
+    .limit(1);
+  if (!room) throw badRequest("That room is not in this venue");
+  return { venueProfileId, stageId };
+}
+
 const CreatePublicRequestBody = z
   .object({
     source: z.literal("public_form"),
@@ -168,6 +212,10 @@ const CreatePublicRequestBody = z
     // names a night.
     wantedDate: calendarDate,
     additionalDates: additionalDates.optional(),
+    /** WHERE, autofilled by the availability link or the profile form — see
+     * `placeOfRequest` for why neither is taken on trust (`123qy9rpqp0` §3). */
+    venueProfileId: z.string().uuid().optional(),
+    stageId: z.string().uuid().optional(),
     pitch: multipleLineText(5000).optional(),
     offerFeeMin: MinorUnits.optional(),
     offerFeeMax: MinorUnits.optional(),
@@ -232,6 +280,10 @@ const CreateOfferBody = z
     // from an `agent`-kind profile with an ACTIVE representation of that performer;
     // anything else is a 400, never a silent drop.
     onBehalfOfProfileId: z.string().uuid().optional(),
+    /** WHERE — same rule and same validator as the public form (`123qy9rpqp0` §3).
+     * An offer sent off an availability link knows the room it was reading. */
+    venueProfileId: z.string().uuid().optional(),
+    stageId: z.string().uuid().optional(),
   })
   .superRefine(refuseRepeatedDates);
 
@@ -299,6 +351,16 @@ const BookingRequestResponse = z.object({
   wantedDate: z.string(),
   /** The other nights that would also work, in calendar order. `[]`, never null. */
   additionalDates: z.array(z.string()),
+  /**
+   * WHERE the request is asking about (`123qy9rpqp0` §3). Null when it did not say —
+   * a request to a performer never does, and a venue's own public form may not have
+   * picked a room yet. The inbox prints it, "Accept request" pre-fills the draft event
+   * from it, and the double-booking check on arrival needs it (`123qy9rprbx` §1).
+   */
+  venueProfileId: z.string().nullable(),
+  stageId: z.string().nullable(),
+  /** That room's name, so the inbox can say "Big Room" rather than a uuid. */
+  stageName: z.string().nullable(),
   /**
    * WHEN THE RECIPIENT'S TEAM READ IT, and who read it — present only for the
    * profile the request was sent TO.
@@ -443,6 +505,9 @@ function serializeBookingRequest(
    * see `BookingRequestResponse.readAt` for why a sender never gets it.
    */
   viewerIsRecipient = true,
+  /** The named room's display name, resolved by the caller for the same reason
+   * `onBehalfOfName` is: this stays synchronous and free of I/O. */
+  stageName: string | null = null,
 ): z.infer<typeof BookingRequestResponse> {
   return {
     id: row.id,
@@ -458,6 +523,9 @@ function serializeBookingRequest(
     onBehalfOfName,
     wantedDate: row.wantedDate,
     additionalDates: row.additionalDates ?? [],
+    venueProfileId: row.venueProfileId ?? null,
+    stageId: row.stageId ?? null,
+    stageName: stageName ?? null,
     ...(viewerIsRecipient
       ? { readAt: row.readAt?.toISOString() ?? null, readByUserId: row.readByUserId }
       : {}),
@@ -923,6 +991,15 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         .limit(1);
       if (duplicate) throw conflict("You already have a pending request for this date");
 
+      // Before anything is written: a request that names a place it may not name is a
+      // 400 with the reason, not a row somebody has to un-believe later.
+      const place = await placeOfRequest(
+        database,
+        body.targetProfileId,
+        body.venueProfileId,
+        body.stageId,
+      );
+
       let created: BookingRequestRow;
       try {
         const [inserted] = await database
@@ -936,6 +1013,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
             artistName: body.artistName,
             wantedDate: body.wantedDate,
             additionalDates: sortedAdditionalDates(body.additionalDates),
+            ...place,
             pitch: body.pitch,
             offerFeeMin: body.offerFeeMin != null ? BigInt(body.offerFeeMin) : undefined,
             offerFeeMax: body.offerFeeMax != null ? BigInt(body.offerFeeMax) : undefined,
@@ -1020,12 +1098,19 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       // The represented performer's name comes along in the same query — the inbox
       // has to name the ACT, and a second round trip per row would be absurd.
       const rows = await database
-        .select({ request: schema.bookingRequests, onBehalfOfName: schema.profiles.name })
+        .select({
+          request: schema.bookingRequests,
+          onBehalfOfName: schema.profiles.name,
+          // And the room's name, in the same pass and for the same reason: the inbox
+          // has to say "Big Room", and a uuid is not an answer (`123qy9rpqp0` §3).
+          stageName: schema.stages.name,
+        })
         .from(schema.bookingRequests)
         .leftJoin(
           schema.profiles,
           eq(schema.profiles.id, schema.bookingRequests.onBehalfOfProfileId),
         )
+        .leftJoin(schema.stages, eq(schema.stages.id, schema.bookingRequests.stageId))
         .where(
           and(
             scope,
@@ -1044,7 +1129,12 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
 
       return {
         items: items.map((row) =>
-          serializeBookingRequest(row.request, row.onBehalfOfName, direction === "incoming"),
+          serializeBookingRequest(
+            row.request,
+            row.onBehalfOfName,
+            direction === "incoming",
+            row.stageName,
+          ),
         ),
         nextCursor,
       };
@@ -1258,6 +1348,12 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       // Resolved before the transaction: it is a read of the target venue, not part
       // of the write, and the offer's currency must be settled before the insert.
       const currency = await venueCurrency(database, body.targetProfileId);
+      const place = await placeOfRequest(
+        database,
+        body.targetProfileId,
+        body.venueProfileId,
+        body.stageId,
+      );
       try {
         created = await database.transaction(async (tx) => {
           const [offer] = await tx
@@ -1279,6 +1375,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
               videoUrl: body.videoUrl,
               wantedDate: body.wantedDate,
               additionalDates: sortedAdditionalDates(body.additionalDates),
+              ...place,
               offerFeeMin: body.offerFeeMin != null ? BigInt(body.offerFeeMin) : undefined,
               offerFeeMax: body.offerFeeMax != null ? BigInt(body.offerFeeMax) : undefined,
               currency,
@@ -1536,8 +1633,20 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
 
         // A venue hosting its own show is its own venue; a promoter is not, and
         // stamping it would put the wrong address (and timezone) on the event.
+        //
+        // THE REQUEST'S OWN ANSWER WINS WHERE IT HAS ONE (ClickUp `123qy9rpqp0` §3:
+        // *"Accept request creates the draft event pre-filled with that date, venue and
+        // room, so nothing has to be re-typed"*). A request that named a venue named
+        // the one it was sent to — `placeOfRequest` enforces exactly that — so the two
+        // agree whenever both exist, and the stored answer is the one to trust because
+        // it is also the one the operator READ in the inbox.
         const venueProfileId =
-          targetProfile?.type === "venue" ? bookingRequest.targetProfileId : undefined;
+          bookingRequest.venueProfileId ??
+          (targetProfile?.type === "venue" ? bookingRequest.targetProfileId : undefined);
+        // And the room, which nothing used to carry onto an event at all: `stage_id` has
+        // pointed at `stages` since migration 0000 and this conversion never set it, so
+        // every drafted event arrived roomless even when the ask had been specific.
+        const stageId = bookingRequest.stageId ?? undefined;
         const timezone = await resolveEventTimezone(tx, venueProfileId, undefined);
 
         const [event] = await tx
@@ -1548,6 +1657,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
             baseCurrency,
             eventDate,
             venueProfileId,
+            stageId,
             venueName: venueProfileId ? (targetProfile?.name ?? undefined) : undefined,
             notes: draftEventNotes(bookingRequest),
             timezone,

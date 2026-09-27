@@ -11,7 +11,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { bookingRequestSource, bookingRequestStatus, bookingSentVia } from "./enums";
-import { events } from "./events";
+import { events, stages } from "./events";
 import { profiles, users } from "./identity";
 
 /**
@@ -50,6 +50,33 @@ export const bookingRequests = pgTable(
      * draft event with no date on it, and the dedup index below cannot see it.
      */
     wantedDate: date("wanted_date").notNull(),
+    /**
+     * WHICH ROOM, IN WHICH BUILDING, THE REQUEST IS ABOUT (ClickUp `123qy9rpqp0`).
+     *
+     * A double booking is relative to a physical space — two separate events on one
+     * date in the SAME venue and room, never two events on one date in one building
+     * (`123qy9rprbx`). So the check a request must pass on arrival needs three facts,
+     * and the row carried one: a date. Both columns are the other two.
+     *
+     * NULLABLE, and not as a migration convenience. A request to a PERFORMER names no
+     * venue — the act does not own a room — and a request from the public profile page
+     * of a two-room venue may legitimately not have picked between them yet. The
+     * absence is a real state and reads as "not said", never as "the whole venue".
+     *
+     * `stage_id` is `ON DELETE SET NULL` for the same reason `events.stage_id` is
+     * (migration 0045): shutting a room must not erase the requests that named it.
+     * `venue_profile_id` cascades with the profile, like every other profile
+     * reference here.
+     *
+     * The pair is validated on the WRITE path, never trusted from the client: the room
+     * must belong to the named venue, and the venue must be the profile being asked
+     * (or one it owns). Without that, a public form could assert a fact about somebody
+     * else's building — see `routes/inbound.ts`.
+     */
+    venueProfileId: uuid("venue_profile_id").references(() => profiles.id, {
+      onDelete: "cascade",
+    }),
+    stageId: uuid("stage_id").references(() => stages.id, { onDelete: "set null" }),
     /**
      * The OTHER nights the sender would take, in calendar order — "any of these
      * three works". A set of options, not a range and not a priority list, which
