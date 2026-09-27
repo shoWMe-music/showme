@@ -278,6 +278,22 @@ function ActionBody({
           The currency the event's budget and settlement are denominated in. It comes from your
           venue's country — set one if this is blank.
         </Hint>
+        {/* THE NIGHT MAY ALREADY BE SOLD. Under the date field, because the date is what
+            it is about and what the reader would change in answer to it — and it never
+            disables the button: a promoter may run two shows on one night deliberately,
+            which is the same rule the New Event wizard follows. */}
+        {triage.clashMessage && (
+          <output
+            style={{
+              display: "block",
+              fontSize: 12.5,
+              lineHeight: 1.5,
+              color: "var(--brand-amber)",
+            }}
+          >
+            {triage.clashMessage}
+          </output>
+        )}
       </>
     );
   }

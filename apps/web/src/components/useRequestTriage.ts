@@ -5,6 +5,7 @@ import {
 } from "@showme/api-client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useDateConflicts } from "../hooks/useDateConflicts";
 import type { RequestItem } from "../hooks/useRequestInbox";
 import { errorMessage } from "../lib/errors";
 
@@ -85,6 +86,15 @@ export interface RequestTriage {
   setDraftDate: (value: string) => void;
   draftCurrency: string;
   setDraftCurrency: (value: string) => void;
+  /**
+   * THE NIGHT IS ALREADY SOLD — one sentence, or null.
+   *
+   * Asked with the dialog's OWN date, not the request's, so moving the date in the
+   * dialog re-asks the question. It warns and never blocks, exactly as the New Event
+   * wizard does: Ran's rule is that a promoter may deliberately run two shows on one
+   * night, so a refusal here would be a product decision nobody took.
+   */
+  clashMessage: string | null;
   /** A refusal from the API, kept on screen next to the values that caused it. */
   refusal: string | null;
   pending: boolean;
@@ -135,6 +145,24 @@ export function useRequestTriage({
   const [refusal, setRefusal] = useState<string | null>(null);
   const [draftResult, setDraftResult] = useState<DraftEventResult | null>(null);
   const [counterResult, setCounterResult] = useState<CounterOfferResult | null>(null);
+
+  /**
+   * IS THE NIGHT THIS DRAFT WOULD TAKE ALREADY SOLD?
+   *
+   * The same question the New Event wizard asks, asked here because this is the other
+   * door onto the same act — `POST /booking-requests/:id/draft-event` creates a real
+   * event in a real room, and a request that names a room is exactly what migration
+   * `0047` made possible. The QA sweep put two shows in Main Room on one night through
+   * this flow without a word on screen (2026-09-27).
+   *
+   * Asked with the DIALOG's date, so choosing one of the sender's alternate nights
+   * re-asks it rather than warning about the night nobody is drafting.
+   */
+  const clash = useDateConflicts({
+    venueProfileId: request?.venueProfileId ?? null,
+    date: draftDate || null,
+    stageId: request?.stageId ?? null,
+  });
 
   const queryClient = useQueryClient();
   const flagSpam = usePostApiV1BookingRequestsIdFlagSpam();
@@ -314,6 +342,7 @@ export function useRequestTriage({
     setDraftTitle,
     draftDate,
     setDraftDate,
+    clashMessage: clash.message,
     draftCurrency,
     setDraftCurrency,
     refusal,

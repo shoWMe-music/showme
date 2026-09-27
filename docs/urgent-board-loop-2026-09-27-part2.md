@@ -194,6 +194,36 @@ deals"*, the column reads **BEFORE DEALS**, and the cancelled `Winter Gala` has 
 table and every total. Suites: biome 712 · web 326 (6 new, mutation-checked both ways) ·
 e2e 112.
 
+**QA-3 — the double-booking check now runs on the door that creates events from
+requests.** The mechanism was built, correct, and had two callers; the Requests inbox was
+not one of them. `GET /events/date-conflicts` already answered `roomIsBusy: true` for the
+exact case the sweep drove, and `useDateConflicts` already composed the sentence the New
+Event wizard shows. This asks it in the two places the decision is actually made:
+
+- **On the card**, for every PENDING request that names a venue and a night — triage
+  happens on the list, and *"Main Room already has …"* is what makes one request different
+  from the four beside it. Asked over the whole inbox rather than the filtered view, so
+  switching tabs re-asks nothing.
+- **In the Create Draft dialog**, keyed to the DIALOG's date rather than the request's —
+  so choosing one of the sender's alternate nights re-asks the question instead of warning
+  about a night nobody is drafting.
+
+**It warns and never blocks**, in amber and not red, because that is the rule the wizard
+already states and the reason is Ran's: a promoter may deliberately run two shows on one
+night, and a warning that cannot be overridden is a refusal wearing a softer word.
+
+Proven live, both doors and the thing that makes the second one worth having: a public
+request for Main Room on 2026-10-14 (the night `Marlo Vance — Album Release` is confirmed
+in that room) shows *"Main Room already has "Marlo Vance — Album Release" on this night.
+You can book it anyway."* on the card and again in the dialog — and **moving the dialog's
+date to the 20th clears it**. Suites: biome 712 · web 326 · e2e 112.
+
+**Coverage, stated honestly:** the sentence is already unit-tested (`useDateConflicts`) and
+what was missing was a caller, so the new code is wiring. Its failure mode is "nobody
+asks", which a unit test of the same wiring cannot catch any better than the live walk
+above; the durable guard would be an e2e spec, and that needs seeded data with a clash
+that the seed does not currently carry.
+
 **Left as an open question rather than silently skipped:** events created *during the
 regression window* (between `f996c14` and this commit) still carry both books, and
 migration `0046` cannot heal them — its guard is "the event has no shared ledger yet". If

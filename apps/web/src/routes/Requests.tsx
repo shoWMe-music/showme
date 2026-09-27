@@ -1,3 +1,4 @@
+import { getGetApiV1EventsDateConflictsQueryOptions } from "@showme/api-client";
 import {
   Badge,
   Button,
@@ -9,6 +10,7 @@ import {
   TabPanels,
   useToast,
 } from "@showme/design-system";
+import { useQueries } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 import { useAuth } from "../auth/AuthProvider";
@@ -25,6 +27,7 @@ import { dayKey } from "../components/calendarGrid";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { useRequestTriage } from "../components/useRequestTriage";
+import { conflictMessage } from "../hooks/useDateConflicts";
 import { useEventInvitations } from "../hooks/useEventInvitations";
 import {
   type RequestItem,
@@ -145,7 +148,52 @@ function formatFee(request: RequestItem): string {
   return single ? asMoney(single) : "Fee TBD";
 }
 
-function toCardData(request: RequestItem): RequestCardData {
+/**
+ * IS THE NIGHT THIS REQUEST ASKS FOR ALREADY SOLD?
+ *
+ * One question per request that names both a venue and a night — which is what migration
+ * `0047` made possible today. The same route and the same sentence the New Event wizard
+ * uses (`useDateConflicts`), asked here because this is the other door onto the same act:
+ * "Create Draft" puts a real event in a real room, and the QA sweep put two shows in Main
+ * Room on one night through this flow without a word on screen (2026-09-27).
+ *
+ * Only PENDING requests are asked about. A declined or archived request is not a booking
+ * anybody is about to make, and a clash warning on one is noise over a decision already
+ * taken.
+ */
+function useRequestClashes(requests: RequestItem[]): Map<string, string> {
+  const askable = requests.filter(
+    (request) => request.status === "pending" && request.venueProfileId && request.wantedDate,
+  );
+
+  const queries = useQueries({
+    queries: askable.map((request) =>
+      getGetApiV1EventsDateConflictsQueryOptions({
+        venueProfileId: request.venueProfileId as string,
+        date: request.wantedDate,
+        ...(request.stageId ? { stageId: request.stageId } : {}),
+      }),
+    ),
+  });
+
+  // Built each render rather than memoized: it is a handful of entries, and the Map
+  // itself never leaves this function — the screen reads a string out of it per row, so
+  // there is no identity for anything downstream to depend on.
+  const clashes = new Map<string, string>();
+  askable.forEach((request, index) => {
+    const data = queries[index]?.data;
+    if (!data) return;
+    const message = conflictMessage({
+      roomIsBusy: data.roomIsBusy,
+      events: data.events,
+      blocks: data.unavailability,
+    });
+    if (message) clashes.set(request.id, message);
+  });
+  return clashes;
+}
+
+function toCardData(request: RequestItem, clash?: string): RequestCardData {
   const requester = requesterName(request);
   const meta = REQUEST_STATUS[request.status] ?? {
     status: "draft" as Status,
@@ -174,6 +222,7 @@ function toCardData(request: RequestItem): RequestCardData {
     // here: the room roster belongs to the venue, and the inbox should not have to fetch
     // one to read its own post.
     room: request.stageName ?? undefined,
+    clash,
     email: request.email ?? undefined,
     message: request.pitch ?? undefined,
     draftEventId: request.eventId ?? undefined,
@@ -259,6 +308,10 @@ export function Requests() {
    * filters client-side, so sharing its `filter` and `selectedDay` state is all
    * it takes for the tabs to work on both kinds at once.
    */
+  // Asked over the WHOLE inbox rather than the filtered view, so switching tabs does not
+  // re-ask a question already answered — the answers are keyed by request id.
+  const clashes = useRequestClashes(requests);
+
   const invitations = useEventInvitations();
   const visibleInvitations = useMemo(
     () =>
@@ -485,7 +538,7 @@ export function Requests() {
                 visible.map((request) => (
                   <RequestCard
                     key={request.id}
-                    request={toCardData(request)}
+                    request={toCardData(request, clashes.get(request.id))}
                     layout={view === "list" ? "row" : "card"}
                     expanded={expansion.isExpanded(expansionKey(request.id))}
                     onToggleExpanded={(id) => expansion.toggle(expansionKey(id))}

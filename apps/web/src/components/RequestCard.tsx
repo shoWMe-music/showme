@@ -38,6 +38,14 @@ export interface RequestCardData {
   /** Pre-formatted fee (e.g. "€65,000"). */
   fee: string;
   /**
+   * THE NIGHT IS ALREADY SOLD — one sentence, or absent.
+   *
+   * On the card rather than only in the Create Draft dialog, because triage happens on
+   * the list: an operator reading five requests decides which to open, and "Main Room
+   * already has …" is what makes this one different from the other four.
+   */
+  clash?: string;
+  /**
    * The room being asked for, when the request names one (ClickUp `123qy9rpqp0` §3).
    *
    * A request off a shared availability link now says which room it is about — the
@@ -343,6 +351,22 @@ function RequestBody({
         {request.room && <FieldCell label="Room" value={request.room} />}
         {request.email && <FieldCell label="Email" value={request.email} />}
       </div>
+
+      {request.clash && (
+        // Stated, never enforced: the operator decides, and the action bar below is
+        // untouched. Amber and not red, and the same sentence the New Event wizard
+        // shows — nothing is wrong, and a promoter may run two shows on one night.
+        <output
+          style={{
+            display: "block",
+            fontSize: 12,
+            lineHeight: 1.45,
+            color: "var(--brand-amber)",
+          }}
+        >
+          {request.clash}
+        </output>
+      )}
 
       {request.alternateDates.length > 0 && (
         <div className={styles.alternates}>
