@@ -119,3 +119,60 @@ cannot, which is delegation working).
 Also corrected by driving it: the sentence first printed *"on Marlo Vance, Neon Tide and
 Northlight Presents's"* — a possessive on the last name of a list, on a name already ending
 in s. Ran's own phrasing has no possessive in it: *"and the {performer} profile"*.
+
+### QA4-3 — rider preview was broken end to end in local dev · **FIXED**
+
+Two independent storage signers. `app.ts` decorates ONE (*"One signer for the whole
+app"*) and mounts its sink with `createFileRoutes(app.storageSigner)` — but registered
+`riderRoutes`, whose default export wires itself to `defaultStorageSigner()`. In a
+credential-less environment that is a fresh **loopback** signer holding its grants in its
+own maps, so every rider download URL was minted by a signer the sink had never heard of:
+`400 Invalid or expired download URL`, on a URL fetched and redeemed inside the same
+second. One line — `createRiderRoutes(app.storageSigner)`.
+
+**Why no test saw it, and what the new one does instead.** Under `NODE_ENV=test` the
+default signer is the deterministic FAKE, which is **stateless** — so two of them agree,
+exactly as two real GCS signers do in production. The divergence exists only where the
+signer holds state, which is the laptop, which is where the feature gets verified. A
+behavioural test cannot reach it. So the test in `app.test.ts` injects a signer with a
+**fingerprint** and asserts the app's answer bears it; mutating the wiring back makes it
+fail with a visibly foreign URL.
+
+Proven live, the whole path: `upload-url` 201 → `PUT` 200 → library rider 201 → attach 201
+→ `preview-url` 200 → redeem **200 with the bytes back**.
+
+### QA4-4 and QA4-8 — the house documents nobody could read · **FIXED**
+
+The operator could attach a document and no act could see it: `scopedEventRiders` gives a
+performer their own participant row and nothing else. A rider owned by a participant in an
+**operator role** is now a house document, visible to everyone standing on the event.
+
+**This does not override decisions #12, it completes it.** #12's rule is that a rider is
+the ACT's own artifact — one performer's hospitality rider is not another performer's
+business — and that is asserted in the same test that adds the widening: each act sees the
+house document and its own, never the other act's. What #12 did not consider is the class
+of document whose only purpose is to be READ by the act, which is precisely what Ran named:
+*"{Venue Name}: Technical info · Equipment list · Rules of Behavior"*.
+
+**The product had already promised it twice.** `shareScope.ts` sells the riders checkbox as
+*"Their own rider and the venue's house documents"*, and `share-document.ts` scoped for
+house documents by looking for `owner_participant_id IS NULL` — **a row shape the attach
+route never produces**, because it always stamps the attaching participant. So the promise
+was false for every share ever created. Both surfaces now read the same real rule.
+
+**The crew see them too, deliberately.** A schedule-only bartender holds no `rider.view`,
+inherits no act's rider, and now sees the house document alone — and *"Rules of Behavior"*
+is written for exactly them.
+
+Proven live on all six seeded kinds, against the sweep's own table:
+
+| | before (sweep) | after |
+|---|---|---|
+| operator / co-host | everything | unchanged |
+| performerA | Tech Rider 2026 | **+ House Rules** |
+| performerB | Hospitality Notes | **+ House Rules** |
+| agent | Tech Rider 2026 | **+ House Rules** |
+| crew (schedule-only) | nothing | **House Rules alone** |
+
+Suites: biome 718 · api **1342** (4 new; `performance-reports` lost to the Testcontainers
+flake and green alone) · web 338 · e2e 112.

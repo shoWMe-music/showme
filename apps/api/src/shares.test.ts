@@ -866,6 +866,70 @@ describe("shares — the document", () => {
     });
   });
 
+  /**
+   * THE RIDERS CHECKBOX KEEPS ITS OWN PROMISE — QA sweep run 4, QA4-8.
+   *
+   * The dialog sells it as *"Their own rider and the venue's house documents. Never
+   * another act's."* (`apps/web/src/lib/shareScope.ts`). The document's scope read
+   * "house" as `owner_participant_id IS NULL`, a row shape the attach route never
+   * produces — it always stamps the attaching participant — so every share ever created
+   * gave the act its own rider and nothing else. All three clauses of the sentence are
+   * asserted here.
+   */
+  it("gives a recipient the house documents and their own rider, never another act's", async () => {
+    const { db } = harness;
+    const seed = await seedEvent("rider-share");
+    const email = "rider-share-guest@band.showme.test";
+    const act = await seedPerformer("rider-share-act", seed.event.id, email, "The Act");
+    const other = await seedPerformer(
+      "rider-share-other",
+      seed.event.id,
+      "rider-share-other@band.showme.test",
+      "Another Act",
+    );
+    await db.insert(schema.riders).values([
+      {
+        eventId: seed.event.id,
+        ownerParticipantId: seed.participant.id,
+        type: "tech",
+        name: "House rules",
+        createdBy: seed.operator.userId,
+      },
+      {
+        eventId: seed.event.id,
+        ownerParticipantId: act.participantId,
+        type: "hospitality",
+        name: "Their own hospitality",
+        createdBy: act.userId,
+      },
+      {
+        eventId: seed.event.id,
+        ownerParticipantId: other.participantId,
+        type: "tech",
+        name: "Another act's tech",
+        createdBy: other.userId,
+      },
+    ]);
+
+    const create = await createShare(seed, {
+      capabilities: ["event.view", "rider.view"],
+      recipients: [{ email }],
+    });
+    const token = create.json().token as string;
+    const jwt = await redeem(token, email);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/shares/${token}/document`,
+      headers: share(jwt),
+    });
+    expect(response.statusCode).toBe(200);
+    const names = (response.json().riders as Array<{ name: string }>)
+      .map((rider) => rider.name)
+      .sort();
+    expect(names).toEqual(["House rules", "Their own hospitality"]);
+  });
+
   it("shows a performer their own deal line and not their co-performer's", async () => {
     const seed = await seedEvent("scope");
     const headliner = await seedPerformer(

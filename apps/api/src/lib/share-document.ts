@@ -299,19 +299,42 @@ async function loadSchedule(database: any, eventId: string) {
 
 /**
  * Riders, scoped the way `scopedEventRiders` scopes them on-platform: a party sees
- * its OWN documents plus the ones attached to nobody in particular (the venue's
- * house rules). A rider is the act's own artifact (decisions #12) — one
- * performer's hospitality rider is not another performer's business, and a share
- * is not the exception.
+ * its OWN documents plus the HOUSE ones. A rider is the act's own artifact
+ * (decisions #12) — one performer's hospitality rider is not another performer's
+ * business, and a share is not the exception.
+ *
+ * "House" used to mean `owner_participant_id IS NULL` — a row shape nothing
+ * produces, because `POST /events/:id/riders` always stamps the attaching
+ * participant. So the dialog's own promise for this checkbox — *"Their own rider and
+ * the venue's house documents"* (`apps/web/src/lib/shareScope.ts`) — was false for
+ * every share ever created: the act got its own rider and nothing else (QA sweep run
+ * 4, QA4-8). House now means what it says: attached by an OPERATOR on this event.
+ * The null case stays in the clause, because an older row may still have it.
  */
 // biome-ignore lint/suspicious/noExplicitAny: Drizzle db/tx handle.
 async function loadRiders(database: any, eventId: string, party: RecipientParty | null) {
+  const houseOwners = party
+    ? (
+        await database
+          .select({ id: schema.eventParticipants.id })
+          .from(schema.eventParticipants)
+          .where(
+            and(
+              eq(schema.eventParticipants.eventId, eventId),
+              inArray(schema.eventParticipants.role, ["host", "co_host"]),
+            ),
+          )
+      ).map((row: { id: string }) => row.id)
+    : [];
   const scope = party
     ? and(
         eq(schema.riders.eventId, eventId),
         or(
           eq(schema.riders.ownerParticipantId, party.participantId),
           isNull(schema.riders.ownerParticipantId),
+          houseOwners.length > 0
+            ? inArray(schema.riders.ownerParticipantId, houseOwners)
+            : undefined,
         ),
       )
     : eq(schema.riders.eventId, eventId);

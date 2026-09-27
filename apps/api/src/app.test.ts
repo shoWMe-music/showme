@@ -797,3 +797,105 @@ describe("what a venue lends the show it hosts (ClickUp 86cbaxvku)", () => {
     expect(inTheRoom.json().capacity).toBe(80);
   });
 });
+
+/**
+ * ONE SIGNER FOR THE WHOLE APP — asserted at the wiring, because behaviour cannot
+ * catch it (QA sweep run 4, QA4-3).
+ *
+ * `riderRoutes` wires itself to `defaultStorageSigner()`. Registered as that plugin,
+ * the rider routes got a SECOND signer — and in a credential-less environment that is
+ * a fresh loopback signer holding its grants in its own maps, while the sink that
+ * redeems them is mounted from `app.storageSigner`. Every rider preview in local dev
+ * answered `400 Invalid or expired download URL`, on a URL fetched and redeemed inside
+ * the same second.
+ *
+ * WHY NO TEST SAW IT, and why this one is shaped the way it is. Under `NODE_ENV=test`
+ * the default signer is the deterministic FAKE, which is stateless — so two of them
+ * agree, exactly as two real GCS signers do in production. The divergence exists only
+ * where the signer holds state, which is the laptop. A behavioural test therefore
+ * cannot reach it; what can is injecting a signer with a FINGERPRINT and asserting the
+ * app's answer bears it. If the rider routes ever mint their own again, the URL below
+ * stops carrying the mark and this fails.
+ */
+describe("the app's own storage signer reaches the rider routes", () => {
+  it("signs a rider download with the INJECTED signer, not a second one", async () => {
+    const { db } = harness;
+    const fingerprintSigner = {
+      signUpload: async (path: string) => ({
+        url: `https://injected.test/upload/${path}`,
+        headers: {},
+      }),
+      signDownload: async (path: string) => `https://injected.test/download/${path}`,
+    };
+    const injected = buildApp({
+      database: db,
+      tokenVerifier: fakeVerifier,
+      storageSigner: fingerprintSigner,
+    });
+    await injected.ready();
+    try {
+      const operator = await seedMemberWithSet(
+        "sign-op",
+        "operator",
+        PRESET_PERMISSION_SETS.operator_full,
+      );
+      const [event] = await db
+        .insert(schema.events)
+        .values({
+          hostProfileId: operator.profileId,
+          title: "Signer Night",
+          baseCurrency: "SEK",
+          createdBy: "sign-op",
+        })
+        .returning();
+      if (!event) throw new Error("event seed failed");
+      const [participant] = await db
+        .insert(schema.eventParticipants)
+        .values({
+          eventId: event.id,
+          profileId: operator.profileId,
+          role: "host",
+          status: "confirmed",
+          permissionSetId: operator.permissionSetId,
+        })
+        .returning();
+      if (!participant) throw new Error("participant seed failed");
+      const [file] = await db
+        .insert(schema.files)
+        .values({
+          path: "profiles/sign-op/riders/house-rules.pdf",
+          kind: "document",
+          contentType: "application/pdf",
+          sizeBytes: 1024,
+          ownerUserId: "sign-op",
+          ownerProfileId: operator.profileId,
+        })
+        .returning();
+      if (!file) throw new Error("file seed failed");
+      const [rider] = await db
+        .insert(schema.riders)
+        .values({
+          eventId: event.id,
+          ownerParticipantId: participant.id,
+          type: "tech",
+          name: "House rules",
+          fileId: file.id,
+          createdBy: "sign-op",
+        })
+        .returning();
+      if (!rider) throw new Error("rider seed failed");
+
+      const response = await injected.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/riders/${rider.id}/preview-url`,
+        headers: auth("sign-op"),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().url).toBe(
+        "https://injected.test/download/profiles/sign-op/riders/house-rules.pdf",
+      );
+    } finally {
+      await injected.close();
+    }
+  });
+});

@@ -159,7 +159,9 @@ async function resolveCallerParticipant(
 }
 
 const CREW_ROLES = new Set(["crew", "crew_lead"]);
-const OPERATOR_ROLES = new Set(["host", "co_host"]);
+const OPERATOR_ROLES = ["host", "co_host"] as const;
+/** The same two, as a set, for the per-participant reach question below. */
+const OPERATOR_ROLE_SET: ReadonlySet<string> = new Set(OPERATOR_ROLES);
 
 /** "all" event riders, or the set of `owner_participant_id`s in a participant's reach. */
 type RiderScope = "all" | Set<string>;
@@ -191,7 +193,7 @@ async function participantRiderDomain(
     .where(eq(schema.eventParticipants.id, participantId));
   if (!participant) return new Set();
 
-  if (OPERATOR_ROLES.has(participant.role)) return "all";
+  if (OPERATOR_ROLE_SET.has(participant.role)) return "all";
   if (participant.role === "performer" || participant.role === "support") {
     return new Set([participant.id]);
   }
@@ -269,6 +271,45 @@ async function scopedEventRiders(
     if (domain === "all") return all;
     for (const ownerId of domain) visibleOwners.add(ownerId);
   }
+
+  /**
+   * THE HOUSE DOCUMENTS — everything the OPERATORS attached, to everyone standing on
+   * the event (QA sweep run 4, QA4-4; ClickUp `123qy9rnk1u`).
+   *
+   * "Everyone" includes the CREW, and that is deliberate rather than incidental: a
+   * schedule-only bartender inherits no act's rider (they hold no `rider.view`) and
+   * now sees the house document alone. *"Rules of Behavior"* is one of the three
+   * things Ran named, and staff are exactly who it is written for.
+   *
+   * This is not a hole in decisions #12, it is the class of document #12 did not
+   * consider. Its rule is that a rider is the ACT's own artifact — one performer's
+   * hospitality rider is not another performer's business — and that survives
+   * untouched below: an act still sees its own and no other act's.
+   *
+   * What the operator attaches is the opposite kind of thing. Ran asked for it by
+   * name: *"{Venue Name}: Technical info · Equipment list · Rules of Behavior"* —
+   * documents whose only purpose is to be READ by the act. Without this the venue
+   * could upload them (which it learned to do an hour ago) and nobody they were
+   * written for could open them: half a feature, and the half that ships looks like
+   * it works.
+   *
+   * The product already promised this in two places before it was true. The share
+   * dialog sells the riders checkbox as *"Their own rider and the venue's house
+   * documents"* (`apps/web/src/lib/shareScope.ts`), and `share-document.ts` scopes
+   * for it — by looking for riders with NO owner, a row shape the attach route never
+   * produces, because it always stamps the caller's participant. Both are now true
+   * of the same rule rather than of an imagined one.
+   */
+  const operatorOwners = await database
+    .select({ id: schema.eventParticipants.id })
+    .from(schema.eventParticipants)
+    .where(
+      and(
+        eq(schema.eventParticipants.eventId, eventId),
+        inArray(schema.eventParticipants.role, [...OPERATOR_ROLES]),
+      ),
+    );
+  for (const owner of operatorOwners) visibleOwners.add(owner.id);
 
   return all.filter(
     (rider) => rider.ownerParticipantId != null && visibleOwners.has(rider.ownerParticipantId),

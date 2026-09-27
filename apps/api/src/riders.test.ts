@@ -198,6 +198,97 @@ describe("riders — profile library + event instances (copy-on-attach)", () => 
     expect(libraryRows).toHaveLength(1);
   });
 
+  /**
+   * THE HOUSE DOCUMENTS REACH THE BILL — QA sweep run 4, QA4-4.
+   *
+   * The operator learned to attach a document an hour before this test existed, and
+   * nobody it was written for could see it: `scopedEventRiders` gave a performer their
+   * own participant row and nothing else. Ran asked for the venue's technical info,
+   * equipment list and house rules BY NAME, and those are documents whose only purpose
+   * is to be read by the act.
+   *
+   * decisions #12 is intact and asserted here in the same breath: an act sees the
+   * house's documents and still never another act's.
+   */
+  it("shows an OPERATOR-attached document to every act, and still hides one act's rider from another", async () => {
+    const operator = await seedMemberWithSet(
+      "house-scope-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const perfA = await seedMemberWithSet(
+      "house-scope-a",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const perfB = await seedMemberWithSet(
+      "house-scope-b",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...perfA, role: "performer" },
+        { ...perfB, role: "performer" },
+      ],
+      "house-scope-op",
+    );
+
+    const attach = async (uid: string, profileId: string, name: string) => {
+      const library = await app.inject({
+        method: "POST",
+        url: `/api/v1/profiles/${profileId}/riders`,
+        headers: auth(uid),
+        payload: { type: "tech", name },
+      });
+      expect(library.statusCode).toBe(201);
+      const attached = await app.inject({
+        method: "POST",
+        url: `/api/v1/events/${event.id}/riders`,
+        headers: auth(uid),
+        payload: { sourceRiderId: library.json().id },
+      });
+      expect(attached.statusCode).toBe(201);
+    };
+    await attach("house-scope-op", operator.profileId, "House rules");
+    await attach("house-scope-a", perfA.profileId, "A tech");
+    await attach("house-scope-b", perfB.profileId, "B tech");
+
+    const namesFor = async (uid: string) => {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/riders`,
+        headers: auth(uid),
+      });
+      expect(response.statusCode).toBe(200);
+      return (response.json() as Array<{ name: string }>).map((rider) => rider.name).sort();
+    };
+
+    expect(await namesFor("house-scope-op")).toEqual(["A tech", "B tech", "House rules"]);
+    // Each act: the house document AND their own. Never the other act's.
+    expect(await namesFor("house-scope-a")).toEqual(["A tech", "House rules"]);
+    expect(await namesFor("house-scope-b")).toEqual(["B tech", "House rules"]);
+
+    // AND THE CREW, deliberately — a schedule-only bartender holds no `rider.view`,
+    // so they inherit no act's rider and see the house document alone. "Rules of
+    // Behavior" is one of the three things Ran named, and staff are who it is for.
+    const bartender = await seedMemberWithSet(
+      "house-scope-bar",
+      "performer",
+      PRESET_PERMISSION_SETS.crew_schedule_only,
+    );
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: bartender.profileId,
+      role: "crew",
+      permissionSetId: bartender.permissionSetId,
+      status: "confirmed",
+    });
+    expect(await namesFor("house-scope-bar")).toEqual(["House rules"]);
+  });
+
   it("scopes event riders by the crew member's sponsor (decisions #12)", async () => {
     const { db } = harness;
     const operator = await seedMemberWithSet(

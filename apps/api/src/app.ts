@@ -48,7 +48,7 @@ import { planRoutes } from "./routes/plans";
 import { profileRoutes } from "./routes/profiles";
 import { publicRoutes } from "./routes/public";
 import { representationRoutes } from "./routes/representations";
-import { riderRoutes } from "./routes/riders";
+import { createRiderRoutes } from "./routes/riders";
 import { scheduleRoutes } from "./routes/schedule";
 import { sessionRoutes } from "./routes/session";
 import { setlistRoutes } from "./routes/setlists";
@@ -225,7 +225,20 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
       await api.register(profileRoutes);
       await api.register(scheduleRoutes);
       await api.register(messageRoutes);
-      await api.register(riderRoutes);
+      // THE APP'S OWN SIGNER, not the module default — QA sweep run 4, QA4-3.
+      //
+      // `riderRoutes` wires itself to `defaultStorageSigner()`, which in a
+      // credential-less environment is a fresh LOOPBACK signer holding its grants
+      // and objects in its own maps. The sink that redeems those grants is mounted
+      // from `app.storageSigner` below (`createFileRoutes(app.storageSigner)`), so
+      // a rider download URL was minted by a signer the sink had never heard of and
+      // every rider preview answered `400 Invalid or expired download URL` —
+      // measured on a URL fetched and redeemed inside the same second.
+      //
+      // Production was unaffected (a real GCS signer is stateless, so two of them
+      // agree), which is exactly why it survived: it breaks only on the laptop where
+      // the feature is verified.
+      await api.register(createRiderRoutes(app.storageSigner));
       await api.register(setlistRoutes);
       await api.register(taskRoutes);
       await api.register(calendarRoutes);
