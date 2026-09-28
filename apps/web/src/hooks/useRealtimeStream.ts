@@ -1,18 +1,10 @@
-import {
-  getGetApiV1EventsIdBudgetsQueryKey,
-  getGetApiV1EventsIdDealsQueryKey,
-  getGetApiV1EventsIdInvitationsQueryKey,
-  getGetApiV1EventsIdParticipantsQueryKey,
-  getGetApiV1EventsIdQueryKey,
-  getGetApiV1EventsIdSettlementLinesQueryKey,
-  getGetApiV1EventsIdSettlementsQueryKey,
-  getGetApiV1NotificationsQueryKey,
-} from "@showme/api-client";
+import { getGetApiV1NotificationsQueryKey } from "@showme/api-client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { auth } from "../auth/firebase";
 import { messagesKey, threadsKey } from "../components/useEventMessageThreads";
 import { playNotificationSound } from "../lib/notificationSound";
+import { isEventQueryKey } from "./realtimeInvalidation";
 import { HIDDEN_GRACE_MILLISECONDS, type RealtimeState, nextRealtime } from "./realtimeLifecycle";
 
 /**
@@ -130,20 +122,20 @@ export function useRealtimeStream(streamUrl: string | undefined): void {
        * the stale screen this exists to prevent. So an event-scoped frame refetches
        * that event's workspace queries; TanStack only actually fetches the ones
        * currently mounted, so a Calendar page pays nothing for a deal frame.
+       *
+       * AND THE LIST ITSELF WAS THE FORGOTTEN LINE (QA sweep run 6, QA6-3). It named
+       * seven keys of the twenty-four the generated client exposes for an event, and
+       * the one missing that mattered was the change request: a crew member sat in
+       * front of *"Waiting on 2 people to answer. Nothing moves until everyone
+       * agrees."* minutes after the night had moved. `isEventQueryKey` replaces the
+       * list with the rule the comment above already states — see
+       * `realtimeInvalidation.ts`.
        */
       if (event.eventId) {
         const eventId = event.eventId;
-        for (const queryKey of [
-          getGetApiV1EventsIdQueryKey(eventId),
-          getGetApiV1EventsIdDealsQueryKey(eventId),
-          getGetApiV1EventsIdBudgetsQueryKey(eventId),
-          getGetApiV1EventsIdSettlementsQueryKey(eventId),
-          getGetApiV1EventsIdSettlementLinesQueryKey(eventId),
-          getGetApiV1EventsIdParticipantsQueryKey(eventId),
-          getGetApiV1EventsIdInvitationsQueryKey(eventId),
-        ]) {
-          void client.invalidateQueries({ queryKey });
-        }
+        void client.invalidateQueries({
+          predicate: (query) => isEventQueryKey(query.queryKey, eventId),
+        });
       }
       if (event.type === "event.message_posted" && event.eventId) {
         // Refetch through the authorized endpoint — the frame deliberately carries

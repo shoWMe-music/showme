@@ -262,3 +262,65 @@ QA6-1 found**.
 
 biome **730** clean · api **1374** (2 files to the Testcontainers flake, both green alone) ·
 auth **31** · shared **293** · web **383** · db **25** · e2e **112** · `tsc --noEmit` clean.
+
+---
+
+## `QA6-3` — a frame arrives and changes nothing
+
+**Verdict: real, and it had TWO causes — one of which QA6-2's fix already closed.** The file
+that settles the other: `apps/web/src/hooks/useRealtimeStream.ts`.
+
+The sweep watched a crew seat sit on *"Waiting on 2 people to answer. Nothing moves until
+everyone agrees."* and `Date 15 Oct 2026` **minutes after** the night had moved to 22 October.
+
+1. **No frame reached that seat.** The stream publishes per user off their notifications, and
+   per QA6-2 a date move notified only the proposer — so the crew member's page was never told
+   anything was stale. Fixed above.
+2. **Even with a frame, the banner's query was not invalidated.** The hook lists **seven** query
+   keys by hand; the generated client exposes **twenty-four** for an event, and the missing one
+   that mattered is `/events/:id/change-request`.
+
+### The list was itself the forgotten line
+
+The hook's own comment argues the principle and then breaks it:
+
+> **INVALIDATED BY THE EVENT, NOT BY THE TYPE.** … Keying on the type would need a new line here
+> for every new notification, and **the line that is forgotten is exactly the stale screen this
+> exists to prevent.**
+
+A hand-maintained list of a growing set is the same failure one level up. So the list is gone:
+`isEventQueryKey` (pure, `hooks/realtimeInvalidation.ts`, eight tests) tests whether a cached key
+lies under `/api/v1/events/<id>`, and the hook invalidates by predicate. That covers all
+twenty-four, every nested read (`/budgets/:bid/lines` — which no single hand-written line could
+express), and every route added later with no line anywhere. TanStack still only refetches
+*mounted* queries, so the cost argument the comment makes is unchanged.
+
+*The decision it hides:* none. It is the comment's own rule, applied.
+
+Four mutations, three red (match a mere prefix; drop the id from the needle; stop matching the
+event's own read). The fourth — the `typeof part === "string"` guard — is a type necessity with
+no observable behaviour, and says so in a comment rather than getting an invented test.
+
+### Proven on the running stack, without a reload
+
+Crew seat (`professional@`) open on the Album Release and never reloaded, while the three
+counterparties confirm through the API:
+
+```
+after the proposal was raised   "Waiting on 3 people to answer…"   Date 15 Oct 2026 → 14 Nov 2026
+co-host, performer B, agent confirm  (status: confirmed)
+5 seconds later, no reload      (no banner — cleared)               Date 14 Nov 2026
+```
+
+Screenshot: `docs/screenshots/qa-2026-09-27-run6/qa6-3-crew-seat-live-update.png`.
+
+### What is deliberately still not sent, and why
+
+The sweep also noted the **proposal** notice reaches the agent, the co-host and performer B but
+not the crew member or the delegated performer. Both are boundaries rather than gaps:
+
+- A pending proposal is a **question for the counterparties**. The crew have no vote on the date
+  (`event-change-requests.ts` is explicit), and telling them a question is open invites them to
+  act on something that may not happen. What they need is the **answer**, which now reaches them.
+- The delegated performer's notice went to their **agent**, which is the delegation working
+  (decisions #14) — and the applied change now reaches both.
