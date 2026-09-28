@@ -28,6 +28,7 @@ import { eventCapabilities, requireEventCapability } from "../lib/authorize";
 import { renderEventNotificationEmail } from "../lib/email-templates";
 import { assertEventIsDeletable, deleteEventTree } from "../lib/event-delete";
 import { notifyPublicationChanged } from "../lib/event-publication";
+import { OptimisticLockBody } from "../lib/optimistic-lock-body";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
 import { signProfileImageUrls } from "../lib/profile-media";
 import { serializeEvent } from "../serialize/event";
@@ -239,9 +240,12 @@ const ListResponse = z.object({
 const DeleteResponse = z.object({ id: z.string(), deleted: z.boolean() });
 const NotifyResponse = z.object({ queued: z.boolean() });
 
-/** Optional optimistic-lock version, shared by the mutating routes. The whole
- * body is nullish so a caller may omit it (a bare DELETE arrives with body `null`). */
-const OptimisticLockBody = z.object({ expectedVersion: z.number().int().optional() }).nullish();
+/*
+ * The optimistic-lock body now lives in `lib/optimistic-lock-body.ts` and is imported above.
+ * This route had it RIGHT — nullish, so a bare DELETE is accepted — and two sibling routes that
+ * declared their own copy had it wrong (QA sweep run 9, QA9-16). Moving the definition out is what
+ * makes that divergence impossible rather than fixed twice.
+ */
 
 export async function eventListRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();

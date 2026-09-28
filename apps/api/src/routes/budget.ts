@@ -8,6 +8,7 @@ import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
 import { ensureEventBudgets } from "../lib/budget-provisioning";
+import { OptimisticLockBody } from "../lib/optimistic-lock-body";
 import {
   type SerializedBudget,
   type SerializedBudgetLine,
@@ -184,10 +185,6 @@ const UpdateLineBody = z.object({
   attributedDealId: z.string().uuid().nullable().optional(),
   details: LineDetails.nullable().optional(),
   /** Expected version for optimistic locking (decisions #8); mismatch → 409. */
-  expectedVersion: z.number().int().optional(),
-});
-
-const DeleteLineBody = z.object({
   expectedVersion: z.number().int().optional(),
 });
 
@@ -1027,7 +1024,9 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
     {
       schema: {
         params: LineParams,
-        body: DeleteLineBody,
+        // Nullish, so a bare DELETE with no body is the 404/200 it should be rather than a 400
+        // about the body (QA9-16). One definition for all three DELETE routes that take a version.
+        body: OptimisticLockBody,
         response: { 200: z.object({ deleted: z.boolean() }) },
       },
     },
@@ -1044,7 +1043,8 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
         .where(and(eq(schema.budgetLines.id, lid), eq(schema.budgetLines.budgetId, bid)));
       if (!before) throw notFound("Budget line not found");
 
-      const { expectedVersion } = request.body;
+      // `?.` because the body may legitimately be absent — see `OptimisticLockBody`.
+      const expectedVersion = request.body?.expectedVersion;
       const where =
         expectedVersion != null
           ? and(eq(schema.budgetLines.id, lid), eq(schema.budgetLines.version, expectedVersion))

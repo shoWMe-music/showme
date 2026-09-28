@@ -32,6 +32,7 @@ import {
   movedSignedTerms,
 } from "../lib/deal-confirmation";
 import { renderNotificationEmail } from "../lib/email-templates";
+import { OptimisticLockBody } from "../lib/optimistic-lock-body";
 import { withIdempotency } from "../plugins/idempotency";
 import { isDealVisible, serializeDeal, serializeDealUnredacted } from "../serialize/deal";
 
@@ -1313,7 +1314,9 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
     {
       schema: {
         params: DealParams,
-        body: z.object({ expectedVersion: z.number().int().optional() }),
+        // Nullish (QA9-16): a bare `DELETE /deals/:did` with no body used to answer 400 about the
+        // body it did not send, where `DELETE /events/:id` had always accepted one.
+        body: OptimisticLockBody,
       },
     },
     async (request, reply) => {

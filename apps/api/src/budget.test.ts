@@ -356,6 +356,45 @@ describe("budgets — authorize + money-as-string + audit", () => {
     expect(deleteAudit.some((row) => row.action === "budget_line.delete")).toBe(true);
   });
 
+  /**
+   * A BARE DELETE, WITH NO BODY AT ALL (QA sweep run 9, QA9-16).
+   *
+   * `expectedVersion` is optional, and a request that omits the body entirely arrives as `null`
+   * rather than `{}` — so the schema had to say `.nullish()`, which it did not, and a bodyless
+   * DELETE answered *400 "body/ Expected object, received null"* before the handler ran.
+   * `DELETE /events/:id` had always accepted one; this route and `DELETE /deals/:did` had not. All
+   * three now share `lib/optimistic-lock-body.ts`, so they cannot disagree again.
+   */
+  it("deletes a line with no request body at all", async () => {
+    const { eventId, operatorUid, hostParticipantId } = await seedEvent("del-nobody");
+    const budget = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/budgets`,
+      headers: auth(operatorUid),
+      payload: {},
+    });
+    const budgetId = budget.json().id;
+    const line = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/budgets/${budgetId}/lines`,
+      headers: auth(operatorUid),
+      payload: { kind: "revenue", label: "Bar", amount: "9000", collectedBy: hostParticipantId },
+    });
+    const lineId = line.json().id;
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/events/${eventId}/budgets/${budgetId}/lines/${lineId}`,
+      headers: auth(operatorUid),
+      // No `payload` — that is the whole test.
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toEqual({ deleted: true });
+    expect(
+      await harness.db.select().from(schema.budgetLines).where(eq(schema.budgetLines.id, lineId)),
+    ).toHaveLength(0);
+  });
+
   it("records the ticketing source discriminator on a revenue line (decisions #15)", async () => {
     const { eventId, operatorUid, hostParticipantId } = await seedEvent("bud-src");
     const budget = await app.inject({

@@ -3216,6 +3216,34 @@ describe("deleting a deal — draft, and nothing settled (decisions §25.7.2)", 
     ).toHaveLength(0);
   });
 
+  /**
+   * A BARE DELETE, WITH NO BODY AT ALL (QA sweep run 9, QA9-16).
+   *
+   * The optimistic-lock body is optional, and a request that omits it entirely arrives as `null`
+   * rather than `{}` — so a `z.object({…})` without `.nullish()` answers *400 "body/ Expected
+   * object, received null"* before the handler runs. `DELETE /events/:id` had always accepted one
+   * and these two had not, which is the divergence a single shared schema now prevents.
+   *
+   * No screen was affected, because the generated client always sends a body. It matters for the
+   * agent-native surface decisions #16.14–15 commits to, where the caller writes the request and
+   * `curl -X DELETE` is the obvious thing to write.
+   */
+  it("takes a DELETE with no body at all — the version is optional, and so is the body", async () => {
+    const { event, hostParticipant, actParticipant, uid } = await fixture("del-nobody");
+    const dealId = await createDeal(event.id, uid, hostParticipant.id, actParticipant.id);
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/deals/${dealId}`,
+      headers: auth(uid),
+      // No `payload` — that is the whole test.
+    });
+    expect(deleted.statusCode).toBe(204);
+    expect(
+      await harness.db.select().from(schema.deals).where(eq(schema.deals.id, dealId)),
+    ).toHaveLength(0);
+  });
+
   it("refuses a deal that has left draft, and says to cancel it instead", async () => {
     const { event, hostParticipant, actParticipant, uid } = await fixture("del-sent");
     const dealId = await createDeal(event.id, uid, hostParticipant.id, actParticipant.id);
