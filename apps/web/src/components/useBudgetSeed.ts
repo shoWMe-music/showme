@@ -650,6 +650,12 @@ export interface BudgetLineForDoor {
   amount: string;
   details?: unknown;
   dealId?: string | null;
+  /**
+   * The row's own name, for the one half of the tier-merge rule that matches on it
+   * (QA sweep run 7, QA7-2). Optional so every existing caller keeps working; a row
+   * with no label simply matches no tier by name.
+   */
+  label?: string | null;
 }
 
 /**
@@ -671,18 +677,62 @@ export function doorForecastFrom(
   sharedLines: BudgetLineForDoor[],
   ticketTiers: EventTicketTier[],
 ): DoorForecast {
+  const ticketLines = sharedLines.filter(
+    (line) => line.kind === "revenue" && isTicketLine(line.details),
+  );
+  const fromSheet = ticketLines.reduce((total, line) => total + BigInt(line.amount), 0n);
+
+  /**
+   * THE SHEET'S TIERS AND THE EVENT'S ARE ONE DOOR, NOT TWO ALTERNATIVES
+   * (QA sweep run 7, QA7-2).
+   *
+   * This read `fromSheet > 0n ? fromSheet : fromEventTiers` — the sheet wins whenever
+   * it has any ticket row at all — on the grounds that it is *"the later statement of
+   * the same fact"*. They are not the same fact, and two other places in this app
+   * already say so: the planner's own ticket TABLE renders both additively
+   * (`mergeTicketTierSeeds`), and the settlement merges them the same way
+   * (`statesItsOwnDoor` in `lib/settlement-lines.ts`).
+   *
+   * So a tier typed on Event Details raised the planner's revenue to SEK 93,000 and
+   * left the fee derived from SEK 83,000: the split card divided 83,000 and said *"the
+   * deal pays SEK 50,000"*, and `settlement/compute` then paid **SEK 60,000**. The
+   * window is exactly the negotiation window — the operator agrees terms against a fee
+   * SEK 10,000 too low and finds out at settlement.
+   *
+   * THE RULE, and it is `mergeTicketTierSeeds`' rule because it has to be the same one:
+   *
+   *  - a sheet ticket row with **no breakdown** is the whole door under a name of the
+   *    operator's choosing, and suppresses the event's tiers entirely;
+   *  - otherwise the door is the sheet's rows **plus** the event tiers the sheet does
+   *    not already carry — matched on `details.tierId` first (a rename must not make one
+   *    tier look like two, which is what `1dcc396` fixed for the table) and on the name
+   *    as the fallback for rows written before that id was carried.
+   */
+  const statesItsOwnDoor = ticketLines.some((line) => line.details == null);
+  const writtenTierIds = new Set(
+    ticketLines
+      .map((line) => (line.details as { tierId?: string } | null)?.tierId)
+      .filter((tierId): tierId is string => typeof tierId === "string"),
+  );
+  const writtenNames = new Set(
+    ticketLines
+      .map((line) => (line.label ?? "").trim().toLowerCase())
+      .filter((name) => name !== ""),
+  );
+  const tiersNotOnTheSheet = statesItsOwnDoor
+    ? []
+    : ticketTiers.filter(
+        (tier) => !writtenTierIds.has(tier.id) && !writtenNames.has(tier.name.trim().toLowerCase()),
+      );
   // Major units × 100, because the Ticketing card takes a price in major units
   // and every figure past this boundary is minor (money.md).
-  const fromEventTiers = ticketTiers.reduce(
-    (total, tier) => total + BigInt(Math.round(tier.price * 100)) * BigInt(Math.trunc(tier.est)),
-    0n,
-  );
-  // The SHEET wins when it has tiers of its own: it is the later statement of the
-  // same fact, and the one the operator is looking at.
-  const fromSheet = sharedLines
-    .filter((line) => line.kind === "revenue" && isTicketLine(line.details))
-    .reduce((total, line) => total + BigInt(line.amount), 0n);
-  const ticketRevenue = fromSheet > 0n ? fromSheet : fromEventTiers;
+  const doorOf = (tiers: EventTicketTier[]) =>
+    tiers.reduce(
+      (total, tier) => total + BigInt(Math.round(tier.price * 100)) * BigInt(Math.trunc(tier.est)),
+      0n,
+    );
+  const fromUnwrittenTiers = doorOf(tiersNotOnTheSheet);
+  const ticketRevenue = fromSheet + fromUnwrittenTiers;
 
   /**
    * The sheet's own revenue and costs, which is what turns a ticket forecast into
@@ -720,7 +770,14 @@ export function doorForecastFrom(
   const rentals = deals
     .filter((deal) => deal.status !== "cancelled" && isRental(deal))
     .reduce((total, deal) => total + BigInt(deal.guaranteeAmount ?? 0), 0n);
-  const totalRevenue = sheetRevenue > 0n ? sheetRevenue : ticketRevenue;
+  /*
+   * The same correction one level up (QA7-2). `sheetRevenue > 0n ? sheetRevenue :
+   * ticketRevenue` dropped an unwritten tier from the threshold base too, on any event
+   * whose sheet already had a single revenue row of any kind. The sheet's revenue plus
+   * the part of the door that is not yet on it is the whole of what the night takes —
+   * and with an empty sheet it is exactly `ticketRevenue`, which is what it was before.
+   */
+  const totalRevenue = sheetRevenue + fromUnwrittenTiers;
 
   return {
     ticketRevenue,
@@ -729,7 +786,17 @@ export function doorForecastFrom(
     // sheet has any costs on it this is simply the revenue, which is the honest
     // forecast at that moment rather than an optimistic one.
     splitBase: totalRevenue - sheetCosts - rentals,
-    ticketsSold: ticketTiers.reduce((total, tier) => total + Math.trunc(tier.est), 0),
+    /*
+     * COUNTED THE SAME WAY THE MONEY IS (QA7-2). This counted the EVENT's tiers alone,
+     * so on the seeded events — whose tiers live in the budget and not in `extras` — it
+     * was zero, and an escalator measured against ticket count (#23.3) never fired. The
+     * sheet's own tier rows carry their counts in `details.quantity`.
+     */
+    ticketsSold:
+      ticketLines.reduce(
+        (total, line) => total + ((line.details as { quantity?: number } | null)?.quantity ?? 0),
+        0,
+      ) + tiersNotOnTheSheet.reduce((total, tier) => total + Math.trunc(tier.est), 0),
   };
 }
 

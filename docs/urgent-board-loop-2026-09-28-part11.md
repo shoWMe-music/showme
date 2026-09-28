@@ -98,3 +98,85 @@ biome **732** clean · shared **304** · web **405** · `tsc --noEmit` clean in 
 api-client. **The API suite and e2e were NOT run in this part** — Docker stopped answering under
 load and both need it. They run in one pass, stack down, before the next commit that touches the
 API.
+
+---
+
+## `QA7-2` — the planner derived the fee from a door it was not showing
+
+**Verdict: real, and the third of three rules for one question.** The file that settles it:
+`apps/web/src/components/useBudgetSeed.ts`.
+
+`doorForecastFrom` read `fromSheet > 0n ? fromSheet : fromEventTiers` — the sheet wins whenever it
+has any ticket row — on the stated grounds that it is *"the later statement of the same fact"*.
+**They are not the same fact, and two other places in this app already say so:**
+
+| | how it merges the sheet's tiers and the event's |
+|---|---|
+| the planner's ticket **table** | `mergeTicketTierSeeds` — additively, minus what the sheet already carries |
+| the **settlement** | the same, `statesItsOwnDoor` in `lib/settlement-lines.ts` |
+| `doorForecastFrom` | **either/or** |
+
+So on the sweep's night the same card said `TICKET REVENUE SEK 93,000` and three ticket rows and
+*"360 tickets planned"*, while the split beneath it divided **83,000** and promised *"the deal pays
+SEK 50,000"*. `settlement/compute` paid **SEK 60,000** — and the compute writes the tier into
+`budget_lines`, so only *afterwards* does the planner agree. **The window is exactly the
+negotiation window.**
+
+### Scope
+
+`doorForecastFrom` now applies `mergeTicketTierSeeds`' rule, because it has to be the same one:
+
+- a sheet ticket row with **no breakdown** is the whole door under a name of the operator's
+  choosing and suppresses the event's tiers entirely;
+- otherwise the door is the sheet's rows **plus** the event tiers the sheet does not already carry,
+  matched on `details.tierId` first — a rename must not make one tier look like two, which is what
+  `1dcc396` fixed for the table — and on the name as the fallback for rows written before that id
+  was carried.
+
+**Two more figures had the identical fault and are fixed with it:**
+
+- `totalRevenue` (`sheetRevenue > 0n ? sheetRevenue : ticketRevenue`) dropped an unwritten tier from
+  the base a **threshold bonus** is measured against (#23.3), on any event whose sheet held a single
+  revenue row of any kind.
+- `ticketsSold` counted the EVENT's tiers alone — so on the seeded events, whose tiers live in the
+  budget rather than in `extras`, it was **zero**, and an escalator measured against ticket count
+  never fired at all.
+
+`BudgetLineForDoor` gained an optional `label`, which is the half of the merge rule that matches on
+the name.
+
+*The decision it hides:* none. Three places answer one question and two of them already agreed; this
+is the third catching up.
+
+### Mutation-tested: five, all red
+
+| Mutated | |
+|---|---|
+| back to `fromSheet > 0n ? fromSheet : …` | 2 tests red |
+| ignore a typed-in whole door | red |
+| drop the tier-id match | red |
+| drop the name match | red |
+| the threshold base's either/or | red |
+
+## What could NOT be run, and why
+
+**Docker's daemon stopped answering `docker ps` and has not recovered** — three attempts, 45s, 90s
+and 120s, all timing out — so on this machine there is no Postgres, which means **no dev stack, no
+API suite and no e2e**. Both of this part's fixes are therefore proven by unit tests and mutation
+checks only, and QA7-2's browser proof is owed.
+
+Run when Docker is back, in one pass with the stack down:
+
+1. `pnpm --filter @showme/api exec vitest run` — QA7-2 touches no API file, but the spec
+   regeneration at the top of this part does.
+2. `pnpm test:e2e`.
+3. Then boot the stack and re-drive QA7-2's own scenario: add a tier on Event Details to an event
+   whose budget already holds ticket lines, and check the split card and
+   `POST /settlement/compute` now state the same figure.
+
+Recorded rather than glossed, because a green unit suite says nothing about either.
+
+## Suites for this part
+
+biome **732** clean · shared **304** · web **409** · `tsc --noEmit` clean in shared, web and
+api-client. **API suite and e2e: not run — Docker unavailable.**

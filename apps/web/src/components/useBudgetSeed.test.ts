@@ -327,9 +327,88 @@ describe("the door forecast", () => {
     expect(door.splitBase).toBe(10_000_000n);
   });
 
-  it("lets the sheet's own ticket rows win over the event's tiers", () => {
+  it("lets a door somebody TYPED AS ONE FIGURE suppress the event's tiers", () => {
+    // No `details` means no unit x count breakdown: the row is the whole door under a
+    // name of the operator's choosing, and seeding the event's tiers beside it would
+    // count the same money twice. The same rule as `mergeTicketTierSeeds` and as
+    // `statesItsOwnDoor` in the settlement.
     const sheet: BudgetLineForDoor[] = [{ kind: "revenue", amount: "8000000" }];
     expect(doorForecastFrom([], sheet, TIERS).ticketRevenue).toBe(8_000_000n);
+  });
+
+  /**
+   * A TIER TYPED ON EVENT DETAILS IS PART OF THE DOOR THE DEAL DIVIDES
+   * (QA sweep run 7, QA7-2).
+   *
+   * This read `fromSheet > 0n ? fromSheet : fromEventTiers`, so the moment the sheet had
+   * any ticket row the event's tiers stopped counting — while the planner's own ticket
+   * TABLE rendered both additively and the settlement merged them the same way. Measured:
+   * the card said `TICKET REVENUE SEK 93,000` and derived the fee from SEK 83,000, quoting
+   * *"the deal pays SEK 50,000"*; `settlement/compute` then paid SEK 60,000.
+   */
+  describe("a tier the sheet does not carry yet", () => {
+    /** What the planner writes for a tier: an amount WITH its unit x count breakdown. */
+    const sheetTier = (
+      amount: string,
+      details: { unitAmount?: string; quantity?: number; tierId?: string },
+      label?: string,
+    ): BudgetLineForDoor => ({ kind: "revenue", amount, details, ...(label ? { label } : {}) });
+
+    it("adds it to the sheet's own rows rather than replacing them", () => {
+      // The sweep's night: SEK 65,000 + SEK 18,000 on the sheet, and a SEK 10,000 tier
+      // added on Event Details. 83,000 + 10,000 = 93,000, which is what the screen said.
+      const door = doorForecastFrom(
+        [],
+        [
+          sheetTier("6500000", { unitAmount: "25000", quantity: 260 }, "Advance"),
+          sheetTier("1800000", { unitAmount: "30000", quantity: 60 }, "Walk-up"),
+        ],
+        [{ id: "early", name: "QA7 Early bird", price: 250, max: 50, est: 40 }],
+      );
+      expect(door.ticketRevenue).toBe(9_300_000n);
+      // And the count agrees with the money: 260 + 60 + 40.
+      expect(door.ticketsSold).toBe(360);
+    });
+
+    it("counts it ONCE when the sheet already carries it, matched on the tier id", () => {
+      // The planner writes `details.tierId` precisely so a RENAME cannot make one tier
+      // look like two — the rule `1dcc396` fixed for the table.
+      const door = doorForecastFrom(
+        [],
+        [sheetTier("1000000", { unitAmount: "25000", quantity: 40, tierId: "early" }, "Renamed")],
+        [{ id: "early", name: "QA7 Early bird", price: 250, max: 50, est: 40 }],
+      );
+      expect(door.ticketRevenue).toBe(1_000_000n);
+      expect(door.ticketsSold).toBe(40);
+    });
+
+    it("counts it once when the sheet carries it under the same NAME and no id", () => {
+      // Rows written before the id was carried through. The name is the fallback, and
+      // without it those events would double their door.
+      const door = doorForecastFrom(
+        [],
+        [sheetTier("1000000", { unitAmount: "25000", quantity: 40 }, "QA7 Early bird")],
+        [{ id: "early", name: "  qa7 early bird ", price: 250, max: 50, est: 40 }],
+      );
+      expect(door.ticketRevenue).toBe(1_000_000n);
+    });
+
+    it("reaches the THRESHOLD base too, not only the ticket figure", () => {
+      // `totalRevenue` had the same either/or, so a sheet holding any revenue row at all
+      // dropped the unwritten tier from what a threshold bonus is measured against (#23.3).
+      const door = doorForecastFrom(
+        [],
+        [
+          sheetTier("6500000", { unitAmount: "25000", quantity: 260 }, "Advance"),
+          { kind: "revenue", amount: "500000", details: { basis: "other_revenue" } },
+        ],
+        [{ id: "early", name: "QA7 Early bird", price: 250, max: 50, est: 40 }],
+      );
+      // 65,000 sheet tickets + 5,000 sponsorship + 10,000 unwritten tier.
+      expect(door.totalRevenue).toBe(8_000_000n);
+      // The ticket figure is the door alone — the sponsorship is not box office.
+      expect(door.ticketRevenue).toBe(7_500_000n);
+    });
   });
 
   /**
