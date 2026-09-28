@@ -49,15 +49,31 @@ const NOTHING: EventProjectionFigures = {
 /**
  * Sum the event's LEDGER into a projection.
  *
- * A budget with no recognisable lines still counts as having a ledger: "this night is
- * planned and currently adds up to nothing" is a different statement from "this night has
- * no plan", and only the second one should render as "—".
+ * **A SHARED BUDGET ROW IS NOT A PLAN — its LINES are** (QA sweep run 9 QA9-11, still holding as
+ * QA10-12).
+ *
+ * This used to count any shared budget as a ledger, on reasoning that was sound when it was written:
+ * *"this night is planned and currently adds up to nothing is a different statement from this night
+ * has no plan, and only the second one should render as —."* Both statements are still different; what
+ * changed is that the row no longer tells them apart. `GET /events/:id/budgets` **provisions** a
+ * shared budget on read (`ensureEventBudgets`, deliberate and documented), and the Projections screen
+ * fires that GET once per event — so **the act of measuring coverage creates it**. Measured across two
+ * sweeps: the KPI read *"5 events budgeted"* where four had a line anybody had typed, and three of the
+ * rows in the table were empty budgets a page load had made.
+ *
+ * The consequence was not only the count. `isPartial` was false for any host who had ever opened the
+ * screen, so `partialCoverageNote` and `noBudgetDescription` — the sentences that exist to say a total
+ * covers a subset — were dead code.
+ *
+ * So "has a ledger" is now "has a shared budget with at least one line". A budget whose lines sum to
+ * zero still counts: somebody wrote those lines, which is exactly the distinction the original
+ * reasoning was protecting, and the only case it now loses is the one it could no longer see.
  */
 export function projectFromBudgets(
   budgets: readonly ProjectionBudget[] | undefined,
 ): EventProjectionFigures {
   const ledger = budgets?.filter((budget) => budget.scope === "shared") ?? [];
-  if (ledger.length === 0) return NOTHING;
+  if (!ledger.some((budget) => budget.lines.length > 0)) return NOTHING;
 
   let revenueMinor = 0;
   let costMinor = 0;

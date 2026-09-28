@@ -46,12 +46,32 @@ describe("projectFromBudgets", () => {
     );
   });
 
-  it("counts an empty ledger as planned, not as missing", () => {
-    // "Planned, and currently adds up to nothing" is a different statement from "not
-    // planned", and only the second should render as "—".
+  /**
+   * THIS TEST ASSERTED THE OPPOSITE, and the reasoning it carried was right when written (QA9-11,
+   * still holding as QA10-12).
+   *
+   * It read: *"'Planned, and currently adds up to nothing' is a different statement from 'not
+   * planned', and only the second should render as —."* Both statements are still different. What
+   * changed underneath it is that an empty shared budget no longer means the first one:
+   * `GET /events/:id/budgets` **provisions** a shared budget on read, and the Projections screen fires
+   * that read once per event — so the act of measuring coverage created the row. The KPI said *"5
+   * events budgeted"* where four had a line anybody had typed.
+   *
+   * The distinction survives where it can still be drawn: a ledger whose lines sum to zero counts,
+   * because somebody wrote those lines. That is the next test.
+   */
+  it("does not count an empty shared budget as a plan — a page load can create one", () => {
     const figures = projectFromBudgets([{ scope: "shared", lines: [] }]);
-    expect(figures.hasBudget).toBe(true);
+    expect(figures.hasBudget).toBe(false);
     expect(figures.margin).toBeNull();
+  });
+
+  it("counts a ledger whose lines sum to zero — somebody wrote them", () => {
+    const zeroed = projectFromBudgets([
+      { scope: "shared", lines: [line("revenue", "50000"), line("cost", "50000")] },
+    ]);
+    expect(zeroed.hasBudget).toBe(true);
+    expect(zeroed.beforeDealsMinor).toBe(0);
   });
 
   it("drops a line whose amount is not a number rather than poisoning the total", () => {
