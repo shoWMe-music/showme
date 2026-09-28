@@ -45,6 +45,13 @@ missing caller.** Today produced it seven more times, and added two siblings of 
   `packages/settlement` with its entry UI (`123qy9rnwud` / `123qy9rp8k3`).
 - **Every actionable finding from QA sweeps 4, 5 and 6** — four majors and eleven
   minors/cosmetics from run 6 alone, including three defects in this loop's own work.
+- **Sweep run 9's leak and its mute-users major**, plus the two residuals of this loop's own
+  fixes. QA9-1 was the serious one and not an arithmetic error: `GET /insights/profiles/:id/revenue`
+  had no `budgets.scope` predicate, so a host's all-time figure counted every private book on their
+  events — **SEK 12,345 of it the co-host's** — three lines under a screen saying *"Every figure here
+  comes from the event's shared ledger"*. QA9-2: `message.post` was in three presets and **no floor**,
+  so a represented act, every crew member and everyone the app's own Invite dialog onboards were
+  silently mute. QA9-8 and QA9-14 are places where QA8-4 and QA8-12 stopped one line short.
 - **Sweep run 8, everything but its two majors** — QA8-6 through QA8-14, plus run 7's QA7-24.
   Four of those were sentences that were false about whoever was reading them (an agent told a
   commission was "private to you and your agent"; a crew account offered a dialog for offering to
@@ -68,8 +75,10 @@ missing caller.** Today produced it seven more times, and added two siblings of 
   QA7-26 and QA7-27 — which leaves **QA7-18 and QA7-24** as the only actionable items left
   from run 7.
 
-Suites at `fc37a41`, run in one pass: **biome 737 clean · shared 308 · web 472 · api 1410 ·
-e2e 112**, `tsc --noEmit` clean in web, api and shared. The API's full run lost the same four files to the
+Suites at `192aeb7`, run in one pass: **biome 737 clean · shared 317 · auth 35 · web 474 ·
+api 1405 · e2e 112**, `tsc --noEmit` clean in web, api, shared and auth. Adding `message.post` to
+four floors broke **no** capability assertion anywhere, which is the reassuring half of QA9-2: the
+floors were not load-bearing for anything that tested them. The API's full run lost the same four files to the
 Testcontainers port-bind flake with **zero failed tests** (four `Timed out after 10000ms
 while waiting for container ports` in the log); each passed when re-run alone.
 
@@ -236,6 +245,20 @@ a ticket, because the base changes the per-head coefficient — so an assertion 
 difference had been read as evidence about a different wrong base. **When a fix comes with an
 explanation of why it is safe, the explanation is a claim about the code too.**
 
+### A comment asserting a rule the code does not keep — NINE instances, and one of them mine
+
+The count is the point. Break-even wording, invoice currency, the realtime list,
+`ProfileLinkListField`, the entitlement-gap sentence, the team invite dialog, QA7-1's own docstring
+describing the term it had just got wrong, the `collected` row's belief about `entitlement` — and
+then QA9-14, where a comment this loop wrote claimed *"the two agree about what a negative figure
+looks like on this screen"* while one call site rendered `−SEK 12,000` and four rendered
+`− SEK 33,000`.
+
+**A comment that states a rule is a test that never runs.** Where the rule is worth stating, give it
+one implementation and point every caller at it — `negativeAmount`, `seatRefusalHint`,
+`countsAsMoneyOwed` — so the sentence and the behaviour cannot part company. Where it is only
+explanation, remember that a future reader will trust it more than the code beside it.
+
 ### A sentence has to be true of whoever is reading it — FIVE instances now
 
 Run 6 found the first (`"Plus the money you collected"` on a performer's screen under the
@@ -282,6 +305,8 @@ exactly 30 days behind the 27th, 31 behind the 28th. It had been one day from fa
 ## The local stack, as left
 
 **Down** — `pnpm test:e2e` was the last thing run and it tears the manual stack down. The seed was
+restored before that pass, so the probe rows this stretch created (a co-host private budget and its
+SEK 12,345 line, an advance on deal `…d1`, two messages) are gone. The seed was
 restored (`seed:e2e`) before that pass, so the probe rows this stretch created — an RSVP, two
 offers, a numberless bill, an advance on deal `…d1` — are all gone.
 
