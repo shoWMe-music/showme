@@ -146,20 +146,69 @@ intermediate frames, because the hook does not shorten the tween, it does not cr
 
 ---
 
+## 3a. The other three MAJORs
+
+### QA10-4 — the invitations addressed to you now have somewhere to appear · `950d008`
+
+Built as planned in §3b, and the plan's verdict held: `INVITABLE_ROLES` was a red herring and the
+real gap was that **no "addressed to me" read existed**. `GET /me/invitations` is it. The card lists
+them under the same heading with a LINK, because the accept for a token invitation is token-keyed.
+
+Two mutations SURVIVED and both are redundant lines rather than test gaps — the `type` filter (the
+inner join on `target_event_id` already excludes profile invitations) and the empty-email early
+return (`lower(email) = NULL` matches nothing anyway; what it saves is the query). **Both are kept
+and both now say in the code that they cannot change the answer**, rather than looking like guards a
+test forgot. A boundary test was added for the first.
+
+Proven as the co-promoter: *"1 event invitation · Open Mic Wednesdays · as Co-operator · from The
+Lantern Hall · Open the invitation"*, and the link lands on *"Role: Co-operator … Accept / Decline"*.
+
+### QA10-9 — a cancelled agreement stops inviting signatures · `dc61c24`
+
+**My own §25.7.2 Cancel control made cancelling reachable and did not make it legible.** A fix
+carrying its own next defect. The card read *"Sent — awaiting confirmations"* with a live *Confirm
+your line*; the only trace of the cancellation was the missing Cancel button — an absence. Both
+signatures were then accepted, leaving `agreement_status = confirmed` on a `cancelled` row.
+
+- **The gate**: `assertAgreementSignable` refuses a cancelled deal. It goes there because that
+  function is the one gate both the in-app confirm and the off-platform share link use.
+- **A rule in two places, the enforcing copy behind**: `GET /deals/awaiting-signature` had already
+  filtered cancelled deals out of the dashboard nag, and its comment said the gate *"refuses only
+  that [draft]"* — true when written. Corrected.
+- **A test pinned the opposite**, on the grounds that *"the terms they signed are still a record
+  worth keeping"*. The record worth keeping is the record of what was OFFERED — the deal row and its
+  snapshot — and a signature added after withdrawal asserts agreement to something no longer on the
+  table. A withdrawn offer cannot be accepted. The property that test really protected now holds more
+  simply: the agreement never reaches `confirmed` at all.
+- **The card** never received the deal's own `status`, so it could not say the one thing that
+  mattered. And it printed *"Cancel it instead"* on a deal already cancelled — **the sixth instance
+  of a sentence untrue of its reader, and this one was mine.** Caught in the browser, not by a test.
+
+### QA10-5 — a typed venue gets linked · `dc295d2`
+
+Every consequence of the NULL venue profile was silent: no agent attached and none told (#14), no
+country stamp (#17), no double-booking check. The server now resolves the caller's **own** operator
+profile on an exact name match, and nothing else — a stranger's venue, two of your own sharing a
+name, a non-operator profile of yours, and a name matching nothing all stay unlinked, each with a
+test. **Two of those five tests exist only because mutations survived**, on cases the docstring
+claimed.
+
+The end of the chain is asserted rather than inferred: on an event whose venue was only typed, the
+agency is on the bill AND has a notification. Proven through the wizard itself — typed the name, left
+the visible suggestion untouched, and the venue came back linked.
+
+*A gotcha for the next tick: an API relaunched from `apps/api` has the command line
+`tsx/dist/cli.mjs src/server.ts`, so `pkill -f "apps/api/src/server.ts"` does not match it. Mine died
+on EADDRINUSE and I was briefly testing against the old process, which answered a confirm that should
+have been refused. **Kill by port.***
+
 ## 3. Still open from run 10
 
-- **QA10-4, second leg (MAJOR).** My QA9-3 fix made the bell work; the inbox card still cannot show a
-  co-host invitation, because `INVITABLE_ROLES` excludes `co_host` — *and co-host is the Invite
-  Collaborator dialog's default role*. The query also reads `event_participants`, while a collaborator
-  invite writes only an `invitations` row. **Next.**
-- **QA10-9** — a cancelled deal reads as a live offer on both Deals tabs, and both parties'
-  signatures were accepted on it (`agreement_status = confirmed`, `status = cancelled`). Worth
-  Daniel's eye.
-- **QA10-5** — every wizard-created event leaves `venue_profile_id` NULL, so `venueInRegion()` is
-  false and a represented act's agent is never attached or told. Proved against an API-created event
-  with the venue linked, where the agent row and the notification both appear.
+- **All six of run 10's MAJORs are now fixed** (QA10-1, -2, -3 in §1; QA10-4, -9, -5 in §3a).
 - The remaining MINOR/COSMETIC findings, and run 9's web-side leftovers: QA9-5, QA9-7, QA9-10,
-  QA9-11, QA9-12's render half, QA9-13.
+  QA9-11, QA9-12's render half, QA9-13. QA10-10 (the "Operators only" room names the co-promoter as a
+  member, hides it from them, and refuses their post with *"Missing capability: budget.view"*) is the
+  pick of the MINORs — it is the same shape as QA10-3, a roster and a gate disagreeing.
 - Blocked: `86cbcn1q4`, `86cbcn1rr`, `86c9mq7q9` until `/design-login` works.
 - §25.6's other five rows, and §25.7.1's one follow-up question, still Daniel's.
 
