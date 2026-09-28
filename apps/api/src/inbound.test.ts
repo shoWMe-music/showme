@@ -793,6 +793,44 @@ describe("inbound — an agent offers on behalf of the act it represents (decisi
     expect(rows).toHaveLength(0);
   });
 
+  /**
+   * AN OPERATOR'S OUTBOUND MOVE IS NOT A BOOKING REQUEST (QA sweep run 10, QA10-13).
+   *
+   * The sweep found a venue's offer to a FOH engineer stored `source: performer_offer, sender_type:
+   * performer`, so the crew's card read **SOURCE: Performer offer** over a message from The Lantern
+   * Hall. The label was downstream of the real defect: `senderType` is `agent ? "agency" :
+   * "performer"`, so an operator falls into the else and the row cannot help lying.
+   *
+   * The web already refused this direction — `Requests.tsx` hides the button and says why: *"the
+   * outbound move that is theirs — a suggested event — is the Events screen's (`event_participants`,
+   * not a booking request)"*. The rule was stated in the client and enforced nowhere.
+   *
+   * The refusal names that move rather than a status, because the operator wanting to book an engineer
+   * has somewhere to go.
+   */
+  it("400s an OPERATOR sending a booking request, and names the move that is theirs", async () => {
+    const venue = await seedOwnerWithProfile("op-offer-venue");
+    const crew = await seedOwnerWithProfile("op-offer-crew", "team_and_crew");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("op-offer-venue"), "x-profile-id": venue.profileId },
+      payload: { targetProfileId: crew.profileId, wantedDate: "2026-12-01" },
+    });
+
+    expect(created.statusCode).toBe(400);
+    expect(created.json().error.message).toContain("suggested event");
+
+    // Nothing written — the row that called a venue a performer is as much of the defect as the 201.
+    expect(
+      await harness.db
+        .select({ id: schema.bookingRequests.id })
+        .from(schema.bookingRequests)
+        .where(eq(schema.bookingRequests.senderProfileId, venue.profileId)),
+    ).toHaveLength(0);
+  });
+
   it("still lets a PERFORMER send the same offer, which is what the route is for", async () => {
     // The guard is about the account KIND, so the neighbouring kinds must be unaffected —
     // the agent's and performer's use of this dialog was verified correct by the sweep.
@@ -2299,18 +2337,32 @@ describe("inbound — Create Draft invites whoever asked", () => {
     const venue = await seedOwnerWithProfile("inv-self-venue");
     await seedPrimaryLocation(venue.profileId, "SE");
 
-    // `POST /offers` does not refuse a profile addressing itself, so this row can
-    // exist; the host participant is already written, and a second row for the
-    // same profile would be a unique violation surfacing as a 500.
-    const offer = await app.inject({
-      method: "POST",
-      url: "/api/v1/offers",
-      headers: { ...auth("inv-self-venue"), "x-profile-id": venue.profileId },
-      payload: { targetProfileId: venue.profileId, wantedDate: "2027-09-14" },
-    });
-    expect(offer.statusCode).toBe(201);
+    /*
+     * SEEDED DIRECTLY, and that is the point of this fixture rather than a shortcut.
+     *
+     * It used to go through `POST /offers`, under the note *"`POST /offers` does not refuse a profile
+     * addressing itself, so this row can exist"* — which stopped being true when that route started
+     * refusing an OPERATOR sender outright (QA sweep run 10, QA10-13: an operator's outbound move is a
+     * suggested event, not a booking request). The row can still arise, which is why the case is still
+     * worth testing: a `public_form` submission on the venue's own page, or any row predating that
+     * guard. What this test is about is `draft-event` — that the host participant is already written,
+     * and a second row for the same profile would be a unique violation surfacing as a 500.
+     */
+    const [selfAddressed] = await harness.db
+      .insert(schema.bookingRequests)
+      .values({
+        source: "public_form",
+        status: "pending",
+        targetProfileId: venue.profileId,
+        senderUserId: "inv-self-venue",
+        senderProfileId: venue.profileId,
+        contactName: "inv-self-venue",
+        wantedDate: "2027-09-14",
+      })
+      .returning();
+    if (!selfAddressed) throw new Error("self-addressed request seed failed");
 
-    const draft = await draftEvent("inv-self-venue", venue.profileId, offer.json().id);
+    const draft = await draftEvent("inv-self-venue", venue.profileId, selfAddressed.id);
     expect(draft.statusCode).toBe(201);
     expect(draft.json().sender.channel).toBe("none");
 

@@ -1396,6 +1396,35 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         );
       }
 
+      /*
+       * AN OPERATOR'S OUTBOUND MOVE IS NOT A BOOKING REQUEST (QA sweep run 10, QA10-13).
+       *
+       * The sweep found a venue's offer to a FOH engineer stored `source: performer_offer,
+       * sender_type: performer`, so the crew's card announced **SOURCE: Performer offer** over a
+       * message from The Lantern Hall. The label was not the defect: `senderType` is
+       * `kind === "agent" ? "agency" : "performer"`, so an operator falls into the else and the row
+       * cannot help lying about who sent it.
+       *
+       * Two rules already said an operator should not be here. `story.md`'s marketplace runs the other
+       * way — *"operators/performers post jobs and team-and-crew members apply"* — and it is unbuilt;
+       * QA8-6 refused the crew→venue direction on exactly that ground. And the operator's outbound
+       * move is a SUGGESTED EVENT, not an enquiry: `Requests.tsx` states it where the button would be
+       * (*"the outbound move that is theirs — a suggested event — is the Events screen's
+       * (`event_participants`, not a booking request)"*), which is `86cbcehmp`'s own reasoning.
+       *
+       * So the web already refused this direction and the server did not — a rule stated in the
+       * client and enforced nowhere. Refused rather than re-labelled, for QA8-6's reason: a
+       * vocabulary for a surface nobody has designed is worse than a no.
+       *
+       * This does not touch offers ARRIVING: `public_form` and `venue_handoff` are other people's,
+       * and an operator answering one is the whole point of the inbox.
+       */
+      if (senderMembership.kind === "operator") {
+        throw badRequest(
+          "An operator does not send booking requests — offering a night to an act is a suggested event, from the Events screen. Add them to the bill there and they are asked to accept.",
+        );
+      }
+
       // An AGENT offers on behalf of an act it represents (decisions.md #14). Both
       // edges are required — the sending profile is an `agent`, AND a live
       // representation links it to that performer — and a failure is an explicit

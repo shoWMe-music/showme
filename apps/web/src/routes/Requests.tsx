@@ -10,6 +10,7 @@ import {
   TabPanels,
   useToast,
 } from "@showme/design-system";
+import { humanizeEnumValue } from "@showme/shared";
 import { useQueries } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
@@ -231,9 +232,11 @@ function toCardData(request: RequestItem, clash?: string): RequestCardData {
       key: date,
       label: formatDay(date),
     })),
-    source: request.source
-      ? request.source.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase())
-      : "—",
+    // `humanizeEnumValue` from `@showme/shared`, not a local copy of it: this line was the copy,
+    // and a second implementation of the product's enum vocabulary is a second place for it to
+    // drift (QA10-13's neighbourhood; the review gate's "nothing hand-rolls what the design system
+    // has").
+    source: request.source ? humanizeEnumValue(request.source) : "—",
     fee: formatFee(request),
     // The room the sender asked for, named by the API (`stageName`) rather than resolved
     // here: the room roster belongs to the venue, and the inbox should not have to fetch
