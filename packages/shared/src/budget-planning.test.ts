@@ -25,6 +25,76 @@ describe("budget projection", () => {
   });
 
   /**
+   * THE AVERAGE ROUNDS, because `divideRounded` says it does (QA7-23).
+   *
+   * Its docstring promised "round half away from zero" over a plain BigInt division,
+   * which truncates — and the function's NAME promised the same thing, so the code was
+   * the odd one out of three. The error is at most one minor unit, which is why it sat
+   * unnoticed, and it is not confined to the displayed figure: the average feeds
+   * `contributionPerHead`, so truncating it low pushes break-even a fraction high.
+   */
+  it("rounds a half-minor-unit average UP rather than truncating it", () => {
+    // 5000 + 5001 over two tickets is 5000.5 exactly — the one case where the two
+    // behaviours differ by a whole minor unit.
+    const projection = computeBudgetProjection({
+      ticketTiers: [
+        { unitAmount: 5000n, quantity: 1 },
+        { unitAmount: 5001n, quantity: 1 },
+      ],
+      averageBarSpend: 0n,
+      capacity: 2,
+      otherRevenue: 0n,
+      costs: [],
+    });
+
+    expect(projection.ticketRevenue).toBe(10001n);
+    expect(projection.averageTicketPrice).toBe(5001n);
+  });
+
+  it("rounds a half away from zero on a negative average too, not toward it", () => {
+    // Symmetry is the reason the arithmetic runs on magnitudes: −5000.5 must land on
+    // −5001, the same distance from zero as +5000.5 lands from it the other way.
+    const projection = computeBudgetProjection({
+      ticketTiers: [
+        { unitAmount: -5000n, quantity: 1 },
+        { unitAmount: -5001n, quantity: 1 },
+      ],
+      averageBarSpend: 0n,
+      capacity: 2,
+      otherRevenue: 0n,
+      costs: [],
+    });
+
+    expect(projection.averageTicketPrice).toBe(-5001n);
+  });
+
+  it("leaves a fraction below the half alone, and an exact division untouched", () => {
+    // 5000.4 stays 5000: rounding is not ceiling, which is the other way this could
+    // have been "fixed" wrongly.
+    const low = computeBudgetProjection({
+      ticketTiers: [
+        { unitAmount: 5000n, quantity: 4 },
+        { unitAmount: 5002n, quantity: 1 },
+      ],
+      averageBarSpend: 0n,
+      capacity: 5,
+      otherRevenue: 0n,
+      costs: [],
+    });
+    expect(low.ticketRevenue).toBe(25002n);
+    expect(low.averageTicketPrice).toBe(5000n);
+
+    const exact = computeBudgetProjection({
+      ticketTiers: [{ unitAmount: 5000n, quantity: 3 }],
+      averageBarSpend: 0n,
+      capacity: 3,
+      otherRevenue: 0n,
+      costs: [],
+    });
+    expect(exact.averageTicketPrice).toBe(5000n);
+  });
+
+  /**
    * MERCH IS ITS OWN TAKE — ClickUp `86cbcn1ue`, 2026-09-03: *"Bar and
    * merchandise can not be together."*
    *

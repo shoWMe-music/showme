@@ -261,10 +261,33 @@ function sum(values: readonly bigint[]): bigint {
   return values.reduce((total, value) => total + value, 0n);
 }
 
-/** Round half away from zero, so a break-even of 100.5 tickets needs 101. */
+/**
+ * Divide, rounding HALF AWAY FROM ZERO — `201 / 2` is `101`, `-201 / 2` is `-101`.
+ *
+ * The docstring here used to promise exactly that over `numerator / denominator`,
+ * which is BigInt division and TRUNCATES (QA sweep run 7, QA7-23). Two independent
+ * statements of intent — this comment and the function's own name — against one
+ * implementation that did neither.
+ *
+ * The old comment also named the wrong caller: *"a break-even of 100.5 tickets needs
+ * 101"*. Break-even is solved further down and takes its own ceiling; the one caller
+ * here is `averageTicketPrice`, and rounding matters to it for a reason the sweep
+ * discounted. That average is not only displayed — it feeds `contributionPerHead` and
+ * `perHeadIncome`, so a mixed-price bill whose average truncated a minor unit low
+ * pushed break-even a fraction of a ticket HIGH. Small, and not cosmetic.
+ *
+ * The arithmetic is done on magnitudes and re-signed at the end, so the half goes the
+ * same distance either side of zero: `(2a + d) / 2d` is `a/d + ½`, floored. In practice
+ * the denominator is a ticket count and always positive; the general form costs three
+ * lines and cannot be wrong later.
+ */
 function divideRounded(numerator: bigint, denominator: bigint): bigint {
   if (denominator === 0n) return 0n;
-  return numerator / denominator;
+  const negative = numerator < 0n !== denominator < 0n;
+  const absoluteNumerator = numerator < 0n ? -numerator : numerator;
+  const absoluteDenominator = denominator < 0n ? -denominator : denominator;
+  const magnitude = (absoluteNumerator * 2n + absoluteDenominator) / (absoluteDenominator * 2n);
+  return negative ? -magnitude : magnitude;
 }
 
 export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection {
