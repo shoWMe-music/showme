@@ -12,7 +12,7 @@ import {
   minorToDecimalString,
   occupiedDates,
 } from "@showme/shared";
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -770,6 +770,48 @@ function isBlank(value: string | number | null | undefined): boolean {
 }
 
 /**
+ * THE VENUE THE OPERATOR TYPED THE NAME OF, when they did not pick it from the list
+ * (QA sweep run 10, QA10-5).
+ *
+ * The Venue field is a picker, and choosing the suggestion links the profile. Typing the exact name
+ * of your own room and moving on does not — and every consequence of that is silent:
+ * `venueInRegion()` opens `if (!venueProfileId) return false`, so an active representation can never
+ * match and a represented act's **agent is neither attached nor told** (decisions #14); there is no
+ * country stamp for the PRO rate or the currency (#17); and no double-booking check. The sweep
+ * measured exactly that — `venue_name = 'The Lantern Hall'`, `venue_profile_id = NULL`, and nothing
+ * in the notifications table for the agency. Nothing on the screen says the two are different.
+ *
+ * So the server does what the operator plainly meant, and only where that is unambiguous: **their
+ * OWN operator profiles, an exact name match, and exactly one of them.** Restricted that way on
+ * purpose — matching a stranger's venue would link a booking to a room nobody chose, and would answer
+ * a question about which profiles exist to somebody who cannot read them. Two of your own profiles
+ * sharing a name is a genuine ambiguity, so it declines to guess.
+ *
+ * It is a BACKSTOP, not the mechanism: the picker still links on selection, and that path carries the
+ * venue's capacity, curfew and city with it. This only stops the quiet version of the mistake.
+ */
+async function resolveOwnVenueByName(
+  tx: Transaction,
+  ownProfileIds: readonly string[],
+  venueName: string | undefined,
+): Promise<string | null> {
+  const typed = venueName?.trim();
+  if (!typed || ownProfileIds.length === 0) return null;
+  const matches = await tx
+    .select({ id: schema.profiles.id })
+    .from(schema.profiles)
+    .where(
+      and(
+        inArray(schema.profiles.id, [...ownProfileIds]),
+        eq(schema.profiles.kind, "operator"),
+        sql`lower(${schema.profiles.name}) = ${typed.toLowerCase()}`,
+      ),
+    );
+  // Exactly one, or nothing: an ambiguous match is not a decision the server gets to make.
+  return matches.length === 1 ? (matches[0]?.id ?? null) : null;
+}
+
+/**
  * Read a venue profile's own record of itself. Null when the profile is gone —
  * the caller then writes what it was given and nothing more, because a missing
  * venue must never fail an event the operator is otherwise entitled to create.
@@ -1098,7 +1140,19 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
           }
           // The venue's own facts fill whatever this request left blank — see
           // the prefill block above for why it can only ever fill a blank.
-          const venueProfileId = request.body.venueProfileId;
+          /*
+           * The venue they PICKED, or the one they typed the exact name of (QA10-5). Resolved before
+           * the defaults below, so a backstopped venue carries its capacity, curfew and city onto the
+           * event exactly as a picked one does — the whole point of linking it.
+           */
+          const venueProfileId =
+            request.body.venueProfileId ??
+            (await resolveOwnVenueByName(
+              tx,
+              principal.memberships.map((membership) => membership.profileId),
+              request.body.venueName,
+            )) ??
+            undefined;
           const defaults = venueProfileId
             ? await loadVenueProfileDefaults(tx, venueProfileId)
             : null;
@@ -1128,7 +1182,7 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
               startTime: request.body.startTime,
               endTime: request.body.endTime,
               curfew: request.body.curfew,
-              venueProfileId: request.body.venueProfileId,
+              venueProfileId,
               venueName: request.body.venueName,
               capacity: request.body.capacity,
               stageId: request.body.stageId,
