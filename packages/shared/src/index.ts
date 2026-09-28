@@ -9,6 +9,8 @@ export {
   eventParticipantRoleLabel,
   humanizeEnumValue,
   confirmsOwnDealLines,
+  EVENT_OPERATOR_ROLES,
+  operatesTheEvent,
 } from "./event-roles";
 export type { EmailMessage, EmailSink, RenderedEmail } from "./email";
 export {

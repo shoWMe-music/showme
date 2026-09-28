@@ -1,4 +1,4 @@
-import { type Capability, confirmsOwnDealLines } from "@showme/shared";
+import { type Capability, EVENT_OPERATOR_ROLES, confirmsOwnDealLines } from "@showme/shared";
 
 /**
  * Profile-membership roles (mirrors the DB `profile_member_role` enum). The role
@@ -239,8 +239,13 @@ export type EventRole =
   | "crew"
   | "agent";
 
-/** The managing operators — the only relationship that may see the pool/budget. */
-const OPERATOR_EVENT_ROLES: ReadonlySet<EventRole> = new Set(["host", "co_host"]);
+/*
+ * The managing operators — the only relationship that may see the pool/budget. The set itself is
+ * `EVENT_OPERATOR_ROLES` in `@showme/shared`, because it had been written out three times and the
+ * fourth copy would have been the one guarding a co-operator from reading the host's residual
+ * (QA sweep run 10, QA10-2).
+ */
+const OPERATOR_EVENT_ROLES: ReadonlySet<string> = new Set(EVENT_OPERATOR_ROLES);
 
 /**
  * A MANAGING OPERATOR'S FLOOR — and the thinnest floor in this file was theirs

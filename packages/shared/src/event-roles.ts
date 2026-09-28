@@ -98,3 +98,27 @@ export function confirmsOwnDealLines(eventRole: string, roleInDeal: string): boo
   if (roleInDeal === "observer") return false;
   return DEAL_SCOPED_CONFIRM_EVENT_ROLES.has(eventRole);
 }
+
+/**
+ * THE ROLES THAT OPERATE AN EVENT — the ones that share its residual.
+ *
+ * `host` and `co_host`. Everything about the pool keys on this: they are the only roles that may ever
+ * hold `budget.view` (the auth ceiling), the only ones a budget is provisioned for, and — the reason
+ * it moved here — **the only ones whose per-participant settlement line IS the pool residual.**
+ *
+ * **IT LIVES HERE BECAUSE IT WAS WRITTEN OUT THREE TIMES** and a fourth copy was about to be
+ * (QA sweep run 10, QA10-2): `OPERATOR_EVENT_ROLES` in `@showme/auth`, `OPERATING_ROLES` in
+ * `lib/budget-provisioning.ts` under a comment that says *"Mirrors `OPERATOR_EVENT_ROLES`"*, and the
+ * check `routes/settlement.ts` needed to stop a co-operator reading the host's margin. A set that
+ * says "mirrors" is a set that will drift; `confirmsOwnDealLines` above is here for the same reason,
+ * after its mirror drifted by exactly one entry.
+ *
+ * Both shapes, from one definition: the array for a SQL `inArray`, the predicate for a check.
+ */
+export const EVENT_OPERATOR_ROLES = ["host", "co_host"] as const;
+
+export function operatesTheEvent(eventRole: string): boolean {
+  // Widened deliberately: the tuple above is `as const` so a drizzle enum column accepts it in an
+  // `inArray`, and a literal tuple's own `.includes` refuses an arbitrary string.
+  return (EVENT_OPERATOR_ROLES as readonly string[]).includes(eventRole);
+}

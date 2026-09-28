@@ -22,7 +22,7 @@ import {
   reconcile,
   serializeLadder,
 } from "@showme/settlement";
-import { convertMinorUnits, isTicketRevenueBasis } from "@showme/shared";
+import { convertMinorUnits, isTicketRevenueBasis, operatesTheEvent } from "@showme/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, notInArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
@@ -1135,6 +1135,23 @@ const DEAL_ROLES_THAT_SEE_THE_DEAL = ["payer", "observer"] as const;
  * operator's per-participant line is the pool residual). For the same reason two
  * `split_member`s on one deal do not see each other — decisions #4: *"a shared split
  * shows each performer only their own line"*.
+ *
+ * AND DIRECTION IS NOT ENOUGH, which cost a leak (QA sweep run 10, QA10-2). The sentence
+ * above names the thing being protected — *"the operator's per-participant line is the
+ * pool residual"* — and then protects it by asking which END of the deal you are on.
+ * Turn one deal around and the protection inverts: make a co-host the **payer** of a
+ * SEK 5,000 room hire and the host is the payee, so the co-host read the host's residual
+ * (SEK 7,875), its gross collection (SEK 120,000) and its costs paid (SEK 15,000) —
+ * itemised, directly under the sentence *"The night's takings and costs are the
+ * operator's view of this event"*. The `Financial overview` ladder was correctly gated
+ * and the party cards walked round it.
+ *
+ * So the test is now what the sentence always said it was: **a participant who OPERATES
+ * the event is never disclosed by deal membership**, whichever end of the deal the caller
+ * is on. That is also the rule the comment below already claimed ("NOT co-operators…
+ * sees only its own line") and which a rental deal quietly defeated. Full settlement
+ * access (#24.2) still opens everything, deliberately and by the row's own stored flag —
+ * that is a grant, not an inference from a deal.
  */
 async function partiesVisibleTo(
   database: Database,
@@ -1169,9 +1186,24 @@ async function partiesVisibleTo(
     .select({
       id: schema.eventParticipants.id,
       profileId: schema.eventParticipants.profileId,
+      role: schema.eventParticipants.role,
     })
     .from(schema.eventParticipants)
     .where(eq(schema.eventParticipants.eventId, eventId));
+
+  /*
+   * NOBODY WHO OPERATES THE EVENT, however the deal is pointed (QA10-2). Their line is the pool
+   * residual, which is the figure this whole function exists to keep party-scoped.
+   *
+   * No "unless it is me" clause, and a surviving mutation is why: this function answers *who ELSE is
+   * disclosed by deal membership*, and the route unions the caller's own rows in separately
+   * (`new Set([...mine, ...partiesVisibleTo(…)])`). A guard here for the caller's own id could not
+   * change any answer, and a condition no test can fail on is worse than the line it replaced.
+   * #24.2's full access is likewise untouched: it is a stored grant, applied after this.
+   */
+  for (const participant of participants) {
+    if (operatesTheEvent(participant.role)) visible.delete(participant.id);
+  }
 
   // AN AGENT SEES THE LINE OF A PERFORMER IT REPRESENTS on this event.
   //

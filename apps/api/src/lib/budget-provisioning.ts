@@ -1,14 +1,16 @@
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
+import { EVENT_OPERATOR_ROLES } from "@showme/shared";
 import { and, eq, inArray, ne } from "drizzle-orm";
 
-/**
- * The event roles that operate an event, and so are the ones a budget belongs
- * to. Mirrors `OPERATOR_EVENT_ROLES` in the auth engine's ceiling: those are
- * exactly the roles that may ever hold `budget.view`, so provisioning a budget
- * for anyone else would create a row its owner could never open.
+/*
+ * The event roles that operate an event, and so the ones a budget belongs to: those are exactly the
+ * roles that may ever hold `budget.view`, so provisioning a budget for anyone else would create a row
+ * its owner could never open.
+ *
+ * This said *"Mirrors `OPERATOR_EVENT_ROLES` in the auth engine's ceiling"* and was a third copy of
+ * it. A set that says "mirrors" is a set that will drift, so it is imported now (QA10-2).
  */
-const OPERATING_ROLES = ["host", "co_host"] as const;
 
 /**
  * Give this event the budgets its operators are entitled to, if it has not got
@@ -75,7 +77,7 @@ export async function ensureEventBudgets(
     .where(
       and(
         eq(schema.eventParticipants.eventId, eventId),
-        inArray(schema.eventParticipants.role, [...OPERATING_ROLES]),
+        inArray(schema.eventParticipants.role, [...EVENT_OPERATOR_ROLES]),
         ne(schema.eventParticipants.status, "removed"),
       ),
     );

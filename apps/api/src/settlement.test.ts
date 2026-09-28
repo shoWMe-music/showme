@@ -940,6 +940,90 @@ describe("settlement — visibility (decisions #4)", () => {
   });
 
   /**
+   * DIRECTION IS NOT THE PROTECTION (QA sweep run 10, QA10-2).
+   *
+   * `partiesVisibleTo` said the payer sees the deal and named what it was protecting: *"a payee
+   * seeing the payer's line would be reading the operator's whole margin (the operator's
+   * per-participant line is the pool residual)"*. Then it protected that by asking which END of the
+   * deal you were on — so turning one deal around inverted it. A co-host named as the **payer** of a
+   * SEK 5,000 room hire read the host's residual, its gross collection and its costs paid, itemised,
+   * on a screen whose own sentence says the takings are the operator's view.
+   *
+   * The rule is now what the sentence always said: a participant who OPERATES the event is never
+   * disclosed by deal membership, whichever end the caller is on. The positive control is the test
+   * above — the host, paying the band, still sees every line it funds.
+   */
+  it("hides the host's residual from a co-operator that is the PAYER on a deal with it", async () => {
+    const seed = await seedWorkedExample("vis-rental");
+    const coHost = await seedMemberWithSet(
+      "vis-rental-cohost",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const [coHostPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: seed.event.id,
+        profileId: coHost.profileId,
+        role: "co_host",
+        /*
+         * NO PERMISSION SET — *Standard for the role*, which is the seat the sweep used and the one
+         * this is about. A co-host given **Full control** holds `operator_full` and therefore
+         * `budget.view`, so the pool is legitimately theirs to read and this test would be measuring
+         * a grant rather than a leak. The floor (`OPERATOR_FLOOR`) carries `settlement.view.own` and
+         * no `budget.view`, which is exactly the seat that read the host's margin anyway.
+         */
+        permissionSetId: null,
+        status: "confirmed",
+      })
+      .returning();
+    if (!coHostPart) throw new Error("co-host seed failed");
+
+    // The ordinary way to record a room hire the co-promoter owes: co-host pays, host is paid.
+    const [roomHire] = await harness.db
+      .insert(schema.deals)
+      .values({
+        eventId: seed.event.id,
+        type: "fee",
+        structure: "rental",
+        name: "Room hire the co-promoter owes",
+        currency: "SEK",
+        guaranteeAmount: 500000n,
+        agreementStatus: "confirmed",
+        createdBy: seed.operator.userId,
+      })
+      .returning();
+    if (!roomHire) throw new Error("rental seed failed");
+    await harness.db.insert(schema.dealParties).values([
+      { dealId: roomHire.id, participantId: coHostPart.id, roleInDeal: "payer" },
+      { dealId: roomHire.id, participantId: seed.pPart, roleInDeal: "payee" },
+    ]);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(coHost.userId),
+    });
+    expect(response.statusCode).toBe(200);
+    const rows = response.json().settlements as { participantId: string; isYours: boolean }[];
+
+    // Its own line, and NOT the host's — which is the pool residual under another name.
+    expect(rows.some((row) => row.participantId === seed.pPart)).toBe(false);
+    expect(rows.some((row) => row.participantId === coHostPart.id)).toBe(true);
+    // Nor the band's or the venue's: being the payer on one deal is not a key to the event.
+    expect(rows.some((row) => row.participantId === seed.bPart)).toBe(false);
+    expect(rows.every((row) => row.isYours)).toBe(true);
+    // The ladder stays shut too — it is the same figure by another route.
+    expect(response.json().ladder).toBeNull();
+  });
+
+  /**
    * A-07. `budget.view` used to be the whole access rule, so a co-operator with the
    * operator preset read every figure on the event. Visibility is membership of the
    * resource's party set — being an operator on the event is not itself the grant.
