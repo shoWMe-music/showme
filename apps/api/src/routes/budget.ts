@@ -238,10 +238,20 @@ const PlanningAssumptions = z.object({
     .nullish()
     .default(null),
   /**
-   * HOW CO-OPERATORS SHARE WHAT THE EVENT ITSELF CARRIES — participant id to
-   * basis points. Ran's "Production costs split": *"For co-promotions. Agree how
-   * operators share production costs once, and it applies to every cost set to
+   * HOW CO-OPERATORS SHARE WHAT THE EVENT ITSELF CARRIES — **event participant id**
+   * to an integer WEIGHT. Ran's "Production costs split": *"For co-promotions. Agree
+   * how operators share production costs once, and it applies to every cost set to
    * 'Operators carry it'."*
+   *
+   * This said "basis points", and it is a weight (`allocate(residual, weights)` in
+   * `reconcile.ts`), which is not the same claim: `7000 / 3000` and `70 / 30` divide the
+   * residual identically because only the RATIO is read. Calling it basis points
+   * over-specifies the field and cost a QA pass a wrong conclusion — run 7 filed the
+   * `max(10_000)` bound as an invitation to send percentages by mistake, when there is
+   * no unit to get wrong (QA7-17). The bound is a sanity ceiling on a weight, nothing more.
+   *
+   * The KEYS are the half that can be got wrong, and the write now refuses them: see
+   * `assertSplitNamesParticipants` below.
    *
    * It rides on `planning_assumptions` rather than a column of its own because it
    * is exactly what that jsonb is for — a standing assumption of the planner, not
@@ -310,6 +320,80 @@ function visibleBudgetFilter(profileIds: string[]): SQL {
   const filter = or(shared, ownPrivate);
   if (!filter) throw new Error("budget visibility filter failed to build");
   return filter;
+}
+
+/**
+ * A COST SPLIT MUST NAME PEOPLE WHO ARE ON THIS EVENT (QA sweep run 7, QA7-17).
+ *
+ * `operatorCostSplit` is keyed by `event_participants.id` — that is what the settlement
+ * looks up (`routes/settlement.ts`, `operatorCostSplit?.[row.id]`) — and the schema
+ * accepted any uuid at all. So a caller sending PROFILE ids got **200**, a verbatim echo
+ * of the object, a stored row, and a settlement that quietly divided the residual
+ * equally, because the engine's own fallback ("naming nobody on the event, falls back to
+ * equal shares") fired in silence. Nothing on the wire or on screen said the split was
+ * inert. The planner sends participant ids and was never affected; the agent-native
+ * surface (decisions #16.14) is made of callers that are not the planner.
+ *
+ * Refusing is the only unambiguous answer, and not merely the strict one: a profile can
+ * join one event TWICE — the same company as promoter and as venue — so a profile id
+ * does not identify a participant, and translating one would have to guess which row was
+ * meant.
+ *
+ * THE CHECK ITSELF IS NOT NEW, which is the part worth noticing. A budget LINE's
+ * `costSplit` is the same map, keyed the same way, and has been validated since the
+ * audit with the reasoning quoted below — *"a foreign id there breaks the conservation
+ * law by the same arithmetic, so it gets the same check"*. The planner's copy of the map
+ * simply never reached that code, so it inherited none of it. The membership query is
+ * shared rather than copied here: it is what `Σ net = 0` rests on, and two copies of it
+ * would be free to drift.
+ */
+async function assertSplitNamesParticipants(
+  database: FastifyInstance["database"],
+  eventId: string,
+  split: Record<string, number> | null | undefined,
+): Promise<void> {
+  const named = Object.keys(split ?? {});
+  if (named.length === 0) return;
+
+  const onTheEvent = await participantIdsOnEvent(database, eventId, named);
+  for (const participantId of named) {
+    if (!onTheEvent.has(participantId)) {
+      // Deliberately the SAME sentence a line's `costSplit` gets: one mistake, one
+      // vocabulary. The field name is what differs, and it is what the reader needs.
+      throw badRequest(
+        `operatorCostSplit names ${participantId}, which is not a participant on this event. Send a participant id from GET /events/${eventId}/participants — not a profile id.`,
+      );
+    }
+  }
+}
+
+/**
+ * Which of these ids really are participants on this event.
+ *
+ * One query, two callers — a budget line's references (`collectedBy`, `paidBy`,
+ * `payeeParticipantId`, `costSplit`) and the planner's `operatorCostSplit`. Shared
+ * because the settlement's conservation law depends on both asking the same question:
+ * a copy that drifted would let one door accept what the other refuses.
+ */
+async function participantIdsOnEvent(
+  database: FastifyInstance["database"],
+  eventId: string,
+  ids: readonly string[],
+): Promise<Set<string>> {
+  // `inArray` with an empty list is not a query worth making, and drizzle dislikes it.
+  if (ids.length === 0) return new Set();
+  const rows = await database
+    .select({ id: schema.eventParticipants.id })
+    .from(schema.eventParticipants)
+    .where(
+      and(
+        eq(schema.eventParticipants.eventId, eventId),
+        // Spread: drizzle's `inArray` wants a mutable array, and the parameter is readonly
+        // so no caller can have its list changed underneath it.
+        inArray(schema.eventParticipants.id, [...ids]),
+      ),
+    );
+  return new Set(rows.map((row) => row.id));
 }
 
 /**
@@ -393,16 +477,11 @@ async function assertLineReferencesBelongToEvent(
     ]),
   ];
   if (referencedParticipantIds.length > 0) {
-    const rows = await database
-      .select({ id: schema.eventParticipants.id })
-      .from(schema.eventParticipants)
-      .where(
-        and(
-          eq(schema.eventParticipants.eventId, eventId),
-          inArray(schema.eventParticipants.id, referencedParticipantIds),
-        ),
-      );
-    const participantsOnThisEvent = new Set(rows.map((row) => row.id));
+    const participantsOnThisEvent = await participantIdsOnEvent(
+      database,
+      eventId,
+      referencedParticipantIds,
+    );
     for (const field of PARTICIPANT_REFERENCE_FIELDS) {
       const value = line[field];
       if (typeof value === "string" && !participantsOnThisEvent.has(value)) {
@@ -695,6 +774,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const before = await loadVisibleBudget(request, id, bid);
 
       const { planningAssumptions, expectedVersion } = request.body;
+      await assertSplitNamesParticipants(database, id, planningAssumptions?.operatorCostSplit);
       const where =
         expectedVersion != null
           ? and(eq(schema.budgets.id, bid), eq(schema.budgets.version, expectedVersion))

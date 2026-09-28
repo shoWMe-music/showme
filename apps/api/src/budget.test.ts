@@ -1463,6 +1463,103 @@ describe("budgets — planning assumptions are rates on the budget, not cost lin
     expect(budget.planningAssumptions).toBeNull();
   });
 
+  /**
+   * A COST SPLIT KEYED BY THE WRONG ID IS REFUSED, NOT SILENTLY IGNORED (QA7-17).
+   *
+   * `operatorCostSplit` is read by `event_participants.id`. The schema took any uuid, so
+   * a caller sending PROFILE ids got 200, an echo of their own object, a stored row —
+   * and a settlement that divided the residual equally, because the engine's
+   * "naming nobody on the event" fallback fired without a word. The planner sends
+   * participant ids and was never affected; everything that is not the planner was.
+   */
+  it("refuses a cost split keyed by profile ids rather than participant ids", async () => {
+    const { seeded, budget } = await openBudget("assumptions-split-profile");
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budget.id}`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        planningAssumptions: {
+          // A real id, and a real participant's PROFILE — the plausible mistake, not junk.
+          operatorCostSplit: { [seeded.operatorProfileId]: 70 },
+        },
+      },
+    });
+
+    expect(patched.statusCode).toBe(400);
+    // It names the offending key: a refusal that does not say which id was wrong is
+    // only marginally better than the silence it replaces.
+    expect(patched.json().error.code).toBe("bad_request");
+    expect(patched.json().error.message).toContain(seeded.operatorProfileId);
+    expect(patched.json().error.message).toContain("not a participant on this event");
+    expect(patched.json().error.message).toContain("operatorCostSplit");
+  });
+
+  it("refuses a split naming a participant of some OTHER event", async () => {
+    const { seeded, budget } = await openBudget("assumptions-split-foreign");
+    const elsewhere = await seedEvent("assumptions-split-elsewhere");
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budget.id}`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        planningAssumptions: {
+          operatorCostSplit: { [elsewhere.hostParticipantId]: 70 },
+        },
+      },
+    });
+
+    expect(patched.statusCode).toBe(400);
+    expect(patched.json().error.message).toContain(elsewhere.hostParticipantId);
+  });
+
+  it("stores a split whose keys really are participants on this event", async () => {
+    const { seeded, budget } = await openBudget("assumptions-split-ok");
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budget.id}`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        planningAssumptions: {
+          // Weights, not basis points — 70 and 30 divide the residual exactly as
+          // 7000 and 3000 would, because only the ratio is read.
+          operatorCostSplit: {
+            [seeded.hostParticipantId]: 70,
+            [seeded.performerParticipantId]: 30,
+          },
+        },
+      },
+    });
+
+    expect(patched.statusCode).toBe(200);
+    expect(patched.json().planningAssumptions.operatorCostSplit).toEqual({
+      [seeded.hostParticipantId]: 70,
+      [seeded.performerParticipantId]: 30,
+    });
+  });
+
+  it("says nothing about a split the caller said nothing about", async () => {
+    // The guard must not turn an omitted key into a refusal — that is the trap QA6-13
+    // removed from this same object, and re-adding it here would undo it.
+    const { seeded, budget } = await openBudget("assumptions-split-absent");
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seeded.eventId}/budgets/${budget.id}`,
+      headers: auth(seeded.operatorUid),
+      payload: {
+        planningAssumptions: {
+          paymentProcessing: { percentBasisPoints: 150, flatPerTicket: "50" },
+        },
+      },
+    });
+
+    expect(patched.statusCode).toBe(200);
+  });
+
   it("records the rates and hands them back on the next read", async () => {
     const { seeded, budget } = await openBudget("assumptions-write");
 
