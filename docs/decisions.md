@@ -1282,23 +1282,116 @@ builds against the ladder, not against the single threshold.
 
 Six rules were settled in code during the 2026-09-27 build-out because the work could not
 proceed without them, plus **three questions that were NOT settled** — added 2026-09-28, all three
-product calls this loop deliberately did not make. One of them (the rental's payer) is money
-arithmetic that a decision changes, so it is the most urgent. **None is Ran's or Daniel's yet.** They are here rather than only in
+product calls this loop deliberately did not make. They are here rather than only in
 comments and loop docs for the reason `123qy9rng6d` exists: *"the outcome has never been
 recorded anywhere that outranks a handoff note."* Each names where it is implemented, so
 overruling one is a change to a known line rather than an archaeology exercise.
 
+> **FOUR OF THESE ARE NOW DANIEL'S, ANSWERED 2026-09-28 — see §25.7.** The rental's payer, the
+> deletability of a deal, the represented act's sight of its agent's pitches, and the co-host's
+> power over the host's show. §25.7 is the ruling; the rows below stay as the argument that
+> produced it, each marked. The remaining five are still unconfirmed calls of mine.
+
 | The call | Where | The argument, and what overruling it costs |
 |---|---|---|
-| **A co-host may still CANCEL *and RENAME* the host's show** (they hold `event.edit`) | `routes/events.ts` PATCH | `lib/event-delete.ts` says *"the show is not theirs to end"* and two QA sweeps call this a hole; against that, blocking a co-promoter from calling off a night they co-produce is real, and the clean fix is a cancel REQUEST like the date one — a feature. **The rename is the same hole at a quieter surface** (sweep run 5, QA5-3): the date move is behind a change request and the title is not, so a co-host can retitle a published show every party has already announced, and the notice they all receive is *"X was renamed"* under the old name — correct, and still the first anyone hears of it. Both ride on one capability, so one answer settles both. **Recommendation: require the host profile for `status` and `title`, mirroring delete.** |
+| **[DECIDED — §25.7.4]** **A co-host may still CANCEL *and RENAME* the host's show** (they hold `event.edit`) | `routes/events.ts` PATCH | `lib/event-delete.ts` says *"the show is not theirs to end"* and two QA sweeps call this a hole; against that, blocking a co-promoter from calling off a night they co-produce is real, and the clean fix is a cancel REQUEST like the date one — a feature. **The rename is the same hole at a quieter surface** (sweep run 5, QA5-3): the date move is behind a change request and the title is not, so a co-host can retitle a published show every party has already announced, and the notice they all receive is *"X was renamed"* under the old name — correct, and still the first anyone hears of it. Both ride on one capability, so one answer settles both. **Recommendation: require the host profile for `status` and `title`, mirroring delete.** |
 | **The idle-logout timeout is per DEVICE** | `lib/idleLogout.ts` (`localStorage`) | An account-wide timeout is a policy about every browser the user signs in on, needs a migration, and nothing here rules on it. What is protected is an unattended screen. Server-side later = one storage line. |
 | **An operator-attached rider is a HOUSE document** — visible to every party on the event, crew included | `routes/riders.ts` `scopedEventRiders`, `lib/share-document.ts` | This WIDENS #12, which says a rider is the act's own artifact. #12's rule survives intact (no act sees another act's rider); what it never considered is a document whose only purpose is to be read BY the acts — which is exactly what Ran named: *"{Venue Name}: Technical info · Equipment list · Rules of Behavior"*. The share dialog had already promised it in copy. |
 | **`event.publish` belongs to the performer preset AND the agent preset** | `packages/auth/src/presets.ts` | Either side may announce a show (`123qy9rpe3q`). The agent has it because a DELEGATED performer has no band at all, so without it the one seeded act with representation was the one act that could not publish. It is a preset, not a floor: a venue may narrow it, because a date announced early is a real cost. |
 | **A change notice goes to everyone on the bill minus the actor** — including the actor's own colleagues | `lib/event-change-notice.ts` | It replaced a rename-only notice addressed to the host PROFILE, whose test asserted that your own side hears nothing. The cancellation and publication notices already behave this way, so all three now agree. The noise argument moves to the `events` switch in `notification_preferences`, where a person can act on it. |
-| **A represented act cannot see the booking request its agent sent in its name** | `routes/booking-requests` scoping | `GET /booking-requests?direction=outgoing` answers off `sender_profile_id`, and an agent pitching on behalf of their act is the sender — so the seed's offer *"Marlo Vance, 9 Dec, at The Lantern Hall"* is visible to the agency and invisible to Marlo (QA sweep run 5, QA5-11). #14 moves the business ACTIONS to the agent and leaves the act a view floor; whether an offer carrying the act's own name and a fee range sits inside that floor, or inside the agency's private pipeline, is the question. **No recommendation — this one is genuinely a product call**: the act losing sight of what is offered in their name is a real cost, and so is an agent's working pipeline becoming a shared inbox. `on_behalf_of_profile_id` is already on the row, so either answer is a `where` clause. |
-| **An off-the-top rental is paid by the POOL, so a rental between two co-operators is borne mostly by the act** | `packages/settlement/src/reconcile.ts` (the off-the-top pass) | The engine reads a rental's amount and its **payee** and never `deal_parties.role_in_deal`, so the amount comes off the pool and is shared by everyone who divides the adjusted net. Hand-checked on a SEK 120,000 night with SEK 15,000 of costs, a 70/30 act deal and a SEK 5,000 room hire from the host to the co-promoter: computing it twice, with and without the rental, moves **the act −3,500, the host +4,250, the co-promoter −750** — so **the act bears 70% of a room hire it never signed, and the party named as `payer` bears 15%.** #24.1 un-retired the off-the-top rental and is explicit that the act shares it — for the *promoter rents from the venue* case, where the promoter **is** the pool. It says nothing about a rental between two co-operators, which is the case `QA6-1` was filed about. **Recommendation: when the payer is itself a party on the event, settle the rental as a TRANSFER between payer and payee and leave the pool alone; keep #24.1's off-the-top behaviour when no party is the payer (the pool is paying).** The grounds: a party cannot be charged for an agreement it is not a party to, and `role_in_deal` already records who owes it. Whichever way it goes, the settlement screen currently prints *"Rental of SEK 5,000, settled off the top"* under the PAYEE's card and nothing under the payer's. |
-| **Whether a deal may be DELETED at all, or only cancelled** — *unsettled, and it is blocking a control* | `routes/deals.ts` `DELETE /deals/:did` (built, and called by nothing) | The route exists and has **no caller in either front end** (QA sweep run 8, QA8-1), so a deal typed with the wrong guarantee can be neither corrected nor removed — the only remedy on screen is a second deal on the same event, which double-counts at settlement. The EDIT half needs no decision and is ticketed. Delete does: a deal that has been reconciled is referenced by `settlement_lines` and by the `entitlement` the engine computed from it, so removing one silently rewrites a settled night's arithmetic, and `cancelled` already exists as the state that stops a deal paying without erasing that it existed. Against that: a deal created by mistake and never sent has nothing to preserve, and leaving it `cancelled` clutters every party's Deals tab forever. **Recommendation: allow delete only while `agreement_status = 'draft'` AND no settlement has been computed for the event; everything past that is `cancelled`.** That draws the line where the audit trail starts mattering rather than at a status name. Whichever way it goes, the UI should not offer a control the API will refuse — which is why this is recorded before the control is built rather than after. |
+| **[DECIDED — §25.7.3]** **A represented act cannot see the booking request its agent sent in its name** | `routes/booking-requests` scoping | `GET /booking-requests?direction=outgoing` answers off `sender_profile_id`, and an agent pitching on behalf of their act is the sender — so the seed's offer *"Marlo Vance, 9 Dec, at The Lantern Hall"* is visible to the agency and invisible to Marlo (QA sweep run 5, QA5-11). #14 moves the business ACTIONS to the agent and leaves the act a view floor; whether an offer carrying the act's own name and a fee range sits inside that floor, or inside the agency's private pipeline, is the question. **No recommendation — this one is genuinely a product call**: the act losing sight of what is offered in their name is a real cost, and so is an agent's working pipeline becoming a shared inbox. `on_behalf_of_profile_id` is already on the row, so either answer is a `where` clause. |
+| **[DECIDED — §25.7.1]** **An off-the-top rental is paid by the POOL, so a rental between two co-operators is borne mostly by the act** | `packages/settlement/src/reconcile.ts` (the off-the-top pass) | The engine reads a rental's amount and its **payee** and never `deal_parties.role_in_deal`, so the amount comes off the pool and is shared by everyone who divides the adjusted net. Hand-checked on a SEK 120,000 night with SEK 15,000 of costs, a 70/30 act deal and a SEK 5,000 room hire from the host to the co-promoter: computing it twice, with and without the rental, moves **the act −3,500, the host +4,250, the co-promoter −750** — so **the act bears 70% of a room hire it never signed, and the party named as `payer` bears 15%.** #24.1 un-retired the off-the-top rental and is explicit that the act shares it — for the *promoter rents from the venue* case, where the promoter **is** the pool. It says nothing about a rental between two co-operators, which is the case `QA6-1` was filed about. **Recommendation: when the payer is itself a party on the event, settle the rental as a TRANSFER between payer and payee and leave the pool alone; keep #24.1's off-the-top behaviour when no party is the payer (the pool is paying).** The grounds: a party cannot be charged for an agreement it is not a party to, and `role_in_deal` already records who owes it. Whichever way it goes, the settlement screen currently prints *"Rental of SEK 5,000, settled off the top"* under the PAYEE's card and nothing under the payer's. |
+| **[DECIDED — §25.7.2]** **Whether a deal may be DELETED at all, or only cancelled** | `routes/deals.ts` `DELETE /deals/:did` (built, and called by nothing) | The route exists and has **no caller in either front end** (QA sweep run 8, QA8-1), so a deal typed with the wrong guarantee can be neither corrected nor removed — the only remedy on screen is a second deal on the same event, which double-counts at settlement. The EDIT half needs no decision and is ticketed. Delete does: a deal that has been reconciled is referenced by `settlement_lines` and by the `entitlement` the engine computed from it, so removing one silently rewrites a settled night's arithmetic, and `cancelled` already exists as the state that stops a deal paying without erasing that it existed. Against that: a deal created by mistake and never sent has nothing to preserve, and leaving it `cancelled` clutters every party's Deals tab forever. **Recommendation: allow delete only while `agreement_status = 'draft'` AND no settlement has been computed for the event; everything past that is `cancelled`.** That draws the line where the audit trail starts mattering rather than at a status name. Whichever way it goes, the UI should not offer a control the API will refuse — which is why this is recorded before the control is built rather than after. |
 | **The calendar's day popover may PUBLISH, and nothing else** | `components/CalendarEntryPreview.tsx` | `86cbcn189` says the calendar is view-only; `123qy9rnk21`, three days later, asks that popover for Publish/Unpublish and Invite. Read as a refinement: the event's FACTS stay the workspace's, a named one-press act does not. Invite and Print details were left out for that reason. |
+
+### 25.7 Daniel's rulings, 2026-09-28 — four of §25.6's rows answered
+
+Asked as four questions with the argument and the cost of each answer laid out; answered the same
+day. **These outrank every recommendation in §25.6 and every comment in the code.** Three went the
+way §25.6 recommended. The fourth did not: it was answered with a shape none of the options
+offered, and that answer is the most interesting of the four.
+
+#### 25.7.1 A rental whose payer is a party on the event is a TRANSFER, not an off-the-top cost
+
+**Ruling:** when the rental's payer is itself a party on the event, settle it as a transfer between
+payer and payee and leave the pool alone. Keep #24.1's off-the-top behaviour when no party is the
+payer — there, the pool really is what is paying.
+
+**Why it was asked:** the engine reads a rental's amount and its payee and never
+`deal_parties.role_in_deal`, so the cost came off the pool and was divided by everyone sharing the
+adjusted net. Hand-checked on a SEK 120,000 night with SEK 15,000 of costs, a 70/30 act deal and a
+SEK 5,000 room hire from the host to the co-promoter, computing it twice: **the act −3,500, the host
++4,250, the co-promoter −750.** The act bore 70% of a room hire it never signed and the party the
+deal named as payer bore 15%.
+
+**The grounds, in one line:** a party cannot be charged for an agreement it is not a party to.
+`role_in_deal` already records who owes it, so the engine had the fact and was not reading it.
+
+**What this obliges.** The off-the-top pass in `packages/settlement/src/reconcile.ts` branches on
+whether the payer is a party on the event. And the settlement screen — which today prints *"Rental
+of SEK 5,000, settled off the top"* under the **payee's** card and nothing at all under the payer's
+— has to name the cost on both cards, because under this ruling it is a movement between two named
+parties rather than a deduction from a pool. That sentence was wrong under the old rule too.
+
+#### 25.7.2 A deal may be deleted only while it is a draft and nothing has been settled
+
+**Ruling:** allow `DELETE /deals/:did` while `agreement_status = 'draft'` **and** no settlement has
+been computed for the event. Past either line it is `cancelled`, never deleted.
+
+**Why:** a reconciled deal is referenced by `settlement_lines` and by the entitlement the engine
+computed from it, so removing one silently rewrites a settled night's arithmetic. A deal created by
+mistake and never sent has nothing to preserve. The line is drawn where the audit trail starts
+mattering rather than at a status name — which is the same place #25.3 drew it for events
+(*"the line is money, not status"*), and the two rules now agree.
+
+**What this obliges.** The route already exists and has no caller (QA sweep run 8, QA8-1), which is
+why the ruling came before the control: the UI must not offer a delete the API will refuse, so the
+front end asks the same two questions the route does, and a deal past either line shows Cancel.
+
+#### 25.7.3 A represented act SEES what is offered in its name
+
+**Ruling:** scope `GET /booking-requests?direction=outgoing` by `sender_profile_id` **or**
+`on_behalf_of_profile_id`. Marlo Vance sees the offer the agency sent carrying Marlo Vance's name
+and fee range.
+
+This is the one §25.6 offered no recommendation on, because both costs are real: an act blind to
+what is quoted in its name, against an agent's working pipeline becoming a shared inbox. The ruling
+takes the first as the greater cost. #14 is untouched — the act sees; the **actions** stay with the
+agent, which is what #14 actually moved.
+
+**What this obliges.** One `where` clause, and tests pinning that the act sees the pitch and still
+cannot act on it. `on_behalf_of_profile_id` is already on the row.
+
+#### 25.7.4 Cancelling and renaming belong to the CREATOR — and the creator can hand them over
+
+**Ruling, in Daniel's words:** *"The creator should be able to cancel, but they should also be able
+to give full admin to the co host."*
+
+Neither of the two answers §25.6 framed. It says the default is host-only — so the hole two sweeps
+filed is real and closes — **and** that the remedy for the co-promoter who genuinely co-produces the
+night is not a permanent block but a grant the host can make.
+
+**Why this is the better answer, and why I did not think of it:** §25.6 framed the question as
+*where does the line sit*, and both options moved the same fixed line. The ruling changes what kind
+of thing the line is: not a property of the role `co-host`, but a permission the host gives. That is
+exactly the model the authorization layer already has (`permission_sets.capabilities[]` × role), so
+the answer costs a capability rather than a special case.
+
+**What this obliges — and the trap in it.** `operator_full` **already carries `event.delete`**, and
+a co-host is seeded with it, so a naive reading ("require `event.delete` for `status` and `title`")
+would grant every co-host exactly the power this ruling takes away, and the tests would be green.
+The grant has to be something no preset hands out by default:
+
+- a capability that means *the host's own powers* — `event.administer` — in **no** existing preset;
+- a preset the host can choose for a collaborator that carries it, alongside `operator_full`;
+- `PATCH /events/:id` requiring the host profile **or** `event.administer` for `status` and
+  `title` — and `lib/event-delete.ts`, whose comment *"the show is not theirs to end"* becomes
+  *"unless the host said it is"*;
+- a way on screen to make the grant, or the ruling exists only in the API.
+
+Until the grant surface is built, the enforcement half alone is strictly better than today: a
+co-host who needs to cancel asks the host, which is what happens now anyway, minus the ability to
+retitle an announced show without asking.
 
 ### Still waiting on an input, not a decision
 
