@@ -45,15 +45,24 @@ missing caller.** Today produced it seven more times, and added two siblings of 
   `packages/settlement` with its entry UI (`123qy9rnwud` / `123qy9rp8k3`).
 - **Every actionable finding from QA sweeps 4, 5 and 6** — four majors and eleven
   minors/cosmetics from run 6 alone, including three defects in this loop's own work.
+- **Sweep run 8's three number defects** — QA8-3 (the break-even scan and the headline fee
+  divided different bases, so a card read BREAK-EVEN 130 beside a loss; it now says *no
+  break-even*, which on a 100% split is the truth), QA8-4 (an agent's headline read SEK 0
+  against three screens saying SEK 3,000 — their money is a commission, not a net), and QA8-5
+  (the card's rows did not sum to its own headline; cash moved below the divider and the
+  operator's card now agrees with the Payout tab exactly).
 - **Sweep run 7's six majors and its first seven minors** — QA7-1 through QA7-5 (parts 11-13),
   QA7-6 recorded as a product call rather than built, then QA7-9, QA7-10, QA7-13, QA7-14, QA7-19,
   QA7-8, QA7-12, QA7-16, QA7-15 (parts 14-15). Plus **QA7-28**, which is not in the sweep: the
   Settlement tab labelled the reader's ENTITLEMENT "Your payout", and proving QA7-10 put the
   contradiction one line apart on the same card. An operator owing SEK 45,000 read "SEK 0 · Your
-  payout"; it reads **"SEK 45,000 · You owe"** now.
+  payout"; it reads **"SEK 45,000 · You owe"** now. Plus QA7-7, QA7-17, QA7-23, QA7-25,
+  QA7-26 and QA7-27 — which leaves **QA7-18 and QA7-24** as the only actionable items left
+  from run 7.
 
-Suites at `060cce3`: **biome 737 clean · api 1380 · web 462 · e2e 112**, `tsc --noEmit` clean, run
-in one pass with the dev stack down. (Earlier reading, at `fbfdc92`: biome 732 · api 1379 ·
+Suites at `b353810`: **biome 737 clean · api 1380+ · shared 308 · web 467**, `tsc --noEmit`
+clean. e2e was last green at `060cce3` (112) and is **owed another full pass** — six commits
+have landed since, three of them touching settlement screens the suite reads. (Earlier reading, at `fbfdc92`: biome 732 · api 1379 ·
 shared 302 · auth 31 · db 25 · web 405 · e2e 112.) The API's full run habitually loses 2–6
 files to a Testcontainers port-bind flake with **zero failed tests**; each was re-run alone and
 passed. Clearing orphaned containers (`docker rm -f` the ones showing `5432/tcp` with no host
@@ -171,6 +180,28 @@ behaviour is a claim, and worth testing like one. Where the claim is duplicated 
 catalogues, one right and one wrong — **derive the sentence from the rule** so they cannot drift
 again.
 
+### A FIX CAN CARRY ITS OWN NEXT DEFECT, and the docstring will describe it
+
+QA7-1 moved the break-even scan onto #24.1's adjusted net, correctly. Rebuilding that net per
+attendance it also subtracted the per-ticket processing rate — which the headline fee does not,
+because processing is a RATE and never a budget line, so the engine never deducts it before a
+split. On a 100% split the scan's costs then became identically equal to its own revenue and it
+reported a crossing at the first attendance where the share arm governed: **BREAK-EVEN 130
+beside PROFIT / LOSS −SEK 1,245**. Not a shifted answer, a fabricated one.
+
+Two things made it survive a whole run, and both were written in the same commit as the defect:
+
+- **the docstring described it precisely** — *"revenue less every cost that is NOT the derived
+  fee itself — `trulyFixedCosts` … and the per-ticket variable cost"* — and read as
+  justification rather than as a bug report;
+- **a test pinned it**, asserting 51 and naming 52 (the right answer) among the WRONG ones. Its
+  derivation was internally consistent; its premise was not.
+
+The docstring also claimed the base *"cannot move the number"* on the share arm. It moves it by
+a ticket, because the base changes the per-head coefficient — so an assertion that recorded the
+difference had been read as evidence about a different wrong base. **When a fix comes with an
+explanation of why it is safe, the explanation is a claim about the code too.**
+
 ### A test can pin a false belief, and then the defect is invisible
 
 `authorize.test.ts` asserted a co-host gets no deal-scoped confirm *"because operators already
@@ -205,8 +236,8 @@ exactly 30 days behind the 27th, 31 behind the 28th. It had been one day from fa
 
 ## The local stack, as left
 
-**Down** — `pnpm test:e2e` tears the manual stack down and was the last thing run. Sweep run 8 is
-booting its own. The sweeps mutate the seed (cancelled shows, extra holds, replaced schedules,
+**Up** (`pnpm dev`) and freshly re-seeded, with the settlements on the Album Release computed by
+hand for the QA8-4 and QA8-5 proofs and then wiped by the re-seed. The sweeps mutate the seed (cancelled shows, extra holds, replaced schedules,
 computed settlements), and so do proofs: re-run `pnpm --filter @showme/db seed:e2e` rather than
 hand-reversing a fixture. Hand-reversing guesses at the original — re-seeding revealed that the
 pristine deal `…d1` carries a NULL `confirmed_snapshot` and an **unsigned** first party, which a

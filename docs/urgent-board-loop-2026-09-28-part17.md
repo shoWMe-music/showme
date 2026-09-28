@@ -180,3 +180,56 @@ the same three-way naming, and QA6-9's tests move with the row rather than being
 
 *The decision it hides:* none. The engine's three lines settle which side of the divider each row
 belongs on.
+
+### QA8-5 — built, and proven against a figure the app computes twice
+
+`payoutAdjustments` builds the rows under the divider; `collected` left the rules;
+`prepaidReducesPayout` was deleted, being a second answer to a question the new builder
+answers. Spring Warmup as `operator@` — the sweep's own example:
+
+```
+The Lantern Hall (you) · Operator                 SEK 20,700
+  What is left after every other party is paid    SEK 20,700     ← sums to the headline
+  ─────────────────────────────────────────────
+  Less the money you collected on the night      − SEK 78,000
+  Plus the costs you paid on the night             SEK 10,800
+
+headline:  SEK 46,500 · You owe        20,700 − 78,000 + 10,800 = −46,500
+```
+
+The same workspace's **Payout tab** prints *"Collected SEK 78,000 · Paid SEK 10,800 · Net
+−SEK 46,500"* from its own reading, so the card and the tab now agree exactly. Before, the card
+showed SEK 20,700 over rows of 20,700 and 78,000 and never mentioned the 10,800 at all. Marlo
+Vance's card is untouched (48,300 − 1,800 = 46,500), which is what run 8 asked for.
+
+Also checked on the Album Release, where the operator's entitlement is zero: `SEK 0`, less
+83,000 collected, plus 33,000 paid, under a headline of **SEK 50,000 · You owe**. Every figure
+on the card is now checkable against the one above it.
+
+Five mutations red, including one that makes every card say "you" — QA6-9's finding, asserted
+on both builders now, because the pronoun rule applies wherever the sentence lives.
+
+---
+
+## Run 7's last cosmetics — closed
+
+**QA7-25.** Three places, not one: the hint, the comment above it that would have restored it,
+and the field **label**, which still read *"share of the pool"* while the hint below it had been
+corrected to the adjusted net. Proven in the dialog: *"MARLO VANCE'S SHARE OF THE ADJUSTED NET
+/ Of the adjusted net — revenue less deductions, and less anything taken off the top such as
+the venue rental."*
+
+**QA7-27.** `—`, and the modal titled just *"Invoice"*. Proven with a numberless bill: the
+column reads `—` and the id stub `115a1026` appears nowhere on the page.
+
+**QA7-26 — checked rather than built, then half-built.** The pairing is gone: QA7-3 stopped the
+private book seeding itself, so it reads SEK 0 throughout and 0.0% contradicts nothing. But a
+margin is profit over revenue, and over zero revenue there is no rate to state, so the strip
+says `—`. Proven both ways on one screen — the empty private book reads **PROFIT MARGIN —**,
+the shared ledger **−1.5%** against SEK 83,000 (and **No break-even**, which is QA8-3 holding
+on the same strip).
+
+That closes every actionable item from sweep run 7 except **QA7-18** and **QA7-24**.
+
+The seed was restored afterwards (`seed:e2e`), which removed the numberless bill and the
+wizard's test event.
