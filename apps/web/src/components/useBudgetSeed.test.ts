@@ -6,6 +6,7 @@ import {
   doorForecastFrom,
   performerFeeOf,
   rentalOf,
+  stillMovingBecause,
   ticketSplitOf,
 } from "./useBudgetSeed";
 
@@ -449,5 +450,64 @@ describe("the door forecast", () => {
 
   it("gives a withdrawn rental's money back to the night", () => {
     expect(doorForecastFrom([rentalDeal("cancelled")], [], TIERS).splitBase).toBe(10_000_000n);
+  });
+});
+
+/**
+ * WHY TERMS CAN STILL MOVE, COUNTED RATHER THAN ASSUMED (QA sweep run 7, QA7-9).
+ *
+ * The card said "Nobody has confirmed these terms yet" whenever the DEAL was not
+ * `confirmed` — and a deal is not confirmed until every party signs, so the sentence
+ * appeared over a deal the operator had already signed, contradicted by the same screen's
+ * Deals tab.
+ */
+describe("stillMovingBecause", () => {
+  const party = (roleInDeal: string, confirmedAt: string | null) => ({
+    participantId: `p-${roleInDeal}-${confirmedAt ?? "no"}`,
+    roleInDeal,
+    confirmedAt,
+  });
+  const deal = (parties: ReturnType<typeof party>[]) =>
+    ({ id: "d1", name: "Door split", type: "performance", parties }) as Parameters<
+      typeof stillMovingBecause
+    >[0];
+
+  it("says nobody when nobody has", () => {
+    expect(stillMovingBecause(deal([party("payer", null), party("payee", null)]))).toBe(
+      "Nobody has confirmed these terms yet, so they can still move.",
+    );
+  });
+
+  it("counts the one signature the old sentence denied", () => {
+    // The measured case: the operator signed, the act had not.
+    expect(
+      stillMovingBecause(deal([party("payer", "2026-09-28T04:31:52Z"), party("payee", null)])),
+    ).toBe("One of two parties has signed, so they can still move.");
+  });
+
+  it("counts a bigger bill in figures", () => {
+    expect(
+      stillMovingBecause(
+        deal([
+          party("payer", "2026-09-28T04:31:52Z"),
+          party("payee", "2026-09-28T05:00:00Z"),
+          party("split_member", null),
+        ]),
+      ),
+    ).toBe("2 of 3 parties have signed, so they can still move.");
+  });
+
+  it("claims no count when every line is signed but the deal has not frozen", () => {
+    // A moment mid-write, not a state worth describing — so it says the true and useful
+    // half and asserts nothing about who has signed.
+    expect(
+      stillMovingBecause(
+        deal([party("payer", "2026-09-28T04:31:52Z"), party("payee", "2026-09-28T05:00:00Z")]),
+      ),
+    ).toBe("These terms can still move until the agreement freezes.");
+  });
+
+  it("falls back to 'nobody' on a deal with no parties at all", () => {
+    expect(stillMovingBecause(deal([]))).toContain("Nobody has confirmed");
   });
 });

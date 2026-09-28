@@ -191,6 +191,14 @@ interface DealParty {
    * illustrative, never a floor (migration 0007, `routes/deals.ts`).
    */
   share?: { splitBasisPoints?: number; illustrativeAmount?: string } | null;
+  /**
+   * When this party signed, or null while they have not (QA sweep run 7, QA7-9).
+   *
+   * The API has always sent it; this type dropped it, so the card could only ask the
+   * DEAL's status and said *"Nobody has confirmed these terms yet"* on a deal one of the
+   * two parties had already signed.
+   */
+  confirmedAt?: string | null;
 }
 
 export interface Deal {
@@ -204,6 +212,36 @@ export interface Deal {
   /** The deal's share, basis points — 10000 = the whole of what it divides. */
   splitBasisPoints?: number | null;
   parties?: DealParty[];
+}
+
+/**
+ * WHY THESE TERMS CAN STILL MOVE — counted, not assumed (QA sweep run 7, QA7-9).
+ *
+ * This said *"Nobody has confirmed these terms yet, so they can still move"* whenever the
+ * DEAL was not `confirmed` — and a deal is not confirmed until EVERY party has signed, so
+ * the sentence appeared over a deal the operator had already signed, contradicted by the
+ * same screen's own Deals tab. Measured: `The Lantern Hall | payer | 2026-09-28 04:31` and
+ * `Neon Tide | payee | (null)`.
+ *
+ * The second half was always right and is the useful half — terms move until everybody
+ * signs. Only the count was wrong, and the parties carry their own `confirmedAt`.
+ *
+ * Exported for its tests: the wrong answer here reads perfectly well, which is how it
+ * survived.
+ */
+export function stillMovingBecause(deal: Deal): string {
+  const parties = deal.parties ?? [];
+  const signed = parties.filter((party) => party.confirmedAt != null).length;
+  if (parties.length === 0 || signed === 0) {
+    return "Nobody has confirmed these terms yet, so they can still move.";
+  }
+  if (signed === parties.length) {
+    // Every line signed while the deal is not `confirmed` is a moment mid-write, not a
+    // state to describe — say the true and useful half and claim no count.
+    return "These terms can still move until the agreement freezes.";
+  }
+  const of = `${signed} of ${parties.length} parties`;
+  return `${of === "1 of 2 parties" ? "One of two parties has" : `${of} have`} signed, so they can still move.`;
 }
 
 /**
@@ -537,10 +575,7 @@ export function ticketSplitOf(
       const unconfirmed = deal.status !== "confirmed";
       badge = unconfirmed ? `${shape} · proposed` : shape;
       const sentence = splitSummarySentence(settled.basis);
-      summary =
-        unconfirmed && sentence
-          ? `${sentence} Nobody has confirmed these terms yet, so they can still move.`
-          : sentence;
+      summary = unconfirmed && sentence ? `${sentence} ${stillMovingBecause(deal)}` : sentence;
     }
   }
 
