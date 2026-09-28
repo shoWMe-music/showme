@@ -7,11 +7,13 @@
 
 export * from './deleteApiV1CalendarId200';
 export * from './deleteApiV1DealsDidBody';
+export * from './deleteApiV1DealsDidBodyAnyOf';
 export * from './deleteApiV1EventsId200';
 export * from './deleteApiV1EventsIdBody';
 export * from './deleteApiV1EventsIdBodyAnyOf';
 export * from './deleteApiV1EventsIdBudgetsBidLinesLid200';
 export * from './deleteApiV1EventsIdBudgetsBidLinesLidBody';
+export * from './deleteApiV1EventsIdBudgetsBidLinesLidBodyAnyOf';
 export * from './deleteApiV1EventsIdGroupsGid200';
 export * from './deleteApiV1EventsIdParticipantsPid200';
 export * from './deleteApiV1EventsIdParticipantsPid200PermissionSet';

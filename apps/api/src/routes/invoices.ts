@@ -23,33 +23,53 @@ const moneyString = z
   .regex(/^-?\d+$/)
   .optional();
 
-const CreateInvoiceBody = z.object({
-  ownerProfileId: z.string().uuid(),
-  direction: directionEnum,
-  eventId: z.string().uuid().optional(),
-  transferId: z.string().uuid().optional(),
-  budgetLineId: z.string().uuid().optional(),
-  issuerRef: z.string().optional(),
-  recipientRef: z.string().optional(),
-  currency: z.string().optional(),
-  lineItems: z.unknown().optional(),
-  vat: z.unknown().optional(),
-  total: moneyString,
-  dueDate: z.string().optional(),
-  /** A `received` bill carries the number the external issuer assigned. */
-  number: z.string().optional(),
-});
+const CreateInvoiceBody = z
+  .object({
+    ownerProfileId: z.string().uuid(),
+    direction: directionEnum,
+    eventId: z.string().uuid().optional(),
+    transferId: z.string().uuid().optional(),
+    budgetLineId: z.string().uuid().optional(),
+    issuerRef: z.string().optional(),
+    recipientRef: z.string().optional(),
+    currency: z.string().optional(),
+    lineItems: z.unknown().optional(),
+    vat: z.unknown().optional(),
+    total: moneyString,
+    dueDate: z.string().optional(),
+    /** A `received` bill carries the number the external issuer assigned. */
+    number: z.string().optional(),
+  })
+  /*
+   * STRICT, so a plausible wrong key is a 400 and not a silent loss (QA sweep run 9, QA9-12).
+   *
+   * The sweep sent `{"counterpartyName":…, "amount":"777700", "category":"production", …}` — three keys
+   * that read like this table's own vocabulary and are not: the amount is `total`, the counterparty is
+   * `issuerRef`/`recipientRef`, and there is no category at all. Zod stripped all three and the route
+   * answered **201**, so a bill was created carrying none of the information its author had typed.
+   *
+   * It is the same shape QA8-10 found on `payout_accounts`, and the loop's own words about that one
+   * apply unchanged: *"every ingredient of a silent data loss: an optional field, a plausible wrong
+   * key, and a success response."* There the fix was to make the field required; here every field
+   * legitimately IS optional on a draft, so the only place to catch it is the unknown key itself.
+   *
+   * Safe for the app: the generated client sends exactly this schema and nothing else. It changes the
+   * answer for a hand-written caller, which is precisely who needs telling.
+   */
+  .strict();
 
-const UpdateInvoiceBody = z.object({
-  state: stateEnum.optional(),
-  currency: z.string().optional(),
-  lineItems: z.unknown().optional(),
-  vat: z.unknown().optional(),
-  total: moneyString,
-  dueDate: z.string().optional(),
-  recipientRef: z.string().optional(),
-  issuerRef: z.string().optional(),
-});
+const UpdateInvoiceBody = z
+  .object({
+    state: stateEnum.optional(),
+    currency: z.string().optional(),
+    lineItems: z.unknown().optional(),
+    vat: z.unknown().optional(),
+    total: moneyString,
+    dueDate: z.string().optional(),
+    recipientRef: z.string().optional(),
+    issuerRef: z.string().optional(),
+  })
+  .strict(); // Same reason as the create body above (QA9-12).
 
 const InvoiceResponse = z.object({
   id: z.string(),
@@ -263,6 +283,26 @@ export async function invoiceRoutes(fastify: FastifyInstance): Promise<void> {
       // Once issued, the document is frozen — only the state may still move.
       if (before.state !== "draft" && editsContent) {
         throw badRequest("An issued invoice is frozen; only its state may change");
+      }
+
+      /*
+       * AN INVOICE CANNOT BE ISSUED WITHOUT AN AMOUNT (QA sweep run 9, QA9-12).
+       *
+       * `total` is optional — rightly, because a draft is a document somebody is still writing. What
+       * was missing is the line where that stops being true. The sweep advanced a bill to `sent`
+       * with `total` NULL and the ledger rendered it as a live liability: *"— · — · — · 15 Jan 2026
+       * · SEK 0 · Overdue"*. A money document that names no money is not a smaller invoice; it is
+       * not an invoice, and `SEK 0` asserts a figure nobody wrote.
+       *
+       * Checked against the value this PATCH will LEAVE behind rather than the one it sends, because
+       * `{"state":"sent"}` alone is exactly the request that did it — no `total` in the body, and the
+       * stored one still null. The freeze above means this can only ever be the draft's own total.
+       */
+      const totalAfter = total != null ? BigInt(total) : before.total;
+      if (state != null && state !== "draft" && state !== "void" && totalAfter == null) {
+        throw badRequest(
+          "This invoice has no amount on it yet. Add the total before sending it — an invoice without one reads as zero everywhere it is listed.",
+        );
       }
 
       const updated = await database.transaction(async (tx) => {

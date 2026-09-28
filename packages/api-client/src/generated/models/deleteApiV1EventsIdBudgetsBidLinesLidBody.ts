@@ -4,7 +4,6 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { DeleteApiV1EventsIdBudgetsBidLinesLidBodyAnyOf } from './deleteApiV1EventsIdBudgetsBidLinesLidBodyAnyOf';
 
-export type DeleteApiV1EventsIdBudgetsBidLinesLidBody = {
-  expectedVersion?: number;
-};
+export type DeleteApiV1EventsIdBudgetsBidLinesLidBody = unknown | DeleteApiV1EventsIdBudgetsBidLinesLidBodyAnyOf;

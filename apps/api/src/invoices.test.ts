@@ -180,6 +180,109 @@ describe("invoices — gapless numbering (decisions #5)", () => {
   });
 });
 
+/**
+ * A BILL THAT NAMES NO MONEY (QA sweep run 9, QA9-12).
+ *
+ * The sweep created a bill with `{"counterpartyName":…, "amount":"777700", "category":"production"}`
+ * — three keys that read like this table's vocabulary and are not — got **201**, then advanced it to
+ * `sent`, and the ledger printed it as a live liability: *"— · — · — · 15 Jan 2026 · SEK 0 ·
+ * Overdue"*. Two defects in one row: a silent data loss on the way in, and a money document issued
+ * with no amount on it.
+ */
+describe("invoices — a plausible wrong key, and an amount that was never written (QA9-12)", () => {
+  it("refuses a body whose keys read right and are not, instead of storing none of them", async () => {
+    const issuer = await seedProfile("inv-strict");
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/invoices",
+      headers: auth("inv-strict"),
+      // The sweep's exact body. `amount` is `total`, the counterparty is `issuerRef`, and there is
+      // no `category` at all.
+      payload: {
+        ownerProfileId: issuer.profileId,
+        direction: "received",
+        counterpartyName: "QA9 Draft Vendor",
+        amount: "777700",
+        category: "production",
+        currency: "SEK",
+        dueDate: "2026-01-15",
+      },
+    });
+    expect(response.statusCode).toBe(400);
+
+    // And nothing was created — the old behaviour was a 201 carrying none of it.
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${issuer.profileId}/invoices`,
+      headers: auth("inv-strict"),
+    });
+    expect(list.statusCode).toBe(200);
+    expect(list.json()).toHaveLength(0);
+  });
+
+  it("refuses to SEND an invoice that has no amount on it", async () => {
+    const issuer = await seedProfile("inv-noamount");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invoices",
+      headers: auth("inv-noamount"),
+      // A legitimate draft: every field here is optional while it is being written.
+      payload: {
+        ownerProfileId: issuer.profileId,
+        direction: "received",
+        currency: "SEK",
+        dueDate: "2026-01-15",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const invoiceId = created.json().id;
+
+    const sent = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/invoices/${invoiceId}`,
+      headers: auth("inv-noamount"),
+      // The sweep's exact request: a state move with no total in the body and none in the row.
+      payload: { state: "sent" },
+    });
+    expect(sent.statusCode).toBe(400);
+    expect(sent.json().error.message).toContain("no amount");
+
+    // Voiding one is still allowed — a draft nobody wants needs a way out that is not a total.
+    expect(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: `/api/v1/invoices/${invoiceId}`,
+          headers: auth("inv-noamount"),
+          payload: { state: "void" },
+        })
+      ).statusCode,
+    ).toBe(200);
+  });
+
+  it("sends one that HAS an amount, including when the total arrives in the same request", async () => {
+    const issuer = await seedProfile("inv-amount");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invoices",
+      headers: auth("inv-amount"),
+      payload: { ownerProfileId: issuer.profileId, direction: "received", currency: "SEK" },
+    });
+    const invoiceId = created.json().id;
+
+    // The total and the state together — the guard reads what the PATCH will LEAVE behind, not only
+    // what the row already had, or this legitimate request would be refused.
+    const sent = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/invoices/${invoiceId}`,
+      headers: auth("inv-amount"),
+      payload: { state: "sent", total: "777700" },
+    });
+    expect(sent.statusCode).toBe(200);
+    expect(sent.json().total).toBe("777700");
+  });
+});
+
 describe("payout accounts (decisions #5)", () => {
   it("adds a typed (bankgiro) payout account and lists it", async () => {
     const issuer = await seedProfile("pay-op");

@@ -4,7 +4,6 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { DeleteApiV1DealsDidBodyAnyOf } from './deleteApiV1DealsDidBodyAnyOf';
 
-export type DeleteApiV1DealsDidBody = {
-  expectedVersion?: number;
-};
+export type DeleteApiV1DealsDidBody = unknown | DeleteApiV1DealsDidBodyAnyOf;

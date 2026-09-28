@@ -4748,13 +4748,21 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "expectedVersion": {
-                    "type": "integer"
+                "anyOf": [
+                  {
+                    "not": {}
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "expectedVersion": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "nullable": true
                   }
-                },
-                "additionalProperties": false
+                ]
               }
             }
           }
@@ -7047,13 +7055,21 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "expectedVersion": {
-                    "type": "integer"
+                "anyOf": [
+                  {
+                    "not": {}
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "expectedVersion": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "nullable": true
                   }
-                },
-                "additionalProperties": false
+                ]
               }
             }
           }
