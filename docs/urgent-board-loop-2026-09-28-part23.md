@@ -156,6 +156,81 @@ refuse.
 
 ---
 
+## 2b. Run 9's other findings, worked after the rulings
+
+### QA9-3 — MAJOR — the bell said "accept or decline" and landed on a 404 · `8f109ba`
+
+**The verdict changed on reading the code, which is the whole reason ticket-to-commit exists.** The
+sweep filed it as *a screen routes to an action that does not exist*, and the loop's plan was to SIZE
+it. The action exists: `GET /me/event-invitations` is served and `EventInvitationsCard` renders it
+with Accept and Decline on `/requests` and `/events`. So it is a link fix, not a missing feature.
+
+`invitation.received` → `/invitations/:token`; the three emitters of `event.participant_added` →
+`participantAddedLink`, which routes a not-yet-standing participant to `/requests` and everyone else
+to the event. A surviving mutation earned the last test: making the link *always* `/requests` broke
+nothing, because nothing covered a participant who CAN open the event — a `co_host` added through
+that route lands `accepted`, not `invited`.
+
+Each test asserts the 404 the link used to point at, so it carries its own reason.
+
+**Not fixed, and recorded rather than guessed:** a represented act's invitation is answered by their
+AGENT (#14), so for that act `/requests` is empty too. The link stops 404-ing; whether the act should
+be told at all, and in what words, is a product question.
+
+### QA9-12 — MINOR — a bill that names no money · `7cf4927` (API half)
+
+Two defects in one row. **In:** `POST /invoices` took three keys that read like its own vocabulary
+and are not (`counterpartyName`, `amount`, `category`), stripped all three, and answered **201** — the
+QA8-10 shape exactly. Both bodies are `.strict()` now; the dialog in `Invoices.tsx` was checked first
+and sends only schema keys. **Out:** a bill advanced to `sent` with `total` NULL and the ledger
+printed it as a live liability, *"— · — · — · 15 Jan 2026 · SEK 0 · Overdue"*. The guard reads the
+total the PATCH will LEAVE behind, because `{"state":"sent"}` alone is the request that did it;
+`void` is still allowed without one.
+
+*The first version added `CreateInvoiceBodyStrict` beside the lax schema and left the route using the
+lax one — a second definition nothing calls, instance eight. It is one schema now.*
+
+**Still open (web):** the ledger should print `—` rather than `SEK 0` for a null total. A row with no
+amount can no longer be *sent*, but a draft legitimately has none, and `SEK 0` is a figure nobody
+wrote.
+
+### QA9-16 — MINOR — a DELETE with no body · `6eb72f8`
+
+`expectedVersion` is optional and a request that omits the body arrives as `null`, not `{}`. Three
+routes declared that body and **two got it wrong**. Fixed by moving the definition to
+`lib/optimistic-lock-body.ts` and pointing all three at it — a one-line schema copied three times is
+*how* they were wrong together. `budget.ts` was also destructuring it without `?.`.
+
+## 2c. SIZED, not built — QA9-4
+
+**QA9-4 — MAJOR — "Confirm Nordic Synth Showcase … needs a decision", and nothing in the app can.**
+The dashboard's most prominent card names the verb *Confirm* and its button is *Review*; the
+destination offers no Confirm anywhere, and the only control that clears the card is **Release hold**
+— the opposite decision. `PATCH /events/:id {"status":"confirmed"}` works at the API and has zero
+callers in `apps/web/src`.
+
+**Why this is a sizing and not a fix, precisely: the decision is already open and already written
+down.** `decisions.md`'s still-open list, two rows from the bottom:
+
+> **Two ways to reach `confirmed` (see #20)** — `PATCH /events/:id` sets the status with no pool
+> cascade and no notification, where `/hold/confirm` runs the whole queue. Depends on the call above
+> [*does a hold rank confer first refusal?*].
+
+Wiring an operator-side Confirm button means choosing, in code, which of the two paths the app takes
+— and the cheap one skips the hold queue's cascade and tells nobody. That is a product call with
+money and other people's dates behind it, not a missing button.
+
+**What it would cost once decided.** If `confirmed` should run the queue: the operator needs an
+authorized path into `/hold/confirm`'s machinery, which today refuses them for a stated and correct
+reason (*"Only the booked performer, or their agent, can confirm or decline this hold"*) — a new
+route or a widened one, plus the cascade's notifications. If the operator's `PATCH` is enough: one
+control on the workspace and one on the dashboard card, half a day, and the hold queue stays a
+mechanism the operator can silently bypass.
+
+**One thing worth doing either way, and cheap:** the card should not promise a decision the
+destination cannot take. *"needs a decision"* on a card whose only outcome is *Release hold* is the
+nag QA9-4 is really about.
+
 ## 3. What is still open
 
 - **§25.7.1's one remaining question**, recorded in `decisions.md` and small: whether the broader
@@ -163,11 +238,15 @@ refuse.
   One line plus one fixture. Not done, because it reverses part of #24.1 and #24.1 is Daniel's.
 - **§25.6's other five rows** — calls the loop made in code, still unconfirmed. They are running and
   each names the line to change.
-- Run 9's remaining minor findings: QA9-5, QA9-7, QA9-10, QA9-11, QA9-12, QA9-13, QA9-16. QA9-9 is
-  the audience read endpoint and belongs on the feature list, not here.
-- **To SIZE rather than half-build:** QA9-4 (`PATCH /events/:id {status}` has zero callers in
-  `apps/web/src`) and QA9-3 (the invitation bell lands on "Event not found"). Both are *a screen
-  routes to an action that does not exist*.
+- Run 9's remaining findings, all web-side and all waiting on the browser being free: QA9-5, QA9-7,
+  QA9-10, QA9-11, QA9-12's render half, QA9-13. QA9-9 is the audience read endpoint and belongs on
+  the feature list, not here. QA9-3, QA9-12's API half, QA9-16 and QA9-17 are done (§2b); QA9-4 is
+  sized (§2c).
+- **QA9-11 has a plan:** `hasBudget` is `budgets.filter(scope === "shared").length > 0`, and
+  `GET /events/:id/budgets` PROVISIONS a shared budget on read — so the act of measuring coverage
+  creates it, and `partialCoverageNote` is dead for any host who has opened the screen. "Budgeted"
+  must mean *has a shared budget with at least one line*, not *has a row*. Not the provisioning,
+  which is deliberate and documented.
 - Blocked: `86cbcn1q4`, `86cbcn1rr`, `86c9mq7q9` until `/design-login` works.
 
 ## 4. Two things about the tools, for the next tick
