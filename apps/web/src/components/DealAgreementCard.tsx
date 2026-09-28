@@ -38,6 +38,8 @@ export interface DealAgreementCardProps {
   onSend: (dealId: string) => void;
   onConfirm: (dealId: string) => void;
   onReopen: (dealId: string) => void;
+  /** Open the composer on this deal's own figures (QA8-1). */
+  onReviseTerms: (dealId: string) => void;
   onExportPdf: () => void;
   /** Whether the terms, party lines and export are showing. */
   expanded: boolean;
@@ -84,6 +86,7 @@ export function DealAgreementCard({
   onSend,
   onConfirm,
   onReopen,
+  onReviseTerms,
   onExportPdf,
   expanded,
   onToggleExpanded,
@@ -201,6 +204,26 @@ export function DealAgreementCard({
               onClick={() => onConfirm(dealId)}
             >
               Confirm your line
+            </Button>
+          )}
+          {actions.canReviseTerms && (
+            /*
+             * THE FIGURES, WHILE NOBODY HAS SIGNED (QA sweep run 8, QA8-1).
+             *
+             * The card said *"Terms live until every party signs"* and offered no way to change
+             * one — `PATCH /deals/:id` accepted the write all along and the planner re-seeded
+             * from it, exactly as Ran's 2026-09-21 spec asks; there was simply no control. It
+             * is hidden once the agreement is signed because the server refuses it there, which
+             * is the rule this stretch has applied five times: never offer what the API will
+             * refuse.
+             */
+            <Button
+              variant="secondary"
+              disabled={busy}
+              leftIcon={<Icon name="pencil" size={14} />}
+              onClick={() => onReviseTerms(dealId)}
+            >
+              Edit figures
             </Button>
           )}
           {actions.canReopen && (

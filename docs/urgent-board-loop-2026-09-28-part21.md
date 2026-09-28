@@ -109,3 +109,59 @@ rather than read:
 Two of the three were mine and one was the code's, and the round-trip test is what separated them —
 which is the argument for writing the inverse against the forward mapper rather than against a
 description of it.
+
+---
+
+## Built, and proven against the spec's own sentence
+
+One dialog serves both jobs, because every rule, problem and notice in the composer applies to a
+stored deal read back through `dealDraftFrom`. What "editing" changes is which draft it opens on and
+which mutation the submit calls.
+
+- `useDealComposer` takes an optional `seed` and, when given one, opens on `dealDraftFrom(seed)` with
+  the kind from `dealKindOf` and `nameEdited` already true — a deal that HAS a name must not have it
+  overwritten by the party-name suggestion.
+- `useEventAgreements.revise(dealId, draft, expectedVersion)` sends the figures through
+  `PATCH /deals/:id`, carrying `expectedVersion` (decisions #8) so a concurrent edit is a 409 rather
+  than a silent overwrite. `advanceAmount` and `terms` are always sent — `null` where absent —
+  because *"I removed the advance"* and *"I emptied the ladder"* have to be expressible, and an
+  omitted key would leave the old value standing.
+- `canReviseTerms` on `DealActions`: `canManage && !frozen && not cancelled`. It mirrors the server
+  rather than guessing — `PATCH` already refuses a signed agreement's terms (`movedSignedTerms`, 409)
+  — which is the rule this stretch has now applied six times: never offer what the API will refuse.
+- The party section is **read-only** when revising, every control `disabled`, with the reason on
+  screen: *"Parties are set when the deal is composed."* Shown rather than hidden, because the party
+  list is the first thing an operator checks before changing what a deal pays. The SHARE field is
+  disabled with them — a share lives on `deal_parties`, so it travels with the list and the PATCH
+  cannot carry it either.
+
+### Proven on the running stack
+
+The dialog, opened on the reopened seed deal (`sent`, nobody signed):
+
+| | reading |
+|---|---|
+| title / submit | **"Edit the figures"** / **"Save the figures"** |
+| NAME | pre-filled *"Album Release — Door Split"* |
+| SHARE OF THE ADJUSTED NET (%) | pre-filled **100**, editable |
+| the two party shares | pre-filled **60** and **40**, `disabled: true` |
+| every party and role control | `disabled: true` |
+| "Add a party" | **absent**, replaced by *"Parties are set when the deal is composed."* |
+
+Then the two saves, and the second is the one that matters:
+
+| | before | after |
+|---|---|---|
+| advance, set to 500 | `advanceAmount: null`, version 2 | **`"50000"`**, version **3**, split and status untouched |
+| split, changed 100 → 70 | planner: *Performer fee **SEK 50,000** — "100% of the adjusted net"* | planner: *Performer fee **SEK 35,000** — "**70%** of the adjusted net"*, TOTAL COSTS SEK 69,245, P&L **+SEK 13,755** (was a loss) |
+
+That second row is Ran's 2026-09-21 spec, quoted in the brief, finally true: *"Editing offered terms
+while pending should re-seed the budget, not hold a stale figure."*
+
+### One more found while proving it
+
+The kind chooser's own description read *"A share of the pool — revenue less the costs paid to
+outside suppliers"* — **#23.1's retired wording**, in `DEAL_KIND_OPTIONS`, rendered directly under
+the chooser in this very dialog. The same correction QA7-25 made to the wizard's hint, one layer
+deeper, and the tenth instance this stretch of copy stating a rule the code does not keep. Now *"A
+share of the adjusted net — revenue less deductions and anything off the top."*

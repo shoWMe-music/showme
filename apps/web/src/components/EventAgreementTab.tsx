@@ -78,17 +78,29 @@ export function EventAgreementTab({
   const agreements = useEventAgreements(eventId, capabilities);
   const schedule = useGetApiV1EventsIdSchedule(eventId);
   const [composerOpen, setComposerOpen] = useState(false);
+  /**
+   * The deal whose FIGURES are being revised, or null to compose a new one (QA8-1).
+   *
+   * One dialog serves both: the composer's every rule, problem and notice applies to a stored
+   * deal read back through `dealDraftFrom`, so "editing" is which draft it opens on and which
+   * mutation the submit calls.
+   */
+  const [revising, setRevising] = useState<string | null>(null);
   const [reopening, setReopening] = useState<{ dealId: string; name: string } | null>(null);
   const [reopenReason, setReopenReason] = useState("");
   const choices = partyChoices(agreements.roster);
   // The roster, by name — an agreement with no name of its own takes the names of
   // the parties it pays (2026-08 meeting: "deal naming uses the name of the person
   // or entity on the agreement").
+  const revisingDeal = revising
+    ? (agreements.deals.find((deal) => deal.id === revising) ?? null)
+    : null;
   const composer = useDealComposer(
     baseCurrency,
     agreements.agentParticipantIds,
     composerOpen,
     choices,
+    revisingDeal,
   );
   // What the caller can SEE, which is what "only one deal" counts: the server
   // serves each party only the deals it is a party to. Above the loading
@@ -105,7 +117,15 @@ export function EventAgreementTab({
   const submitComposer = async () => {
     composer.markSubmitAttempted();
     if (composer.problems.length > 0) return;
-    if (await agreements.compose(composer.draft)) setComposerOpen(false);
+    // `version` carries the optimistic lock (decisions #8): a concurrent edit is a 409, not a
+    // silent overwrite of somebody else's figures.
+    const saved = revisingDeal
+      ? await agreements.revise(revisingDeal.id, composer.draft, revisingDeal.version)
+      : await agreements.compose(composer.draft);
+    if (saved) {
+      setComposerOpen(false);
+      setRevising(null);
+    }
   };
 
   const scheduleEntries = toScheduleEntries(schedule.data ?? []);
@@ -204,6 +224,10 @@ export function EventAgreementTab({
             onToggleExpanded={() => expansion.toggle(deal.id)}
             onSend={agreements.send}
             onConfirm={agreements.confirm}
+            onReviseTerms={(dealId) => {
+              setRevising(dealId);
+              setComposerOpen(true);
+            }}
             onReopen={(dealId) => {
               setReopenReason("");
               setReopening({ dealId, name: deal.name });
@@ -215,12 +239,18 @@ export function EventAgreementTab({
 
       <DealComposerModal
         open={composerOpen}
-        onClose={() => setComposerOpen(false)}
+        onClose={() => {
+          setComposerOpen(false);
+          setRevising(null);
+        }}
         onSubmit={submitComposer}
         composer={composer}
         choices={choices}
         currency={baseCurrency}
         pending={agreements.isBusy}
+        // Revising, not composing: the dialog's title, its submit label and its party section
+        // all change, because the party list is write-once at composition (QA8-1).
+        revising={revisingDeal !== null}
       />
       <DealTermsModal editor={terms} />
       <DealReopenModal

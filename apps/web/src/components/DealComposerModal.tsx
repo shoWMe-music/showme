@@ -32,6 +32,15 @@ export interface DealComposerModalProps {
   /** The deal's payout currency — the event's base, shown so the figures have a unit. */
   currency: string;
   pending: boolean;
+  /**
+   * REVISING an existing deal's figures rather than composing a new one (QA sweep run 8, QA8-1).
+   *
+   * Changes three things and nothing else: the title, the submit label, and the party section,
+   * which becomes read-only because `PATCH /deals/:id` has no `parties` field — the list is
+   * write-once at composition. Every rule, problem and notice below is the same either way,
+   * which is the argument for one dialog rather than two.
+   */
+  revising?: boolean;
 }
 
 /**
@@ -54,6 +63,7 @@ export function DealComposerModal({
   choices,
   currency,
   pending,
+  revising = false,
 }: DealComposerModalProps) {
   const { draft } = composer;
   const kindOption = DEAL_KIND_OPTIONS.find((option) => option.value === composer.kind);
@@ -69,7 +79,7 @@ export function DealComposerModal({
       dismissOnScrim={false}
       open={open}
       onClose={onClose}
-      title="New deal"
+      title={revising ? "Edit the figures" : "New deal"}
       width={620}
       footer={
         <>
@@ -77,7 +87,7 @@ export function DealComposerModal({
             Cancel
           </Button>
           <Button variant="primary" onClick={onSubmit} disabled={pending}>
-            {pending ? "Saving…" : "Save draft"}
+            {pending ? "Saving…" : revising ? "Save the figures" : "Save draft"}
           </Button>
         </>
       }
@@ -255,6 +265,7 @@ export function DealComposerModal({
                 }
                 showShare={entitledLineCount > 1}
                 removable={draft.parties.length > 1}
+                readOnly={revising}
                 onParticipantChange={composer.setPartyParticipant}
                 onRoleChange={composer.setPartyRole}
                 onShareChange={composer.setPartySharePercent}
@@ -262,15 +273,30 @@ export function DealComposerModal({
               />
             );
           })}
-          <div>
-            <Button
-              variant="ghost"
-              leftIcon={<Icon name="plus" size={14} />}
-              onClick={composer.addParty}
-            >
-              Add a party
-            </Button>
-          </div>
+          {/*
+            WHO IS ON THE DEAL IS NOT EDITABLE HERE, and the reason is on screen (QA8-1).
+            `UpdateDealBody` has no `parties` field and the only insert into `deal_parties` is
+            the create path, so offering add/remove/re-role while revising would accept input
+            the API silently will not persist. Shown rather than hidden: the party list is the
+            first thing an operator checks before changing what a deal pays, and a list that
+            vanishes in edit mode reads as data loss.
+          */}
+          {revising ? (
+            <FieldNote>
+              Parties are set when the deal is composed. To change who is on this agreement, it has
+              to be replaced.
+            </FieldNote>
+          ) : (
+            <div>
+              <Button
+                variant="ghost"
+                leftIcon={<Icon name="plus" size={14} />}
+                onClick={composer.addParty}
+              >
+                Add a party
+              </Button>
+            </div>
+          )}
           {entitledLineCount > 1 && (
             <FieldNote>
               More than one party is paid by this deal, so each states its share of the payout. They
@@ -345,6 +371,7 @@ function PartyLine({
   roleOptions,
   showShare,
   removable,
+  readOnly,
   onParticipantChange,
   onRoleChange,
   onShareChange,
@@ -358,6 +385,8 @@ function PartyLine({
   roleOptions: typeof DEAL_PARTY_ROLE_OPTIONS;
   showShare: boolean;
   removable: boolean;
+  /** Revising an existing deal: who is on it is fixed at composition (QA8-1). */
+  readOnly: boolean;
   onParticipantChange: (key: string, participantId: string) => void;
   onRoleChange: (key: string, role: DealPartyRole) => void;
   onShareChange: (key: string, percent: string) => void;
@@ -369,6 +398,7 @@ function PartyLine({
       <div style={{ flex: "2 1 200px" }}>
         <Select
           value={participantId}
+          disabled={readOnly}
           onChange={(value) => onParticipantChange(partyKey, value)}
           options={choices.map((choice) => ({
             value: choice.id,
@@ -381,6 +411,7 @@ function PartyLine({
       <div style={{ flex: "1 1 140px" }}>
         <Select
           value={roleInDeal}
+          disabled={readOnly}
           onChange={(value) => onRoleChange(partyKey, value as DealPartyRole)}
           options={roleOptions.map((option) => ({ value: option.value, label: option.label }))}
           searchable={false}
@@ -394,11 +425,17 @@ function PartyLine({
             inputMode="decimal"
             placeholder="%"
             aria-label="Share of the payout, percent"
+            /*
+             * A share lives on `deal_parties`, not on the deal, so it travels with the party
+             * list and the PATCH cannot carry it either (QA8-1). Editable-looking and
+             * unsaveable is the one outcome to avoid.
+             */
+            disabled={readOnly}
             onChange={(event) => onShareChange(partyKey, event.target.value)}
           />
         </div>
       )}
-      {removable && (
+      {removable && !readOnly && (
         <Button variant="ghost" onClick={() => onRemove(partyKey)} aria-label="Remove this party">
           <Icon name="trash" size={14} />
         </Button>

@@ -4,8 +4,11 @@ import {
   type DealPartyDraft,
   type DealPartyRole,
   type PaymentTiming,
+  type StoredDealTerms,
+  dealDraftFrom,
   dealDraftNotices,
   dealDraftProblems,
+  dealKindOf,
   dealTypeForKind,
   emptyDealDraft,
   emptyDealEscalator,
@@ -107,6 +110,15 @@ export function useDealComposer(
   open: boolean,
   /** Everyone on the event, by name — what an unnamed agreement is named after. */
   partyNames: readonly DealPartyName[] = [],
+  /**
+   * AN EXISTING DEAL TO EDIT, or undefined to compose a new one (QA sweep run 8, QA8-1).
+   *
+   * The whole of "editing" is which draft the form opens on: `dealDraftFrom` is the inverse of
+   * `createDealPayload`, so a stored deal comes back in the units it was typed in and every
+   * rule, problem and notice below applies unchanged. Nothing else about the composer knows
+   * whether it is creating or revising.
+   */
+  seed?: StoredDealTerms | null,
 ): DealComposer {
   const [held, setDraft] = useState<DealDraft>(() => emptyDealDraft(currency));
   const [kind, setKind] = useState<DealKind>("guarantee");
@@ -136,12 +148,23 @@ export function useDealComposer(
   );
 
   const reset = useCallback(() => {
-    setDraft(emptyDealDraft(currency));
-    setKind("guarantee");
+    /*
+     * An existing deal opens on ITS terms; a new one on a blank form (QA8-1). `nameEdited` is
+     * true for a seeded deal because it already HAS a name somebody chose — leaving it false
+     * would let the party-name suggestion overwrite it on the first keystroke elsewhere.
+     */
+    if (seed) {
+      setDraft(dealDraftFrom(seed, currency));
+      setKind(dealKindOf(seed.type, seed.structure));
+      setNameEdited(true);
+    } else {
+      setDraft(emptyDealDraft(currency));
+      setKind("guarantee");
+      setNameEdited(false);
+    }
     setSubmitAttempted(false);
     setNextKey(3);
-    setNameEdited(false);
-  }, [currency]);
+  }, [currency, seed]);
 
   // A form left half-filled from last time is a form that submits somebody else's
   // terms by accident.

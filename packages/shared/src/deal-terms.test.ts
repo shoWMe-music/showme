@@ -5,9 +5,11 @@ import {
   type DealDraft,
   type DealPartyDraft,
   createDealPayload,
+  dealDraftFrom,
   dealDraftNotices,
   dealDraftProblems,
   dealKindLabel,
+  dealKindOf,
   dealTypeForKind,
   emptyDealDraft,
   percentToBasisPoints,
@@ -433,5 +435,176 @@ describe("terms & conditions templates", () => {
     expect(readTermsTemplateText(null)).toBe("");
     expect(readTermsTemplateText("just a string")).toBe("");
     expect(readTermsTemplateText({ text: 42 })).toBe("");
+  });
+});
+
+/**
+ * A STORED DEAL, BACK INTO THE FORM IT WAS TYPED IN (QA8-1).
+ *
+ * `useDealComposer` seeds from `emptyDealDraft`, so editing an existing deal needs the
+ * inverse of `createDealPayload`, and the round trip is the test: read a deal into a draft,
+ * send that draft, and the figures must come back identical. The units are what make it
+ * worth asserting rather than eyeballing — minor on the wire, major as typed, basis points
+ * against a typed percent.
+ */
+describe("reading a stored deal back into a draft", () => {
+  const storedGuarantee = {
+    type: "performance",
+    structure: "guarantee",
+    name: "Headline fee",
+    currency: "EUR",
+    guaranteeAmount: "300000",
+    advanceAmount: "50000",
+    splitBasisPoints: null,
+    paymentTiming: "at_settlement",
+    parties: [
+      { participantId: "operator", roleInDeal: "payer", share: null },
+      { participantId: "act", roleInDeal: "payee", share: null },
+    ],
+  };
+
+  it("brings the money back in MAJOR units, as somebody would have typed it", () => {
+    const draft = dealDraftFrom(storedGuarantee, "EUR");
+    expect(draft.guaranteeAmount).toBe("3000.00");
+    expect(draft.advanceAmount).toBe("500.00");
+    expect(draft.name).toBe("Headline fee");
+    expect(draft.currency).toBe("EUR");
+  });
+
+  it("reads the exponent rather than dividing by a hundred", () => {
+    /*
+     * The bug this exists to prevent, and the one `docs/money.md` names: JPY has NO minor
+     * unit, so 300000 minor units is ¥300,000 and not ¥3,000. A hard-coded ÷100 is right
+     * for the two-decimal currencies and wrong for every other kind — the same mistake run
+     * 3 found on the formatters.
+     */
+    const yen = dealDraftFrom({ ...storedGuarantee, currency: "JPY" }, "JPY");
+    expect(yen.guaranteeAmount).toBe("300000");
+    expect(yen.advanceAmount).toBe("50000");
+  });
+
+  it("leaves an absent amount BLANK rather than stating a zero", () => {
+    // "" is absent and "0" is a stated zero, and `amountToMinor` treats them differently —
+    // so writing "0" here would turn a deal with no advance into a deal with an advance of
+    // nothing, which is a different agreement.
+    const draft = dealDraftFrom({ ...storedGuarantee, advanceAmount: null }, "EUR");
+    expect(draft.advanceAmount).toBe("");
+    expect(createDealPayload(draft).advanceAmount).toBeUndefined();
+  });
+
+  it("round-trips a guarantee through the request body unchanged", () => {
+    const payload = createDealPayload(dealDraftFrom(storedGuarantee, "EUR"));
+    expect(payload.guaranteeAmount).toBe("300000");
+    expect(payload.advanceAmount).toBe("50000");
+    expect(payload.structure).toBe("guarantee");
+    expect(payload.parties.map((party) => party.roleInDeal)).toEqual(["payer", "payee"]);
+  });
+
+  it("round-trips a two-act door split, shares and all", () => {
+    const stored = {
+      ...storedGuarantee,
+      type: "split",
+      structure: "door_split",
+      guaranteeAmount: null,
+      advanceAmount: null,
+      splitBasisPoints: 7000,
+      parties: [
+        { participantId: "operator", roleInDeal: "payer", share: null },
+        { participantId: "act-a", roleInDeal: "split_member", share: { splitBasisPoints: 6000 } },
+        { participantId: "act-b", roleInDeal: "split_member", share: { splitBasisPoints: 4000 } },
+      ],
+    };
+
+    const draft = dealDraftFrom(stored, "EUR");
+    expect(draft.splitPercent).toBe("70");
+    expect(draft.parties.map((party) => party.sharePercent)).toEqual(["", "60", "40"]);
+
+    const payload = createDealPayload(draft);
+    expect(payload.splitBasisPoints).toBe(7000);
+    // The shares have to survive as basis points, because that is what the engine allocates
+    // by — and an unstated share defaults to 1, so a lost 60 would settle 1/40.
+    /*
+     * `share: { splitBasisPoints }` is the wire shape — the same one `shareBasisPointsOf`
+     * reads. The shares must survive as basis points because that is what the engine
+     * allocates by, and an UNSTATED share defaults to 1: a lost 60 would settle 1/40, not
+     * 60/40.
+     */
+    expect(
+      payload.parties.map(
+        (party) => (party.share as { splitBasisPoints?: number } | undefined)?.splitBasisPoints,
+      ),
+    ).toEqual([undefined, 6000, 4000]);
+  });
+
+  it("round-trips the ladder and the bonus out of `terms`", () => {
+    const stored = {
+      ...storedGuarantee,
+      structure: "door_split",
+      guaranteeAmount: null,
+      splitBasisPoints: 6000,
+      terms: {
+        escalators: [
+          { thresholdSold: 300, splitBasisPoints: 7000 },
+          { thresholdSold: 900, splitBasisPoints: 8000 },
+        ],
+        bonusThreshold: "1000000",
+        bonusAmount: "250000",
+      },
+    };
+
+    const draft = dealDraftFrom(stored, "EUR");
+    expect(draft.escalators.map((band) => [band.thresholdSold, band.splitPercent])).toEqual([
+      ["300", "70"],
+      ["900", "80"],
+    ]);
+    expect(draft.bonusThreshold).toBe("10000.00");
+    expect(draft.bonusAmount).toBe("2500.00");
+
+    const payload = createDealPayload(draft);
+    expect(payload.terms).toEqual({
+      escalators: [
+        { thresholdSold: 300, splitBasisPoints: 7000 },
+        { thresholdSold: 900, splitBasisPoints: 8000 },
+      ],
+      bonusThreshold: "1000000",
+      bonusAmount: "250000",
+    });
+  });
+});
+
+/**
+ * THE KIND A DEAL WAS COMPOSED AS, recovered from what was stored (QA8-1).
+ *
+ * The inverse has to match on the PAIR: `guarantee` is *Guarantee* under `performance` and
+ * *Fee for a service* under `fee`, so the shape alone cannot name it.
+ */
+describe("dealKindOf", () => {
+  it("is the inverse of structureForKind + dealTypeForKind, for every kind", () => {
+    /*
+     * Stated as a property rather than as five examples, because that is the actual
+     * requirement: whatever the composer writes, opening it again must land on the same tab.
+     * Two entitled parties are passed so `dealTypeForKind`'s split UPGRADE is exercised — a
+     * two-act door split stores `split` + `door_split` and must still read back `door_split`.
+     */
+    const twoEntitled: DealPartyDraft[] = [
+      { key: "a", participantId: "act-a", roleInDeal: "split_member", sharePercent: "60" },
+      { key: "b", participantId: "act-b", roleInDeal: "split_member", sharePercent: "40" },
+    ];
+    for (const option of DEAL_KIND_OPTIONS) {
+      const structure = structureForKind(option.value);
+      expect(dealKindOf(dealTypeForKind(option.value, []), structure)).toBe(option.value);
+      expect(dealKindOf(dealTypeForKind(option.value, twoEntitled), structure)).toBe(option.value);
+    }
+  });
+
+  it("tells a service fee from a guarantee by its type", () => {
+    expect(dealKindOf("fee", "guarantee")).toBe("service_fee");
+    expect(dealKindOf("performance", "guarantee")).toBe("guarantee");
+  });
+
+  it("reads a shapeless deal as the manually-agreed kind", () => {
+    expect(dealKindOf("performance", null)).toBe("paper_only");
+    // And an unreadable pair amounts to the same thing: no shape this app computes.
+    expect(dealKindOf("performance", "something_else")).toBe("paper_only");
   });
 });

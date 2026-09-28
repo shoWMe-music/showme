@@ -5,6 +5,7 @@ import {
   getGetApiV1EventsIdSettlementsQueryKey,
   useGetApiV1EventsIdDeals,
   useGetApiV1EventsIdParticipants,
+  usePatchApiV1DealsDid,
   usePostApiV1DealsDidConfirm,
   usePostApiV1DealsDidReopen,
   usePostApiV1DealsDidSend,
@@ -76,6 +77,16 @@ export interface DealActions {
   canConfirm: boolean;
   /** A confirmed agreement can be torn back open for renegotiation. */
   canReopen: boolean;
+  /**
+   * The FIGURES can still be changed — the deal is not signed yet (QA sweep run 8, QA8-1).
+   *
+   * Mirrors the server exactly rather than guessing: `PATCH /deals/:id` refuses a signed
+   * agreement's terms (`movedSignedTerms` → 409), so offering the control past that point would
+   * be offering what the API will refuse. Until then Ran's spec expects it — *"editing offered
+   * terms while pending should re-seed the budget"* — and both the deal card and the Budget
+   * Planner say the terms can still move.
+   */
+  canReviseTerms: boolean;
 }
 
 /** The event roles whose authority to sign is DEAL-scoped, mirroring `@showme/auth`. */
@@ -115,6 +126,9 @@ export function dealActionsFor(
       deal.agreementStatus === "sent" &&
       unsignedOwnLines.length > 0,
     canReopen: authority.canManage && frozen,
+    // `draft` and `sent` both — a draft's figures are obviously editable, and a SENT one is the
+    // case the spec is actually about, where parties are looking at terms nobody has signed.
+    canReviseTerms: authority.canManage && !frozen && deal.status !== "cancelled",
   };
 }
 
@@ -137,6 +151,8 @@ export interface EventAgreements {
   /** The deal id a lifecycle call is currently running against, or null. */
   busyDealId: string | null;
   compose: (draft: DealDraft) => Promise<boolean>;
+  /** `deal.edit` — revise an existing agreement's FIGURES while it is unsigned (QA8-1). */
+  revise: (dealId: string, draft: DealDraft, expectedVersion: number) => Promise<boolean>;
   send: (dealId: string) => void;
   confirm: (dealId: string) => void;
   reopen: (dealId: string, reason: string) => void;
@@ -162,6 +178,7 @@ export function useEventAgreements(
   }, [queryClient, eventId]);
 
   const createDeal = usePostApiV1EventsIdDeals();
+  const patchDeal = usePatchApiV1DealsDid();
   const sendDeal = usePostApiV1DealsDidSend();
   const confirmDeal = usePostApiV1DealsDidConfirm();
   const reopenDeal = usePostApiV1DealsDidReopen();
@@ -180,6 +197,60 @@ export function useEventAgreements(
       }
     },
     [createDeal, eventId, refresh, toast],
+  );
+
+  /**
+   * REVISING AN EXISTING DEAL'S MONEY (QA sweep run 8, QA8-1).
+   *
+   * `PATCH /deals/:id` and the planner's re-seed were already built and correct — Ran's
+   * 2026-09-21 spec asks that *"editing offered terms while pending should re-seed the budget,
+   * not hold a stale figure"*, and it does. What was missing was any way to call it with the
+   * figures: the only caller sent `agreementBodyText` and nothing else, so a deal typed with the
+   * wrong guarantee could be neither corrected nor removed.
+   *
+   * THE MONEY, NOT THE MEMBERSHIP. `UpdateDealBody` has no `parties` field and the only insert
+   * into `deal_parties` is the create path, so the party list is write-once at composition — the
+   * dialog shows it read-only and says so. Changing it needs a route AND an answer to what
+   * happens to an already-signed line, which is §25.6's ninth row.
+   *
+   * `expectedVersion` rides along (decisions #8): a concurrent edit is a 409 rather than a silent
+   * overwrite, and the server already refuses a SIGNED agreement's terms outright
+   * (`movedSignedTerms`), which is why the control that opens this is hidden once confirmed.
+   */
+  const revise = useCallback(
+    async (dealId: string, draft: DealDraft, expectedVersion: number): Promise<boolean> => {
+      const payload = createDealPayload(draft);
+      try {
+        await patchDeal.mutateAsync({
+          did: dealId,
+          data: {
+            name: payload.name,
+            ...(payload.structure ? { structure: payload.structure } : {}),
+            currency: payload.currency,
+            ...(payload.guaranteeAmount != null
+              ? { guaranteeAmount: payload.guaranteeAmount }
+              : {}),
+            // `null` CLEARS an advance, where omitting it would leave the old one standing —
+            // and "I removed the advance" has to be expressible.
+            advanceAmount: payload.advanceAmount ?? null,
+            ...(payload.splitBasisPoints != null
+              ? { splitBasisPoints: payload.splitBasisPoints }
+              : {}),
+            paymentTiming: payload.paymentTiming,
+            // Same rule: an emptied ladder or bonus must come out, so the key is always sent.
+            terms: payload.terms ?? null,
+            expectedVersion,
+          },
+        });
+        refresh();
+        toast.success(`"${payload.name}" updated. The planner reads the new figures.`);
+        return true;
+      } catch (error) {
+        toast.error(errorMessage(error, "Couldn't update the agreement."));
+        return false;
+      }
+    },
+    [patchDeal, refresh, toast],
   );
 
   const send = useCallback(
@@ -270,6 +341,7 @@ export function useEventAgreements(
       createDeal.isPending || sendDeal.isPending || confirmDeal.isPending || reopenDeal.isPending,
     busyDealId,
     compose,
+    revise,
     send,
     confirm,
     reopen,

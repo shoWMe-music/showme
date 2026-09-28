@@ -1,4 +1,4 @@
-import { majorToMinor } from "./money";
+import { majorToMinor, minorToDecimalString } from "./money";
 
 /**
  * The DEAL vocabulary and the draft → request translation, as plain TS.
@@ -126,7 +126,14 @@ export const DEAL_KIND_OPTIONS: DealKindOption[] = [
   {
     value: "door_split",
     label: "Door split",
-    description: "A share of the pool — revenue less the costs paid to outside suppliers.",
+    /*
+     * THE ADJUSTED NET, not #23.1's pool — the same correction QA7-25 made to the wizard's
+     * hint, found in the kind menu while proving QA8-1's edit dialog (which renders this
+     * description under the chooser). #24.1 reversed #23.1 on 2026-09-15: a percentage divides
+     * `gross − deductions − off-the-top`, and omitting the off-the-top step tells an operator
+     * their 70% is of a larger base than the engine will use.
+     */
+    description: "A share of the adjusted net — revenue less deductions and anything off the top.",
     structure: "door_split",
     type: "performance",
   },
@@ -189,6 +196,135 @@ export function dealTypeForKind(kind: DealKind, parties: readonly DealPartyDraft
     (party) => party.participantId !== "" && ENTITLED_ROLES.includes(party.roleInDeal),
   );
   return entitled.length > 1 ? "split" : base;
+}
+
+/**
+ * A STORED deal read back into the KIND it was composed as — the inverse of
+ * `structureForKind` + `dealTypeForKind`, for opening an existing deal in the composer
+ * (QA8-1).
+ *
+ * MATCHED ON THE PAIR, and it has to be: `structure: "guarantee"` is *Guarantee* under
+ * `performance` and *Fee for a service* under `fee`, so the shape alone cannot name the kind.
+ * `dealKindLabel` below already knew this — same reason, same lookup.
+ *
+ * A `split` type falls back to its shape, because `dealTypeForKind` UPGRADES `performance`
+ * to `split` the moment a second party is entitled: a two-act door split is stored
+ * `split` + `door_split` and was composed as the `door_split` kind. Matching the shape
+ * recovers that, which is what makes the round trip hold.
+ *
+ * Unrecognised, or `structure: null`, is `paper_only` — the kind that states no shape, which
+ * is exactly what an unreadable pair amounts to.
+ */
+export function dealKindOf(type: string, structure: string | null): DealKind {
+  if (structure == null) return "paper_only";
+  const exact = DEAL_KIND_OPTIONS.find(
+    (option) => option.structure === structure && option.type === type,
+  );
+  if (exact) return exact.value;
+  const byShape = DEAL_KIND_OPTIONS.find((option) => option.structure === structure);
+  return byShape?.value ?? "paper_only";
+}
+
+/**
+ * A deal as the API serves it — the fields `dealDraftFrom` needs and nothing else.
+ *
+ * Structural on purpose: `@showme/shared` must not import the generated client, and a
+ * narrow shape is also the honest contract — this reads a deal's TERMS, not a deal.
+ */
+export interface StoredDealTerms {
+  type: string;
+  structure: string | null;
+  name: string | null;
+  currency: string | null;
+  /** Minor units as a string, the way money crosses the wire (`docs/money.md`). */
+  guaranteeAmount: string | null;
+  advanceAmount: string | null;
+  splitBasisPoints: number | null;
+  paymentTiming: string | null;
+  parties: readonly {
+    participantId: string;
+    roleInDeal: string;
+    /**
+     * `{ splitBasisPoints }` where the deal divides between several parties.
+     *
+     * OPTIONAL, matching the wire: the API marks it optional-and-nullable, and a party on a
+     * single-payee deal has no share at all. `shareBasisPointsOf` reads both absences the same.
+     */
+    share?: unknown;
+  }[];
+  /** `deals.terms` — the ladder and the bonus, in `DealTermsBody`'s own shape. */
+  terms?: unknown;
+}
+
+/**
+ * A STORED deal back into a composer DRAFT — the inverse of `createDealPayload` (QA8-1).
+ *
+ * `useDealComposer` seeds from `emptyDealDraft`, so editing an existing deal needs this and
+ * nothing else. It is also the one place in this change where a money bug could hide, because
+ * the draft and the wire disagree about units on purpose:
+ *
+ *   · `guaranteeAmount` / `advanceAmount` are MINOR units on the wire and major-unit strings
+ *     as typed — `minorToDecimalString`, which is `majorToMinor`'s exact inverse and reads the
+ *     currency's exponent. Never a hard-coded ÷100: `docs/money.md`, and a JPY guarantee would
+ *     come back a hundred times too small.
+ *   · `splitBasisPoints` is an integer where the draft holds a typed percent —
+ *     `basisPointsToPercent`, the same function every screen displays a split with.
+ *
+ * A blank field is "" rather than "0": the draft is what somebody typed, and `amountToMinor`
+ * reads "" as absent. Writing "0" would turn an absent advance into a stated zero, which is a
+ * different deal.
+ */
+export function dealDraftFrom(deal: StoredDealTerms, fallbackCurrency: string): DealDraft {
+  const currency = deal.currency ?? fallbackCurrency;
+  const major = (minorUnits: string | null): string =>
+    minorUnits == null ? "" : minorToDecimalString({ amount: BigInt(minorUnits), currency });
+
+  const parties: DealPartyDraft[] = deal.parties.map((party, index) => {
+    const share = shareBasisPointsOf(party.share);
+    return {
+      key: `stored-${index}`,
+      participantId: party.participantId,
+      roleInDeal: party.roleInDeal as DealPartyRole,
+      sharePercent: share == null ? "" : basisPointsToPercent(share),
+    };
+  });
+
+  /*
+   * `deals.terms` as the API stores it (`DealTermsBody`): a flat `bonusThreshold` /
+   * `bonusAmount` pair of minor-unit STRINGS, not a nested `bonus` object. The round-trip
+   * test is what said so — the first version of this read a shape that does not exist and
+   * silently returned blanks, which would have dropped a bonus on every edit.
+   */
+  const stored = (deal.terms ?? null) as {
+    escalators?: { thresholdSold?: number; splitBasisPoints?: number }[];
+    bonusThreshold?: string;
+    bonusAmount?: string;
+  } | null;
+  const escalators: DealEscalatorDraft[] = (stored?.escalators ?? [])
+    .filter(
+      (band): band is { thresholdSold: number; splitBasisPoints: number } =>
+        typeof band.thresholdSold === "number" && typeof band.splitBasisPoints === "number",
+    )
+    .map((band, index) => ({
+      key: `stored-band-${index}`,
+      thresholdSold: String(band.thresholdSold),
+      splitPercent: basisPointsToPercent(band.splitBasisPoints),
+    }));
+
+  return {
+    name: deal.name ?? "",
+    type: deal.type as DealType,
+    structure: deal.structure as DealStructure | null,
+    currency,
+    guaranteeAmount: major(deal.guaranteeAmount),
+    splitPercent: deal.splitBasisPoints == null ? "" : basisPointsToPercent(deal.splitBasisPoints),
+    advanceAmount: major(deal.advanceAmount),
+    paymentTiming: (deal.paymentTiming ?? "at_settlement") as PaymentTiming,
+    parties,
+    escalators,
+    bonusThreshold: major(stored?.bonusThreshold ?? null),
+    bonusAmount: major(stored?.bonusAmount ?? null),
+  };
 }
 
 /**
