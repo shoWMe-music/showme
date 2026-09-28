@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { formatMoney } from "../lib/format";
 import {
+  describeBasis,
   entitlementGapSentence,
   entitlementRules,
   matchingSettlements,
@@ -551,5 +553,89 @@ describe("ownFigureLabel", () => {
     // Nothing moves either way, and a labelled zero says that without a sentence of
     // its own. "You owe SEK 0" would invent a debt.
     expect(ownFigureLabel("neutral")).toBe("Your payout");
+  });
+});
+
+/**
+ * ONE SENTENCE, ONE BASIS FOR COMPARISON (QA sweep run 7, QA7-24).
+ *
+ * Previewed in another currency, every amount on the card converts and carries `≈`, while
+ * this sentence rendered the contract's figures in the deal's own payout currency — so a
+ * card read *"The 70% door share beats the SEK 18,000 guarantee"* beside `≈ €6,731`,
+ * inviting a comparison across two currencies. A contract figure now carries both, payout
+ * currency first, because that is the number in the agreement and a live rate is cosmetic
+ * (`docs/money.md`).
+ */
+describe("describeBasis — a contract figure in a converted card", () => {
+  /*
+   * `Intl.NumberFormat` puts a NON-BREAKING space (U+00A0) between a currency code and its
+   * number, so `formatMoney` returns "SEK\u00a018,000" and a naive string comparison
+   * against a typed "SEK 18,000" fails while printing two identical-looking values. Worth
+   * one line in every test that compares formatted money, and worth knowing before chasing
+   * a difference that renders as nothing.
+   */
+  const plain = (text: string) => text.replace(/\u00a0/g, " ");
+  const basis = {
+    kind: "guarantee_vs_door",
+    won: "door",
+    basisPoints: 7000,
+    guarantee: "1800000",
+  } as unknown as Parameters<typeof describeBasis>[0];
+
+  it("names only the payout currency when nothing is being converted", () => {
+    // Every caller on a card in its own currency, which is the ordinary case.
+    expect(plain(describeBasis(basis, "SEK"))).toBe(
+      "The 70% door share beats the SEK 18,000 guarantee",
+    );
+  });
+
+  it("is unchanged when the converting formatter agrees with the payout rendering", () => {
+    /*
+     * THE REAL DEFAULT, not a lookalike. `formatAmount` defaults to
+     * `(minor) => formatMoney(minor, currency)`, and a card previewing its OWN currency
+     * must not sprout a parenthetical repeating itself.
+     *
+     * A hand-rolled formatter here passed a plain space where `Intl` emits U+00A0, so the
+     * two renderings differed by an invisible character and the parenthetical appeared —
+     * a test failing over the thing it was written to prove absent. Comparing against the
+     * function the caller actually passes is the only version of this that means anything.
+     */
+    const same = (minor: string) => formatMoney(minor, "SEK");
+    expect(plain(describeBasis(basis, "SEK", same))).toBe(
+      "The 70% door share beats the SEK 18,000 guarantee",
+    );
+  });
+
+  it("carries both figures when the card is previewed in another currency", () => {
+    const toEuros = () => "≈ €1,554";
+    expect(plain(describeBasis(basis, "SEK", toEuros))).toBe(
+      "The 70% door share beats the SEK 18,000 (≈ €1,554) guarantee",
+    );
+  });
+
+  it("does the same on the guarantee arm and on a named base", () => {
+    const toEuros = () => "≈ €4,315";
+    const guaranteeWon = { ...basis, won: "guarantee" } as typeof basis;
+    expect(plain(describeBasis(guaranteeWon, "SEK", toEuros))).toContain("SEK 18,000 (≈ €4,315)");
+
+    const doorSplit = {
+      kind: "door_split",
+      basisPoints: 2000,
+      base: "5000000",
+    } as unknown as Parameters<typeof describeBasis>[0];
+    expect(plain(describeBasis(doorSplit, "SEK", toEuros))).toBe(
+      "20% of the adjusted net SEK 50,000 (≈ €4,315)",
+    );
+  });
+
+  it("leaves a redacted base alone — there is no figure to convert", () => {
+    // story.md:44 — a party who may not read the event's takings gets the rule and no
+    // figure, and adding a parenthetical to a missing number is the obvious wrong turn.
+    const redacted = {
+      kind: "door_split",
+      basisPoints: 2000,
+      base: null,
+    } as unknown as Parameters<typeof describeBasis>[0];
+    expect(plain(describeBasis(redacted, "SEK", () => "≈ €1"))).toBe("20% of the adjusted net");
   });
 });

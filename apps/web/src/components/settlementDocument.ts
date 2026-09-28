@@ -385,12 +385,38 @@ export type SettlementApproval = EventSettlements["approvals"][number];
  * comparison paid, not a comparison redone here against figures that may have
  * been rounded for display.
  */
-export function describeBasis(basis: EntitlementLine["basis"], currency: string): string {
+export function describeBasis(
+  basis: EntitlementLine["basis"],
+  currency: string,
+  /**
+   * The CONVERTING formatter, when the card is being previewed in another currency
+   * (QA sweep run 8's QA7-24 re-read).
+   *
+   * Without it this sentence rendered its operands in the deal's payout currency while
+   * every amount around it was converted, so a card previewed in EUR read *"The 70% door
+   * share beats the **SEK 18,000** guarantee"* beside `≈ €6,731` and `≈ €4,013` — one
+   * sentence inviting a comparison across two currencies.
+   *
+   * Given it, a contract figure carries BOTH: `SEK 18,000 (≈ €1,554)`. The payout currency
+   * stays first and stays authoritative, because that is the number in the agreement and
+   * `docs/money.md` makes a live rate cosmetic — it never settles anything. Omitted, or
+   * identical to the payout rendering, the sentence is unchanged, which is every caller on
+   * a card that is not being previewed.
+   */
+  convert?: (minorUnits: string) => string,
+): string {
+  /** A figure the AGREEMENT states: its own currency, and the reader's beside it. */
+  const contract = (minorUnits: string): string => {
+    const own = formatMoney(minorUnits, currency);
+    if (!convert) return own;
+    const shown = convert(minorUnits);
+    return shown === own ? own : `${own} (${shown})`;
+  };
   switch (basis.kind) {
     case "guarantee":
-      return `Guaranteed ${formatMoney(basis.guarantee, currency)}`;
+      return `Guaranteed ${contract(basis.guarantee)}`;
     case "rental":
-      return `Rental of ${formatMoney(basis.rental, currency)}, settled off the top`;
+      return `Rental of ${contract(basis.rental)}, settled off the top`;
     case "door_split":
       // The base is redacted for a party who may not read the event's takings
       // (story.md:44), so the sentence names the RULE and drops the figure rather
@@ -403,18 +429,34 @@ export function describeBasis(basis: EntitlementLine["basis"], currency: string)
       // being paid a share of, when every cost has.
       return basis.base == null
         ? `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net`
-        : `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net ${formatMoney(basis.base, currency)}`;
+        : `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net ${contract(basis.base)}`;
     case "guarantee_vs_door":
       // "the door share" NAMES THE ARM of the deal, which is the design's own
       // phrasing ("70% door beats €50,000 gtee") and the industry's. It is not a
       // claim about the base — that is the adjusted net, and the `door_split`
       // sentence above says so where the figure itself is being described.
       return basis.won === "door"
-        ? `The ${basisPointsToPercent(basis.basisPoints)}% door share beats the ${formatMoney(basis.guarantee, currency)} guarantee`
-        : `The ${formatMoney(basis.guarantee, currency)} guarantee beats the ${basisPointsToPercent(basis.basisPoints)}% door share`;
+        ? `The ${basisPointsToPercent(basis.basisPoints)}% door share beats the ${contract(basis.guarantee)} guarantee`
+        : `The ${contract(basis.guarantee)} guarantee beats the ${basisPointsToPercent(basis.basisPoints)}% door share`;
     default:
       return "A paper agreement — nothing for the settlement to compute";
   }
+}
+
+/**
+ * The DEAL's own total, in the agreement's currency with the reader's beside it — the same
+ * rule `describeBasis`'s `contract` applies, for the other contract figure that shares the
+ * sentence with it (QA7-24). "…60% of the deal's SEK 50,000" sat in the same breath as a
+ * converted guarantee, so treating one and not the other would only move the mismatch.
+ */
+function dealTotalText(
+  minorUnits: string,
+  currency: string,
+  convert: (minorUnits: string) => string,
+): string {
+  const own = formatMoney(minorUnits, currency);
+  const shown = convert(minorUnits);
+  return shown === own ? own : `${own} (${shown})`;
 }
 
 /** A label ↔ amount pair explaining one component of an entitlement. */
@@ -487,12 +529,12 @@ export function entitlementRules(
           // paid 30,000 and 20,000 (QA sweep, 2026-09-27). A settlement snapshotted
           // before the engine carried it says "your share" as it always did, which is
           // true and vague rather than precise and wrong.
-          `${describeBasis(line.basis, currency)} — ${
+          `${describeBasis(line.basis, currency, formatAmount)} — ${
             line.partyBasisPoints != null
               ? `${whose} ${basisPointsToPercent(line.partyBasisPoints)}% of`
               : `${whose} share of`
-          } the deal's ${formatMoney(line.dealTotal, currency)}`
-        : describeBasis(line.basis, currency),
+          } the deal's ${dealTotalText(line.dealTotal, currency, formatAmount)}`
+        : describeBasis(line.basis, currency, formatAmount),
       value: formatAmount(line.amount),
     });
     if (line.bonus != null && line.bonus !== "0") {

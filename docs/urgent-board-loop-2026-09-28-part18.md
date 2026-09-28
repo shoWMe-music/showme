@@ -289,3 +289,48 @@ actually the co-host legitimately not being a party to the deal (their costs rea
 Worth keeping as a method note: *an absent element is the weakest possible evidence*, because
 everything from a wrong account to a failed render produces it. It only counts beside the positive
 case on the same screen, which is what the two rows above are.
+
+---
+
+## QA7-24 — one sentence comparing two currencies
+
+**Which file settles it:** `apps/web/src/components/settlementDocument.ts` — `describeBasis`, plus
+the deal total that shares its sentence.
+
+**Verdict: real, and the cause is which formatter the sentence used.** Every amount on a card
+previewed in another currency goes through the CONVERTING formatter and carries `≈`;
+`describeBasis` called `formatMoney(x, currency)` directly, the deal's payout currency. So a card
+in EUR read *"The 70% door share beats the **SEK 18,000** guarantee"* beside `≈ €6,731` and
+`≈ €4,013` — inviting a comparison across two currencies, in one breath.
+
+**Both figures, payout currency first.** Keeping the contract's own number is right — it is the
+number in the agreement, and `docs/money.md` makes a live rate cosmetic, never settling anything.
+Dropping it for the conversion would be worse than the bug. So the sentence carries
+`SEK 18,000 (≈ €1,553)`, and the deal total in the same sentence gets the same treatment, because
+treating one and not the other only moves the mismatch.
+
+Nothing changes on a card in its own currency: `contract()` compares the two renderings and returns
+the bare one when they match, which is every caller that passes `formatAmount`'s default. A
+**redacted** base (story.md:44 — a party who may not read the takings) has no figure, and gains no
+parenthetical.
+
+### Proven on the running stack
+
+Spring Warmup as `operator@`, the same card in both currencies:
+
+| preview | the sentence |
+|---|---|
+| SEK | *"The 70% door share beats the SEK 18,000 guarantee"* — unchanged, no parenthetical |
+| EUR | *"The 70% door share beats the **SEK 18,000 (≈ €1,553)** guarantee"*, beside `≈ €4,013` |
+
+Five tests, four mutations red (never converted · only the converted figure · a parenthetical
+repeating an identical rendering · a redacted base gaining one).
+
+**Two test-writing notes from this, both worth more than the fix.** `Intl.NumberFormat` puts a
+**non-breaking space** (U+00A0) between a currency code and its number, so `formatMoney` returns
+`"SEK 18,000"` and a comparison against a typed `"SEK 18,000"` fails while printing two
+identical-looking values. And the assertion for *"no parenthetical when nothing is converted"*
+first used a hand-rolled lookalike formatter with a plain space — which differed from the real one
+by that invisible character, so the parenthetical appeared and the test failed over the very thing
+it was written to prove absent. It compares against `formatMoney` itself now. **A test that fakes
+the function under comparison is testing the fake.**
