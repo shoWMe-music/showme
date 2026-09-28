@@ -933,6 +933,33 @@ export function useBudgetEditor(
     [lines],
   );
 
+  /**
+   * A PRIVATE BOOK REPORTS ITS OWN LINES AND NOTHING ELSE (QA sweep run 7, QA7-3).
+   *
+   * `PLAN.md:215`: an event has one `shared` ledger, and a `private` book is *"the extra
+   * an operator MAY ALSO keep"*. An extra that arrives pre-filled with the shared book's
+   * numbers is not an extra, it is a second and wrong copy — and that is what a private
+   * book with **zero rows** was showing:
+   *
+   *   TOTAL REVENUE SEK 10,000 · TOTAL COSTS SEK 60,150 · PROFIT / LOSS −SEK 50,150
+   *
+   * Three books on one screen: the revenue was `events.extras.ticketTiers` (event scope),
+   * the SEK 60,000 cost was the fee derived from the SHARED ledger's door, and the book
+   * itself was empty. The headline was a figure about nothing.
+   *
+   * So the two SEEDS below stop applying here — the fee read from the deal, and the
+   * event's ticket tiers. Both are facts about the NIGHT, and the night's book is the
+   * shared one. A stored line is untouched either way: it is the operator's own assertion
+   * and already outranks any seed, which is the rule that makes this safe.
+   *
+   * WHAT IS DELIBERATELY UNCHANGED: the derived fee is still event-scoped, and the
+   * "HOW TICKET REVENUE SPLITS" card still reads the same in either book — #23.2 is right
+   * that a fee derived from whichever slice of revenue the reader happens to be looking at
+   * "is not the performer's fee and never will be". That argument is about what the fee
+   * IS. It never licensed folding it into an empty book's costs.
+   */
+  const isPrivateBook = budget != null && budget.scope !== "shared";
+
   const serverCosts = useMemo<CostDraft[]>(() => {
     const costLines = lines.filter((line) => line.kind === "cost");
     const byHeading = new Map(costLines.map((line) => [costHeadingOf(line.label), line]));
@@ -943,9 +970,11 @@ export function useBudgetEditor(
     const dealsAlreadyOnTheSheet = new Set(
       costLines.map((line) => line.dealId).filter((id): id is string => typeof id === "string"),
     );
-    const feesToRead = seedSource.performerFees.filter(
-      (fee) => !dealsAlreadyOnTheSheet.has(fee.dealId),
-    );
+    const feesToRead = isPrivateBook
+      ? // The act's fee is the night's cost, and the night's book is the shared ledger
+        // (QA7-3). Seeding it here printed a PROFIT / LOSS for a book holding nothing.
+        []
+      : seedSource.performerFees.filter((fee) => !dealsAlreadyOnTheSheet.has(fee.dealId));
 
     const standard = STANDARD_COST_HEADINGS.map((heading) => {
       const line = byHeading.get(heading);
@@ -1050,7 +1079,7 @@ export function useBudgetEditor(
         };
       });
     return [...standard, ...custom];
-  }, [lines, seedSource]);
+  }, [lines, seedSource, isPrivateBook]);
 
   /**
    * Everything the draft is seeded from, in one value. Grouping it means the
@@ -1120,7 +1149,13 @@ export function useBudgetEditor(
       quantity: (tier.est || tier.max || 0) > 0 ? String(tier.est || tier.max) : "",
       originTierId: tier.id,
     }));
-    const merged = mergeTicketTierSeeds(serverTiers, eventTiers, dismissedSeeds);
+    // The door belongs to the night, so the event's tiers seed the SHARED ledger only
+    // (QA7-3) — offering them in a private book counts the same tickets in two books.
+    const merged = mergeTicketTierSeeds(
+      serverTiers,
+      isPrivateBook ? [] : eventTiers,
+      dismissedSeeds,
+    );
     const tiers =
       merged.length > 0
         ? merged
@@ -1175,6 +1210,9 @@ export function useBudgetEditor(
     otherRevenueLine,
     processing,
     seedSource,
+    // The scope decides whether the event's tiers seed at all (QA7-3), so switching book
+    // must re-seed rather than carry the shared ledger's suggestions across.
+    isPrivateBook,
   ]);
 
   const [tiers, setTiers] = useState<TicketTierDraft[]>(seed.tiers);
