@@ -88,6 +88,7 @@ export {
   FALLBACK_CURRENCY,
   currencyExponent,
   currencyForCountry,
+  isCurrencyCode,
   currencyOptionsForCountry,
   defaultCurrencyForCountry,
 } from "./currencies";

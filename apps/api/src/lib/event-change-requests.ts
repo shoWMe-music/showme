@@ -1,10 +1,11 @@
 import { liveEventDelegationsForEvents } from "@showme/auth";
 import { schema } from "@showme/db";
-import { notifyProfileMembers } from "@showme/db/notify";
+import { eventParticipantRecipients, notifyProfileMembers, notifyUsers } from "@showme/db/notify";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyRequest } from "fastify";
 import { writeActivity } from "./activity";
 import type { Transaction } from "./audit";
+import { eventChangeNotice } from "./event-change-notice";
 
 /**
  * CHANGING A NIGHT SOMEBODY HAS ALREADY AGREED TO.
@@ -654,6 +655,102 @@ export async function answerChangeRequest(
 
     return { status: outcome };
   });
+}
+
+/**
+ * TELL THE BILL THE NIGHT ACTUALLY MOVED — QA sweep run 6 (QA6-2).
+ *
+ * The asymmetry the sweep measured: changing a show's **capacity** wrote five
+ * `event.updated` notifications, and moving its **date** wrote one — to the person
+ * who had asked for the move and therefore already knew. Nobody else's bell rang.
+ *
+ * The cause is structural rather than an oversight about who matters. The
+ * negotiated fields are stripped out of the ordinary PATCH and applied here
+ * instead, so they never reach the `eventChangeNotice` call in `routes/events.ts`
+ * that tells everyone about an edit; the only notifier on this path was
+ * `notifyProposer`. Ran's line on `86cbcftg3` is *"the system should always notify
+ * the users of any change"*, and the file above says the crew *"are still TOLD …
+ * their call time depends on the night"* — which was true of the Everyone thread
+ * and false of the bell.
+ *
+ * So this is the same notice the ordinary edit sends, on the path that applies a
+ * negotiated one, with the same wording rules: field NAMES and not values.
+ *
+ * TWO PEOPLE ARE LEFT OUT, both because they already have a better message:
+ *  - the ACTOR, the party who just confirmed — `eventParticipantRecipients` drops
+ *    them, exactly as the ordinary edit drops whoever saved;
+ *  - the PROPOSER, who gets `event.change_confirmed` from `notifyProposer` — "the
+ *    date moved, everyone agreed". A second bell reading "the date changed"
+ *    underneath it is noise on top of the message that mattered, which is the
+ *    reasoning `event-change-notice.ts` already applies to a cancellation.
+ *
+ * Only on `confirmed`. A declined proposal changed nothing, so there is nothing to
+ * announce to a bill that never saw it; the proposer's own notice carries the no.
+ */
+export async function notifyBillChangeApplied(
+  request: FastifyRequest,
+  input: {
+    eventId: string;
+    proposerProfileId: string | null;
+    changes: NegotiatedValues;
+  },
+): Promise<void> {
+  const { database } = request.server;
+  const actorUserId = request.principal?.userId ?? null;
+
+  const [event] = await database
+    .select({ title: schema.events.title })
+    .from(schema.events)
+    .where(eq(schema.events.id, input.eventId));
+  if (!event) return;
+
+  // The same allow-list and the same sentence the ordinary edit uses. A negotiated
+  // change never carries the title (`NEGOTIATED_FIELDS` is the date, the venue and
+  // the room), so both titles are the current one and it reads "was updated".
+  const notice = eventChangeNotice(Object.keys(input.changes), {
+    title: event.title,
+    previousTitle: event.title,
+  });
+  if (!notice) return;
+
+  try {
+    const recipients = await eventParticipantRecipients(database, input.eventId, actorUserId);
+    const proposerMembers = input.proposerProfileId
+      ? await database
+          .select({ userId: schema.profileMembers.userId })
+          .from(schema.profileMembers)
+          .where(
+            and(
+              eq(schema.profileMembers.profileId, input.proposerProfileId),
+              eq(schema.profileMembers.status, "active"),
+            ),
+          )
+      : [];
+    const alreadyTold = new Set(
+      proposerMembers
+        .map((row) => row.userId)
+        .filter((userId): userId is string => userId !== null),
+    );
+    const told = recipients.filter((userId) => !alreadyTold.has(userId));
+    if (told.length === 0) return;
+
+    await notifyUsers(database, told, actorUserId, {
+      type: "event.updated",
+      title: notice.title,
+      body: notice.body,
+      eventId: input.eventId,
+      // WHO, the other half of Ran's sentence — here it is whoever gave the last
+      // answer, because that answer is what applied the change.
+      actorDisplay: request.firebaseUser?.name ?? undefined,
+      link: `/events/${input.eventId}`,
+      metadata: { fields: notice.fields },
+    });
+  } catch (cause) {
+    request.log.error(
+      { err: cause, eventId: input.eventId },
+      "applied-change bill notification failed",
+    );
+  }
 }
 
 /** Tell the proposer what came back. Outside the transaction, as everywhere else. */

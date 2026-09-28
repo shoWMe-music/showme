@@ -31,6 +31,7 @@ import { eventChangeNotice } from "../lib/event-change-notice";
 import {
   BOOKING_PARTY_ROLES,
   NEGOTIATED_FIELDS,
+  type NegotiatedValues,
   answerChangeRequest,
   callerParticipantOrNull,
   changeNeedsAgreement,
@@ -39,6 +40,7 @@ import {
   hasAnswered,
   isEmptyChange,
   negotiatedChanges,
+  notifyBillChangeApplied,
   notifyProposer,
   openChangeRequest,
   proposeEventChange,
@@ -2051,6 +2053,19 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
           changes: open.changes,
           note: request.body.note,
         });
+        /*
+         * AND TELL THE REST OF THE BILL, when the change actually applied — QA sweep
+         * run 6 (QA6-2). The negotiated fields never reach the PATCH's own
+         * `eventChangeNotice`, so moving the night used to ring one bell, the
+         * proposer's. See `notifyBillChangeApplied` for who is left out and why.
+         */
+        if (outcome.status === "confirmed") {
+          await notifyBillChangeApplied(request, {
+            eventId: id,
+            proposerProfileId: open.proposedByProfileId,
+            changes: open.changes as NegotiatedValues,
+          });
+        }
       }
 
       return { status: outcome.status };

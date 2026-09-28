@@ -196,6 +196,50 @@ function realWorldEvents(): GoogleCalendarEvent[] {
   ];
 }
 
+/**
+ * THREE EVENTS THAT ARE INSIDE THE SYNC WINDOW WHATEVER TODAY IS.
+ *
+ * `realWorldEvents()` above is deliberately absolute — it carries the DST
+ * assertion (August at +02:00, November at +01:00 with the same wall clock), and
+ * that only means anything on fixed dates. But a test about the WINDOW cannot use
+ * it: the window is `now − 30 days … now + 400 days`, and `kullaberg-2026-08-28`
+ * sat exactly 30 days behind "today" for one day and fell out of it the next. The
+ * aged-out-cursor test went red at midnight on 2026-09-28 having passed all
+ * evening, with no code change of any kind (`SYNC_WINDOW_PAST_DAYS`,
+ * `lib/calendar-sync.ts`).
+ *
+ * So: relative days, and a test about a window that cannot be aged out by the clock.
+ */
+function eventsInsideWindow(): GoogleCalendarEvent[] {
+  const day = (offset: number) => {
+    const date = new Date(Date.now() + offset * 24 * 60 * 60 * 1000);
+    return date.toISOString().slice(0, 10);
+  };
+  return [
+    {
+      id: "window-soon",
+      status: "confirmed",
+      summary: "Inside the window, soon",
+      start: { dateTime: `${day(7)}T12:00:00Z`, timeZone: "Europe/Stockholm" },
+      end: { dateTime: `${day(7)}T13:00:00Z`, timeZone: "Europe/Stockholm" },
+    },
+    {
+      id: "window-later",
+      status: "confirmed",
+      summary: "Inside the window, later",
+      start: { dateTime: `${day(30)}T12:00:00Z`, timeZone: "Europe/Stockholm" },
+      end: { dateTime: `${day(30)}T13:00:00Z`, timeZone: "Europe/Stockholm" },
+    },
+    {
+      id: "window-latest",
+      status: "confirmed",
+      summary: "Inside the window, latest",
+      start: { dateTime: `${day(60)}T12:00:00Z`, timeZone: "Europe/Stockholm" },
+      end: { dateTime: `${day(60)}T13:00:00Z`, timeZone: "Europe/Stockholm" },
+    },
+  ];
+}
+
 beforeAll(async () => {
   harness = await startTestDatabase();
   google = createFakeGoogle();
@@ -555,13 +599,25 @@ describe("the second sync", () => {
   });
 
   it("falls back to a full re-listing when the cursor has aged out", async () => {
-    google.events = realWorldEvents();
+    // Relative dates: see `eventsInsideWindow`. With the absolute fixture, two of
+    // the three events drifted out of the 30-day lookback and this test's `deleted`
+    // count changed with the calendar rather than with the code.
+    google.events = eventsInsideWindow();
     await connect("connector");
     const [connection] = await harness.db.select().from(schema.calendarConnections);
     if (!connection) throw new Error("no connection");
+    // All three landed, so the re-listing below genuinely drops two.
+    expect(
+      (
+        await harness.db
+          .select()
+          .from(schema.calendarItems)
+          .where(eq(schema.calendarItems.externalSource, "google"))
+      ).length,
+    ).toBe(3);
 
     google.syncTokenExpired = true;
-    google.events = realWorldEvents().slice(0, 1);
+    google.events = eventsInsideWindow().slice(0, 1);
 
     const response = await app.inject({
       method: "POST",

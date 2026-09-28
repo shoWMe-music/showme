@@ -1812,6 +1812,134 @@ describe("events — a change to a booked night is a question", () => {
     expect(after.json().request).toBeNull();
   });
 
+  /**
+   * MOVING THE NIGHT RANG ONE BELL, AND IT BELONGED TO THE PERSON WHO ASKED
+   * (QA sweep run 6, QA6-2).
+   *
+   * Changing the capacity on the same event notified five people; moving the date
+   * notified the proposer. The negotiated fields are stripped out of the ordinary
+   * PATCH and applied by `answerChangeRequest`, so they never reached the
+   * `eventChangeNotice` call that tells the bill about an edit, and the only
+   * notifier on this path was `notifyProposer`.
+   */
+  it("tells the rest of the bill the night moved, and nobody twice", async () => {
+    const { event, operator } = await bookedEvent("bill");
+    // A third party who neither proposed nor answered: the crew member whose call
+    // time depends on the date and who has no vote on it.
+    const crew = await seedMemberWithSet(
+      "bill-crew",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_schedule_only,
+    );
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: crew.profileId,
+      role: "crew",
+      permissionSetId: crew.permissionSetId,
+      status: "confirmed",
+    });
+
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      // ACTING AS THE OPERATOR'S PROFILE, which is what the app always sends and
+      // what puts `proposedByProfileId` on the row. Without it the proposal has no
+      // proposer profile, `notifyProposer` sends nothing, and there is no duplicate
+      // for this rule to avoid — so the header is what makes the test test it.
+      headers: { ...auth("bill-op"), "x-profile-id": operator.profileId },
+      payload: { eventDate: "2026-09-19" },
+    });
+    const crid = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/change-request`,
+        headers: auth("bill-perf"),
+      })
+    ).json().request.id;
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${crid}/confirm`,
+      headers: auth("bill-perf"),
+      payload: {},
+    });
+
+    const notices = await harness.db
+      .select({
+        userId: schema.notifications.userId,
+        type: schema.notifications.type,
+        title: schema.notifications.title,
+        body: schema.notifications.body,
+      })
+      .from(schema.notifications)
+      .where(eq(schema.notifications.eventId, event.id));
+
+    // THE CREW MEMBER'S BELL, which is the whole of this finding.
+    const applied = notices.filter((row) => row.type === "event.updated");
+    expect(applied.map((row) => row.userId)).toEqual(["bill-crew"]);
+    // Names the field, never its value — the same rule the ordinary edit follows.
+    expect(applied[0]?.body).toBe("The date changed.");
+    expect(applied[0]?.title).toBe('"Roster Night" was updated');
+
+    // The PROPOSER keeps their own, better message and does not also get this one:
+    // "the date moved, everyone agreed" already says more than "the date changed".
+    const proposerTypes = notices.filter((row) => row.userId === "bill-op").map((row) => row.type);
+    expect(proposerTypes).toContain("event.change_confirmed");
+    expect(proposerTypes).not.toContain("event.updated");
+
+    // And the party who just answered gets no notice of their own answer — they
+    // are the actor, and `eventParticipantRecipients` drops them, exactly as the
+    // ordinary edit drops whoever pressed save. (They still hold the earlier
+    // notices about being added and about the proposal, which is why this asserts
+    // the TYPE rather than an empty list.)
+    expect(
+      notices.filter((row) => row.userId === "bill-perf" && row.type === "event.updated"),
+    ).toHaveLength(0);
+  });
+
+  it("says nothing to the bill when the change was declined", async () => {
+    // Nothing was applied, so there is nothing to announce to people who never saw
+    // the proposal; the proposer's own notice carries the no.
+    const { event } = await bookedEvent("nobill");
+    const crew = await seedMemberWithSet(
+      "nobill-crew",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_schedule_only,
+    );
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: crew.profileId,
+      role: "crew",
+      permissionSetId: crew.permissionSetId,
+      status: "confirmed",
+    });
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}`,
+      headers: auth("nobill-op"),
+      payload: { eventDate: "2026-09-19" },
+    });
+    const crid = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/change-request`,
+        headers: auth("nobill-perf"),
+      })
+    ).json().request.id;
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/change-request/${crid}/decline`,
+      headers: auth("nobill-perf"),
+      payload: { note: "We are on tour that week" },
+    });
+
+    const notices = await harness.db
+      .select({ userId: schema.notifications.userId, type: schema.notifications.type })
+      .from(schema.notifications)
+      .where(eq(schema.notifications.eventId, event.id));
+    expect(notices.filter((row) => row.type === "event.updated")).toHaveLength(0);
+    expect(notices.filter((row) => row.userId === "nobill-crew")).toHaveLength(0);
+  });
+
   it("leaves the night alone when the act declines, and keeps the reason", async () => {
     const { db } = harness;
     const { event } = await bookedEvent("no");
@@ -1838,10 +1966,20 @@ describe("events — a change to a booked night is a question", () => {
     expect(answered.json().status).toBe("declined");
     expect((await eventRow(event.id))?.eventDate).toBe("2026-09-12");
 
+    // SCOPED TO THIS EVENT. It was filtered on the type alone, which passed only
+    // while this was the suite's one declined change — a second declining test
+    // elsewhere in the file made it read somebody else's note (measured while
+    // adding one). A query that can answer with another test's row is not an
+    // assertion about this one.
     const [activity] = await db
       .select()
       .from(schema.activityLog)
-      .where(eq(schema.activityLog.type, "event.change_declined"));
+      .where(
+        and(
+          eq(schema.activityLog.type, "event.change_declined"),
+          eq(schema.activityLog.eventId, event.id),
+        ),
+      );
     expect((activity?.summary as { note?: string } | null)?.note).toBe("We fly out that morning");
   });
 

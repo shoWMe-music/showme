@@ -1,5 +1,6 @@
 import {
   type getApiV1ProfilesIdInvoices,
+  useGetApiV1Me,
   useGetApiV1ProfilesIdInvoices,
   usePostApiV1Invoices,
   usePostApiV1InvoicesIidIssue,
@@ -13,13 +14,13 @@ import {
   TextField,
   useToast,
 } from "@showme/design-system";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { KpiRow, SegmentedToggle } from "../components";
 import { DateTimeField } from "../components/DateTimeField";
 import { InvoiceDetailModal } from "../components/InvoiceDetailModal";
 import { InvoiceLedgerTable } from "../components/InvoiceLedgerTable";
-import { isInvoiceOverdue } from "../components/invoiceDocument";
+import { invoiceAmountDraft, isInvoiceOverdue } from "../components/invoiceDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import { errorMessage } from "../lib/errors";
 import { formatAmount, formatMoney } from "../lib/format";
@@ -249,7 +250,34 @@ function NewInvoiceModal({
   const [direction, setDirection] = useState<Direction>(initialDirection);
   const [party, setParty] = useState("");
   const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState("EUR");
+  /**
+   * THE ACCOUNT'S OWN CURRENCY, NEVER EUR — the same lesson this file already
+   * learned 190 lines above, at a surface that only DISPLAYED the wrong symbol
+   * (QA sweep run 6, QA6-17).
+   *
+   * This one stores it. The field was `useState("EUR")` with a second `|| "EUR"`
+   * at the submit, so an operator whose every event, deal, budget and settlement
+   * is SEK typed 2500 into a form pre-filled EUR and Postgres took
+   * `250000 | EUR` — a bill for €2,500 that nobody wrote. It survived a hard
+   * reload, because it was never session state.
+   *
+   * `GET /me` carries the account's chosen currency (the Base currency row in
+   * Settings → General writes it). Null means UNCHOSEN, and the KPI comment above
+   * settles what to do about that: name no currency rather than the wrong one. So
+   * an account with no currency cannot submit this form, and the field says why —
+   * refusing is the honest answer, and inventing EUR is what produced the defect.
+   */
+  const me = useGetApiV1Me();
+  const accountCurrency = me.data?.currency ?? null;
+  const [currency, setCurrency] = useState("");
+  const [currencyTouched, setCurrencyTouched] = useState(false);
+  // Seeded when `GET /me` lands, and never over a currency the user has typed —
+  // the same shape Settings uses for these two fields, and for the same reason:
+  // the value arrives after the first render.
+  useEffect(() => {
+    if (currencyTouched) return;
+    setCurrency(accountCurrency ?? "");
+  }, [accountCurrency, currencyTouched]);
   const [dueDate, setDueDate] = useState("");
 
   const create = usePostApiV1Invoices({
@@ -266,9 +294,11 @@ function NewInvoiceModal({
     },
   });
 
-  // The API stores money as minor units (integer string).
-  const minor = Math.round(Number(amount) * 100);
-  const canSubmit = party.trim().length > 0 && Number.isFinite(minor) && minor > 0;
+  // The currency rule and the minor-unit parse both live in `invoiceAmountDraft`,
+  // which refuses rather than guessing — see its comment for why either guess is
+  // the defect this replaces.
+  const draft = invoiceAmountDraft(amount, currency);
+  const canSubmit = party.trim().length > 0 && draft.problem === null;
 
   const submit = (formEvent: FormEvent) => {
     formEvent.preventDefault();
@@ -277,8 +307,8 @@ function NewInvoiceModal({
       data: {
         ownerProfileId: profileId,
         direction,
-        currency: currency.trim().toUpperCase() || "EUR",
-        total: String(minor),
+        currency: draft.code,
+        total: (draft.minor ?? 0n).toString(),
         ...(direction === "issued" ? { recipientRef: party.trim() } : { issuerRef: party.trim() }),
         ...(dueDate ? { dueDate: new Date(dueDate).toISOString() } : {}),
       },
@@ -335,7 +365,21 @@ function NewInvoiceModal({
             label="Currency"
             value={currency}
             maxLength={3}
-            onChange={(changeEvent) => setCurrency(changeEvent.target.value)}
+            placeholder={accountCurrency ?? "SEK"}
+            // Said out loud rather than defaulted: an account that has never
+            // chosen a base currency has no currency to put on a bill, and the
+            // one thing this form must not do is pick one for them.
+            hint={
+              draft.problem === "unknown-currency"
+                ? `${draft.code} isn't a currency we know.`
+                : draft.problem === "no-currency" && accountCurrency === null
+                  ? "Set a base currency in Settings → General, or type the one this bill is in."
+                  : undefined
+            }
+            onChange={(changeEvent) => {
+              setCurrencyTouched(true);
+              setCurrency(changeEvent.target.value);
+            }}
           />
         </div>
         <DateTimeField

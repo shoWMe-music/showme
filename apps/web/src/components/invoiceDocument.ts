@@ -1,4 +1,5 @@
 import type { Status } from "@showme/design-system";
+import { isCurrencyCode, majorToMinor } from "@showme/shared";
 
 /**
  * Pure readers for an invoice record, shared by the Bills & Invoices ledger row
@@ -118,4 +119,46 @@ export function lineItemTotalMinor(item: InvoiceLineItem): number | null {
   const unit = Number(item.unitAmountMinor);
   if (!Number.isFinite(unit)) return null;
   return unit * item.quantity;
+}
+
+/**
+ * WHAT A NEW BILL IS DENOMINATED IN, AND WHETHER IT CAN BE WRITTEN AT ALL
+ * (QA sweep run 6, QA6-17).
+ *
+ * The create form had `useState("EUR")` and a second `|| "EUR"` at the submit, so
+ * an operator whose every event, deal, budget and settlement is SEK typed 2500 and
+ * Postgres took `250000 | EUR`. It survived a hard reload, because the wrong
+ * currency was never session state — it was the default.
+ *
+ * Here rather than in the component for the reason every money rule in this repo
+ * is: the wrong answer does not throw, it stores a real number under a symbol
+ * nobody chose. Two rules, and both of them refuse rather than guess:
+ *
+ *  - **An unknown code is not a currency.** `majorToMinor` asks `currencyExponent`,
+ *    which throws — guessing an exponent is how ¥2,500 becomes ¥250,000.
+ *  - **No currency at all is not EUR.** The KPI strip on the same screen already
+ *    settled this in 2026-09-26's fix: *"zero in the wrong currency is a statement
+ *    about their money that happens to be false"*. A bill is worse — it is stored.
+ *
+ * The amount is parsed by `majorToMinor` from the decimal STRING, never
+ * `Number(amount) * 100`: that is a float multiplication on money, which
+ * `docs/money.md` forbids, over a hard-coded exponent of 2.
+ */
+export interface InvoiceAmountDraft {
+  /** The trimmed, upper-cased code — `""` when nothing has been typed or chosen. */
+  code: string;
+  /** Minor units, or null when there is no currency to interpret the amount in. */
+  minor: bigint | null;
+  /** Why this cannot be submitted, or null when it can. */
+  problem: "no-currency" | "unknown-currency" | "no-amount" | null;
+}
+
+export function invoiceAmountDraft(amount: string, currency: string): InvoiceAmountDraft {
+  const code = currency.trim().toUpperCase();
+  if (code === "") return { code, minor: null, problem: "no-currency" };
+  if (!isCurrencyCode(code)) return { code, minor: null, problem: "unknown-currency" };
+  const minor = majorToMinor(amount.trim() || "0", code);
+  // Zero and negative are both "no amount": a bill for nothing is not a bill, and a
+  // negative one is a credit note, which this form does not write.
+  return { code, minor, problem: minor > 0n ? null : "no-amount" };
 }

@@ -22,6 +22,19 @@ export const CURRENCIES = {
 
 export type CurrencyCode = keyof typeof CURRENCIES;
 
+/**
+ * Is `value` one of the currencies this platform knows?
+ *
+ * The guard that makes `currencyExponent` safe to call — it THROWS on an unknown
+ * code, deliberately, because guessing an exponent is how a ¥2,500 bill becomes
+ * ¥250,000. `isCountryCode` is its sibling in `countries.ts` and behaves the same
+ * way: case-insensitive on the way in, and a code with surrounding whitespace is
+ * not a code — trim first.
+ */
+export function isCurrencyCode(value: string): value is CurrencyCode {
+  return Object.hasOwn(CURRENCIES, value.toUpperCase());
+}
+
 /** The minor-unit exponent for a currency. Throws for an unknown code. */
 export function currencyExponent(currency: string): number {
   const info = (CURRENCIES as Record<string, CurrencyInfo>)[currency];

@@ -29,3 +29,11 @@
 .input::placeholder { color: var(--muted); }
 .input:focus { border-color: #EE5746; }
 .input:disabled { opacity: .5; cursor: not-allowed; }
+
+/* One line under the field — the same 12px `--dim` note `TagInput` draws, so the
+   two text atoms say this the same way. */
+.hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--dim);
+}
