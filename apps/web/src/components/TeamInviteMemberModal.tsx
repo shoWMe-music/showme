@@ -1,6 +1,12 @@
 import { usePostApiV1GroupsGidMembers, usePostApiV1Invitations } from "@showme/api-client";
 import { Button, Modal, Select, TextField } from "@showme/design-system";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import {
+  type MemberRole,
+  TEAM_INVITE_DEFAULT_ROLE,
+  TEAM_ROLES,
+  seatRefusalHint,
+} from "../hooks/useTeamAccess";
 import { errorMessage } from "../lib/errors";
 import { InviteNameFields, combineName } from "./InviteNameFields";
 import { Eyebrow } from "./primitives";
@@ -43,38 +49,19 @@ export interface TeamInviteMemberModalProps {
   onInvited: (invited: { email: string; profileId: string }) => void;
 }
 
-export interface RoleOption {
-  value: string;
-  label: string;
-  description: string;
-}
-
-/**
- * What each role is FOR (docs/decisions.md #12). `owner` is deliberately absent:
- * ownership is transferred, never invited. `admin` is the only one that costs a
- * seat — audit finding A-37 gates it behind a paid plan at BOTH invite and
- * redemption, so it is named as such here rather than discovered as a 403.
+/*
+ * THE ROLE CATALOGUE LIVES IN `useTeamAccess.ts`, AND ONLY THERE (QA7-15).
+ *
+ * This file used to hold a second copy, `ROLE_OPTIONS`, and the two had drifted into
+ * three separate falsehoods: it defaulted to `editor` (the first role a free plan
+ * refuses), it described Admin as the only role that costs a seat, and its refusal
+ * footnote told the reader Editor was included on every plan — inside the message
+ * explaining why Editor had just been refused. The API settles it:
+ * `SEAT_CONSUMING_ROLES = ["owner", "admin", "editor"]`, one seat on Free, held by the
+ * owner. CLAUDE.md's review gate calls this outcome by name: two copies eventually
+ * disagree. `TEAM_ROLES` was the correct one, so the copy is gone and its consumers
+ * read the catalogue.
  */
-export const ROLE_OPTIONS = [
-  { value: "viewer", label: "Viewer", description: "Reads the account. Changes nothing." },
-  { value: "editor", label: "Editor", description: "Edits events — not money, not members." },
-  { value: "crew", label: "Crew", description: "Event-assigned; sees only their own slice." },
-  {
-    value: "admin",
-    label: "Admin",
-    description:
-      "Everything the owner can do bar billing, ownership and deleting the account. Consumes a seat — paid plans only.",
-  },
-] as const satisfies readonly RoleOption[];
-
-/** The roles this UI may grant, as a union. `satisfies` above keeps the literal
- * types, so this stays in step with the list rather than restating it — and it
- * is what narrows a `<Select>`'s plain string back to something the API's enum
- * accepts (the generated request models are not re-exported from the client). */
-export type MemberRole = (typeof ROLE_OPTIONS)[number]["value"];
-
-/** Least authority that still lets a team member do the work they were invited for. */
-const DEFAULT_ROLE = "editor";
 
 const NO_GROUP = "";
 
@@ -88,7 +75,9 @@ function useTeamMemberInvite({
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [role, setRole] = useState(DEFAULT_ROLE);
+  // Widened to `MemberRole`, because the default is one literal and the `<Select>`
+  // emits any of them.
+  const [role, setRole] = useState<MemberRole>(TEAM_INVITE_DEFAULT_ROLE);
   const [groupId, setGroupId] = useState(NO_GROUP);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [groupProblem, setGroupProblem] = useState<string | null>(null);
@@ -107,7 +96,7 @@ function useTeamMemberInvite({
     setEmail("");
     setFirstName("");
     setLastName("");
-    setRole(DEFAULT_ROLE);
+    setRole(TEAM_INVITE_DEFAULT_ROLE);
     setGroupId(NO_GROUP);
     setRefusal(null);
     setGroupProblem(null);
@@ -195,7 +184,7 @@ export function TeamInviteMemberModal({
   onInvited,
 }: TeamInviteMemberModalProps) {
   const invite = useTeamMemberInvite({ open, profiles, defaultProfileId, onInvited });
-  const selectedRole = ROLE_OPTIONS.find((option) => option.value === invite.role);
+  const selectedRole = TEAM_ROLES.find((option) => option.value === invite.role);
   const targetProfile = profiles.find((profile) => profile.id === invite.profileId);
   const canSubmit = Boolean(invite.profileId) && invite.email.trim().length > 0 && !invite.pending;
 
@@ -281,14 +270,25 @@ export function TeamInviteMemberModal({
             <Eyebrow>Role</Eyebrow>
             <Select
               value={invite.role}
-              onChange={invite.setRole}
-              options={ROLE_OPTIONS.map((option) => ({
+              // The options below ARE `TEAM_ROLES`, so every value this can emit is a
+              // `MemberRole` — the narrowing is what lets the invite body satisfy the
+              // API's enum without a cast at the request itself.
+              onChange={(next) => invite.setRole(next as MemberRole)}
+              options={TEAM_ROLES.map((option) => ({
                 value: option.value,
                 label: option.label,
               }))}
               aria-label="Role"
             />
-            {selectedRole && <span style={hintStyle}>{selectedRole.description}</span>}
+            {selectedRole && (
+              <span style={hintStyle}>
+                {selectedRole.description}
+                {/* Said BEFORE they choose, the same way the Team access panel says it:
+                    a seat is a thing the plan sells, so running out should be a fact met
+                    on the way in rather than a 403 met on the way out. */}
+                {selectedRole.consumesSeat && " This role uses one of the account's seats."}
+              </span>
+            )}
           </div>
           {groups.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -311,11 +311,8 @@ export function TeamInviteMemberModal({
           {invite.refusal && (
             <Callout tone="danger">
               <span style={{ display: "block", fontWeight: 600 }}>{invite.refusal}</span>
-              {invite.role === "admin" && (
-                <span style={{ display: "block", marginTop: 4 }}>
-                  Admin is the one role that consumes a seat. Viewer, Editor and Crew are included
-                  on every plan — pick one of those, or upgrade this account's plan.
-                </span>
+              {selectedRole?.consumesSeat && (
+                <span style={{ display: "block", marginTop: 4 }}>{seatRefusalHint()}</span>
               )}
             </Callout>
           )}

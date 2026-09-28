@@ -1,8 +1,9 @@
 import { usePatchApiV1ProfilesIdMembersMid } from "@showme/api-client";
 import { Button, Modal, Select, TextField } from "@showme/design-system";
 import { type FormEvent, useEffect, useState } from "react";
+import { TEAM_ROLES, seatRefusalHint } from "../hooks/useTeamAccess";
 import { errorMessage } from "../lib/errors";
-import { Callout, ROLE_OPTIONS } from "./TeamInviteMemberModal";
+import { Callout } from "./TeamInviteMemberModal";
 import { Eyebrow } from "./primitives";
 
 /**
@@ -63,7 +64,7 @@ function useTeamMemberEdit({
     const trimmedName = displayName.trim();
     // The <Select> hands back a plain string; this is where it becomes a role
     // the API's enum accepts, or nothing at all.
-    const nextRole = ROLE_OPTIONS.find((option) => option.value === role)?.value;
+    const nextRole = TEAM_ROLES.find((option) => option.value === role)?.value;
     try {
       await patchMember.mutateAsync({
         id: member.profileId,
@@ -101,8 +102,7 @@ function useTeamMemberEdit({
 
 export function TeamMemberEditModal({ open, member, onClose, onSaved }: TeamMemberEditModalProps) {
   const edit = useTeamMemberEdit({ open, member, onSaved });
-  const selectedRole = ROLE_OPTIONS.find((option) => option.value === edit.role);
-  const promotingToAdmin = edit.role === "admin" && member?.role !== "admin";
+  const selectedRole = TEAM_ROLES.find((option) => option.value === edit.role);
 
   return (
     <Modal
@@ -142,22 +142,27 @@ export function TeamMemberEditModal({ open, member, onClose, onSaved }: TeamMemb
           <Select
             value={edit.role}
             onChange={edit.setRole}
-            options={ROLE_OPTIONS.map((option) => ({
+            options={TEAM_ROLES.map((option) => ({
               value: option.value,
               label: option.label,
             }))}
             aria-label="Role"
           />
-          {selectedRole && <span style={hintStyle}>{selectedRole.description}</span>}
+          {selectedRole && (
+            <span style={hintStyle}>
+              {selectedRole.description}
+              {selectedRole.consumesSeat && " This role uses one of the account's seats."}
+            </span>
+          )}
         </div>
         {edit.refusal && (
           <Callout tone="danger">
             <span style={{ display: "block", fontWeight: 600 }}>{edit.refusal}</span>
-            {promotingToAdmin && (
-              <span style={{ display: "block", marginTop: 4 }}>
-                Admin is the one role that consumes a seat. Viewer, Editor and Crew are included on
-                every plan — pick one of those, or upgrade this account's plan.
-              </span>
+            {/* Any seat-consuming role, not only Admin: Editor takes one too, and a
+                promotion to Editor was refused with a footnote saying it did not
+                (QA7-15). The sentence is derived from the catalogue now. */}
+            {selectedRole?.consumesSeat && (
+              <span style={{ display: "block", marginTop: 4 }}>{seatRefusalHint()}</span>
             )}
           </Callout>
         )}

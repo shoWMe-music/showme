@@ -59,7 +59,19 @@ export function EventRoomPicker({
           )
         }
         options={[
-          { value: NO_ROOM, label: "The whole venue" },
+          /*
+           * "NO SPECIFIC ROOM", not "The whole venue" (QA7-12).
+           *
+           * In a booking form "the whole venue" reads as taking the entire building, and
+           * that is not what this value means anywhere else in the app: `WHOLE_VENUE`'s
+           * own docstring calls it "any room here", the calendar filter labels it "All
+           * rooms", and the saved event renders "No room set". The API agrees with those
+           * three — a venue-wide question is busy only when EVERY room is taken
+           * (`routes/events.ts`) — so the booking form's label was the one word for this
+           * fact that meant the opposite of the other three, and it made the clash
+           * warning read as a contradiction.
+           */
+          { value: NO_ROOM, label: "No specific room" },
           ...rooms.map((room) => ({
             value: room.id,
             label: room.capacity == null ? room.name : `${room.name} · ${room.capacity} cap`,

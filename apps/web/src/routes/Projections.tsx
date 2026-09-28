@@ -271,10 +271,23 @@ function ProjectionsScreen() {
    * the filter, so sitting silently under filtered projections they read as the same
    * set.
    */
+  /*
+   * AND IT NAMES ITS SCOPE, AND STAYS AWAY WHEN IT HAS NOTHING TO COMPARE (QA7-16).
+   *
+   * Both figures are `WHERE events.host_profile_id = :id` (`routes/insights.ts`), while
+   * the panel above is participation-scoped. Read as "the same measure with the filter
+   * off" — which is what the old wording invited — it told `co.host@` *"SEK 0 across 0
+   * events you hosted"* directly under a panel saying SEK 83,000. The operator's own
+   * copy agrees with their panel, which is precisely why this hid: it is invisible from
+   * the seat the sentence was written in.
+   *
+   * Hosting nothing is not a scope difference worth stating, it is one side of the
+   * comparison being empty by definition — so the line is not drawn at all.
+   */
   const realizedNote =
-    revenue.data && summary.data ? (
+    revenue.data && summary.data && summary.data.eventsHosted > 0 ? (
       <div style={{ color: "var(--muted)", fontSize: 12.5 }}>
-        All time, ignoring the filter above: budgeted revenue{" "}
+        All time, as host — ignoring the filter above: budgeted revenue{" "}
         <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>
           {formatMoney(revenue.data.totalRevenue, currency)}
         </span>{" "}

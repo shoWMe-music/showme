@@ -67,20 +67,7 @@ export interface TeamRoleOption {
  * a second. Daniel, 2026-09-01: *"Freemium gets one admin seat the rest are all
  * view roles (team/crew). Paid gets two account Admins."*
  */
-export const TEAM_ROLES: TeamRoleOption[] = [
-  {
-    value: "admin",
-    label: "Admin",
-    description:
-      "Runs the account alongside you: events, deals, budgets, settlements, and who else is on the team.",
-    consumesSeat: true,
-  },
-  {
-    value: "editor",
-    label: "Editor",
-    description: "Creates and changes the work — events, deals and budgets — but not the team.",
-    consumesSeat: true,
-  },
+export const TEAM_ROLES = [
   {
     value: "viewer",
     label: "Viewer",
@@ -94,9 +81,66 @@ export const TEAM_ROLES: TeamRoleOption[] = [
       "On the team for scheduling: their calls and their own details, not the account's money.",
     consumesSeat: false,
   },
-];
+  {
+    value: "editor",
+    label: "Editor",
+    description: "Creates and changes the work — events, deals and budgets — but not the team.",
+    consumesSeat: true,
+  },
+  {
+    value: "admin",
+    label: "Admin",
+    description:
+      "Runs the account alongside you: events, deals, budgets, settlements, and who else is on the team.",
+    consumesSeat: true,
+  },
+] as const satisfies readonly TeamRoleOption[];
 
-const DEFAULT_ROLE = "viewer";
+/**
+ * LEAST AUTHORITY FIRST, so the first option is also the default and the one every
+ * plan permits (QA7-15). The invite dialog used to keep its own copy of this list in
+ * the opposite order and default to `editor` — the first role a free account is
+ * refused. The order is shared by all three pickers now, which is the point of there
+ * being one list.
+ */
+
+/** The roles this UI may grant, as a union — what narrows a `<Select>`'s plain string
+ * back to something the API's enum accepts. */
+export type MemberRole = (typeof TEAM_ROLES)[number]["value"];
+
+/**
+ * WHY A SEAT-CONSUMING ROLE WAS REFUSED — named from the catalogue, never beside it.
+ *
+ * Both team modals used to carry this as prose: *"Admin is the one role that consumes a
+ * seat. Viewer, Editor and Crew are included on every plan."* Editor consumes one too
+ * (`SEAT_CONSUMING_ROLES` on the API), so the sentence was false in the very message
+ * explaining the refusal — the third of three contradictions a duplicated role list had
+ * grown (QA7-15). Deriving it means the rule and the sentence cannot drift apart again:
+ * move a role's `consumesSeat` and this changes with it.
+ */
+export function seatRefusalHint(): string {
+  const label = (role: TeamRoleOption) => role.label;
+  const paid = TEAM_ROLES.filter((role) => role.consumesSeat).map(label);
+  const free = TEAM_ROLES.filter((role) => !role.consumesSeat).map(label);
+  return `${andList(paid)} each consume one of the account's seats. ${andList(free)} are included on every plan — pick one of those, or upgrade this account's plan.`;
+}
+
+/** "A and B" / "A, B and C" — for a sentence naming a set of roles. */
+function andList(items: readonly string[]): string {
+  if (items.length === 0) return "No roles";
+  if (items.length === 1) return items[0] as string;
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/**
+ * LEAST AUTHORITY, and the one role every plan permits (QA7-15).
+ *
+ * Exported so the invite dialog uses this default rather than keeping its own — which
+ * was `editor`, the first role a free account is refused.
+ */
+export const TEAM_INVITE_DEFAULT_ROLE: MemberRole = "viewer";
+
+const DEFAULT_ROLE = TEAM_INVITE_DEFAULT_ROLE;
 
 export interface TeamInviteForm {
   email: string;
@@ -143,7 +187,7 @@ export function useTeamAccess(profileId: string, canManage: boolean): TeamAccess
 
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState(DEFAULT_ROLE);
+  const [role, setRole] = useState<string>(DEFAULT_ROLE);
   const [refusal, setRefusal] = useState<string | null>(null);
 
   const enabled = Boolean(profileId);

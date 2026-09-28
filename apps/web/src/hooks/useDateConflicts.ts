@@ -68,7 +68,22 @@ export function useDateConflicts({
   const blocks = data?.unavailability ?? [];
   const roomIsBusy = data?.roomIsBusy ?? false;
 
-  const message = conflictMessage({ roomIsBusy, events, blocks });
+  /*
+   * `roomWasAsked` is the hook's to answer, not each caller's (QA7-12).
+   *
+   * QA7-4 added the flag and wired it into the request inbox, which asks
+   * `conflictMessage` directly. Every caller that comes through HERE kept the old
+   * sentence, because the parameter defaults to true — so the Create New Event dialog
+   * and the event workspace's banner both told an operator who had named no room that
+   * "this room is still free". The fact was already in this function: `stageId` is null
+   * exactly when nobody named a room.
+   */
+  const message = conflictMessage({
+    roomIsBusy,
+    events,
+    blocks,
+    roomWasAsked: Boolean(stageId),
+  });
 
   return {
     // Follows the MESSAGE, so a caller gating on this can never render a warning
