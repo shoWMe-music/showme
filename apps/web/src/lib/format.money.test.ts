@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAmount, formatMoney, formatMoneyExact } from "./format";
+import { absoluteMinor, formatAmount, formatMoney, formatMoneyExact } from "./format";
 
 /**
  * A CURRENCY'S MINOR UNIT IS NOT ALWAYS A HUNDREDTH (QA sweep run 3, 2026-09-26).
@@ -58,5 +58,36 @@ describe("formatAmount", () => {
 
   it("uses the currency's own exponent when the caller knows it", () => {
     expect(formatAmount("240000", "JPY")).toBe("240,000");
+  });
+});
+
+/**
+ * THE MAGNITUDE, FOR A LABEL THAT ALREADY NAMES THE DIRECTION (QA7-28).
+ *
+ * "You owe −SEK 45,000" reads as a credit. The sign comes off the raw minor units,
+ * because a formatted amount is free to put its minus anywhere the locale likes.
+ */
+describe("absoluteMinor", () => {
+  it("strips the sign from a negative amount", () => {
+    expect(absoluteMinor("-4500000")).toBe("4500000");
+  });
+
+  it("leaves a positive amount exactly as it was", () => {
+    expect(absoluteMinor("2700000")).toBe("2700000");
+  });
+
+  it("keeps a zero as a zero rather than a signed one", () => {
+    expect(absoluteMinor("-0")).toBe("0");
+  });
+
+  it("is exact past the safe-integer ceiling", () => {
+    // 2^53 is where a float starts losing whole minor units. BigInt does not.
+    expect(absoluteMinor("-9007199254740993")).toBe("9007199254740993");
+  });
+
+  it("returns anything that is not an integer string untouched", () => {
+    // The formatters already have a story for junk; this must not throw on the way.
+    expect(absoluteMinor("")).toBe("");
+    expect(absoluteMinor("SEK 45,000")).toBe("SEK 45,000");
   });
 });

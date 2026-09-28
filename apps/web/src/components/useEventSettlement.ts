@@ -22,7 +22,7 @@ import { dealKindLabel, eventParticipantRoleLabel } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { errorMessage } from "../lib/errors";
-import { formatMoney } from "../lib/format";
+import { absoluteMinor, formatMoney } from "../lib/format";
 import type { Transfer } from "./WhoOwesWhomBoard";
 import {
   type EntitlementRule,
@@ -115,7 +115,29 @@ export interface SettlementParty {
    * Null when nothing moved early.
    */
   prepaidLabel: string | null;
+  /**
+   * Whether the advance LOWERS what is still payable to this party (QA sweep run 7,
+   * QA7-10).
+   *
+   * The sign of `prepaid` carries the direction and `prepaidLabel` says it in words, but a
+   * card also has to decide whether to draw a minus — so the direction is resolved once,
+   * here, rather than by a renderer re-reading a formatted string.
+   *
+   * True for money this party already RECEIVED: their entitlement stands and the payout is
+   * that much smaller. False for money they already PAID OUT, which leaves them owed more.
+   */
+  prepaidReducesPayout: boolean;
   net: string | null;
+  /**
+   * The same figure with its sign stripped — for a label that already names the
+   * direction in words (QA7-28).
+   *
+   * "You owe −SEK 45,000" is a double negative and reads as a credit. The magnitude
+   * is taken off the RAW minor units and re-formatted, never by cutting a character
+   * off `net`: a formatted amount puts its minus wherever the locale wants it
+   * (`docs/money.md`).
+   */
+  netAbsolute: string | null;
   /** Raw minor units — for summing only. Never rendered. */
   netMinor: string | null;
   /**
@@ -1199,7 +1221,11 @@ function toParty(
     prepaid:
       computed?.prepaid != null && computed.prepaid !== "0" ? formatAmount(computed.prepaid) : null,
     prepaidLabel: prepaidLabelOf(computed, nameOf),
+    // A positive advance is money this party received — see `prepaidLabelOf`, where the
+    // same sign decides "by" against "to".
+    prepaidReducesPayout: !(computed?.prepaid ?? "0").startsWith("-"),
     net: computed ? formatAmount(computed.net) : null,
+    netAbsolute: computed ? formatAmount(absoluteMinor(computed.net)) : null,
     // The raw minor units alongside the formatted figure, ONLY so totals can be
     // summed as integers. Nothing renders this — `docs/money.md`: never do money
     // arithmetic on formatted text, and never through a float.

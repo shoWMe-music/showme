@@ -133,6 +133,48 @@ export function SettlementPartyCard({ party }: { party: SettlementParty }) {
           </span>
         </div>
       ))}
+      {/*
+        THE ADVANCE, WHICH EXPLAINED A GAP NOTHING ON THIS TAB MENTIONED
+        (QA sweep run 7, QA7-10).
+
+        Measured: an act's card itemised its 70% door share and its SEK 3,000 deduction
+        beautifully, showed an entitlement of SEK 67,000 — and the Total Payouts card two
+        inches away said SEK 62,000. The SEK 5,000 advance that accounts for the difference
+        appeared nowhere on the tab. The engine had it (`"prepaid":"500000"`), the label was
+        built (`prepaidLabelOf`), and `packages/settlement/src/types.ts:160` states the
+        requirement in as many words — *"'paid in advance by X' rather than printing a figure
+        with no counterparty"*. Nothing rendered either.
+
+        BELOW the rules and separated, because an advance is not part of the entitlement: the
+        rules above sum to the entitlement, and this explains the gap between that and the
+        payout. Folding it in would make the column stop adding up, which is the fault a
+        previous sweep found on this very card.
+      */}
+      {party.prepaid !== null && party.prepaidLabel !== null && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            padding: "7px 0 0",
+            marginTop: 3,
+            fontSize: 12.5,
+            color: "var(--muted)",
+            borderTop: "2px solid var(--border)",
+          }}
+        >
+          <span>{party.prepaidLabel}</span>
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              color: party.prepaidReducesPayout ? "var(--brand-red)" : "var(--text)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {party.prepaidReducesPayout ? `− ${party.prepaid}` : party.prepaid}
+          </span>
+        </div>
+      )}
     </Card>
   );
 }

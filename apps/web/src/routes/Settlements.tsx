@@ -140,8 +140,17 @@ function buildColumns(
        * distinction in words: *"As operator your share is retained; below are the
        * amounts payable to the other parties."* This column had borrowed the wrong half
        * of it.
+       *
+       * QA7-28 finishes the same argument on the other two branches. The reason "payout"
+       * is wrong here was never about the OPERATOR — it is that the column holds an
+       * entitlement, and an advance or a deduction moves a performer's payout away from
+       * it just as surely (an act entitled to SEK 30,000 against an advance of 3,000 is
+       * paid 27,000). The row carries `net` as well, but a column header cannot lean one
+       * way for one row and the other way for the next, so the honest fix is to name what
+       * the column actually holds for everybody. The signed figure, with a label that
+       * follows its direction, is on the event's Settlement tab.
        */
-      header: isOperator ? "Your share" : isSingleProfile ? "Your payout" : "Artist payout",
+      header: isOperator || isSingleProfile ? "Your share" : "Artist share",
       width: "1.1fr",
       align: "right",
       render: (row) => {

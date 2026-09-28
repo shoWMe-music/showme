@@ -70,6 +70,25 @@ export function formatMoneyExact(
 }
 
 /**
+ * The same minor-unit amount with its SIGN STRIPPED.
+ *
+ * For a figure whose direction is already named in words — "You owe SEK 45,000"
+ * rather than "You owe −SEK 45,000", which is a double negative and reads as a
+ * credit (QA7-28).
+ *
+ * It works on the raw minor units through `BigInt`, never by cutting a character
+ * off a formatted string: a locale is free to put the minus sign after the amount,
+ * inside the symbol, or use parentheses instead, so slicing a formatted amount is
+ * only correct until someone changes the locale. A value that is not an integer
+ * string is returned untouched, for the formatters to handle as they already do.
+ */
+export function absoluteMinor(amountMinor: string): string {
+  if (!/^-?\d+$/.test(amountMinor)) return amountMinor;
+  const value = BigInt(amountMinor);
+  return (value < 0n ? -value : value).toString();
+}
+
+/**
  * Format a minor-unit amount with NO currency symbol — for the case where the
  * denomination genuinely isn't known. Showing a number under the wrong symbol is
  * worse than showing it under none, so callers must use this instead of letting

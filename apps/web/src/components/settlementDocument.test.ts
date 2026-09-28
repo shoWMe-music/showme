@@ -3,6 +3,7 @@ import {
   entitlementGapSentence,
   entitlementRules,
   matchingSettlements,
+  ownFigureLabel,
   settlementTotals,
   withheldPayees,
 } from "./settlementDocument";
@@ -465,5 +466,29 @@ describe("entitlementRules — whose card is it", () => {
       name: "",
     }).map((rule) => rule.label);
     expect(labels).toContain("Plus the money that party collected on the night");
+  });
+});
+
+/**
+ * A NEGATIVE NET IS A DEBT, NOT A PAYOUT (QA7-28).
+ *
+ * The Settlement tab's headline used to be the reader's entitlement under a fixed
+ * "Your payout". An operator owing SEK 45,000 across two transfers read "SEK 0 ·
+ * Your payout"; an act entitled to 30,000 against a 3,000 advance read 30,000 while
+ * 27,000 moved. The figure is now the net, so the label has to follow its sign.
+ */
+describe("ownFigureLabel", () => {
+  it("calls money coming to the reader their payout", () => {
+    expect(ownFigureLabel("positive")).toBe("Your payout");
+  });
+
+  it("says a party with a negative net OWES, rather than calling it a payout", () => {
+    expect(ownFigureLabel("negative")).toBe("You owe");
+  });
+
+  it("leaves a settled zero labelled as a payout", () => {
+    // Nothing moves either way, and a labelled zero says that without a sentence of
+    // its own. "You owe SEK 0" would invent a debt.
+    expect(ownFigureLabel("neutral")).toBe("Your payout");
   });
 });

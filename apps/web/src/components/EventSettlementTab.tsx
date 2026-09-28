@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { PRO_FILING_AVAILABLE } from "../lib/proFilingAvailability";
 import { SettlementPartyCard } from "./SettlementPartyCard";
 import { Eyebrow } from "./primitives";
-import { settlementStatusToDisplay } from "./settlementDocument";
+import { ownFigureLabel, settlementStatusToDisplay } from "./settlementDocument";
 import { ErrorState, LoadingState } from "./states";
 import { useEventSettlement } from "./useEventSettlement";
 
@@ -41,7 +41,23 @@ export function EventSettlementTab({ eventId, currency, capabilities }: EventSet
   }
 
   const status = settlementStatusToDisplay(settlement.status);
-  const headline = settlement.ownParty?.entitlement;
+  /*
+   * WHAT MOVES, not what was earned (QA7-28).
+   *
+   * This read `ownParty.entitlement` under the fixed label "Your payout", and the
+   * two are the same figure only when nothing sits between them. Measured on the
+   * seed with an advance in place: the operator owed SEK 45,000 across two
+   * transfers and was shown "SEK 0 · Your payout", while the act's card directly
+   * below — which DOES account for the advance since QA7-10 — showed SEK 30,000
+   * against a transfer of SEK 27,000. The tab disagreed with itself by one line.
+   *
+   * `net` is the party's signed position and the transfers are drawn from it, so it
+   * is the only figure here that a reader can act on. Its sign decides the label,
+   * and the magnitude is what gets printed — `ownFigureLabel` carries that rule.
+   * The entitlement is not lost: it heads the party's own card below, where the
+   * rules that sum to it are.
+   */
+  const headline = settlement.ownParty?.netAbsolute;
   // The PRO filing is the operator's, and the ceiling refuses the capability to
   // everyone else (`OPERATOR_FILING_CAPABILITIES`). Asking for it here means the
   // link appears only for someone who could actually file — a pointer to a screen
@@ -80,7 +96,7 @@ export function EventSettlementTab({ eventId, currency, capabilities }: EventSet
               only mean nothing has been computed yet. */}
           <span className="muted">
             {settlement.ownParty
-              ? "Your payout"
+              ? ownFigureLabel(settlement.ownParty.netTone)
               : settlement.parties.length === 0
                 ? "This event hasn't been reconciled yet"
                 : "You are not a party to this settlement"}

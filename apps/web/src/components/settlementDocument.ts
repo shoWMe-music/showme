@@ -116,6 +116,29 @@ export function netToneOf(net: string): "positive" | "negative" | "neutral" {
   return value > 0 ? "positive" : "negative";
 }
 
+/**
+ * What the head of a settlement reads over the reader's OWN figure.
+ *
+ * The figure underneath is the party's NET — what actually moves — and a net can
+ * point either way, because `Σ net = 0` across the event. So the label has to name
+ * the direction: "Your payout" is a claim about money coming TO the reader, and it
+ * is false over a negative net.
+ *
+ * Measured 2026-09-28 (QA7-28): the Settlement tab labelled the reader's
+ * ENTITLEMENT "Your payout", and the two differ whenever anything sits between them
+ * — an advance, a deduction, cash the party is holding. An operator owing SEK 45,000
+ * to two acts was shown SEK 0 with the word "payout" beside it.
+ *
+ * The vocabulary is `ShareViewer`'s, which already says "You owe" about a transfer
+ * going the other way, rather than a third phrasing for the same fact.
+ *
+ * A zero keeps "Your payout": nothing moves, and a labelled zero says that without
+ * needing a sentence of its own.
+ */
+export function ownFigureLabel(netTone: "positive" | "negative" | "neutral"): string {
+  return netTone === "negative" ? "You owe" : "Your payout";
+}
+
 /** Up to two initials for an avatar. */
 export function initialsOf(label: string): string {
   return label
