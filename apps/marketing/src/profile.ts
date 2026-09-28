@@ -63,7 +63,7 @@
  * disclosure gets re-opened.
  */
 
-import { type VideoLink, parseVideoLink } from "@showme/shared";
+import { type VideoLink, parseVideoLink, socialPlatformLabel } from "@showme/shared";
 import {
   BOOKING_REQUEST_LABEL,
   type DateRequestPanel,
@@ -284,7 +284,11 @@ function readSocialLinks(value: unknown): PublicSocialLink[] {
     const platform = readString(source.platform);
     const url = readImageUrl(source.url);
     if (!platform || !url) continue;
-    links.push({ platform, url });
+    // The LABEL a reader should see, not the stored slug: these rows hold `spotify`
+    // and this page printed them verbatim, so the public chip read lower-case
+    // (QA sweep run 6, QA6-18). `socialPlatformLabel` hands an unlisted platform
+    // back unchanged, so nothing somebody typed is rewritten.
+    links.push({ platform: socialPlatformLabel(platform), url });
   }
   return links;
 }

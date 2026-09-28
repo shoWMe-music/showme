@@ -1,5 +1,6 @@
 import {
   Avatar,
+  Badge,
   Button,
   EmptyState,
   Icon,
@@ -582,7 +583,30 @@ function EventList({ rows, onOpen, menuItems }: EventViewProps) {
               {/* The truncation lives in the stylesheet rather than here, because
                   a phone undoes it — an inline style cannot be overridden by a
                   media query without `!important`. */}
-              <span className={styles.eventTitle}>{event.title}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                <span className={styles.eventTitle}>{event.title}</span>
+                {/*
+                  THE ONE STATE THE TABLE STILL HAS TO SAY (QA sweep run 6, QA6-10).
+
+                  The status COLUMN is gone by decision — Ran on `123qy9rpe3y` (*"No Cap
+                  Status needed"*), confirmed by Daniel on 2026-09-27 — and the reasoning
+                  holds for the ladder: the chips above filter on exactly that field and
+                  the Board view IS the status, grouped. It does not hold for a show that
+                  is OFF. The Board has four columns (Pending · On hold · Confirmed ·
+                  Concluded), so a cancelled night is not shown there as cancelled — it
+                  disappears — and in this list it sat directly above a live show in
+                  identical styling, same venue, same "Not started".
+
+                  So: a badge, and only for `cancelled`. Every other state is answered by
+                  the two surfaces the decision pointed at, and this is the same judgement
+                  the Requests inbox already makes for a cancelled invitation.
+                */}
+                {event.status === "cancelled" && (
+                  <Badge status="cancelled" dot>
+                    Cancelled
+                  </Badge>
+                )}
+              </span>
               <span
                 style={{
                   display: "flex",

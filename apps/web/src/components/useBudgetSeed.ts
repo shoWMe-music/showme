@@ -167,8 +167,14 @@ export interface BudgetSeed {
   ticketSplit: TicketSplitRaw;
 }
 
-/** The share of capacity a seeded "General Admission" tier expects to sell. */
-export const SEEDED_TICKET_SHARE = 0.8;
+/*
+ * `SEEDED_TICKET_SHARE` (0.8) lived here and is DELETED. It was the only reader's
+ * only use, and that reader stopped guessing a head count — a guessed quantity is as
+ * made-up as a guessed price, and on a private ledger it stated a count eight tickets
+ * away from the shared book for the same night (QA sweep run 6, QA6-11). The reasoning
+ * lives at the seed row in `useBudgetEditor.ts`; the constant would only be a number
+ * waiting to be used again.
+ */
 
 /** The provider cut a budget assumes until the operator says otherwise: 1.50%. */
 export const DEFAULT_PROCESSING_PERCENT = "1.5";

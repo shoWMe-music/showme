@@ -228,7 +228,15 @@ const PlanningAssumptions = z.object({
       /** Minor units per ticket SOLD. */
       flatPerTicket: MinorUnitsAmount,
     })
-    .nullable(),
+    // OPTIONAL as well as nullable, the same shape `operatorCostSplit` below already
+    // has and for the same reason (QA sweep run 6, QA6-13): a caller who only wants
+    // to set the cost split got `400 body/planningAssumptions/paymentProcessing
+    // Required` for omitting a key it was saying nothing about. The web always sends
+    // both, so nothing was broken — but a required key in an object whose every other
+    // member is optional is a trap for the agent-native surface (decisions #16.14),
+    // which is made of callers that send the field they mean.
+    .nullish()
+    .default(null),
   /**
    * HOW CO-OPERATORS SHARE WHAT THE EVENT ITSELF CARRIES — participant id to
    * basis points. Ran's "Production costs split": *"For co-promotions. Agree how

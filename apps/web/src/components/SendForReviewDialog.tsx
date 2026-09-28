@@ -32,10 +32,21 @@ export function SendForReviewDialog({
    * YOURSELF makes the commonest use of this dialog (send it to the act) a
    * two-step, and the commonest mistake (send it to nobody) a one-step.
    */
-  const recipients = [...settlement.delivery].sort((left, right) => {
-    const mine = settlement.ownParty?.participantId;
-    return Number(left.participantId === mine) - Number(right.participantId === mine);
-  });
+  /*
+   * …AND NEVER THE READER THEMSELVES (QA sweep run 6, QA6-15).
+   *
+   * The sort above put the reader's own row last rather than removing it, so the
+   * chooser offered `The Lantern Hall (Operator)` to the operator sending their own
+   * settlement out — an offer to send it to yourself for review.
+   *
+   * Only the READER is dropped, not "the operator": the comment above is right that a
+   * co-operator reviewing is a real thing, and on the host's screen the co-host's row
+   * belongs here. An event whose only party is the reader therefore has nobody to send
+   * to, and the dialog says so rather than showing an empty picker.
+   */
+  const recipients = settlement.delivery.filter(
+    (row) => row.participantId !== settlement.ownParty?.participantId,
+  );
   const [recipientId, setRecipientId] = useState<string>(recipients[0]?.participantId ?? "");
   const chosen = recipients.find((row) => row.participantId === recipientId) ?? null;
 
@@ -132,7 +143,14 @@ export function SendForReviewDialog({
           </Button>
         </div>
 
-        {mode === "one" && (
+        {recipients.length === 0 && (
+          <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>
+            There is nobody else on this settlement to send it to yet. Add a collaborator to the
+            event first.
+          </p>
+        )}
+
+        {mode === "one" && recipients.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <Eyebrow>Recipient</Eyebrow>
             <Select

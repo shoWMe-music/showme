@@ -1,5 +1,5 @@
 import { Avatar, type AvatarTone, Card, Icon } from "@showme/design-system";
-import { parseVideoLink } from "@showme/shared";
+import { parseVideoLink, socialPlatformLabel } from "@showme/shared";
 import { formatDay } from "../lib/format";
 import styles from "./ProfilePublicPreview.module.css";
 import { VenueSpecsCard } from "./VenueSpecsCard";
@@ -257,7 +257,9 @@ export function ProfilePublicPreview({
                   }}
                 >
                   <Icon name="link" size={13} />
-                  {link.platform}
+                  {/* The LABEL, not the stored slug — a chip reading "spotify" is
+                      what the seed's rows looked like on the public page (QA6-18). */}
+                  {socialPlatformLabel(link.platform)}
                 </a>
               ))}
             </div>

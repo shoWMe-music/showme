@@ -25,12 +25,7 @@ import { getActiveProfileId } from "../lib/activeProfile";
 import { errorMessage } from "../lib/errors";
 import { toBasisPoints, toMajorUnits, toMinorUnits, toPercentText } from "../lib/moneyUnits";
 import type { TemplateDrafts } from "./budgetTemplateDrafts";
-import {
-  type BudgetSeed,
-  DEFAULT_PROCESSING_PERCENT,
-  SEEDED_TICKET_NAME,
-  SEEDED_TICKET_SHARE,
-} from "./useBudgetSeed";
+import { type BudgetSeed, DEFAULT_PROCESSING_PERCENT, SEEDED_TICKET_NAME } from "./useBudgetSeed";
 
 type Budget = Awaited<ReturnType<typeof getApiV1EventsIdBudgets>>[number];
 
@@ -1086,13 +1081,24 @@ export function useBudgetEditor(
       ? barLine.details.quantity.toString()
       : (seedSource.capacity?.toString() ?? "");
 
-    // A budget with no tiers yet opens on one General Admission row expecting to
-    // sell 80% of the room. Priced BLANK on purpose: the count is something the
-    // event knows, the ticket price is not, and a made-up price would put a
-    // revenue figure on the screen that nobody chose.
-    const guests = Number(capacity);
-    const expected =
-      Number.isFinite(guests) && guests > 0 ? Math.round(guests * SEEDED_TICKET_SHARE) : 0;
+    /*
+     * A budget with no tiers yet opens on one blank General Admission row.
+     *
+     * IT USED TO CARRY A COUNT — 80% of the room, `SEEDED_TICKET_SHARE` — while the
+     * price was left blank "on purpose", the reasoning being that the count is
+     * something the event knows and the price is not. QA sweep run 6 (QA6-11) measured
+     * what that costs on a PRIVATE ledger of an event that already has real tiers: the
+     * shared book read `TICKETS PLANNED 320 · SEK 83,000` off two priced rows, and the
+     * co-host's private book read `TICKETS PLANNED 328 · SEK 0` off this seed — a head
+     * count for the same night, eight tickets apart, with no line behind it and
+     * surviving a hard reload.
+     *
+     * A guessed quantity is exactly as made-up as a guessed price, and the argument
+     * against the price applies word for word: it puts a figure on the screen that
+     * nobody chose. The constant is deleted with its last reader — the capacity seed
+     * above is a different question, and it is the EVENT's own number rather than a
+     * fraction of it.
+     */
     /*
      * THE EVENT'S OWN TIERS, when it has any.
      *
@@ -1123,7 +1129,7 @@ export function useBudgetEditor(
               id: `${NEW_ROW_PREFIX}seed`,
               name: SEEDED_TICKET_NAME,
               price: "",
-              quantity: expected > 0 ? expected.toString() : "",
+              quantity: "",
             },
           ];
 

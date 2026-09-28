@@ -1092,6 +1092,72 @@ describe("participants — a removal remembers what it undid", () => {
  * the night nor answer for it, and only the host patching their status by hand got
  * them in.
  */
+/**
+ * A WRITE ANSWERS THE SAME SHAPE A READ DOES (QA sweep run 6, QA6-8).
+ *
+ * `ParticipantResponse` declares `name`, `avatarUrl`, `genres` and `publicSlug`, and
+ * the write path never joined `profiles` to fill them — so adding Marlo Vance answered
+ * `"name": null` while the list one call later answered `"Marlo Vance"`. A screen that
+ * renders the mutation result showed a blank row until something else refetched.
+ */
+describe("participants — the row a write answers with carries its face", () => {
+  it("names the profile on POST, exactly as the list does", async () => {
+    const { event, operator, performer } = await seedEventWithHost("rowface");
+    // The seed's profiles are named after their uid; give this one a real name and a
+    // public page so every declared display field has something to carry.
+    await harness.db
+      .update(schema.profiles)
+      .set({ name: "Marlo Vance", slug: "rowface-marlo-vance", isPublic: true })
+      .where(eq(schema.profiles.id, performer.profileId));
+
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: { ...auth("rowface-op"), "x-profile-id": operator.profileId },
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    expect(added.statusCode).toBe(201);
+    expect(added.json().name).toBe("Marlo Vance");
+    expect(added.json().publicSlug).toBe("rowface-marlo-vance");
+
+    // The same row, read back: the two must agree, which is the whole assertion.
+    const listed = (
+      await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/participants`,
+        headers: { ...auth("rowface-op"), "x-profile-id": operator.profileId },
+      })
+    )
+      .json()
+      .find((row: { id: string }) => row.id === added.json().id);
+    expect(listed.name).toBe(added.json().name);
+    expect(listed.publicSlug).toBe(added.json().publicSlug);
+  });
+
+  it("names the profile on PATCH too", async () => {
+    const { event, operator, performer } = await seedEventWithHost("facepatch");
+    await harness.db
+      .update(schema.profiles)
+      .set({ name: "Neon Tide" })
+      .where(eq(schema.profiles.id, performer.profileId));
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: { ...auth("facepatch-op"), "x-profile-id": operator.profileId },
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${event.id}/participants/${added.json().id}`,
+      headers: { ...auth("facepatch-op"), "x-profile-id": operator.profileId },
+      payload: { role: "support" },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect(patched.json().role).toBe("support");
+    expect(patched.json().name).toBe("Neon Tide");
+  });
+});
+
 describe("participants — a co-promoter added directly is on the bill, not in a queue", () => {
   it("records a co-host as accepted, so they can read the event at once", async () => {
     const { event, operator } = await seedEventWithHost("cohoststatus");

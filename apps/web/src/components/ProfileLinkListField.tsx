@@ -1,28 +1,21 @@
 import { Button, Icon, Select, TextField } from "@showme/design-system";
+import { SOCIAL_PLATFORMS, socialPlatformLabel, socialPlatformSlug } from "@showme/shared";
 
-/**
- * The platforms the old app offered, in its order
- * (`../showme-settle-fast/src/pages/ProfileEditPage.tsx:910`). Streaming first,
- * then social, then the catch-all — which is the order a booker scans them in.
+/*
+ * THE LIST MOVED TO `@showme/shared` (QA sweep run 6, QA6-18).
  *
- * A list, not an enum: the value stored is the label, and an unknown one from
- * older data still renders. The picker is a shortcut, not a gate.
+ * It lived here as bare labels — `["Spotify", …]` — and the Select used the label as
+ * the stored VALUE, while the database holds `spotify`. `"spotify" !== "Spotify"`, so
+ * every seeded link in this editor rendered with PLATFORM reading "Choose…" and the
+ * reader could not tell what a link was filed under. The docstring stated the rule it
+ * broke: *"the value stored is the label"*.
+ *
+ * It is shared rather than fixed in place because two other readers print the stored
+ * string verbatim as a chip — `ProfilePublicPreview` and `apps/marketing/src/profile.ts`
+ * — so the same row reached the PUBLIC page as a lower-case `spotify`. One slug, one
+ * label, three readers. `socialPlatformLabel` hands an unknown platform back unchanged,
+ * which keeps the picker a shortcut rather than a gate.
  */
-export const SOCIAL_PLATFORMS: readonly string[] = [
-  "Spotify",
-  "Apple Music",
-  "YouTube Music",
-  "SoundCloud",
-  "Bandcamp",
-  "Tidal",
-  "Deezer",
-  "Instagram",
-  "Facebook",
-  "TikTok",
-  "X",
-  "YouTube",
-  "Website",
-];
 
 export interface ProfileLinkDraft {
   platform: string;
@@ -75,10 +68,17 @@ export function ProfileLinkListField({ value, onChange }: ProfileLinkListFieldPr
           <div style={{ width: 170, flexShrink: 0 }}>
             <Select
               label={index === 0 ? "Platform" : undefined}
-              value={link.platform}
+              // The canonical slug for whatever is stored, so a value written by the
+              // seed (`spotify`), by the old editor (`Spotify`) or by the API all
+              // select the same row. An unknown platform selects nothing and keeps
+              // its string — the URL beside it still says what it is.
+              value={socialPlatformSlug(link.platform) ?? ""}
               onChange={(platform) => update(index, { platform })}
-              options={SOCIAL_PLATFORMS.map((platform) => ({ value: platform, label: platform }))}
-              placeholder="Choose…"
+              options={SOCIAL_PLATFORMS.map((platform) => ({
+                value: platform.slug,
+                label: platform.label,
+              }))}
+              placeholder={link.platform.trim() === "" ? "Choose…" : link.platform.trim()}
             />
           </div>
           <div style={{ flex: 1 }}>
@@ -91,7 +91,7 @@ export function ProfileLinkListField({ value, onChange }: ProfileLinkListFieldPr
           </div>
           <Button
             variant="ghost"
-            aria-label={`Move ${link.platform || "link"} up`}
+            aria-label={`Move ${socialPlatformLabel(link.platform) || "link"} up`}
             onClick={() => move(index, -1)}
             disabled={index === 0}
           >
@@ -99,7 +99,7 @@ export function ProfileLinkListField({ value, onChange }: ProfileLinkListFieldPr
           </Button>
           <Button
             variant="ghost"
-            aria-label={`Move ${link.platform || "link"} down`}
+            aria-label={`Move ${socialPlatformLabel(link.platform) || "link"} down`}
             onClick={() => move(index, 1)}
             disabled={index === value.length - 1}
           >
@@ -107,7 +107,7 @@ export function ProfileLinkListField({ value, onChange }: ProfileLinkListFieldPr
           </Button>
           <Button
             variant="ghost"
-            aria-label={`Remove ${link.platform || "link"}`}
+            aria-label={`Remove ${socialPlatformLabel(link.platform) || "link"}`}
             onClick={() => onChange(value.filter((_, position) => position !== index))}
           >
             <Icon name="trash" size={15} />

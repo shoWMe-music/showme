@@ -228,3 +228,61 @@ export function isPlaceProfile(kind: string, type: string | null | undefined): b
   if (!type) return true;
   return PLACE_PROFILE_TYPES.includes(type);
 }
+
+/* ── SOCIAL PLATFORMS ────────────────────────────────────────────────────────
+   A link's platform is stored as a lower-case SLUG and shown as a label. Both
+   halves are here because three readers need them and each had its own idea:
+   `ProfileLinkListField` offered `Spotify` as the stored value while the database
+   held `spotify`, so every seeded link rendered as "Choose…" in the editor (QA
+   sweep run 6, QA6-18) — and `ProfilePublicPreview` and `apps/marketing` print the
+   stored string verbatim, so the same row reached the PUBLIC page as a lower-case
+   `spotify`.
+
+   Lower-case is canonical because it is what the database already holds and what
+   the API writes. The list is still a shortcut and not a gate: an unknown platform
+   keeps its own string and `socialPlatformLabel` hands it back unchanged, which is
+   the rule `ProfileLinkListField`'s docstring always stated. */
+
+/** Slug → label, in the order a booker scans them: streaming, social, catch-all. */
+export const SOCIAL_PLATFORMS: readonly { slug: string; label: string }[] = [
+  { slug: "spotify", label: "Spotify" },
+  { slug: "apple_music", label: "Apple Music" },
+  { slug: "youtube_music", label: "YouTube Music" },
+  { slug: "soundcloud", label: "SoundCloud" },
+  { slug: "bandcamp", label: "Bandcamp" },
+  { slug: "tidal", label: "Tidal" },
+  { slug: "deezer", label: "Deezer" },
+  { slug: "instagram", label: "Instagram" },
+  { slug: "facebook", label: "Facebook" },
+  { slug: "tiktok", label: "TikTok" },
+  { slug: "x", label: "X" },
+  { slug: "youtube", label: "YouTube" },
+  { slug: "website", label: "Website" },
+];
+
+/**
+ * The canonical slug for whatever was stored, or null when it is not one of ours.
+ *
+ * Case- and separator-insensitive, because three vocabularies are already in the
+ * database: the seed's `spotify`, the old editor's `Spotify`, and `Apple Music`
+ * with a space where the slug has an underscore. Null means "somebody typed their
+ * own", which stays allowed.
+ */
+export function socialPlatformSlug(value: string): string | null {
+  const needle = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  return SOCIAL_PLATFORMS.find((platform) => platform.slug === needle)?.slug ?? null;
+}
+
+/**
+ * How a platform is written for a reader. A known slug gets its label; anything
+ * else is handed back trimmed, because a platform nobody listed is still a platform
+ * and inventing a title case for it would be rewriting what somebody typed.
+ */
+export function socialPlatformLabel(value: string): string {
+  const slug = socialPlatformSlug(value);
+  if (slug === null) return value.trim();
+  return SOCIAL_PLATFORMS.find((platform) => platform.slug === slug)?.label ?? value.trim();
+}

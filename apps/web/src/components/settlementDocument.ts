@@ -345,8 +345,26 @@ export function entitlementRules(
    * are part of the sentence rather than the amount.
    */
   formatAmount: (minorUnits: string) => string = (minorUnits) => formatMoney(minorUnits, currency),
+  /**
+   * WHOSE CARD THIS IS — so the sentences stop saying "you" about somebody else
+   * (QA sweep run 6, QA6-9).
+   *
+   * These captions were written for the reader's own card and were not person-aware.
+   * The moment Full settlement access (#24.2) puts another party's card in front of
+   * a reader, *"Plus the money you collected on the night — SEK 100,000"* appeared on
+   * a performer's screen under the OPERATOR's name, telling them they had collected a
+   * hundred thousand they never touched. Every figure was right; the pronoun was not.
+   *
+   * Defaulted to the reader's own card, which is what every existing caller means and
+   * what the settlement PDF and the document view both render.
+   */
+  owner: { isYours: boolean; name: string } = { isYours: true, name: "" },
 ): EntitlementRule[] {
   const rules: EntitlementRule[] = [];
+  /** "you" on your own card, the party's name on anybody else's. */
+  const who = owner.isYours ? "you" : owner.name || "that party";
+  /** The possessive of the same. */
+  const whose = owner.isYours ? "your" : `${owner.name || "that party"}'s`;
 
   for (const line of computed.lines ?? []) {
     // A shared split pays the DEAL a total and this party a PORTION of it. Naming
@@ -372,8 +390,8 @@ export function entitlementRules(
           // true and vague rather than precise and wrong.
           `${describeBasis(line.basis, currency)} — ${
             line.partyBasisPoints != null
-              ? `your ${basisPointsToPercent(line.partyBasisPoints)}% of`
-              : "your share of"
+              ? `${whose} ${basisPointsToPercent(line.partyBasisPoints)}% of`
+              : `${whose} share of`
           } the deal's ${formatMoney(line.dealTotal, currency)}`
         : describeBasis(line.basis, currency),
       value: formatAmount(line.amount),
@@ -428,14 +446,14 @@ export function entitlementRules(
   if (computed.collected != null && computed.collected !== "0") {
     rules.push({
       key: "collected",
-      label: "Plus the money you collected on the night",
+      label: `Plus the money ${who} collected on the night`,
       value: formatAmount(computed.collected),
     });
   }
   if (computed.deductibles != null && computed.deductibles !== "0") {
     rules.push({
       key: "deductibles",
-      label: "Less costs somebody else fronted on your behalf",
+      label: `Less costs somebody else fronted on ${owner.isYours ? "your" : whose} behalf`,
       value: formatAmount(computed.deductibles),
       negative: true,
     });

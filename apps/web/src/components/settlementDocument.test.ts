@@ -423,3 +423,47 @@ describe("entitlementGapSentence", () => {
     ).toContain("more than the adjusted net");
   });
 });
+
+/**
+ * A CAPTION ON SOMEBODY ELSE'S CARD (QA sweep run 6, QA6-9).
+ *
+ * These sentences were written for the reader's own card and were not person-aware.
+ * Full settlement access (#24.2) puts another party's card in front of a reader, and
+ * *"Plus the money you collected on the night — SEK 100,000"* then appeared on a
+ * performer's screen under the OPERATOR's name.
+ */
+describe("entitlementRules — whose card is it", () => {
+  const computed = {
+    entitlement: "2500000",
+    collected: "10000000",
+    deductibles: "350000",
+    net: "2500000",
+    lines: [],
+  } as unknown as Parameters<typeof entitlementRules>[0];
+
+  it("says 'you' on the reader's own card", () => {
+    const labels = entitlementRules(computed, "SEK").map((rule) => rule.label);
+    expect(labels).toContain("Plus the money you collected on the night");
+    expect(labels).toContain("Less costs somebody else fronted on your behalf");
+  });
+
+  it("names the party on anybody else's", () => {
+    const labels = entitlementRules(computed, "SEK", undefined, {
+      isYours: false,
+      name: "The Lantern Hall",
+    }).map((rule) => rule.label);
+    expect(labels).toContain("Plus the money The Lantern Hall collected on the night");
+    expect(labels).toContain("Less costs somebody else fronted on The Lantern Hall's behalf");
+    // And never the reader.
+    expect(labels.join(" ")).not.toMatch(/\byou\b/);
+  });
+
+  it("falls back to a phrase rather than an empty possessive", () => {
+    // A party whose name this reader may not see still gets a readable sentence.
+    const labels = entitlementRules(computed, "SEK", undefined, {
+      isYours: false,
+      name: "",
+    }).map((rule) => rule.label);
+    expect(labels).toContain("Plus the money that party collected on the night");
+  });
+});

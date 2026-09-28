@@ -792,7 +792,22 @@ export function useEventSettlement(
               ? (fraction * 100).toFixed(1)
               : null,
           fraction,
-          rule: party.rules[0]?.label ?? null,
+          /*
+           * THE FIRST REASON IS NOT THE WHOLE REASON (QA sweep run 6, QA6-12).
+           *
+           * This took `rules[0]` and printed it beside the party's total, so the
+           * operator's `SEK 25,000` was captioned *"Rental of SEK 5,000, settled off
+           * the top"* — which explains 20% of it. The other SEK 20,000 is the
+           * residual, itemised correctly one tab over on the same data.
+           *
+           * The Overview is a summary and should not grow into the Settlement tab's
+           * itemised column, so a party whose figure has more than one reason says so
+           * and sends the reader to the place that lists them.
+           */
+          rule:
+            party.rules.length > 1
+              ? `${party.rules[0]?.label ?? ""} — and ${party.rules.length - 1} more, itemised on the Settlement tab`
+              : (party.rules[0]?.label ?? null),
           isYours: party.isYours,
           sortKey: minor,
         };
@@ -1191,7 +1206,11 @@ function toParty(
     netMinor: computed?.net ?? null,
     entitlementMinor: computed?.entitlement ?? null,
     netTone: computed ? netToneOf(computed.net) : "neutral",
-    rules: computed ? entitlementRules(computed, currency, formatAmount) : [],
+    // WHOSE card this is, so a caption on another party's card stops saying "you"
+    // about them (QA6-9). `name` is already resolved above.
+    rules: computed
+      ? entitlementRules(computed, currency, formatAmount, { isYours: row.isYours, name })
+      : [],
   };
 }
 

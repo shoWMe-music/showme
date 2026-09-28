@@ -24,7 +24,7 @@ import { loadEventSummary } from "../lib/event-summary";
 import { createPerformerStub } from "../lib/off-platform";
 import { signProfileImageUrls } from "../lib/profile-media";
 import { withIdempotency } from "../plugins/idempotency";
-import { serializeParticipant } from "../serialize/participant";
+import { type ParticipantProfileFace, serializeParticipant } from "../serialize/participant";
 
 const EventParams = z.object({ id: z.string().uuid() });
 const ParticipantParams = z.object({ id: z.string().uuid(), pid: z.string().uuid() });
@@ -114,6 +114,53 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
   // List: authorize `event.view`, then serialize each participant by the caller's tier.
+  /**
+   * THE PROFILE FACE FOR ONE ROW, so a write answers with the same shape a read does
+   * (QA sweep run 6, QA6-8).
+   *
+   * `POST` and `PATCH /events/:id/participants` serialized the row alone, and
+   * `ParticipantResponse` declares `name`, `avatarUrl`, `genres` and `publicSlug` — so
+   * the write answered `"name": null` for a performer the list calls "Marlo Vance", and
+   * a screen that renders the mutation result showed a blank row until something else
+   * refetched. The same join the list does, for one id.
+   *
+   * Null profile id (an erased profile) answers no face, which is exactly what the
+   * serializer's `display_name` fallback is for.
+   */
+  async function profileFaceFor(
+    request: FastifyRequest,
+    profileId: string | null,
+  ): Promise<{ face: ParticipantProfileFace; imageUrls: Map<string, string> } | undefined> {
+    if (!profileId) return undefined;
+    const { database } = request.server;
+    const [row] = await database
+      .select({
+        name: schema.profiles.name,
+        avatarFileId: schema.profiles.avatarFileId,
+        avatarUrl: schema.profiles.avatarUrl,
+        slug: schema.profiles.slug,
+        isPublic: schema.profiles.isPublic,
+        details: schema.profiles.details,
+      })
+      .from(schema.profiles)
+      .where(eq(schema.profiles.id, profileId));
+    if (!row) return undefined;
+    const imageUrls = await signProfileImageUrls(database, request.server.storageSigner, [
+      row.avatarFileId,
+    ]);
+    return {
+      face: {
+        name: row.name,
+        avatarFileId: row.avatarFileId,
+        avatarUrl: row.avatarUrl,
+        slug: row.slug,
+        isPublic: row.isPublic ?? false,
+        details: row.details,
+      },
+      imageUrls,
+    };
+  }
+
   app.get(
     "/events/:id/participants",
     { schema: { params: EventParams, response: { 200: z.array(ParticipantResponse) } } },
@@ -458,7 +505,11 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
             );
           }
 
-          return { statusCode: 201, body: serializeParticipant(created, capabilities) };
+          const face = await profileFaceFor(request, created.profileId);
+          return {
+            statusCode: 201,
+            body: serializeParticipant(created, capabilities, face?.face, face?.imageUrls),
+          };
         },
       );
 
@@ -703,7 +754,8 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         return after;
       });
 
-      return serializeParticipant(updated, capabilities);
+      const face = await profileFaceFor(request, updated.profileId);
+      return serializeParticipant(updated, capabilities, face?.face, face?.imageUrls);
     },
   );
 
@@ -764,7 +816,8 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         return after;
       });
 
-      return serializeParticipant(updated, capabilities);
+      const face = await profileFaceFor(request, updated.profileId);
+      return serializeParticipant(updated, capabilities, face?.face, face?.imageUrls);
     },
   );
 

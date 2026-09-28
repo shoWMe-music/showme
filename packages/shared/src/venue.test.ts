@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPlaceProfile } from "./venue";
+import { SOCIAL_PLATFORMS, isPlaceProfile, socialPlatformLabel, socialPlatformSlug } from "./venue";
 
 /**
  * `isPlaceProfile` is the ONE rule behind "who gets the room".
@@ -48,5 +48,62 @@ describe("isPlaceProfile — only a place has a room", () => {
     expect(isPlaceProfile("team_and_crew", "sound")).toBe(false);
     expect(isPlaceProfile("agent", "agency")).toBe(false);
     expect(isPlaceProfile("agent", null)).toBe(false);
+  });
+});
+
+/**
+ * A LINK'S PLATFORM — stored as a slug, shown as a label (QA sweep run 6, QA6-18).
+ *
+ * Three vocabularies were already in the database: the seed's `spotify`, the editor's
+ * `Spotify` (it used the label as the stored value), and `Apple Music` with a space
+ * where the slug has an underscore. The editor matched none of them, so every seeded
+ * link read "Choose…"; the public page printed them verbatim, so the same rows
+ * rendered as lower-case chips.
+ */
+describe("social platforms", () => {
+  it("canonicalises what the database actually holds", () => {
+    expect(socialPlatformSlug("spotify")).toBe("spotify");
+    expect(socialPlatformSlug("Spotify")).toBe("spotify");
+    expect(socialPlatformSlug("  SPOTIFY  ")).toBe("spotify");
+  });
+
+  it("reads a space or a dash as the slug's underscore", () => {
+    // "Apple Music" is what the old editor stored; `apple_music` is the slug.
+    expect(socialPlatformSlug("Apple Music")).toBe("apple_music");
+    expect(socialPlatformSlug("apple-music")).toBe("apple_music");
+    expect(socialPlatformSlug("YouTube Music")).toBe("youtube_music");
+  });
+
+  it("answers null for a platform nobody listed", () => {
+    // The picker is a shortcut, not a gate — an unknown platform is allowed and
+    // simply selects nothing.
+    expect(socialPlatformSlug("Mixcloud")).toBeNull();
+    expect(socialPlatformSlug("")).toBeNull();
+  });
+
+  it("labels a known platform the way a reader writes it", () => {
+    expect(socialPlatformLabel("spotify")).toBe("Spotify");
+    expect(socialPlatformLabel("apple_music")).toBe("Apple Music");
+    expect(socialPlatformLabel("soundcloud")).toBe("SoundCloud");
+    expect(socialPlatformLabel("tiktok")).toBe("TikTok");
+    // Casing is the label's, not the input's: `X` stays `X` and `x` becomes it.
+    expect(socialPlatformLabel("x")).toBe("X");
+  });
+
+  it("hands an unknown platform back unchanged rather than title-casing it", () => {
+    // Somebody typed it. Rewriting it would be inventing a spelling for their link.
+    expect(socialPlatformLabel("Mixcloud")).toBe("Mixcloud");
+    expect(socialPlatformLabel("  my own site ")).toBe("my own site");
+  });
+
+  it("has a label for every slug and no duplicates", () => {
+    const slugs = SOCIAL_PLATFORMS.map((platform) => platform.slug);
+    expect(new Set(slugs).size).toBe(slugs.length);
+    for (const platform of SOCIAL_PLATFORMS) {
+      expect(platform.label.trim()).not.toBe("");
+      // Every slug must round-trip, or the picker offers a value it cannot match.
+      expect(socialPlatformSlug(platform.slug)).toBe(platform.slug);
+      expect(socialPlatformSlug(platform.label)).toBe(platform.slug);
+    }
   });
 });

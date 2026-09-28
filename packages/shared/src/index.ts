@@ -197,6 +197,9 @@ export {
   isProfileTypeForKind,
   profileTypeLabel,
   profileTypesForKind,
+  SOCIAL_PLATFORMS,
+  socialPlatformLabel,
+  socialPlatformSlug,
 } from "./venue";
 export {
   type VideoLink,

@@ -141,11 +141,18 @@ test("the Overview names each collaborator, their role and the rule behind their
 
   await expect(page.getByText("Marlo Vance").first()).toBeVisible();
   await expect(page.getByText("Performer").first()).toBeVisible();
-  // "your 60% of the deal's …" — the party's OWN percentage since 2026-09-27, where
-  // this used to read a bare "your share of" on both acts of a 60/40 while the
-  // sentence in front of it named the DEAL's 100%. Matching the percentage rather
-  // than the words is what makes this fail if that regresses.
-  await expect(page.getByText(/your \d+% of the deal's/).first()).toBeVisible();
+  // "Marlo Vance's 60% of the deal's …" — the party's OWN percentage since
+  // 2026-09-27, where this used to read a bare "share of" on both acts of a 60/40
+  // while the sentence in front of it named the DEAL's 100%. Matching the percentage
+  // rather than the words is what makes this fail if that regresses.
+  //
+  // THE POSSESSIVE IS THE PARTY'S, not the reader's (QA sweep run 6, QA6-9). This
+  // assertion read `your \d+%` and passed — on the OPERATOR's Overview, in front of
+  // the PERFORMER's card. That is the defect: these captions were written for the
+  // reader's own card and were not person-aware, so once #24.2's full access puts
+  // another party's card in front of somebody, "the money you collected" appeared
+  // over a figure they never touched.
+  await expect(page.getByText(/Marlo Vance's \d+% of the deal's/).first()).toBeVisible();
 });
 
 /**
