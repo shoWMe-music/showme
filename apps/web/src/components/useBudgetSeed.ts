@@ -257,11 +257,44 @@ export function stillMovingBecause(deal: Deal): string {
  * A withdrawn rental states nothing, the same way a withdrawn performance deal
  * does.
  */
-export function rentalOf(deals: Deal[]): { amount: string; dealId: string } | null {
-  const deal = deals.find(
-    (candidate) =>
-      isRental(candidate) && candidate.status !== "cancelled" && candidate.guaranteeAmount != null,
-  );
+export function rentalOf(
+  deals: Deal[],
+  /**
+   * The participant rows of whoever's book this is — the acting profile's.
+   *
+   * A RENTAL YOU ARE OWED IS NOT A COST OF YOUR BOOK (QA sweep run 10, QA10-11). This used to offer
+   * any rental as the reader's "Venue cost", under the reasoning *"the rental fee is the rental fee
+   * whoever collects it"* — which is true of the NIGHT and false of a book. On a room hire the host
+   * is paid for, the host's own private book opened at `TOTAL COSTS SEK 5,000 · PROFIT / LOSS
+   * −SEK 5,000` for money coming in.
+   *
+   * §25.7.1 is what makes this worth fixing rather than rare: a rental now names who owes it, and a
+   * rental between two co-operators is the ordinary way to record a room one of them lets to the
+   * other. Empty (the default) keeps the old behaviour for any caller that does not know whose book
+   * it is looking at.
+   */
+  ownParticipantIds: readonly string[] = [],
+): { amount: string; dealId: string } | null {
+  const mine = new Set(ownParticipantIds);
+  const deal = deals.find((candidate) => {
+    if (!isRental(candidate) || candidate.status === "cancelled") return false;
+    if (candidate.guaranteeAmount == null) return false;
+    /*
+     * Owed to me and not BY me: income, not a cost.
+     *
+     * `some` on the payees rather than `every` — being one of two payees still means being owed a
+     * share and charged nothing, which a surviving mutation is what made me work out. And the payer
+     * half is not decoration: a party can appear on both ends, and somebody who owes the rental owes
+     * it whatever else they are on the deal. A rental naming no payee I share stays a cost, which is
+     * the ordinary case — there is no "venue" participant role, so a room hired from a venue that is
+     * not on the bill names nobody I am.
+     */
+    const parties = candidate.parties ?? [];
+    const owedToMe =
+      parties.some((party) => party.roleInDeal === "payee" && mine.has(party.participantId)) &&
+      !parties.some((party) => party.roleInDeal === "payer" && mine.has(party.participantId));
+    return !owedToMe;
+  });
   return deal ? { amount: deal.guaranteeAmount as string, dealId: deal.id } : null;
 }
 
@@ -679,6 +712,13 @@ export interface BudgetSeedSources {
    */
   performerParticipantIds: string[];
   /**
+   * WHOSE BOOK THIS IS — the acting profile's own participant rows on this event (QA10-11).
+   *
+   * Used to keep a rental the reader is OWED out of their costs. Comma-joined upstream like the two
+   * below, so the seed settles.
+   */
+  ownParticipantIds: string[];
+  /**
    * The host and any co-hosts, by participant id — who shares the residual (§25.7.1).
    *
    * Only the rental question needs it, and only a rental with a named payer makes it matter. Comma-
@@ -938,10 +978,13 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
         .map((deal) => performerFeeOf(deal, performers, door))
         .filter((fee): fee is BudgetSeedDealFigure => fee !== null),
       ticketSplit: ticketSplitOf(deals, performers, door),
-      // The rental fee is the rental fee whoever collects it. There is no
-      // "venue" participant role, so requiring a payee match here would seed
-      // nothing on every event where the venue is not on the bill.
-      venueCost: rentalOf(deals),
+      /*
+       * The rental fee is the rental fee whoever collects it — EXCEPT when the collector is the
+       * reader (QA10-11). There is still no "venue" participant role, so a rental whose payee is not
+       * on the bill seeds exactly as it did; what changed is that a room hire the reader is OWED
+       * stops arriving as their cost.
+       */
+      venueCost: rentalOf(deals, sources.ownParticipantIds),
       // Production cost is deliberately absent. The handoff asks for it, but
       // NOTHING in the schema or the API holds a production figure — there is no
       // `events.production_cost` and no venue equivalent. Seeding it would mean

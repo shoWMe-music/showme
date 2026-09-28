@@ -284,7 +284,98 @@ describe("the seeded venue cost", () => {
   it("never mistakes a performance guarantee for the room", () => {
     const performance = dealWith({ structure: "guarantee", guaranteeAmount: "750000" });
     expect(rentalOf([performance])).toBeNull();
+    // …and finds the rental past it in a mixed list.
     expect(rentalOf([performance, rental()])?.dealId).toBe("rent-1");
+  });
+
+  /**
+   * A RENTAL YOU ARE OWED IS NOT A COST OF YOUR BOOK (QA sweep run 10, QA10-11).
+   *
+   * On a room hire the host is PAID for, the host's own private book opened at
+   * `TOTAL COSTS SEK 5,000 · PROFIT / LOSS −SEK 5,000` — a loss for money coming in. The old
+   * reasoning was *"the rental fee is the rental fee whoever collects it"*, which is true of the
+   * NIGHT and false of a book. §25.7.1 is what made it ordinary rather than rare: a rental now names
+   * who owes it, and a room one co-operator lets to another is the normal shape.
+   */
+  it("keeps a rental the reader is OWED out of their costs", () => {
+    const owed: Deal = {
+      id: "room",
+      name: "Room hire — they pay me",
+      type: "rental",
+      status: "confirmed",
+      guaranteeAmount: "500000",
+      parties: [
+        { participantId: "part-them", roleInDeal: "payer" },
+        { participantId: "part-me", roleInDeal: "payee" },
+      ],
+    };
+    expect(rentalOf([owed], ["part-me"])).toBeNull();
+  });
+
+  it("still offers a rental the reader OWES", () => {
+    const owing: Deal = {
+      id: "room",
+      name: "Room hire — I pay them",
+      type: "rental",
+      status: "confirmed",
+      guaranteeAmount: "500000",
+      parties: [
+        { participantId: "part-me", roleInDeal: "payer" },
+        { participantId: "part-them", roleInDeal: "payee" },
+      ],
+    };
+    expect(rentalOf([owing], ["part-me"])).toEqual({ amount: "500000", dealId: "room" });
+  });
+
+  it("keeps out a rental where the reader is ONE OF SEVERAL payees", () => {
+    // Owed a share is still owed, not charged. A surviving mutation (`every` where `some` belongs)
+    // is what turned this from an assumption into a test.
+    const shared: Deal = {
+      id: "room",
+      name: "Room hire split two ways",
+      type: "rental",
+      status: "confirmed",
+      guaranteeAmount: "500000",
+      parties: [
+        { participantId: "part-them", roleInDeal: "payer" },
+        { participantId: "part-me", roleInDeal: "payee" },
+        { participantId: "part-other", roleInDeal: "payee" },
+      ],
+    };
+    expect(rentalOf([shared], ["part-me"])).toBeNull();
+  });
+
+  it("still offers it when the reader is on BOTH ends", () => {
+    // Somebody who owes the rental owes it whatever else they are on the deal.
+    const bothEnds: Deal = {
+      id: "room",
+      name: "Room hire I owe and partly collect",
+      type: "rental",
+      status: "confirmed",
+      guaranteeAmount: "500000",
+      parties: [
+        { participantId: "part-me", roleInDeal: "payer" },
+        { participantId: "part-me", roleInDeal: "payee" },
+      ],
+    };
+    expect(rentalOf([bothEnds], ["part-me"])).toEqual({ amount: "500000", dealId: "room" });
+  });
+
+  it("still offers a rental whose payee is not on the bill at all", () => {
+    /*
+     * The case the old comment was protecting and which still holds: there is no "venue" participant
+     * role, so a room hired from a venue that is not on the event names no payee the reader shares.
+     * Requiring a payee match would have seeded nothing on the commonest event of all.
+     */
+    const offPlatform: Deal = {
+      id: "room",
+      name: "Room hire from a venue not on shoWMe",
+      type: "rental",
+      status: "confirmed",
+      guaranteeAmount: "500000",
+      parties: [{ participantId: "part-me", roleInDeal: "payer" }],
+    };
+    expect(rentalOf([offPlatform], ["part-me"])).toEqual({ amount: "500000", dealId: "room" });
   });
 
   it("is read from an unsigned rental, like every other deal on the sheet", () => {

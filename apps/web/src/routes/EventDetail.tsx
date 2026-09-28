@@ -79,6 +79,7 @@ import { useEventChangeRequest } from "../hooks/useEventChangeRequest";
 import { useEventCollaborators } from "../hooks/useEventCollaborators";
 import { useEventPermissionSets } from "../hooks/useEventPermissionSets";
 import { useEventRowActions } from "../hooks/useEventRowActions";
+import { getActiveProfileId } from "../lib/activeProfile";
 import { formatDay } from "../lib/format";
 import { toMinorUnits } from "../lib/moneyUnits";
 import { eventDisplayStatus } from "../lib/status";
@@ -311,6 +312,15 @@ export function EventDetail() {
    */
   const operatorIdsKey = roster
     .filter((party) => party.role === "host" || party.role === "co_host")
+    .map((party) => party.id)
+    .join(",");
+  /*
+   * WHOSE BOOK the planner is showing — the acting profile's own rows (QA10-11). Without it, a room
+   * hire the reader is OWED arrived as their "Venue cost" and the private book opened at a loss for
+   * money coming in.
+   */
+  const ownIdsKey = roster
+    .filter((party) => party.profileId === getActiveProfileId())
     .map((party) => party.id)
     .join(",");
   const hostParty =
@@ -616,6 +626,7 @@ export function EventDetail() {
             eventTicketTiers={(event.extras?.ticketTiers ?? []) as EventTicketTier[]}
             performerIdsKey={performerIdsKey}
             operatorIdsKey={operatorIdsKey}
+            ownIdsKey={ownIdsKey}
           />
         )}
         {activeTab === "details" && (
@@ -898,6 +909,7 @@ function BudgetTab({
   eventTicketTiers,
   performerIdsKey,
   operatorIdsKey,
+  ownIdsKey,
 }: {
   eventId: string;
   currency: string;
@@ -909,6 +921,8 @@ function BudgetTab({
   performerIdsKey: string;
   /** Comma-joined host + co-host participant ids — who shares the residual (§25.7.1). */
   operatorIdsKey: string;
+  /** Comma-joined participant ids of the ACTING profile — whose book this is (QA10-11). */
+  ownIdsKey: string;
 }) {
   // What the event already knows, offered into the planner's blank fields — the
   // rest of the app was holding a capacity and a guarantee while this screen
@@ -919,8 +933,9 @@ function BudgetTab({
       ticketTiers: eventTicketTiers,
       performerParticipantIds: performerIdsKey === "" ? [] : performerIdsKey.split(","),
       operatorParticipantIds: operatorIdsKey === "" ? [] : operatorIdsKey.split(","),
+      ownParticipantIds: ownIdsKey === "" ? [] : ownIdsKey.split(","),
     }),
-    [capacity, eventTicketTiers, performerIdsKey, operatorIdsKey],
+    [capacity, eventTicketTiers, performerIdsKey, operatorIdsKey, ownIdsKey],
   );
   const seed = useBudgetSeed(eventId, seedSources);
   /**
