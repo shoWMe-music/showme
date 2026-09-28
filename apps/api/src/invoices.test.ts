@@ -208,6 +208,50 @@ describe("payout accounts (decisions #5)", () => {
     expect(list.json()[0].holderName).toBe("Acme AB");
   });
 
+  /**
+   * A PAYOUT ACCOUNT THAT IDENTIFIES NOTHING IS NOT AN ACCOUNT (QA sweep run 8, QA8-10).
+   *
+   * `identifier` was optional, so an IBAN account sent with the number under the key `iban`
+   * was accepted as 201 and stored with `identifier: null` — Zod stripped the unknown key
+   * and the response said "created". Every ingredient of a silent data loss: an optional
+   * field, a plausible wrong key, and a success. This is the one table whose entire purpose
+   * is to say where money goes.
+   */
+  it("refuses an account with no number for the money to go to", async () => {
+    const issuer = await seedProfile("pay-blank");
+
+    const missing = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${issuer.profileId}/payout-accounts`,
+      headers: auth("pay-blank"),
+      // The sweep's exact shape: the number is there, under a key nothing reads.
+      payload: {
+        type: "iban",
+        label: "QA8 bank",
+        currency: "SEK",
+        iban: "SE4550000000058398257466",
+      },
+    });
+    expect(missing.statusCode).toBe(400);
+
+    // Blank and whitespace are the same absence, and `.trim()` is what makes them so.
+    const blank = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${issuer.profileId}/payout-accounts`,
+      headers: auth("pay-blank"),
+      payload: { type: "iban", identifier: "   " },
+    });
+    expect(blank.statusCode).toBe(400);
+
+    // And nothing was stored by either attempt.
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${issuer.profileId}/payout-accounts`,
+      headers: auth("pay-blank"),
+    });
+    expect(list.json()).toHaveLength(0);
+  });
+
   it("forbids a viewer from managing payout accounts", async () => {
     const issuer = await seedProfile("pay-viewer", "viewer");
     const response = await app.inject({

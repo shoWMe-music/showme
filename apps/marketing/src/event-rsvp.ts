@@ -340,11 +340,19 @@ export function createRsvpForm(options: RsvpFormOptions): RsvpForm {
     form.hidden = true;
     done.replaceChildren(
       element("h3", "rsvp__done-title", "You're on the list"),
-      element(
-        "p",
-        "rsvp__done-body",
-        `The organiser of ${eventTitle} knows to expect you. Keep an eye on your inbox.`,
-      ),
+      /*
+       * NO INBOX PROMISE (QA sweep run 8, QA8-9).
+       *
+       * This said *"Keep an eye on your inbox."* and nothing sends anything: the route
+       * inserts one `audience_rsvps` row and returns `{ok:true}` — no send, no queue, no
+       * template, not even a stub. It is the sharper half of the finding precisely because
+       * a member of the public has no way to discover it is false; they simply wait.
+       *
+       * The first sentence is kept and is true today: the row is written and the organiser's
+       * Audience screen is what has to catch up to it (the audience read endpoint, already a
+       * ticket). Promise the email back when something sends one.
+       */
+      element("p", "rsvp__done-body", `The organiser of ${eventTitle} knows to expect you.`),
     );
     done.hidden = false;
     done.focus();

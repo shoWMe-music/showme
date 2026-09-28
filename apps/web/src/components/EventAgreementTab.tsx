@@ -145,9 +145,21 @@ export function EventAgreementTab({
           title={agreements.hiddenDealCount > 0 ? "Not your deal to see" : "No deal yet"}
           description={
             agreements.hiddenDealCount > 0
-              ? agreements.hiddenDealCount === 1
-                ? "This event has a deal, and you are not a party to it. Ask the host to add you to it if you need its terms."
-                : `This event has ${agreements.hiddenDealCount} deals, and you are not a party to any of them. Ask the host to add you if you need their terms.`
+              ? /*
+                 * NO INSTRUCTION THE HOST CANNOT CARRY OUT (QA8-11).
+                 *
+                 * This said *"Ask the host to add you to it"*, and there is no control for
+                 * adding a party to an EXISTING deal: the card offers Reopen, Share &
+                 * Export, Write terms and + Add (amenities), and nothing else. `decisions.md`
+                 * resolved co-operator transparency as BOTH an `observer` party for targeted
+                 * sharing AND a blanket shared-budget rule; the observer role exists in the
+                 * NEW deal composer, the blanket rule is unbuilt, and neither reaches a deal
+                 * that already exists. So the sentence says what is true — the terms are not
+                 * this reader's — and stops handing them an errand that dead-ends.
+                 */
+                agreements.hiddenDealCount === 1
+                ? "This event has a deal, and its terms are not yours to read. A deal is only visible to the parties named on it."
+                : `This event has ${agreements.hiddenDealCount} deals, and their terms are not yours to read. A deal is only visible to the parties named on it.`
               : agreements.authority.canCompose
                 ? "Write the terms down and send them to the other parties. Nothing settles until they confirm."
                 : "When a deal naming you is sent, its terms appear here for you to confirm."

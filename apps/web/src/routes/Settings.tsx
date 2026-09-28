@@ -710,7 +710,17 @@ function PayoutCard({ profileId }: { profileId: string }) {
         <EmptyState
           icon={<Icon name="file" />}
           title="No payout accounts yet"
-          description="Add a bank account to receive settlement transfers."
+          /*
+           * DOES NOT NAME AN ACTION THAT HAS NO CONTROL (QA8-10).
+           *
+           * This read "Add a bank account to receive settlement transfers" on a panel with
+           * no Add — `POST /profiles/:id/payout-accounts` has no caller in either front
+           * end. The settlement workspace's own Payout tab is already honest about the same
+           * gap ("Paying out through shoWMe is not connected yet. Until it is, mark each
+           * transfer on the Settlement tab as you pay it"), so this says the same thing
+           * rather than a different one.
+           */
+          description="Paying out through shoWMe is not connected yet, so there is nothing to add here. Mark each transfer on a settlement as you pay it."
         />
       ) : (
         list.map((account: PayoutAccount) => (

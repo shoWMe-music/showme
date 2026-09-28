@@ -16,16 +16,35 @@ const READ_ROLES = ["owner", "admin", "editor"] as const;
 
 const payoutMethodEnum = z.enum(["bankgiro", "iban", "swish"]);
 
+/**
+ * A PAYOUT ACCOUNT THAT IDENTIFIES NOTHING IS NOT AN ACCOUNT (QA sweep run 8, QA8-10).
+ *
+ * `identifier` was optional, so `{"type":"iban","label":"QA8 bank","iban":"SE45…"}` was
+ * accepted as **201** and stored with `identifier: null` — an IBAN payout account with no
+ * IBAN, returned to the caller as created. Note what the caller had actually sent: the
+ * number, under the key `iban`, which Zod then stripped. Every ingredient of a silent data
+ * loss: an optional field, a plausible wrong key, and a success response.
+ *
+ * This is the one table whose whole purpose is to say where money goes. It is also
+ * currently unreachable from either front end (`POST` has no caller), which is exactly why
+ * it is worth closing now — the first caller will be written against whatever this accepts.
+ */
 const CreatePayoutAccountBody = z.object({
   type: payoutMethodEnum,
-  identifier: z.string().optional(),
+  /** Where the money actually goes: an IBAN, a bankgiro number, a Swish number. */
+  identifier: z.string().trim().min(1, "A payout account needs the number money goes to"),
   currency: z.string().optional(),
   holderName: z.string().optional(),
   bankName: z.string().optional(),
   isPrimary: z.boolean().optional(),
 });
 
-// Update leaves `type` optional (an account keeps its method unless explicitly changed).
+/*
+ * Update leaves `type` optional (an account keeps its method unless explicitly changed).
+ * `.partial()` makes `identifier` omittable, which is right — but it keeps the `min(1)` on
+ * the value when one IS sent, so an existing account cannot be emptied into the same state
+ * the create path used to allow (QA8-10).
+ */
 const UpdatePayoutAccountBody = CreatePayoutAccountBody.partial();
 
 const PayoutAccountResponse = z.object({

@@ -186,3 +186,67 @@ not apply to — the card's body already says whose figures these are.
 
 *The decision each hides:* none. Both are the same rule this stretch has now applied five times —
 a sentence that names a person or an action must be true of the person reading it.
+
+---
+
+## QA8-9, QA8-10, QA8-11 — three promises the product does not keep, and one write that lost money's destination
+
+Grouped because they are one rule: **a screen may not name an action nobody can take, or an
+outcome nothing produces.**
+
+### QA8-9 — the RSVP promised an email
+
+`apps/marketing/src/event-rsvp.ts:346` answered *"The organiser … knows to expect you. **Keep an
+eye on your inbox.**"* and nothing sends anything — no send, no queue, no template, not a stub.
+The sharper half of the finding, as the sweep says, because a member of the public has no way to
+discover it is false; they simply wait.
+
+**The first sentence stays and the second goes.** The row IS written — verified after the probe,
+`audience_rsvps` holds `QA8-9 Fan / qa89fan@e2e.showme.test / Stockholm` — so the organiser knowing
+is true today, and the Audience screen catching up to it is the audience read endpoint already on
+the handoff's ticket list. Promise the email back when something sends one.
+
+The form's own data notice (*"…so they can count on you and tell you about it"*) is left alone
+deliberately: it describes what the ORGANISER may do with the data, and the sweep already carries it
+as that ticket's acceptance text.
+
+### QA8-10 — Billing told the reader to add a bank account, with no Add
+
+Two halves, and only one is copy.
+
+**The copy:** the panel now says what the Payout tab already says — *"Paying out through shoWMe is
+not connected yet, so there is nothing to add here. Mark each transfer on a settlement as you pay
+it."* One unbuilt thing, one sentence about it.
+
+**The write, which is the real one.** `identifier` was `z.string().optional()`, so the sweep's
+`{"type":"iban","label":"QA8 bank","iban":"SE45…"}` was **201** with `identifier: null` — an IBAN
+payout account with no IBAN, stored and returned as created. Look at what the caller had actually
+sent: the number, under the key `iban`, which Zod stripped. Every ingredient of a silent data loss
+— an optional field, a plausible wrong key, and a success response — on the one table whose entire
+purpose is to say where money goes.
+
+It is `z.string().trim().min(1)` now. **Closing it while the route has no caller is the point:**
+the first caller will be written against whatever this accepts. Proven after an API restart — the
+sweep's exact payload answers **400** where it answered 201. Three tests, two mutations red
+(optional again, whitespace counts).
+
+*A test-only finding on the way:* `inbound.test.ts` declared its own
+`type AccountKind = "operator" | "performer" | "agent"` — omitting `team_and_crew`, the one kind
+QA8-6's test is about. Vitest runs through esbuild and does not typecheck, so the test passed and
+only `tsc` objected. It reads `schema.accountKind.enumValues` now, so a fifth kind cannot go
+missing here again.
+
+### QA8-11 — "Ask the host to add you to it", an errand that dead-ends
+
+There is no control for adding a party to an existing deal. `decisions.md` resolved co-operator
+transparency as **BOTH** an `observer` party for targeted sharing **and** a blanket shared-budget
+rule; the observer role exists in the **new** deal composer, the blanket rule is unbuilt, and
+neither reaches a deal that already exists.
+
+So the sentence states the fact and stops giving instructions: *"This event has a deal, and its
+terms are not yours to read. A deal is only visible to the parties named on it."* Proven as
+`co.host@`. The missing half — sharing an existing deal with a co-operator — is QA8-1's family and
+is sized below.
+
+*The decision each hides:* none of the three. Each is a sentence outrunning the build, and the build
+is what the handoff's feature list is for.

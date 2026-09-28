@@ -49,7 +49,15 @@ function publicFormHeaders() {
   return { origin: PUBLIC_ORIGIN, "x-forwarded-for": `198.51.100.${clientIpCounter}` };
 }
 
-type AccountKind = "operator" | "performer" | "agent";
+/*
+ * DERIVED FROM THE SCHEMA, not restated (QA8-6).
+ *
+ * This was a hand-written union that omitted `team_and_crew` — the one kind a test about
+ * WHO MAY SEND AN OFFER most needs. Vitest runs through esbuild and does not typecheck, so
+ * the omission only surfaced under `tsc`, after the test had already passed. Reading the
+ * enum means a fifth account kind cannot be invisible here again.
+ */
+type AccountKind = (typeof schema.accountKind.enumValues)[number];
 
 /** The full name a seeded person carries — what an offer should fall back to. */
 const personName = (id: string) => `${id} Person`;
