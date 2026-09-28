@@ -205,10 +205,10 @@ have been refused. **Kill by port.***
 ## 3. Still open from run 10
 
 - **All six of run 10's MAJORs are now fixed** (QA10-1, -2, -3 in §1; QA10-4, -9, -5 in §3a).
-- The remaining MINOR/COSMETIC findings, and run 9's web-side leftovers: QA9-5, QA9-7, QA9-10,
-  QA9-11, QA9-12's render half, QA9-13. QA10-10 (the "Operators only" room names the co-promoter as a
-  member, hides it from them, and refuses their post with *"Missing capability: budget.view"*) is the
-  pick of the MINORs — it is the same shape as QA10-3, a roster and a gate disagreeing.
+- **QA10-10, QA10-11 and QA10-12 are done** (§3d). Remaining: QA10-13 (a crew account CAN receive a
+  booking request, and it is labelled "Performer offer"), the private-budget provisioning above, run
+  10's other MINOR/COSMETIC rows, and run 9's leftovers QA9-5's margin half, QA9-7, QA9-10, QA9-12's
+  render half, QA9-13.
 - Blocked: `86cbcn1q4`, `86cbcn1rr`, `86c9mq7q9` until `/design-login` works.
 - §25.6's other five rows, and §25.7.1's one follow-up question, still Daniel's.
 
@@ -285,6 +285,57 @@ about why.
 agent and crew are unaffected: they were never in `MANAGING_OPERATOR_ROLES` and are not operators now.
 The only account whose access changes is a co-host on Standard access — the one the room is already
 labelled with.
+
+## 3d. Three MINORs, each the same shape as something bigger
+
+### QA10-10 — the operators' room admits the co-promoter it is named after · `9c957bb`
+
+One flag, `isManagingOperator`, drives four behaviours: whether the thread is listed, `canPost`,
+whether a POST is refused, and whether an `operators` message is readable. The roster asked the ROLE
+and that flag asked `budget.view`, which a co-host on *Standard for the role* does not hold. So the
+room was **labelled with the co-promoter's name and withheld from them**.
+
+The mistake was written in `isOperatorViewer`'s own docstring: *"`budget.view` is the ceiling's own
+definition of a MANAGING operator … so nobody but a host/co_host can hold it."* True, and
+one-directional — `budget.view ⟹ host/co_host` does not give the converse. **Instance fifteen**, and
+the first where a rule that holds one way was relied on in the other.
+
+The back office asks the role now, from the graph already loaded. `MANAGING_OPERATOR_ROLES` was the
+**fourth** copy of the host/co_host set (three were consolidated for QA10-2 the day before; this one
+was in a file I had not opened). `isOperatorViewer` is deleted rather than fixed. And the refusal
+stops naming a budget capability for a messaging action — it could not be acted on either, since the
+cause was never a missing capability.
+
+### QA10-11 — a rental you are OWED is not a cost of your book · `a453e68`
+
+The private book carried a `Venue cost SEK 5,000` row for a rental its owner is **paid** for, so the
+host's own margin book opened at `PROFIT / LOSS −SEK 5,000` for money coming in. The old reasoning —
+*"the rental fee is the rental fee whoever collects it"* — is true of the NIGHT and false of a book,
+and §25.7.1 turned it from rare into ordinary by making a named payer the normal shape.
+
+Both halves of the new predicate came from mutations rather than from thinking: `some` on the payees
+rather than `every` (one of two payees is still owed, not charged), and the payer clause (a party can
+appear on both ends, and whoever owes it owes it). A rental naming no payee the reader shares is still
+their cost — the commonest case, since there is no "venue" participant role.
+
+### QA10-12 — a budget ROW is not a plan · `924a143`
+
+*"5 events budgeted"* where four had a line anybody had typed. Reading an event's budgets
+**provisions** a shared one, and this screen reads them once per event, so measuring coverage created
+it. `isPartial` was therefore false for any host who had opened the screen, which made
+`partialCoverageNote` dead code.
+
+**A new shape for the collection.** The code and its test both carried reasoning that was *correct
+when written* — *"planned and currently adds up to nothing is a different statement from not
+planned"* — and what changed was the world underneath it, not the code beside it. Not a comment
+contradicting its code: a comment whose world moved. The distinction survives where it can still be
+drawn (a ledger summing to zero counts, because somebody wrote those lines).
+
+Now reads **"3 of 4 events budgeted"**, and Postgres agrees exactly.
+
+*Still open from QA10-12: opening the planner on a co-promoted event provisions a PRIVATE budget too,
+before the operator has chosen "My budget" — PLAN.md:215 says that book is the extra an operator MAY
+ALSO keep. An `ensureEventBudgets` change, and the planner may depend on the row existing.*
 
 ## 4. Full pass
 
