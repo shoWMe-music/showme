@@ -74,3 +74,38 @@ answer (below).
 Both false sentences. The card's *"Terms live until every party signs"* and the Budget Planner's
 *"1 of 3 parties have signed, so they can still move"* — the second of which **this loop wrote** for
 QA7-9, truthful about the data and false about the app. After this they are true of both.
+
+---
+
+## Built: the two pure functions (uncommitted, awaiting their caller)
+
+`dealKindOf(type, structure)` and `dealDraftFrom(deal, fallbackCurrency)` in
+`packages/shared/src/deal-terms.ts`, with **10 tests** (50 in that file) and **eight mutations, all
+red**: money divided by a hard-coded hundred · an absent amount becoming a stated zero · shares
+dropped on the way back · the split percent read as raw basis points · the ladder dropped · the
+bonus dropped · the kind matched on shape alone · a shapeless deal not reading as `paper_only`.
+
+Held back with QA7-18's API half for the same reason: the caller comes in the same ticket.
+
+### The round trip earned its keep immediately — it caught three of my own inventions
+
+Writing `createDealPayload(dealDraftFrom(deal))` and asserting the deal's own figures come back is
+the whole test, and it failed three times before it passed, every time on something I had assumed
+rather than read:
+
+1. **A party's share is `{ splitBasisPoints }`, not `{ basisPoints }`.** My fixture invented the
+   key; the code was right, because it goes through `shareBasisPointsOf`.
+2. **`deals.terms` carries a flat `bonusThreshold` / `bonusAmount` pair, not a nested `bonus`
+   object.** Here the **code** was wrong — it read a shape that does not exist and returned blanks,
+   which would have silently dropped the bonus from every deal it edited. `DealTermsBody` in
+   `routes/deals.ts` is the authority and says so in two lines.
+3. **A replacement that does not match is a silent no-op.** My edit to one assertion never applied —
+   biome had already reformatted the target onto one line — so the test kept reading a field that
+   does not exist and reported `[undefined, undefined, undefined]`, and I spent a probe run looking
+   for a defect in code that was correct all along. Every other edit in this stretch asserted
+   `count == 1` on its anchor; this one did not, and that is the entire difference. **Assert the
+   anchor matched, or the edit is a wish.**
+
+Two of the three were mine and one was the code's, and the round-trip test is what separated them —
+which is the argument for writing the inverse against the forward mapper rather than against a
+description of it.
