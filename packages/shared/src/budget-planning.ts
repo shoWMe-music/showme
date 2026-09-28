@@ -253,8 +253,18 @@ export interface BudgetProjection {
   readonly contributionPerHead: bigint;
   /** Profit as a percentage of revenue. Zero when there is no revenue. */
   readonly marginPercent: number;
-  readonly revenuePerGuest: bigint;
-  readonly costPerGuest: bigint;
+  /**
+   * Per HEAD, and **null when no guests are planned** (QA sweep run 10, QA10-17).
+   *
+   * The divide used to guard itself with `attendees > 0n ? attendees : 1n`, which is a
+   * guard that returns a plausible wrong answer rather than throwing: on a sheet with no
+   * tickets planned, "revenue per guest" came back as the ENTIRE revenue, and the band
+   * printed `TICKETS PLANNED 0 · REVENUE / GUEST SEK 100,000`. Null forces every reader to
+   * say something — the band and the CSV export both print `—` — which is the ruling this
+   * same band already made about `marginPercent` (QA7-26: a margin of nothing is not 0.0%).
+   */
+  readonly revenuePerGuest: bigint | null;
+  readonly costPerGuest: bigint | null;
 }
 
 function sum(values: readonly bigint[]): bigint {
@@ -532,8 +542,9 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
   const breakEvenReachable = breakEvenTickets > 0 || uncovered <= 0n;
 
   const marginPercent = totalRevenue > 0n ? (Number(profit) / Number(totalRevenue)) * 100 : 0;
-  // Per GUEST: the people who came, not the seats that exist (see `attendees`).
-  const guests = attendees > 0n ? attendees : 1n;
+  // Per GUEST: the people who came, not the seats that exist (see `attendees`). Null
+  // rather than a divide by one when nobody is coming — see the field's own docstring.
+  const perHead = (total: bigint) => (attendees > 0n ? total / attendees : null);
 
   return {
     ticketRevenue,
@@ -554,8 +565,8 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
     variableCostPerTicket,
     contributionPerHead,
     marginPercent,
-    revenuePerGuest: totalRevenue / guests,
-    costPerGuest: totalCosts / guests,
+    revenuePerGuest: perHead(totalRevenue),
+    costPerGuest: perHead(totalCosts),
   };
 }
 

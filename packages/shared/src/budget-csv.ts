@@ -136,12 +136,35 @@ export function budgetCsvRows(inputs: BudgetCsvInputs): BudgetCsvRow[] {
   rows.push(moneyRow("Costs", "Total costs", projection.totalCosts));
 
   rows.push(moneyRow("Results", "Profit / loss", projection.profit));
-  rows.push(plainRow("Results", "Profit margin", `${projection.marginPercent.toFixed(1)}%`));
+  /*
+   * `—`, NOT `0.0%`, ON A SHEET WITH NO REVENUE — QA7-26's ruling, which reached the band
+   * on screen two sweeps ago and never reached the export (found closing QA10-17).
+   * The same shape as QA9-12's invoice modal, which kept the null-means-dash rule on two
+   * sibling fields and not on the third: a rule enforced at one reader is enforced at one
+   * reader, and the export is the copy that leaves the building.
+   */
+  rows.push(
+    plainRow(
+      "Results",
+      "Profit margin",
+      projection.totalRevenue > 0n ? `${projection.marginPercent.toFixed(1)}%` : "—",
+    ),
+  );
   rows.push(plainRow("Results", "Tickets sold", projection.ticketsSold.toString()));
   rows.push(moneyRow("Results", "Average ticket price", projection.averageTicketPrice));
   rows.push(plainRow("Results", "Break-even tickets", projection.breakEvenTickets.toString()));
-  rows.push(moneyRow("Results", "Revenue / guest", projection.revenuePerGuest));
-  rows.push(moneyRow("Results", "Cost / guest", projection.costPerGuest));
+  // A per-head figure with no heads is `—` here too, and `plainRow` is how this section
+  // already carries a non-numeric answer ("No break-even", two rows up).
+  rows.push(
+    projection.revenuePerGuest == null
+      ? plainRow("Results", "Revenue / guest", "—")
+      : moneyRow("Results", "Revenue / guest", projection.revenuePerGuest),
+  );
+  rows.push(
+    projection.costPerGuest == null
+      ? plainRow("Results", "Cost / guest", "—")
+      : moneyRow("Results", "Cost / guest", projection.costPerGuest),
+  );
 
   return rows;
 }

@@ -327,7 +327,8 @@ export function Dashboard() {
               <b style={{ color: "var(--text)" }}>
                 {attentionShown.length} {attentionShown.length === 1 ? "thing" : "things"}
               </b>{" "}
-              that need attention today.
+              {/* The verb agrees too: the noun was already conditional and this was not (QA10-16). */}
+              {attentionShown.length === 1 ? "that needs" : "that need"} attention today.
             </>
           )}
         </p>

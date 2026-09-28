@@ -501,7 +501,31 @@ describe("budget projection", () => {
     });
 
     expect(projection.barRevenue).toBe(0n);
-    expect(projection.revenuePerGuest).toBe(0n);
+    /*
+     * NULL, not `0n` — and this assertion used to read `0n` for a reason worth keeping:
+     * the guard was `attendees > 0n ? attendees : 1n`, so the figure was `revenue / 1`,
+     * and on THIS fixture the revenue is zero too. The old expectation was accidentally
+     * right, exactly the way QA10-6's caption was accidentally right at a 50/50 split.
+     * Put revenue on the same sheet and the old code answered "revenue per guest = all of
+     * the revenue" (QA10-17). Null is the only answer a reader cannot misread.
+     */
+    expect(projection.revenuePerGuest).toBeNull();
+    expect(projection.costPerGuest).toBeNull();
+  });
+
+  it("names a per-head figure only when heads are planned", () => {
+    // The shape the sweep actually read: a sheet with money on it and nobody coming.
+    const projection = computeBudgetProjection({
+      ticketTiers: [],
+      averageBarSpend: 0n,
+      capacity: 0,
+      otherRevenue: major(100000),
+      costs: [major(40000)],
+    });
+
+    expect(projection.totalRevenue).toBe(major(100000));
+    expect(projection.revenuePerGuest).toBeNull();
+    expect(projection.costPerGuest).toBeNull();
   });
 });
 

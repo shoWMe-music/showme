@@ -765,13 +765,19 @@ export function budgetPlannerViewFrom(
       // guest without ever saying how many guests it meant, so neither figure
       // could be checked.
       { label: "Tickets planned", value: projection.ticketsSold.toLocaleString() },
-      { label: "Revenue / guest", value: money(projection.revenuePerGuest), tone: "green" },
+      {
+        label: "Revenue / guest",
+        // Null means nobody is planned, so there is no per-head anything — the same
+        // answer `Profit margin` gives three rows up, and for the same reason (QA10-17).
+        value: projection.revenuePerGuest == null ? "—" : money(projection.revenuePerGuest),
+        tone: "green",
+      },
       ...(costsIncomplete
         ? []
         : [
             {
               label: "Cost / guest",
-              value: money(projection.costPerGuest),
+              value: projection.costPerGuest == null ? "—" : money(projection.costPerGuest),
               tone: "amber" as KpiTone,
             },
           ]),
