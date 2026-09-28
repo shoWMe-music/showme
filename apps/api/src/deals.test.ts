@@ -3139,3 +3139,144 @@ describe("deals — a standalone operator, alone on the event", () => {
     expect(response.statusCode).toBe(201);
   });
 });
+
+/**
+ * DELETING A DEAL — draft, and nothing settled (decisions §25.7.2, Daniel 2026-09-28).
+ *
+ * The route was built with no guard and no caller (QA sweep run 8, QA8-1): it would destroy a
+ * signed agreement out of a settled night, taking the entitlement the engine computed from it and
+ * leaving `settlement_lines` describing money owed under a document that no longer existed.
+ *
+ * Both refusals assert the SENTENCE as well as the status, because the sentence tells the operator
+ * to cancel instead — and advice a refusal gives is acted on. If cancelling ever stops being
+ * possible, this is the test that should go red rather than a person following dead advice
+ * (the lesson QA4-1 cost: a refusal advised a cancellation that broadcast to every party and
+ * bought nothing).
+ */
+describe("deleting a deal — draft, and nothing settled (decisions §25.7.2)", () => {
+  async function fixture(prefix: string) {
+    const operator = await seedMemberWithSet(
+      `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      `${prefix}-perf`,
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...performer, role: "performer" },
+      ],
+      `${prefix}-op`,
+    );
+    const hostParticipant = participants.find((row) => row.profileId === operator.profileId);
+    const actParticipant = participants.find((row) => row.profileId === performer.profileId);
+    if (!hostParticipant || !actParticipant) throw new Error("participant seed failed");
+    return { operator, event, hostParticipant, actParticipant, uid: `${prefix}-op` };
+  }
+
+  async function createDeal(eventId: string, uid: string, payerId: string, payeeId: string) {
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/deals`,
+      headers: auth(uid),
+      payload: {
+        type: "fee",
+        structure: "guarantee",
+        name: "Wrong guarantee",
+        currency: "SEK",
+        guaranteeAmount: "500000",
+        parties: [
+          { participantId: payerId, roleInDeal: "payer" },
+          { participantId: payeeId, roleInDeal: "payee" },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    return created.json().id as string;
+  }
+
+  it("deletes a draft agreement on a night with no settlement", async () => {
+    const { event, hostParticipant, actParticipant, uid } = await fixture("del-ok");
+    const dealId = await createDeal(event.id, uid, hostParticipant.id, actParticipant.id);
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/deals/${dealId}`,
+      headers: auth(uid),
+      payload: {},
+    });
+    expect(deleted.statusCode).toBe(204);
+    expect(
+      await harness.db.select().from(schema.deals).where(eq(schema.deals.id, dealId)),
+    ).toHaveLength(0);
+  });
+
+  it("refuses a deal that has left draft, and says to cancel it instead", async () => {
+    const { event, hostParticipant, actParticipant, uid } = await fixture("del-sent");
+    const dealId = await createDeal(event.id, uid, hostParticipant.id, actParticipant.id);
+    // Somebody has seen it. `sent` is the first status that makes the record somebody else's too.
+    await harness.db
+      .update(schema.deals)
+      .set({ agreementStatus: "sent" })
+      .where(eq(schema.deals.id, dealId));
+
+    const refused = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/deals/${dealId}`,
+      headers: auth(uid),
+      payload: {},
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.message).toContain("Cancel it instead");
+    // And the deal is still there to be cancelled.
+    expect(
+      await harness.db.select().from(schema.deals).where(eq(schema.deals.id, dealId)),
+    ).toHaveLength(1);
+  });
+
+  it("refuses a DRAFT deal once the night has a settlement — money outranks status", async () => {
+    const { event, hostParticipant, actParticipant, uid } = await fixture("del-settled");
+    const dealId = await createDeal(event.id, uid, hostParticipant.id, actParticipant.id);
+    /*
+     * The settlement belongs to the HOST's participant row. The guard reads settlements by EVENT
+     * and not by caller, which is the half a naive implementation gets wrong: the events LIST
+     * exposes a `settlementStatus` scoped to the caller's own profile, and reusing that fact here
+     * would let a co-host with no settlement of their own delete a deal out of a settled night.
+     */
+    await harness.db.insert(schema.settlements).values({
+      eventId: event.id,
+      participantId: hostParticipant.id,
+      // `open` on purpose, not `finalized`: the rule is "a settlement, finalized or not", the
+      // same standard `assertEventIsDeletable` applies one step earlier than the locked figures.
+      status: "open",
+    });
+
+    const refused = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/deals/${dealId}`,
+      headers: auth(uid),
+      payload: {},
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.message).toContain("settlement");
+    expect(refused.json().error.message).toContain("Cancel it instead");
+    expect(
+      await harness.db.select().from(schema.deals).where(eq(schema.deals.id, dealId)),
+    ).toHaveLength(1);
+
+    // The alternative the refusal names is real: cancelling this deal works.
+    const cancelled = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${dealId}`,
+      headers: auth(uid),
+      payload: { status: "cancelled" },
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json().status).toBe("cancelled");
+  });
+});

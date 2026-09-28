@@ -3899,9 +3899,12 @@
                     "hiddenCount": {
                       "type": "integer",
                       "minimum": 0
+                    },
+                    "hasSettlement": {
+                      "type": "boolean"
                     }
                   },
-                  "required": ["deals", "hiddenCount"],
+                  "required": ["deals", "hiddenCount", "hasSettlement"],
                   "additionalProperties": false
                 }
               }
@@ -25184,10 +25187,12 @@
                   }
                 },
                 "required": ["type", "identifier"],
-                "additionalProperties": false
+                "additionalProperties": false,
+                "description": "A payout account, as either path writes it"
               }
             }
-          }
+          },
+          "description": "A payout account, as either path writes it"
         },
         "parameters": [
           {
@@ -25285,10 +25290,12 @@
                     "type": "boolean"
                   }
                 },
-                "additionalProperties": false
+                "additionalProperties": false,
+                "description": "A payout account, as either path writes it"
               }
             }
-          }
+          },
+          "description": "A payout account, as either path writes it"
         },
         "parameters": [
           {

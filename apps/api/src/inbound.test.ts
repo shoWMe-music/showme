@@ -581,6 +581,92 @@ describe("inbound — an agent offers on behalf of the act it represents (decisi
     expect(sent.onBehalfOfName).toBe(profileName("ob-perf"));
   });
 
+  /**
+   * THE ACT SEES WHAT IS OFFERED IN ITS NAME (decisions §25.7.3, Daniel 2026-09-28).
+   *
+   * `direction=outgoing` answered off `sender_profile_id`, and an agent pitching for an act IS the
+   * sender — so an offer carrying the act's own name and fee range was visible to the agency and
+   * invisible to the act (QA sweep run 5, QA5-11). Ruled: the act sees it.
+   *
+   * The second half of this test is the half that keeps #14 intact, and it is not decoration. #14
+   * moved the business ACTIONS to the agent; this widens only sight. Every mutation on a booking
+   * request is scoped to the TARGET profile, so the act can read its own pitch and do nothing with
+   * it — and if that ever stops being true, this test is what says so.
+   */
+  it("shows the act its agent's pitch, and gives it no power over it", async () => {
+    const target = await seedOwnerWithProfile("obsee-tgt");
+    const performer = await seedOwnerWithProfile("obsee-perf", "performer");
+    const agent = await seedOwnerWithProfile("obsee-agent", "agent");
+    await seedRepresentation(agent.profileId, performer.profileId, "active");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("obsee-agent"), "x-profile-id": agent.profileId },
+      payload: {
+        targetProfileId: target.profileId,
+        wantedDate: "2026-12-09",
+        offerFeeMin: "2500000",
+        offerFeeMax: "3200000",
+        onBehalfOfProfileId: performer.profileId,
+        pitch: "Headline slot, 9 Dec.",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const offer = created.json();
+
+    // THE ACT's own outgoing list — it sent nothing, and the pitch is still its business.
+    const actsView = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests?direction=outgoing",
+      headers: { ...auth("obsee-perf"), "x-profile-id": performer.profileId },
+    });
+    expect(actsView.statusCode).toBe(200);
+    const seen = actsView.json().items.find((item: { id: string }) => item.id === offer.id);
+    expect(seen).toBeDefined();
+    // Including the number quoted in its name, which is the point of seeing it at all.
+    expect(seen.offerFeeMin).toBe("2500000");
+    expect(seen.offerFeeMax).toBe("3200000");
+    expect(seen.onBehalfOfProfileId).toBe(performer.profileId);
+
+    // And no power over it: triage and counter-offer both answer to the TARGET profile.
+    const triage = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/booking-requests/${offer.id}`,
+      headers: { ...auth("obsee-perf"), "x-profile-id": performer.profileId },
+      payload: { status: "accepted" },
+    });
+    expect(triage.statusCode).toBe(404);
+    const counter = await app.inject({
+      method: "POST",
+      url: `/api/v1/booking-requests/${offer.id}/counter-offer`,
+      headers: { ...auth("obsee-perf"), "x-profile-id": performer.profileId },
+      // A VALID body: `message` is required, and a 400 from validation would stand in for the
+      // refusal this line exists to prove (Fastify validates before `preHandler`).
+      payload: { message: "Could we make it the 10th?", wantedDate: "2026-12-10" },
+    });
+    expect(counter.statusCode).toBe(404);
+
+    // An UNRELATED performer sees nothing — the widening is to the named act, not to acts.
+    const bystander = await seedOwnerWithProfile("obsee-other", "performer");
+    const theirView = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests?direction=outgoing",
+      headers: { ...auth("obsee-other"), "x-profile-id": bystander.profileId },
+    });
+    expect(
+      theirView.json().items.find((item: { id: string }) => item.id === offer.id),
+    ).toBeUndefined();
+
+    // The read receipt stays withheld from the act too — it is not the recipient either.
+    const unread = await app.inject({
+      method: "GET",
+      url: "/api/v1/booking-requests?direction=outgoing&unread=true",
+      headers: { ...auth("obsee-perf"), "x-profile-id": performer.profileId },
+    });
+    expect(unread.statusCode).toBe(400);
+  });
+
   it("400s an on-behalf-of offer with no ACTIVE representation — never a silent drop", async () => {
     const target = await seedOwnerWithProfile("ob2-tgt");
     const performer = await seedOwnerWithProfile("ob2-perf", "performer");

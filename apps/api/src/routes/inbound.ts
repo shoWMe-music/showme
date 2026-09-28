@@ -3,7 +3,7 @@ import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { notifyProfileMembers } from "@showme/db/notify";
 import { currencyForCountry, invitationExpiresAt } from "@showme/shared";
-import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -327,13 +327,21 @@ const BookingRequestResponse = z.object({
   source: z.string(),
   status: z.string(),
   targetProfileId: z.string(),
-  // WHO sent it. `senderProfileId` is null for a public-form request (no account).
-  // `contactName` / `email` are the sender's business contact — the whole point of
-  // a booking request is that the recipient can answer it, and this payload only
-  // ever reaches members of the request's TARGET profile (incoming) or of its
-  // SENDER profile (outgoing), never a third party. No separate field-level rule
-  // applies: there is no capability under which a party may read the row but not
-  // the contact on it.
+  /*
+   * WHO sent it. `senderProfileId` is null for a public-form request (no account).
+   * `contactName` / `email` are the sender's business contact — the whole point of a booking
+   * request is that the recipient can answer it. No separate field-level rule applies: there is
+   * no capability under which a party may read the row but not the contact on it.
+   *
+   * WHO THIS PAYLOAD REACHES, corrected 2026-09-28 (decisions §25.7.3). It used to say
+   * *"members of the request's TARGET profile (incoming) or of its SENDER profile (outgoing),
+   * never a third party"* — and the third party it was excluding turned out to be the ACT whose
+   * name the offer carries. There are three: the target, the sender, and the profile the offer
+   * was sent ON BEHALF OF. The act reading its own pitch reads the agency's contact details with
+   * it, which is correct — the agency is who its own act would ring about the offer — but the
+   * sentence had to stop claiming otherwise, because it was the kind of comment that reads as a
+   * rule and enforces nothing.
+   */
   senderProfileId: z.string().nullable(),
   senderType: z.string().nullable(),
   contactName: z.string().nullable(),
@@ -1098,10 +1106,29 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         return { items: [], nextCursor: null };
       }
 
-      // Incoming scopes on the target; outgoing scopes on the sender profile.
+      /*
+       * Incoming scopes on the target. Outgoing scopes on the sender profile **or the profile the
+       * offer was sent ON BEHALF OF** — decisions §25.7.3, Daniel 2026-09-28.
+       *
+       * An agent pitching for an act is the SENDER, so scoping on `sender_profile_id` alone made
+       * the seed's own offer — *"Marlo Vance, 9 Dec, at The Lantern Hall"* — visible to the agency
+       * and invisible to Marlo (QA sweep run 5, QA5-11). The ruling: an act sees what is offered in
+       * its name, including the fee range, because being blind to that is the greater of the two
+       * costs. #14 is untouched by this and it is worth being precise about why: #14 moved the
+       * business ACTIONS to the agent, and every mutation on a booking request is scoped to the
+       * TARGET profile (triage, counter-offer, draft-event), so the act reading this list gains
+       * sight and no power at all. The act cannot accept, decline or counter its own pitch, and
+       * nothing here changes that.
+       *
+       * `unread` is refused for outgoing below, which matters more now than it did: the act is not
+       * the recipient either, so the read receipt stays withheld from both sides of the agency.
+       */
       const scope =
         direction === "outgoing"
-          ? inArray(schema.bookingRequests.senderProfileId, profileIds)
+          ? or(
+              inArray(schema.bookingRequests.senderProfileId, profileIds),
+              inArray(schema.bookingRequests.onBehalfOfProfileId, profileIds),
+            )
           : inArray(schema.bookingRequests.targetProfileId, profileIds);
 
       // `read_at` is the RECIPIENT's state, so filtering an outgoing list by it

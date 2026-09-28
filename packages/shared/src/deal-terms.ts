@@ -917,3 +917,66 @@ export function readTermsTemplateText(payload: unknown): string {
   const text = (payload as { text?: unknown }).text;
   return typeof text === "string" ? text : "";
 }
+
+/**
+ * MAY THIS DEAL BE DELETED, OR ONLY CANCELLED? (decisions §25.7.2, Daniel 2026-09-28)
+ *
+ * **Delete only while it is a `draft` AND nothing has been settled on the event. Past either
+ * line it is `cancelled`, never deleted.**
+ *
+ * `DELETE /deals/:did` was built and had no caller in either front end (QA sweep run 8, QA8-1),
+ * so a deal typed with the wrong guarantee could be neither corrected nor removed — the only
+ * remedy on screen was a second deal on the same event, which double-counts at settlement. The
+ * edit half shipped without needing a ruling. Delete needed one, because a reconciled deal is
+ * referenced by `settlement_lines` and by the entitlement the engine computed from it, so
+ * removing one silently rewrites a settled night's arithmetic.
+ *
+ * The line is money, not status — the same line #25.3 drew for deleting an EVENT, and
+ * `lib/event-delete.ts` states it in those words. The two rules now agree, which matters because
+ * a party looking at one night should not meet two different theories of what is destroyable.
+ *
+ * ONE implementation, two callers, and that is the point of it living here rather than in the
+ * route: the API refuses, and the screen must not offer a control the API will refuse. A second
+ * copy of this rule in the front end is how a button comes to exist that always errors — which is
+ * the defect shape this codebase has now recorded seven times over.
+ *
+ * `reason` is the sentence a person reads, so it says what to do instead rather than what failed.
+ */
+export interface DealDeletability {
+  deletable: boolean;
+  /** Why not, in a sentence — `null` when it may be deleted. */
+  reason: string | null;
+}
+
+export function dealDeletability(
+  deal: { agreementStatus: string; name?: string | null },
+  event: {
+    /**
+     * Does a settlement exist for the EVENT — for anybody on it, not for the caller.
+     *
+     * Deliberately not called `settlementStatus`, which is the name the events LIST uses for a
+     * different fact: the caller's OWN settlement on that event (`routes/events-list.ts` scopes it
+     * by `profile_members.user_id`). `null` there means "you have no settlement", never "this
+     * night has none" — so reusing that field to answer this question would let a co-host delete
+     * a deal out of a night the host had already settled, and read as correct the whole way.
+     */
+    hasSettlement: boolean;
+  },
+): DealDeletability {
+  const named = deal.name ? `"${deal.name}"` : "This agreement";
+  if (event.hasSettlement) {
+    return {
+      deletable: false,
+      reason: `This night has a settlement on it, so ${
+        deal.name ? named : "this agreement"
+      } is part of what has already been computed and read. Cancel it instead — that stops it paying without erasing that it existed.`,
+    };
+  }
+  if (deal.agreementStatus !== "draft") {
+    return {
+      deletable: false,
+      reason: `${named} has left draft, so somebody has seen it. Cancel it instead — that stops it paying and keeps the record that it was offered.`,
+    };
+  }
+  return { deletable: true, reason: null };
+}

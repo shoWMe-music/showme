@@ -5,6 +5,7 @@ import {
   type DealDraft,
   type DealPartyDraft,
   createDealPayload,
+  dealDeletability,
   dealDraftFrom,
   dealDraftNotices,
   dealDraftProblems,
@@ -606,5 +607,62 @@ describe("dealKindOf", () => {
     expect(dealKindOf("performance", null)).toBe("paper_only");
     // And an unreadable pair amounts to the same thing: no shape this app computes.
     expect(dealKindOf("performance", "something_else")).toBe("paper_only");
+  });
+});
+
+/**
+ * WHEN A DEAL MAY BE DELETED (decisions §25.7.2, Daniel 2026-09-28).
+ *
+ * The rule lives here rather than in the route because both the API and the screen ask it — the
+ * ruling says the UI must not offer a delete the API will refuse. These tests are what make the
+ * two agree: each case below is a case the route has an integration test for, checked against the
+ * same function the front end calls to decide whether to draw the control.
+ */
+describe("dealDeletability", () => {
+  const draft = { agreementStatus: "draft", name: "Wrong guarantee" };
+
+  it("allows a draft on a night with no settlement", () => {
+    expect(dealDeletability(draft, { hasSettlement: false })).toEqual({
+      deletable: true,
+      reason: null,
+    });
+  });
+
+  it("refuses anything past draft, whatever the night's state", () => {
+    for (const agreementStatus of ["sent", "confirmed", "signed"]) {
+      const verdict = dealDeletability({ ...draft, agreementStatus }, { hasSettlement: false });
+      expect(verdict.deletable).toBe(false);
+      // The sentence names the deal and the alternative, because it is read by a person who has
+      // just pressed a button and needs to know what to do instead.
+      expect(verdict.reason).toContain("Wrong guarantee");
+      expect(verdict.reason).toContain("Cancel it instead");
+    }
+  });
+
+  it("refuses a draft once the night has a settlement — money outranks status", () => {
+    const verdict = dealDeletability(draft, { hasSettlement: true });
+    expect(verdict.deletable).toBe(false);
+    expect(verdict.reason).toContain("settlement");
+    expect(verdict.reason).toContain("Cancel it instead");
+  });
+
+  it("leads with the settlement when BOTH lines are crossed", () => {
+    /*
+     * Not a preference about wording: it is the ordering `assertEventIsDeletable` had to be fixed
+     * to get right (QA4-1). A refusal that names the status first invites "so cancel it and try
+     * again", and the second attempt is refused by the money anyway — advice that costs an
+     * irreversible act and buys nothing. The absolute clause goes first.
+     */
+    const verdict = dealDeletability(
+      { agreementStatus: "signed", name: "Headline fee" },
+      { hasSettlement: true },
+    );
+    expect(verdict.reason).toContain("settlement");
+    expect(verdict.reason).not.toContain("left draft");
+  });
+
+  it("speaks in general terms about an unnamed agreement", () => {
+    const verdict = dealDeletability({ agreementStatus: "sent" }, { hasSettlement: false });
+    expect(verdict.reason).toContain("This agreement");
   });
 });

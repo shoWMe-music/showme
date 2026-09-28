@@ -6,6 +6,9 @@
  */
 import type { PostApiV1ProfilesIdPayoutAccountsBodyType } from './postApiV1ProfilesIdPayoutAccountsBodyType';
 
+/**
+ * A payout account, as either path writes it
+ */
 export type PostApiV1ProfilesIdPayoutAccountsBody = {
   type: PostApiV1ProfilesIdPayoutAccountsBodyType;
   /** @minLength 1 */

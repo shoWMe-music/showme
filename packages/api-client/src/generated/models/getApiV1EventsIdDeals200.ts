@@ -10,4 +10,5 @@ export type GetApiV1EventsIdDeals200 = {
   deals: GetApiV1EventsIdDeals200DealsItem[];
   /** @minimum 0 */
   hiddenCount: number;
+  hasSettlement: boolean;
 };

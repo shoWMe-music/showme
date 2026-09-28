@@ -11,6 +11,7 @@ import { formatDay, formatMoney, formatTime } from "../lib/format";
 import type { AgreementField } from "./AgreementView";
 import { DealAgreementCard, type DealPartyLine, shareLabelOf } from "./DealAgreementCard";
 import { DealComposerModal, type DealPartyChoice } from "./DealComposerModal";
+import { DealEndModal, type DealEndMode } from "./DealEndModal";
 import { DealReopenModal } from "./DealReopenModal";
 import { DealTermsModal } from "./DealTermsModal";
 import type { ScheduleEntry } from "./ScheduleList";
@@ -87,6 +88,10 @@ export function EventAgreementTab({
    */
   const [revising, setRevising] = useState<string | null>(null);
   const [reopening, setReopening] = useState<{ dealId: string; name: string } | null>(null);
+  /** The agreement being ended, and which of the two ways (decisions §25.7.2). */
+  const [ending, setEnding] = useState<{ dealId: string; name: string; mode: DealEndMode } | null>(
+    null,
+  );
   const [reopenReason, setReopenReason] = useState("");
   const choices = partyChoices(agreements.roster);
   // The roster, by name — an agreement with no name of its own takes the names of
@@ -202,7 +207,15 @@ export function EventAgreementTab({
             dealStructure={dealStructureFields(deal, baseCurrency)}
             schedule={scheduleEntries}
             parties={partyLines(deal, agreements.roster)}
-            actions={dealActionsFor(deal, agreements.authority, agreements.roster)}
+            actions={dealActionsFor(
+              deal,
+              agreements.authority,
+              agreements.roster,
+              // The night's settlement state, which decides Delete against Cancel — read off the
+              // same response the deals came in (§25.7.2), never off the reader-scoped field the
+              // events list calls `settlementStatus`.
+              agreements.hasSettlement,
+            )}
             busy={agreements.busyDealId === deal.id}
             termsText={deal.agreementBodyText}
             // The terms are live until the last signature and frozen after it —
@@ -232,6 +245,8 @@ export function EventAgreementTab({
               setReopenReason("");
               setReopening({ dealId, name: deal.name });
             }}
+            onDelete={(dealId) => setEnding({ dealId, name: deal.name, mode: "delete" })}
+            onCancel={(dealId) => setEnding({ dealId, name: deal.name, mode: "cancel" })}
             onExportPdf={() => window.print()}
           />
         ))
@@ -263,6 +278,19 @@ export function EventAgreementTab({
           if (!reopening) return;
           agreements.reopen(reopening.dealId, reopenReason.trim());
           setReopening(null);
+        }}
+        pending={agreements.isBusy}
+      />
+      <DealEndModal
+        open={ending !== null}
+        mode={ending?.mode ?? "cancel"}
+        dealName={ending?.name ?? ""}
+        onClose={() => setEnding(null)}
+        onConfirm={() => {
+          if (!ending) return;
+          if (ending.mode === "delete") agreements.remove(ending.dealId);
+          else agreements.cancel(ending.dealId);
+          setEnding(null);
         }}
         pending={agreements.isBusy}
       />

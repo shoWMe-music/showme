@@ -8,7 +8,7 @@ import {
 import { type Database, schema } from "@showme/db";
 import { dealPartyRecipients, notifyUsers } from "@showme/db/notify";
 import { type PrepaidTerms, prepaidAmountOf } from "@showme/settlement";
-import type { Capability } from "@showme/shared";
+import { type Capability, dealDeletability } from "@showme/shared";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -470,6 +470,20 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
           200: z.object({
             deals: z.array(DealResponse),
             hiddenCount: z.number().int().min(0),
+            /**
+             * HAS THIS NIGHT BEEN SETTLED — for anybody on it, not for the reader.
+             *
+             * Here rather than on the event read because it qualifies the deals: it is half of
+             * `dealDeletability` (decisions §25.7.2), and the screen deciding whether to offer
+             * Delete or Cancel has the whole rule in one response with no second request.
+             *
+             * NOT `settlementStatus`, which is the name the events LIST uses for the caller's OWN
+             * settlement (`routes/events-list.ts` scopes it by `profile_members.user_id`). Two
+             * different facts: a co-host with no settlement of their own is still looking at a
+             * night the host has settled, and a screen that read the reader-scoped field here
+             * would offer them a delete the route refuses.
+             */
+            hasSettlement: z.boolean(),
           }),
         },
       },
@@ -485,7 +499,13 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
         .select()
         .from(schema.deals)
         .where(eq(schema.deals.eventId, eventId));
-      if (deals.length === 0) return { deals: [], hiddenCount: 0 };
+      const [settlement] = await database
+        .select({ id: schema.settlements.id })
+        .from(schema.settlements)
+        .where(eq(schema.settlements.eventId, eventId))
+        .limit(1);
+      const hasSettlement = Boolean(settlement);
+      if (deals.length === 0) return { deals: [], hiddenCount: 0, hasSettlement };
 
       const parties = await database
         .select()
@@ -509,6 +529,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       return {
         deals: visible.map(({ deal, dealParties }) => serializeDeal(deal, dealParties, viewer)),
         hiddenCount: deals.length - visible.length,
+        hasSettlement,
       };
     },
   );
@@ -1299,6 +1320,31 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const before = await loadDeal(request, request.params.did);
       await requireDealAccess(request, before, "deal.edit");
+
+      /*
+       * DRAFT, AND NOTHING SETTLED — decisions §25.7.2 (Daniel, 2026-09-28).
+       *
+       * The route had no caller in either front end (QA sweep run 8, QA8-1) and no guard at all:
+       * it would happily destroy a signed agreement out of a settled night, taking with it the
+       * entitlement the engine computed from it and leaving `settlement_lines` describing money
+       * owed under a document that no longer exists.
+       *
+       * The rule is `dealDeletability` in `@showme/shared` and not written out here, because the
+       * front end has to ask the same question to decide whether to OFFER the control — the
+       * ruling says so in as many words ("the UI must not offer a delete the API will refuse").
+       * The existence of a settlement is read for the EVENT, not for the caller: the caller's own
+       * settlement is a different fact, and a co-host who has none of their own must not be able
+       * to delete a deal out of a night the host has already settled.
+       */
+      const [settlement] = await database
+        .select({ id: schema.settlements.id })
+        .from(schema.settlements)
+        .where(eq(schema.settlements.eventId, before.eventId))
+        .limit(1);
+      const deletability = dealDeletability(before, { hasSettlement: Boolean(settlement) });
+      if (!deletability.deletable) {
+        throw conflict(deletability.reason ?? "This agreement cannot be deleted.");
+      }
 
       const expectedVersion = request.body?.expectedVersion;
       const where =

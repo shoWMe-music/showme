@@ -3,6 +3,7 @@ import {
   type getApiV1EventsIdParticipants,
   getGetApiV1EventsIdDealsQueryKey,
   getGetApiV1EventsIdSettlementsQueryKey,
+  useDeleteApiV1DealsDid,
   useGetApiV1EventsIdDeals,
   useGetApiV1EventsIdParticipants,
   usePatchApiV1DealsDid,
@@ -12,7 +13,12 @@ import {
   usePostApiV1EventsIdDeals,
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
-import { type CreateDealPayload, type DealDraft, createDealPayload } from "@showme/shared";
+import {
+  type CreateDealPayload,
+  type DealDraft,
+  createDealPayload,
+  dealDeletability,
+} from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { errorMessage } from "../lib/errors";
@@ -87,6 +93,21 @@ export interface DealActions {
    * Planner say the terms can still move.
    */
   canReviseTerms: boolean;
+  /**
+   * DELETE or CANCEL — decisions §25.7.2 (Daniel, 2026-09-28).
+   *
+   * `canDelete` is `dealDeletability` asked with this night's settlement state, so the control
+   * appears exactly where `DELETE /deals/:did` will accept it. `deleteBlockedReason` is that
+   * function's own sentence and is shown instead of the control, because "why not" is the useful
+   * half: the answer is always "cancel it instead", and the Cancel control is right there.
+   *
+   * `canCancel` covers everything delete does not. It is not a consolation prize — cancelling is
+   * the normal way an agreement stops paying, and until now the app had no control for it either,
+   * on any status, which made the ruling's alternative unreachable from the screen.
+   */
+  canDelete: boolean;
+  deleteBlockedReason: string | null;
+  canCancel: boolean;
 }
 
 /** The event roles whose authority to sign is DEAL-scoped, mirroring `@showme/auth`. */
@@ -108,6 +129,15 @@ export function dealActionsFor(
   deal: Deal,
   authority: AgreementAuthority,
   roster: readonly Participant[] = [],
+  /**
+   * Does this NIGHT have a settlement — for anybody on it, not for the reader. Comes with the
+   * deals response (`GET /events/:id/deals` → `hasSettlement`) for that reason: the event list's
+   * `settlementStatus` is the reader's own and would answer a different question (§25.7.2).
+   *
+   * Defaulted to `true`, which is the CAUTIOUS default and deliberately the pessimistic one: a
+   * caller that forgot to pass it offers Cancel rather than a Delete the route would refuse.
+   */
+  hasSettlement = true,
 ): DealActions {
   const unsignedOwnLines = deal.parties.filter(
     (party) => party.isYours && party.roleInDeal !== "observer" && party.confirmedAt == null,
@@ -117,6 +147,10 @@ export function dealActionsFor(
     return participant != null && DEAL_SCOPED_CONFIRM_ROLES.has(participant.role);
   });
   const frozen = deal.agreementStatus === "confirmed" || deal.agreementStatus === "signed";
+  // The rule itself is in `@showme/shared` and the route asks the same function — the ruling says
+  // the screen must not offer a delete the API will refuse, and one implementation is how that
+  // stays true rather than being true today.
+  const deletability = dealDeletability(deal, { hasSettlement });
   return {
     canSend: authority.canManage && deal.agreementStatus === "draft",
     // A draft is not signable: the terms have not been put to anybody yet, and
@@ -129,6 +163,10 @@ export function dealActionsFor(
     // `draft` and `sent` both — a draft's figures are obviously editable, and a SENT one is the
     // case the spec is actually about, where parties are looking at terms nobody has signed.
     canReviseTerms: authority.canManage && !frozen && deal.status !== "cancelled",
+    canDelete: authority.canManage && deletability.deletable,
+    // Only worth a sentence to somebody who could otherwise have deleted it.
+    deleteBlockedReason: authority.canManage ? deletability.reason : null,
+    canCancel: authority.canManage && deal.status !== "cancelled",
   };
 }
 
@@ -156,6 +194,15 @@ export interface EventAgreements {
   send: (dealId: string) => void;
   confirm: (dealId: string) => void;
   reopen: (dealId: string, reason: string) => void;
+  /**
+   * The two ways an agreement stops (decisions §25.7.2). `remove` is the hard one and is only
+   * ever offered where `dealActionsFor` says the route will take it; `cancel` is the one that
+   * always exists, and had no control anywhere in the app before this.
+   */
+  remove: (dealId: string) => void;
+  cancel: (dealId: string) => void;
+  /** Whether this night has a settlement — the other half of the delete rule. */
+  hasSettlement: boolean;
 }
 
 export function useEventAgreements(
@@ -182,6 +229,7 @@ export function useEventAgreements(
   const sendDeal = usePostApiV1DealsDidSend();
   const confirmDeal = usePostApiV1DealsDidConfirm();
   const reopenDeal = usePostApiV1DealsDidReopen();
+  const deleteDeal = useDeleteApiV1DealsDid();
 
   const compose = useCallback(
     async (draft: DealDraft): Promise<boolean> => {
@@ -320,6 +368,64 @@ export function useEventAgreements(
     [reopenDeal, deals.data, refresh, toast],
   );
 
+  /**
+   * DESTROYING one, and STOPPING one (decisions §25.7.2, Daniel 2026-09-28).
+   *
+   * Both version-locked (decisions #8), for the same reason `reopen` is: the deal on screen may
+   * have moved while the person was deciding, and a delete that lands on terms they never saw is
+   * the worst version of this. A 409 and a reload is the right answer.
+   *
+   * There is no confirmation dialog HERE because that is the component's business, and there had
+   * better be one: this is the one irreversible act on an agreement. The hook's job is that the
+   * call is correct and that the toast says what happened.
+   */
+  const remove = useCallback(
+    (dealId: string) => {
+      setBusyDealId(dealId);
+      const deal = (deals.data?.deals ?? []).find((row) => row.id === dealId);
+      deleteDeal.mutate(
+        { did: dealId, data: deal ? { expectedVersion: deal.version } : {} },
+        {
+          onSuccess: () => {
+            refresh();
+            toast.success("The draft agreement is gone. Nothing was settled against it.");
+          },
+          // The server's sentence, not ours: on a refusal it is `dealDeletability`'s own reason,
+          // which names cancelling as the alternative.
+          onError: (error) => toast.error(errorMessage(error, "Couldn't delete the agreement.")),
+          onSettled: () => setBusyDealId(null),
+        },
+      );
+    },
+    [deleteDeal, deals.data, refresh, toast],
+  );
+
+  const cancel = useCallback(
+    (dealId: string) => {
+      setBusyDealId(dealId);
+      const deal = (deals.data?.deals ?? []).find((row) => row.id === dealId);
+      patchDeal.mutate(
+        {
+          did: dealId,
+          data: { status: "cancelled", ...(deal ? { expectedVersion: deal.version } : {}) },
+        },
+        {
+          onSuccess: (updated) => {
+            refresh();
+            // What cancelling MEANS, because it is not obvious: the engine skips a cancelled deal
+            // (`ne(status, 'cancelled')`) and the record of it stays.
+            toast.success(
+              `"${updated.name}" is cancelled. It pays nobody, and the record that it existed stays.`,
+            );
+          },
+          onError: (error) => toast.error(errorMessage(error, "Couldn't cancel the agreement.")),
+          onSettled: () => setBusyDealId(null),
+        },
+      );
+    },
+    [patchDeal, deals.data, refresh, toast],
+  );
+
   const roster = participants.data ?? [];
 
   return {
@@ -338,12 +444,22 @@ export function useEventAgreements(
     error: deals.error,
     authority: agreementAuthorityOf(capabilities),
     isBusy:
-      createDeal.isPending || sendDeal.isPending || confirmDeal.isPending || reopenDeal.isPending,
+      createDeal.isPending ||
+      sendDeal.isPending ||
+      confirmDeal.isPending ||
+      reopenDeal.isPending ||
+      deleteDeal.isPending ||
+      patchDeal.isPending,
     busyDealId,
     compose,
     revise,
     send,
     confirm,
     reopen,
+    remove,
+    cancel,
+    // `true` while the read is in flight, which keeps the pessimistic default honest: a Delete
+    // control must not flash into existence before the app knows whether the night is settled.
+    hasSettlement: deals.data?.hasSettlement ?? true,
   };
 }

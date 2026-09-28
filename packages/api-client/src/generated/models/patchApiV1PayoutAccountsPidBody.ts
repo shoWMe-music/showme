@@ -6,6 +6,9 @@
  */
 import type { PatchApiV1PayoutAccountsPidBodyType } from './patchApiV1PayoutAccountsPidBodyType';
 
+/**
+ * A payout account, as either path writes it
+ */
 export type PatchApiV1PayoutAccountsPidBody = {
   type?: PatchApiV1PayoutAccountsPidBodyType;
   /** @minLength 1 */

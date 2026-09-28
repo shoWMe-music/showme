@@ -38,6 +38,9 @@ export interface DealAgreementCardProps {
   onSend: (dealId: string) => void;
   onConfirm: (dealId: string) => void;
   onReopen: (dealId: string) => void;
+  /** Destroy a draft nothing has been settled against, or stop one paying (§25.7.2). */
+  onDelete: (dealId: string) => void;
+  onCancel: (dealId: string) => void;
   /** Open the composer on this deal's own figures (QA8-1). */
   onReviseTerms: (dealId: string) => void;
   onExportPdf: () => void;
@@ -86,6 +89,8 @@ export function DealAgreementCard({
   onSend,
   onConfirm,
   onReopen,
+  onDelete,
+  onCancel,
   onReviseTerms,
   onExportPdf,
   expanded,
@@ -229,6 +234,40 @@ export function DealAgreementCard({
           {actions.canReopen && (
             <Button variant="secondary" disabled={busy} onClick={() => onReopen(dealId)}>
               Reopen
+            </Button>
+          )}
+          {/*
+           * ENDING IT — delete while it is a draft nothing was settled against, cancel otherwise
+           * (decisions §25.7.2, Daniel 2026-09-28). `DELETE /deals/:did` was built and called by
+           * nothing, so a deal typed with the wrong guarantee could be neither corrected nor
+           * removed, and the only remedy on screen was a second deal on the same event — which
+           * double-counts at settlement. Cancelling had no control anywhere in the app either.
+           *
+           * Exactly one of the three appears. The reason is shown in the third case rather than a
+           * greyed-out button, because "why not" here has a useful answer and it is the Cancel
+           * control sitting next to it.
+           */}
+          {actions.canDelete ? (
+            <Button
+              variant="ghost"
+              disabled={busy}
+              leftIcon={<Icon name="trash" size={14} />}
+              onClick={() => onDelete(dealId)}
+            >
+              Delete draft
+            </Button>
+          ) : (
+            actions.deleteBlockedReason !== null && (
+              <span
+                style={{ fontSize: 11.5, color: "var(--muted)", maxWidth: 260, lineHeight: 1.45 }}
+              >
+                {actions.deleteBlockedReason}
+              </span>
+            )
+          )}
+          {actions.canCancel && (
+            <Button variant="ghost" disabled={busy} onClick={() => onCancel(dealId)}>
+              Cancel agreement
             </Button>
           )}
         </div>
