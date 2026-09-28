@@ -807,7 +807,17 @@ function SettlementTab({
               of the preview below carries its own. */}
           <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
             <Card padding="lg" style={CARD_COLUMN}>
-              <CardTitle subtitle="Read-only preview of the figures entered on Financials. Edit them there.">
+              {/* "Edit them there" only where there is a there to edit (QA8-14). The
+                  Financials tab answers a party without `budget.view` with "The plan is the
+                  operator's view", so the instruction and the refusal were one click apart.
+                  The card's own body already explains whose figures these are. */}
+              <CardTitle
+                subtitle={
+                  settlement.authority.canEditFinancials
+                    ? "Read-only preview of the figures entered on Financials. Edit them there."
+                    : "Read-only preview of the figures entered on Financials."
+                }
+              >
                 Revenue &amp; deductions
               </CardTitle>
               {/* EVERY LINE, then the totals — the design's order, and the half
@@ -849,7 +859,7 @@ function SettlementTab({
 
       {settlement.commissions.map((commission) => (
         <Card key={commission.id} padding="lg" style={CARD_COLUMN}>
-          <Eyebrow>Agent commission — private to you and your agent</Eyebrow>
+          <Eyebrow>Agent commission — {commission.privacyNote}</Eyebrow>
           <KeyValueRow
             label={commission.performerLabel}
             value={commission.commissionableIncome}

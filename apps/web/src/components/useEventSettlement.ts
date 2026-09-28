@@ -64,6 +64,15 @@ export interface SettlementAuthority {
   canFinalize: boolean;
   /** `settlement.confirm` — sign off your own line. */
   canConfirm: boolean;
+  /**
+   * `budget.edit` — whether the Financials tab will actually let this reader in
+   * (QA sweep run 8, QA8-14).
+   *
+   * The revenue preview's subtitle said *"Edit them there"* to everybody, and for a party
+   * without `budget.view` the Financials tab answers *"The plan is the operator's view"*.
+   * The instruction and the refusal were one click apart.
+   */
+  canEditFinancials: boolean;
 }
 
 export function settlementAuthorityOf(capabilities: readonly string[]): SettlementAuthority {
@@ -71,6 +80,7 @@ export function settlementAuthorityOf(capabilities: readonly string[]): Settleme
     canCompute: capabilities.includes("settlement.edit"),
     canFinalize: capabilities.includes("settlement.finalize"),
     canConfirm: capabilities.includes("settlement.confirm"),
+    canEditFinancials: capabilities.includes("budget.edit"),
   };
 }
 
@@ -187,6 +197,15 @@ export interface SettlementCommissionRow {
   commissionableIncome: string;
   commissionLabel: string;
   commission: string;
+  /**
+   * WHO ELSE CAN SEE THIS CARD, said to whoever is reading it (QA8-13).
+   *
+   * The eyebrow was a fixed *"private to you and your agent"*, which is true on the
+   * performer's copy and nonsense on the agent's — the agent IS the agent. Same class of
+   * slip as QA6-9, in a card that fix did not reach, and it is built here because this is
+   * where the names are.
+   */
+  privacyNote: string;
 }
 
 /** One party's sign-off, named, as the roster shows it. */
@@ -1083,6 +1102,16 @@ export function useEventSettlement(
       commissionableIncome: formatAmount(commission.commissionableIncome),
       commissionLabel: `Commission to ${nameOf(commission.agentParticipantId)}`,
       commission: formatAmount(commission.commission),
+      /*
+       * Names the OTHER party, whichever side is reading (QA8-13). The agent sees the act
+       * they represent; the act sees "your agent", which is the sentence that was always
+       * there and was always right for them. A commission is private to exactly these two
+       * (#14), so naming one of them is the whole of what the eyebrow has to say.
+       */
+      privacyNote:
+        commission.agentParticipantId === ownParticipantId
+          ? `Private to you and ${nameOf(commission.performerParticipantId)}`
+          : "Private to you and your agent",
     })),
     ladder: ladder ? ladderRows(ladder, currency, formatAmount) : null,
     adjustedNet: ladder ? formatAmount(ladder.adjustedNet) : null,

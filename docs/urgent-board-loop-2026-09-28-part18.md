@@ -126,3 +126,63 @@ without pretending to open the right one.
 Two tests and three mutations red — the guard never fires, it refuses performers instead, it
 refuses everyone but an agent. The last two fail **thirteen** tests each, which is the evidence
 that the neighbouring kinds are genuinely covered rather than merely unaffected.
+
+---
+
+## QA8-12, QA8-13, QA8-14 — the three cosmetics
+
+### QA8-12 — already closed, by QA8-5
+
+**Verdict: no build.** The two glyphs were a formatted negative rendered raw (`-SEK 5,000`,
+U+002D, no space — the payer's advance) beside the card's `negative` renderer (`− SEK 3,000`,
+U+2212, one space). QA8-5's rewrite removed the first case entirely: `payoutAdjustments` strips
+the sign off a payer's advance and marks it `reducesPayout: false`, so it renders as a plain
+positive, and every reduction goes through the one renderer.
+
+Measured rather than assumed — the codepoints, read off the same screen with the advance restored:
+
+```
+"− SEK 83,000"  [8722, 32]     the money collected
+"− SEK 3,000"   [8722, 32]     Marlo's advance
+"− SEK 2,000"   [8722, 32]     Neon Tide's advance
+"SEK 5,000"     no sign at all the operator's advance, which INCREASES what they are owed
+```
+
+One glyph, one spacing, and the payer's row now reads like its neighbour (*"Plus the costs you
+paid on the night SEK 33,000"*) because it means the same thing. The headline checks too:
+`0 − 83,000 + 33,000 + 5,000 = −45,000` under **SEK 45,000 · You owe**.
+
+### QA8-13 — "private to you and your agent", on the agent's own screen
+
+**Which file settles it:** `apps/web/src/components/useEventSettlement.ts` (build the sentence),
+`EventSettlement.tsx:852` (render it).
+
+**Verdict: real, and the third instance of QA6-9's class.** The eyebrow was fixed text, true on
+the performer's copy and nonsense on the agent's — the agent IS the agent. A commission is private
+to exactly two parties (#14), so the sentence names **the other one**, and it is built in the hook
+where the names already are.
+
+| reader | before | after |
+|---|---|---|
+| `agent@` | AGENT COMMISSION — PRIVATE TO YOU AND YOUR AGENT | **PRIVATE TO YOU AND MARLO VANCE** |
+| `performer.a@` | the same | **PRIVATE TO YOU AND YOUR AGENT** — unchanged, and right |
+| `operator@` | — | no commission card at all, which is #14 holding |
+
+### QA8-14 — "Edit them there", pointed at a tab that refuses the reader
+
+**Which file settles it:** `useEventSettlement.ts:69` (`canEditFinancials` on the authority) and
+`EventSettlement.tsx:810`.
+
+**Verdict: real.** The revenue preview's subtitle instructed every reader to *"Edit them there"*,
+and the Financials tab answers a party without `budget.view` with *"The plan is the operator's
+view"*. The instruction and the refusal were one click apart. The authority gains `budget.edit`
+alongside its three existing questions, and the subtitle drops the instruction for anyone it does
+not apply to — the card's body already says whose figures these are.
+
+| reader | subtitle |
+|---|---|
+| `operator@` | *"…entered on Financials. **Edit them there.**"* |
+| `agent@`, `performer.a@` | *"Read-only preview of the figures entered on Financials."* |
+
+*The decision each hides:* none. Both are the same rule this stretch has now applied five times —
+a sentence that names a person or an action must be true of the person reading it.
