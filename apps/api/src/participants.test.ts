@@ -1080,6 +1080,77 @@ describe("participants — a removal remembers what it undid", () => {
  * stays green with the gate deleted — which is precisely the shape of bug this
  * repo keeps finding (CLAUDE.md, "Green is not the same as correct").
  */
+/**
+ * NOBODY INVITED THE PEOPLE RUNNING THE NIGHT (QA sweep run 6, QA6-7).
+ *
+ * `POST /events/:id/participants` left every role at the column default `invited`.
+ * That is right for a role with somewhere to answer, and a dead end for a co-host:
+ * the inbox deliberately excludes them (*"The host and a co-host are running it —
+ * nobody invited them to it"*), so `resolvePendingParticipation` could not find the
+ * row and the accept route answered **404 "Event not found"** — as did the event
+ * itself, because `invited` grants no capabilities. The co-promoter could neither see
+ * the night nor answer for it, and only the host patching their status by hand got
+ * them in.
+ */
+describe("participants — a co-promoter added directly is on the bill, not in a queue", () => {
+  it("records a co-host as accepted, so they can read the event at once", async () => {
+    const { event, operator } = await seedEventWithHost("cohoststatus");
+    const coHost = await seedMemberWithSet(
+      "cohoststatus-co",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: { ...auth("cohoststatus-op"), "x-profile-id": operator.profileId },
+      payload: { profileId: coHost.profileId, role: "co_host" },
+    });
+    expect(added.statusCode).toBe(201);
+    expect(added.json().status).toBe("accepted");
+
+    // The read that used to 404: `invited` grants no capabilities at all.
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: { ...auth("cohoststatus-co"), "x-profile-id": coHost.profileId },
+    });
+    expect(read.statusCode).toBe(200);
+  });
+
+  it("still puts a PERFORMER in the queue — they are being asked", async () => {
+    // The distinction this rests on. A performer has an inbox row, an accept route
+    // and a decline route; the whole booking ladder is their answer.
+    const { event, operator, performer } = await seedEventWithHost("perfstatus");
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: { ...auth("perfstatus-op"), "x-profile-id": operator.profileId },
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    expect(added.statusCode).toBe(201);
+    expect(added.json().status).toBe("invited");
+  });
+
+  it("still puts CREW in the queue — they answer too", async () => {
+    const { event, operator } = await seedEventWithHost("crewstatus");
+    const crew = await seedMemberWithSet(
+      "crewstatus-crew",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_schedule_only,
+    );
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: { ...auth("crewstatus-op"), "x-profile-id": operator.profileId },
+      payload: { profileId: crew.profileId, role: "crew" },
+    });
+    expect(added.statusCode).toBe(201);
+    expect(added.json().status).toBe("invited");
+  });
+});
+
 describe("participants — an invitation must be answered", () => {
   it("gives an invited participant NOTHING until they answer, then everything", async () => {
     const { operator, performer, event } = await seedEventWithHost("gate");

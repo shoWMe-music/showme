@@ -66,7 +66,12 @@ async function seedEvent(
   operator: { profileId: string; permissionSetId: string },
   participants: {
     profileId: string;
-    permissionSetId: string;
+    /**
+     * NULLABLE, because "no permission set" is a real participation and the
+     * Collaborators modal's own default ("Standard for the role") is exactly that.
+     * The helper could not express it, so no test could seed the shape QA6-1 found.
+     */
+    permissionSetId: string | null;
     role: "host" | "co_host" | "performer" | "crew" | "crew_lead";
   }[],
   createdBy: string,
@@ -1963,6 +1968,151 @@ describe("deals — a venue↔crew agreement can actually be confirmed (owner ca
       .select()
       .from(schema.deals)
       .where(eq(schema.deals.id, seed.dealId));
+    expect(row?.agreementStatus).toBe("sent");
+  });
+});
+
+/**
+ * A CO-PROMOTER ON THE MODAL'S OWN DEFAULT COULD NOT SIGN, AND IT FROZE THE NIGHT'S
+ * MONEY — QA sweep run 6 (QA6-1).
+ *
+ * The Collaborators modal defaults to *co-host, Standard for the role*, which means
+ * no permission set and therefore `OPERATOR_FLOOR` — and that floor carries no
+ * `agreement.confirm`. So the textbook co-promotion, a room rental written between
+ * the two operators, could be created, sent, signed by the host, and never reach
+ * `confirmed`. Worse than the crew dead end the same set was widened for in August:
+ * `settlement/compute` answers **409** *"cannot open until every agreement on the
+ * event is signed"*, so one unsignable line takes the whole settlement down, and the
+ * only in-product remedy — Full control — answers `entitlement_required: Granting
+ * admin requires a paid plan`.
+ *
+ * `authorize.test.ts` had asserted the opposite, on the stated grounds that
+ * "operators already carry `agreement.confirm` from floor/preset". They do not.
+ */
+describe("deals — a co-promoter on Standard access signs the rental it is a party to", () => {
+  async function seedRoomRental(prefix: string) {
+    const host = await seedMemberWithSet(
+      `${prefix}-host`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    // NO permission set of their own: this is exactly what the modal's default
+    // "Standard for the role" leaves behind, and the whole point of the finding.
+    const coHost = await seedMemberWithSet(`${prefix}-co`, "operator", []);
+    const performer = await seedMemberWithSet(
+      `${prefix}-perf`,
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event, participants } = await seedEvent(
+      host,
+      [
+        { ...host, role: "host" },
+        { profileId: coHost.profileId, permissionSetId: null, role: "co_host" },
+        { ...performer, role: "performer" },
+      ],
+      `${prefix}-host`,
+    );
+    const hostPart = participants.find((p) => p.profileId === host.profileId)?.id as string;
+    const coPart = participants.find((p) => p.profileId === coHost.profileId)?.id as string;
+    const perfPart = participants.find((p) => p.profileId === performer.profileId)?.id as string;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth(`${prefix}-host`),
+      payload: {
+        type: "rental",
+        structure: "rental",
+        name: "Room rental",
+        currency: "SEK",
+        guaranteeAmount: "500000",
+        parties: [
+          { participantId: coPart, roleInDeal: "payer" },
+          { participantId: hostPart, roleInDeal: "payee" },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const dealId = created.json().id as string;
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/v1/deals/${dealId}/send`,
+      headers: auth(`${prefix}-host`),
+    });
+    expect(sent.statusCode).toBe(200);
+    return { event, host, coHost, hostPart, coPart, perfPart, dealId };
+  }
+
+  it("drives the rental to `confirmed` — the co-host signs the payer line", async () => {
+    const seed = await seedRoomRental("cr");
+
+    const byHost = await confirm(seed.dealId, "cr-host");
+    expect(byHost.statusCode).toBe(200);
+    expect(byHost.json().agreementStatus).toBe("sent");
+
+    // This was a 403 "Missing capability: agreement.confirm".
+    const byCoHost = await confirm(seed.dealId, "cr-co");
+    expect(byCoHost.statusCode).toBe(200);
+    expect(byCoHost.json().agreementStatus).toBe("confirmed");
+
+    const parties = await harness.db
+      .select()
+      .from(schema.dealParties)
+      .where(eq(schema.dealParties.dealId, seed.dealId));
+    expect(parties.every((party) => party.confirmedAt != null)).toBe(true);
+    expect(parties.find((party) => party.participantId === seed.coPart)?.confirmedBy).toBe("cr-co");
+  });
+
+  it("keeps the grant DEAL-scoped — no event-wide confirm, so no vote on the hold", async () => {
+    const seed = await seedRoomRental("cr-scope");
+    const principal = await resolvePrincipal(harness.db, "cr-scope-co");
+    if (!principal) throw new Error("principal not resolved");
+    const capabilities = await effectiveEventCapabilities(harness.db, principal, seed.event.id);
+    // `POST /events/:id/hold/confirm` gates on this, and a co-promoter on Standard
+    // access does not decide whether the show happens.
+    expect(capabilities.has("agreement.confirm")).toBe(false);
+    // Nor does signing one rental open the night's book.
+    expect(capabilities.has("budget.view")).toBe(false);
+  });
+
+  it("refuses a co-host on an agreement they are not a party to", async () => {
+    // The grant is standing behind a LINE, not a role. A co-promoter is not a
+    // signatory on the act's fee.
+    const seed = await seedRoomRental("cr-other");
+
+    const fee = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/deals`,
+      headers: auth("cr-other-host"),
+      payload: {
+        type: "fee",
+        name: "The act's fee",
+        currency: "SEK",
+        guaranteeAmount: "300000",
+        parties: [
+          { participantId: seed.hostPart, roleInDeal: "payer" },
+          { participantId: seed.perfPart, roleInDeal: "payee" },
+        ],
+      },
+    });
+    expect(fee.statusCode).toBe(201);
+    const feeId = fee.json().id as string;
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/deals/${feeId}/send`,
+      headers: auth("cr-other-host"),
+    });
+
+    const refused = await confirm(feeId, "cr-other-co");
+    // A refusal either way — the point is that it is refused, and for a reason that
+    // names the LINE rather than the role. The route answers 400 for "you are not a
+    // signatory on this agreement" and 403 for "you hold no confirm at all"; before
+    // this change a co-host got the 403 on the rental they WERE a party to.
+    expect([400, 403]).toContain(refused.statusCode);
+    expect(refused.json().error?.message ?? refused.json().message).toBeTruthy();
+
+    const [row] = await harness.db.select().from(schema.deals).where(eq(schema.deals.id, feeId));
     expect(row?.agreementStatus).toBe("sent");
   });
 });

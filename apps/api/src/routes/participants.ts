@@ -340,6 +340,31 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
                   performerTag: request.body.performerTag,
                   details: crewDetails,
                   addedBy: principal.userId,
+                  /*
+                   * NOBODY INVITED THE PEOPLE RUNNING THE NIGHT — QA sweep run 6 (QA6-7).
+                   *
+                   * The column defaults to `invited`, which is right for every role that
+                   * has somewhere to answer: a performer, a support act and crew all reach
+                   * `resolvePendingParticipation`, which filters to `INVITABLE_ROLES`. A
+                   * `co_host` is deliberately NOT in that set — the inbox says why, in this
+                   * file: *"The host and a co-host are running it — nobody invited them to
+                   * it"* — so a co-host added straight through this route landed `invited`
+                   * with no inbox row, no token, and a 404 from the accept route AND from
+                   * the event itself. They could neither see the night nor answer for it,
+                   * and the only way out was the host patching their status by hand.
+                   *
+                   * So the status follows the rule the inbox already states: adding a
+                   * co-promoter here RECORDS an arrangement rather than asking a question.
+                   * Being ASKED is the token-invitation path (`POST /invitations`), which
+                   * has its own accept and sets `accepted` there.
+                   *
+                   * `accepted`, not `confirmed`: `confirmed` is what the booking ladder
+                   * writes when the night itself is confirmed, and this route settles who
+                   * is on the bill, not what state the show is in.
+                   */
+                  ...(request.body.role === "co_host" || request.body.role === "host"
+                    ? { status: "accepted" as const }
+                    : {}),
                 })
                 .returning();
               if (!participant) throw new Error("participant create failed");

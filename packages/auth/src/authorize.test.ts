@@ -231,17 +231,45 @@ describe("the deal-scoped confirm — crew sign the agreement that is with them"
     expect(dealPartyBaselineCapabilities("crew_lead", "observer")).toEqual([]);
   });
 
+  /**
+   * A CO-PROMOTER IS THE SAME DEAD END (QA sweep run 6, QA6-1).
+   *
+   * This block used to assert `co_host` got nothing, on the stated grounds that
+   * *"operators already carry `agreement.confirm` from floor/preset"*. **That was
+   * false, and the assertion pinned it.** `OPERATOR_FLOOR` carries no
+   * `agreement.confirm` — the test below says so — and the Collaborators modal's own
+   * default is *co-host, Standard for the role*. So the textbook co-promotion (a room
+   * rental written between the two operators) could be sent, signed by the host, and
+   * never confirmed; `settlement/compute` then answered 409 for the whole night.
+   */
+  it("gives a co-promoter the confirm on the agreement they are named on", () => {
+    expect(dealPartyBaselineCapabilities("co_host", "payer")).toContain("agreement.confirm");
+    expect(dealPartyBaselineCapabilities("co_host", "payee")).toContain("agreement.confirm");
+    expect(dealPartyBaselineCapabilities("co_host", "split_member")).toContain("agreement.confirm");
+    // Deal-scoped, exactly like crew: a co-host on Standard access still holds no
+    // event-scoped confirm, so they still do not decide whether the show happens.
+    expect(baselineCapabilities("co_host")).not.toContain("agreement.confirm");
+    // The fact the old comment got wrong, asserted rather than assumed.
+    expect(PRESET_PERMISSION_SETS.operator_full).toContain("agreement.confirm");
+    expect(baselineCapabilities("host")).not.toContain("agreement.confirm");
+    // And an observer is still watching, not signing.
+    expect(dealPartyBaselineCapabilities("co_host", "observer")).toEqual([]);
+  });
+
   it("gives no OTHER event role anything — the event floor already answers for them", () => {
-    // Performers and operators already carry `agreement.confirm` from floor/preset,
-    // so re-granting here would be noise. The load-bearing case is `performer`: a
-    // DELEGATED performer's floor deliberately drops the capability (decisions #14),
-    // and they are still the payee on their own line — a deal-scoped re-grant would
-    // silently revoke the delegation the agent's whole authority rests on.
+    // The load-bearing case is `performer`: a DELEGATED performer's floor deliberately
+    // drops the capability (decisions #14), and they are still the payee on their own
+    // line — a deal-scoped re-grant would silently revoke the delegation the agent's
+    // whole authority rests on.
+    //
+    // `host` stays out on a MEASURED basis rather than the old assumed one: `POST
+    // /events` writes the host's participant row with `operator_full`, which carries
+    // `agreement.confirm` outright, so no host reaches the dead end by any path the
+    // app has. Adding them would be widening authority on speculation.
     for (const roleInDeal of ["payer", "payee", "split_member", "commission"] as const) {
       expect(dealPartyBaselineCapabilities("performer", roleInDeal)).toEqual([]);
       expect(dealPartyBaselineCapabilities("support", roleInDeal)).toEqual([]);
       expect(dealPartyBaselineCapabilities("host", roleInDeal)).toEqual([]);
-      expect(dealPartyBaselineCapabilities("co_host", roleInDeal)).toEqual([]);
       expect(dealPartyBaselineCapabilities("agent", roleInDeal)).toEqual([]);
     }
   });

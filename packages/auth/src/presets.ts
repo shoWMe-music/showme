@@ -383,8 +383,36 @@ const DEAL_SIGNATORY_FLOOR: readonly Capability[] = ["agreement.confirm"];
  * a case a deal-scoped re-grant would silently undo: they are still the payee on
  * their own line, so handing confirm back here would revoke the delegation the
  * agent's whole authority rests on.
+ *
+ * ── A CO-HOST IS THE SAME DEAD END, AND IT TAKES THE SETTLEMENT WITH IT ──────
+ *
+ * Added 2026-09-28 from QA sweep run 6 (QA6-1). `OPERATOR_FLOOR` carries no
+ * `agreement.confirm` either, and the Collaborators modal's own default is
+ * *co-host, Standard for the role* — so the textbook co-promotion, a room rental
+ * written between the two operators, could be sent, signed by the host, and never
+ * confirmed. Worse than the crew case: `POST /events/:id/settlement/compute` then
+ * answers **409** *"cannot open until every agreement on the event is signed"*, so
+ * one unsignable line freezes the whole night's money. The only in-product remedy
+ * was Full control, which answers `entitlement_required: Granting admin requires a
+ * paid plan` — leaving "buy a plan or delete the agreement" as the way out of a
+ * deal the app had just invited them into.
+ *
+ * The owner's rule for crew reads across word for word: *"they can confirm an
+ * agreement if it is with them"*. A co-promoter standing behind a party line on ONE
+ * agreement is exactly that, and this stays deal-scoped for the same reason — a
+ * co-host on Standard access still holds no event-scoped `agreement.confirm`, so
+ * they still do not decide whether the show happens (`hold/confirm`).
+ *
+ * `host` is NOT here, and that is measured rather than assumed: `POST /events`
+ * writes the host's participant row with `operator_full`, which carries
+ * `agreement.confirm` outright, so no host reaches this dead end by any path the
+ * app has. Adding them would be widening authority on speculation.
  */
-const DEAL_SCOPED_CONFIRM_EVENT_ROLES: ReadonlySet<EventRole> = new Set(["crew", "crew_lead"]);
+const DEAL_SCOPED_CONFIRM_EVENT_ROLES: ReadonlySet<EventRole> = new Set([
+  "crew",
+  "crew_lead",
+  "co_host",
+]);
 
 /**
  * The DEAL-scoped floor (decisions #4's floor, resolved per agreement instead of

@@ -163,3 +163,102 @@ inside a window measured from `now` is a scheduled failure.
 
 biome **730** clean · api **1368** (no flake this run) · shared **293** · web **383** ·
 e2e **112** · `tsc --noEmit` clean in api, web, shared and design-system.
+
+---
+
+## `QA6-1` — a co-promoter invited the default way could not sign, and it froze the night's money
+
+**Verdict: real, and the same dead end a preset comment already names — at a worse surface.**
+The file that settles it: `packages/auth/src/presets.ts`.
+
+The Collaborators modal's own default is **co-host, Standard for the role** — which means no
+permission set, which means `OPERATOR_FLOOR`, which carries **no `agreement.confirm`**. So the
+textbook co-promotion, a room rental written between the two operators, ran like this:
+
+```
+POST /deals              201
+POST /deals/:id/send     200
+POST /deals/:id/confirm   as operator → 200   agreementStatus "sent"
+POST /deals/:id/confirm   as coHost   → 403   Missing capability: agreement.confirm
+POST /events/:id/settlement/compute   → 409   "cannot open until every agreement … is signed"
+PATCH …/participants/:pid {permissionSetId}  → 403 entitlement_required: paid plan
+```
+
+One unsignable line freezes the **whole event's settlement**, and the only in-product remedy is
+a plan the seeded operator has not bought. The way out this run took was deleting the agreement.
+
+`DEAL_SCOPED_CONFIRM_EVENT_ROLES` was widened for exactly this shape in August, for crew, and
+its comment states the rule: *"an agreement only freezes once EVERY non-observer party has
+signed … Without a way for the crew side to sign, such a deal could be sent and could never
+reach `confirmed`: **a dead end**."* The owner's rule reads across word for word — *"they can
+confirm an agreement if it is with them"*.
+
+### Scope, and a test that pinned a false belief
+
+`co_host` joins the set. It stays **deal-scoped**, for the same reason crew's is: a co-host on
+Standard access still holds no event-scoped `agreement.confirm`, so they still do not decide
+whether the show happens (`POST /events/:id/hold/confirm` gates on that), and signing one rental
+still does not open the night's book.
+
+**`host` is deliberately not added, and that is measured rather than assumed:** `POST /events`
+writes the host's own participant row with `operator_full`, which carries `agreement.confirm`
+outright, so no host reaches this dead end by any path the app has.
+
+`authorize.test.ts` had asserted the opposite — `co_host` gets nothing — *"because operators
+already carry `agreement.confirm` from floor/preset"*. **They do not**, and the assertion was
+pinning the belief that made the defect invisible. The replacement asserts the fact the old
+comment got wrong: `operator_full` carries it, `baselineCapabilities("co_host")` does not.
+
+*The decision it hides:* whether standing behind a party line is enough to sign, for an
+operator as it is for crew. It is the same rule, and the alternative — "buy a plan or delete the
+agreement" — is not a rule anybody chose.
+
+### Proven on the running stack
+
+Two mutations red (`co_host` out of the set; every role granted). Then the sweep's own scenario
+rebuilt after a restart:
+
+```
+POST /deals/…/confirm  as coHost  → 200   agreementStatus "confirmed"
+POST /events/…/settlement/compute → 200   offTheTop 500000, adjustedNet −500000
+```
+
+The rental signs, the agreement freezes, and the settlement opens with the room charged off the
+top exactly as the waterfall says (#24.1).
+
+---
+
+## `QA6-7` — a co-promoter added straight through the API was stranded, and it blocked the probe above
+
+Found while proving QA6-1: `POST /events/:id/participants {role:"co_host"}` answered 201 with
+`status: "invited"`, and then
+
+```
+POST /events/:id/participation/accept  as coHost → 404 "Event not found"
+GET  /events/:id                       as coHost → 404 "Event not found"
+GET  /me/event-invitations             as coHost → []
+```
+
+`invited` grants no capabilities, and the inbox **deliberately** excludes `co_host` — this very
+file says why: *"The host and a co-host are running it — nobody invited them to it"*. So
+`resolvePendingParticipation` filters to `INVITABLE_ROLES`, cannot find the row, and 404s. The
+co-promoter could neither see the night nor answer for it.
+
+**The status now follows the rule the inbox already states.** A `host` or `co_host` added through
+this route is created `accepted`: this route RECORDS an arrangement, and being *asked* is the
+token-invitation path (`POST /invitations`), which has its own accept. `accepted` rather than
+`confirmed`, because `confirmed` is what the booking ladder writes about the night, not about
+who is on the bill. A performer and a crew member still land `invited` — they have an inbox, an
+accept and a decline, and the whole ladder is their answer.
+
+Two mutations red, including "accept every role on add", which turns 28 tests red — the
+distinction is load-bearing.
+
+`seedEvent` in `deals.test.ts` also gained a nullable `permissionSetId`: "no permission set" is
+the modal's default and the helper could not express it, so **no test could seed the shape
+QA6-1 found**.
+
+## Suites, after the two
+
+biome **730** clean · api **1374** (2 files to the Testcontainers flake, both green alone) ·
+auth **31** · shared **293** · web **383** · db **25** · e2e **112** · `tsc --noEmit` clean.
