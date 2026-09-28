@@ -12,7 +12,7 @@ import type { GetApiV1EventsIdBudgets200ItemPlanningAssumptionsOperatorCostSplit
  */
 export type GetApiV1EventsIdBudgets200ItemPlanningAssumptions = {
   /** @nullable */
-  paymentProcessing: GetApiV1EventsIdBudgets200ItemPlanningAssumptionsPaymentProcessing;
+  paymentProcessing?: GetApiV1EventsIdBudgets200ItemPlanningAssumptionsPaymentProcessing;
   /** @nullable */
   operatorCostSplit?: GetApiV1EventsIdBudgets200ItemPlanningAssumptionsOperatorCostSplit;
 } | null;

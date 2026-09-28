@@ -394,12 +394,61 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
     // What is left once the moving rows are taken out of the frozen total.
     const trulyFixedCosts = enteredCosts - plannedDerived;
     const perHeadIncome = averageTicketPrice + perHeadRevenue;
+    /**
+     * WHAT A PERCENTAGE DIVIDES IS THE ADJUSTED NET, NOT THE DOOR (QA sweep run 7,
+     * QA7-1).
+     *
+     * This applied `splitBasisPoints` to `averageTicketPrice × tickets` — the raw door —
+     * which is `decisions.md` **#23.1**, the base **#24.1 reversed a fortnight before this
+     * code was written**. So one card solved its break-even on the retired rule while every
+     * other figure on it used the current one, and #24.1's own promise — *"the Budget
+     * Planner moves with the engine, in the same commit … a split would otherwise have
+     * quoted the forecast one fee and the settlement another"* — was broken by the half of
+     * the planner nobody had looked at.
+     *
+     * Measured on one screen: the night turned profitable at 109 tickets (the P/L tile said
+     * **+SEK 209**) while the KPI two centimetres above said **200**, and the chart caption
+     * agreed with the KPI against the P&L. Solving the door rule gives 199.0 → 200, which is
+     * exactly what it printed.
+     *
+     * The base here is the ladder's adjusted net rebuilt at this attendance: revenue less
+     * every cost that is NOT the derived fee itself — `trulyFixedCosts` (which carries the
+     * production costs and any off-the-top rental) and the per-ticket variable cost.
+     *
+     * A NEGATIVE base needs no clamp, and one was written here and then deleted: below the
+     * attendance that covers the costs the share comes out negative, and `share > floor`
+     * refuses it, because a floor is never negative (it is `guaranteeMinor ?? 0n`). A
+     * percentage of a loss therefore resolves to the guarantee, or to nothing where there is
+     * none — which is what a guarantee is for. The clamp could not change an answer, which
+     * is how it was found.
+     *
+     * ── WHERE THIS BASE CAN AND CANNOT MOVE THE ANSWER ──────────────────────────
+     *
+     * Worth stating, because it says which half of the fix carries the weight. At any
+     * break-even the scan finds, revenue equals costs, so the adjusted net equals the fee
+     * itself — and if the fee is `split × adjustedNet` with a split below 100%, that forces
+     * `adjustedNet × (1 − split) = 0`. **So on the SHARE arm the adjusted net at break-even
+     * is ~0 whatever the base is made of, and getting the base wrong cannot move the number.**
+     *
+     * The base matters on the GUARANTEE arm, where the fee is a constant and the base only
+     * decides which arm governs — which is exactly the case QA7-1 measured: a SEK 12,000
+     * floor, the screen saying 200 and the truth 109.
+     *
+     * One consequence for the tests: `standingRevenue`'s presence in this base cannot be
+     * pinned by a break-even assertion for the reason above, and a fixture tuned to catch it
+     * would be tuned rather than true. It is here because it is part of the ladder's net
+     * revenue, and the headline fee this scan is made to agree with includes it.
+     */
     const derivedAt = (tickets: number): bigint => {
-      const door = averageTicketPrice * BigInt(tickets);
+      const revenueHere = standingRevenue + perHeadIncome * BigInt(tickets);
+      const costsBeforeTheFee = trulyFixedCosts + variableCostPerTicket * BigInt(tickets);
+      const adjustedNetHere = revenueHere - costsBeforeTheFee;
       return sum(
         derivedCosts.map((cost) => {
           const share =
-            cost.splitBasisPoints != null ? applyBasisPoints(door, cost.splitBasisPoints) : 0n;
+            cost.splitBasisPoints != null
+              ? applyBasisPoints(adjustedNetHere, cost.splitBasisPoints)
+              : 0n;
           const floor = cost.guaranteeMinor ?? 0n;
           return share > floor ? share : floor;
         }),

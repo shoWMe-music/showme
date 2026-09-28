@@ -147,18 +147,29 @@ describe("budget projection", () => {
       });
 
       /*
-       * 48, and the sweep's own "42" is wrong in the same way the defect is.
+       * 42 — AND RUN 2'S ORIGINAL 42 WAS RIGHT AFTER ALL (QA sweep run 7, QA7-1).
        *
-       * Run 2 solved `R − 2,000 − 1,000 − 0.015R = 0` → R ≈ 3,046 → 42, holding the
-       * fee at the SEK 2,000 guarantee. But 70% of a 3,046 door is 2,132, so the
-       * SHARE governs there, not the floor — the report froze the fee while solving,
-       * which is the very mistake it was filing. With the share governing:
-       * `R − 0.70R − 1,000 − 0.015R = 0` → R ≈ 3,509 → 47.3 → 48.
+       * This assertion was `48` with a long argument for it: *"70% of a 3,046 door is
+       * 2,132, so the SHARE governs there, not the floor"*. That reasoning is sound and
+       * its BASE was `decisions.md` #23.1 — the gross door — which **#24.1 reversed a
+       * fortnight before either was written**. A percentage divides the ADJUSTED NET.
        *
-       * Checked by hand at three attendances: 42 leaves the night SEK 113 short, 47
-       * leaves it SEK 7 short, 48 covers it.
+       * Re-solved on the current rule, by hand: average price SEK 74.11, one SEK 1,000
+       * fixed cost, 1.5% processing (SEK 1.11 a head).
+       *
+       *   adjusted net at N = 74.11N − 1,000 − 1.11N = 73.00N − 1,000
+       *   the act's share    = max(2,000, 0.70 × (73.00N − 1,000))
+       *   covered when        73.00N ≥ 1,000 + that share
+       *
+       * At N = 42 the share is 0.70 × (3,066 − 1,000) = SEK 1,446, so the SEK 2,000
+       * GUARANTEE governs — which is what run 2 assumed and what the door base made
+       * look wrong. 73.00 × 42 = 3,066 ≥ 3,000. At 41: 2,993 < 3,000. So **42**.
+       *
+       * The lesson is the one `CLAUDE.md` now carries: an assertion that carries a
+       * reason is making a claim about the code, and this one was arguing for the
+       * retired rule in careful detail.
        */
-      expect(projection.breakEvenTickets).toBe(48);
+      expect(projection.breakEvenTickets).toBe(42);
     });
 
     it("still reports 65 when the fee is genuinely fixed", () => {
@@ -198,15 +209,31 @@ describe("budget projection", () => {
         attendanceDependentCosts: [{ plannedMinor: major(20000), splitBasisPoints: 5000 }],
       });
 
-      // SEK 25,000 of fixed cost against SEK 50 a head once the act takes half the
-      // door: 500 tickets into a 400-seat room.
-      expect(projection.breakEvenTickets).toBe(500);
-      expect(projection.breakEvenTickets).toBeGreaterThan(400);
+      /*
+       * 250, in a 400-seat room — still the shape this test is for (an answer inside
+       * capacity here, and the one beyond it asserted below), but on #24.1's base.
+       *
+       * Half the DOOR left SEK 50 a head against SEK 25,000: 500 tickets. Half the
+       * ADJUSTED NET means the operator recovers the 25,000 first and the act takes
+       * half of what is above it, so the night is covered at 250:
+       *   100N ≥ 25,000 + 0.5 × (100N − 25,000)  →  50N ≥ 12,500  →  N = 250.
+       */
+      expect(projection.breakEvenTickets).toBe(250);
     });
 
-    it("reports no break-even when the share leaves nothing per head", () => {
-      // 100% of the door to the act: every extra guest brings in nothing the show
-      // keeps, so there is no attendance that covers a fixed cost.
+    it("still breaks even on a 100% share, because the share is of what is LEFT", () => {
+      /*
+       * This asserted **no break-even** on the reasoning that *"100% of the door to the
+       * act … brings in nothing the show keeps"*. True of the door; not true of the
+       * adjusted net (#24.1), and that difference is the whole of QA7-1.
+       *
+       * 100% of `revenue − costs` means the operator recovers the SEK 5,000 first and the
+       * act takes everything above it. Below 50 tickets the adjusted net is negative, so
+       * the share is nothing and the night is short of its 5,000; at exactly 50 the costs
+       * are covered and the act takes zero. So the night stops LOSING money at 50 and
+       * never profits — which is a break-even, and is what an operator needs to see. The
+       * old answer hid a real number behind "never".
+       */
       const projection = computeBudgetProjection({
         ticketTiers: [{ unitAmount: major(100), quantity: 100 }],
         averageBarSpend: 0n,
@@ -216,7 +243,68 @@ describe("budget projection", () => {
         attendanceDependentCosts: [{ plannedMinor: major(10000), splitBasisPoints: 10000 }],
       });
 
-      expect(projection.breakEvenTickets).toBe(0);
+      expect(projection.breakEvenTickets).toBe(50);
+      expect(projection.breakEvenReachable).toBe(true);
+    });
+
+    it("solves on the adjusted net when the SHARE governs, standing revenue and fees included", () => {
+      /*
+       * THE CASE THAT MAKES EVERY TERM OF THE BASE LOAD-BEARING (QA7-1).
+       *
+       * The Open Mic fixture above is governed by its guarantee, so the base can be wrong in
+       * three different ways and the answer does not move. Here there is no floor at all,
+       * there IS a standing revenue and a per-ticket fee, and the share governs throughout —
+       * so dropping any one term from the adjusted net changes the answer.
+       *
+       * SEK 200 a ticket, SEK 10,000 of sponsorship, 1.5% processing (SEK 3 a head),
+       * SEK 20,000 of production, and half of what is left to the act:
+       *
+       *   adjusted net at N = 10,000 + 200N − 20,000 − 3N = 197N − 10,000
+       *   the act takes       0.5 × that
+       *   covered when        10,000 + 200N ≥ 20,000 + 0.5(197N − 10,000) + 3N
+       *                   →   98.5N ≥ 5,000  →  N = 50.76  →  51
+       *
+       * Checked at the boundary: at 50 the adjusted net is −SEK 150, so the act takes nothing
+       * and the night is SEK 150 short; at 51 it is SEK 47, the act takes SEK 23.50, and the
+       * night is SEK 23.50 up.
+       *
+       * The three wrong bases all answer differently — the gross door 104, dropping the
+       * processing fee 52, dropping the sponsorship 0 — which is what makes this a check.
+       */
+      const projection = computeBudgetProjection({
+        ticketTiers: [{ unitAmount: major(200), quantity: 300 }],
+        averageBarSpend: 0n,
+        capacity: 300,
+        otherRevenue: major(10000),
+        paymentProcessing: { percentBasisPoints: 150, flatPerTicket: 0n },
+        costs: [major(20000), major(30000)],
+        attendanceDependentCosts: [{ plannedMinor: major(30000), splitBasisPoints: 5000 }],
+      });
+
+      expect(projection.breakEvenTickets).toBe(51);
+      expect(projection.breakEvenReachable).toBe(true);
+    });
+
+    it("answers beyond capacity when the fee has a GUARANTEE under it", () => {
+      /*
+       * The beyond-capacity case the assertion above used to carry. A floor the door
+       * cannot reach is what pushes break-even past the room: SEK 30,000 of guarantee and
+       * SEK 10,000 of production against SEK 100 a head is 400 tickets in a 200-seat room,
+       * and the share never overtakes the floor on the way.
+       */
+      const projection = computeBudgetProjection({
+        ticketTiers: [{ unitAmount: major(100), quantity: 200 }],
+        averageBarSpend: 0n,
+        capacity: 200,
+        otherRevenue: 0n,
+        costs: [major(10000), major(30000)],
+        attendanceDependentCosts: [
+          { plannedMinor: major(30000), guaranteeMinor: major(30000), splitBasisPoints: 5000 },
+        ],
+      });
+
+      expect(projection.breakEvenTickets).toBe(400);
+      expect(projection.breakEvenTickets).toBeGreaterThan(200);
     });
   });
 

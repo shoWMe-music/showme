@@ -12,7 +12,7 @@ import type { PatchApiV1EventsIdBudgetsBid200PlanningAssumptionsOperatorCostSpli
  */
 export type PatchApiV1EventsIdBudgetsBid200PlanningAssumptions = {
   /** @nullable */
-  paymentProcessing: PatchApiV1EventsIdBudgetsBid200PlanningAssumptionsPaymentProcessing;
+  paymentProcessing?: PatchApiV1EventsIdBudgetsBid200PlanningAssumptionsPaymentProcessing;
   /** @nullable */
   operatorCostSplit?: PatchApiV1EventsIdBudgetsBid200PlanningAssumptionsOperatorCostSplit;
 } | null;

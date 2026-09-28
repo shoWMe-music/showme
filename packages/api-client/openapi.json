@@ -5336,7 +5336,8 @@
                             },
                             "required": ["percentBasisPoints", "flatPerTicket"],
                             "additionalProperties": false,
-                            "nullable": true
+                            "nullable": true,
+                            "default": null
                           },
                           "operatorCostSplit": {
                             "type": "object",
@@ -5349,7 +5350,6 @@
                             "default": null
                           }
                         },
-                        "required": ["paymentProcessing"],
                         "additionalProperties": false,
                         "nullable": true
                       },
@@ -5607,7 +5607,8 @@
                           },
                           "required": ["percentBasisPoints", "flatPerTicket"],
                           "additionalProperties": false,
-                          "nullable": true
+                          "nullable": true,
+                          "default": null
                         },
                         "operatorCostSplit": {
                           "type": "object",
@@ -5620,7 +5621,6 @@
                           "default": null
                         }
                       },
-                      "required": ["paymentProcessing"],
                       "additionalProperties": false,
                       "nullable": true
                     },
@@ -5832,7 +5832,8 @@
                         },
                         "required": ["percentBasisPoints", "flatPerTicket"],
                         "additionalProperties": false,
-                        "nullable": true
+                        "nullable": true,
+                        "default": null
                       },
                       "operatorCostSplit": {
                         "type": "object",
@@ -5845,7 +5846,6 @@
                         "default": null
                       }
                     },
-                    "required": ["paymentProcessing"],
                     "additionalProperties": false,
                     "nullable": true
                   },
@@ -5918,7 +5918,8 @@
                           },
                           "required": ["percentBasisPoints", "flatPerTicket"],
                           "additionalProperties": false,
-                          "nullable": true
+                          "nullable": true,
+                          "default": null
                         },
                         "operatorCostSplit": {
                           "type": "object",
@@ -5931,7 +5932,6 @@
                           "default": null
                         }
                       },
-                      "required": ["paymentProcessing"],
                       "additionalProperties": false,
                       "nullable": true
                     },
