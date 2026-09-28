@@ -347,6 +347,73 @@ describe("the door forecast", () => {
    * the card said `TICKET REVENUE SEK 93,000` and derived the fee from SEK 83,000, quoting
    * *"the deal pays SEK 50,000"*; `settlement/compute` then paid SEK 60,000.
    */
+  /**
+   * THE FORECAST AND THE SETTLEMENT QUOTE ONE FEE (QA sweep run 10, QA10-1 — decisions §25.7.1).
+   *
+   * The engine stopped taking a named-payer rental off the top on 2026-09-28 and this forecast did
+   * not follow it for an hour. On the sweep's own night — SEK 120,000 of tickets, SEK 15,000 of
+   * costs, a 70% act deal and a SEK 5,000 room hire the CO-HOST owes the host — the planner quoted
+   * the act SEK 70,000 and the settlement paid SEK 73,500. The gap is SEK 3,500, the exact figure
+   * §25.7.1's hand-check names as the act's movement, and it surfaced only after terms had been
+   * agreed against the forecast.
+   *
+   * The numbers below are the split BASE rather than the fee, which is what this function returns;
+   * `packages/settlement/src/reconcile.test.ts` holds the other end of the same night, and the two
+   * now call one predicate (`rentalComesOffTheTop`) so they cannot drift again.
+   */
+  describe("whose rental the pool actually pays (§25.7.1)", () => {
+    const HOST = "part-host";
+    const CO_HOST = "part-co";
+    const VENUE = "part-venue";
+    const operators = new Set([HOST, CO_HOST]);
+    const sheet: BudgetLineForDoor[] = [
+      { kind: "revenue", amount: "12000000", details: { unitPrice: 400, quantity: 300 } },
+      { kind: "cost", amount: "1500000" },
+    ];
+    const roomHire = (payer: string, payee: string): Deal => ({
+      id: "room",
+      name: "Room hire",
+      type: "rental",
+      status: "confirmed",
+      guaranteeAmount: "500000", // 5 000.00
+      parties: [
+        { participantId: payer, roleInDeal: "payer" },
+        { participantId: payee, roleInDeal: "payee" },
+      ],
+    });
+
+    it("leaves the base alone when a co-operator owes it — a transfer, not a cost of the night", () => {
+      const door = doorForecastFrom([roomHire(CO_HOST, HOST)], sheet, [], operators);
+      // 120 000 − 15 000, and NOT less the room: the act is not a party to that agreement.
+      expect(door.splitBase).toBe(10_500_000n);
+    });
+
+    it("still takes a VENUE rental off the top, which is #24.1's own case", () => {
+      // The payee is outside the pool, so the show is paying for its room and everyone dividing
+      // the night shares it. The boundary, and the reason the predicate tests both ends.
+      const door = doorForecastFrom([roomHire(HOST, VENUE)], sheet, [], operators);
+      expect(door.splitBase).toBe(10_000_000n);
+    });
+
+    it("takes a rental that names nobody off the top", () => {
+      const noPayer: Deal = {
+        id: "room",
+        name: "Room hire",
+        type: "rental",
+        status: "confirmed",
+        guaranteeAmount: "500000",
+      };
+      expect(doorForecastFrom([noPayer], sheet, [], operators).splitBase).toBe(10_000_000n);
+    });
+
+    it("charges the act's own four-wall room hire to the act, not to the base", () => {
+      // Payer outside the pool, payee inside it. The shape a surviving mutation found on the
+      // engine side; the same answer has to come out here.
+      const door = doorForecastFrom([roomHire("part-act", HOST)], sheet, [], operators);
+      expect(door.splitBase).toBe(10_500_000n);
+    });
+  });
+
   describe("a tier the sheet does not carry yet", () => {
     /** What the planner writes for a tier: an amount WITH its unit x count breakdown. */
     const sheetTier = (

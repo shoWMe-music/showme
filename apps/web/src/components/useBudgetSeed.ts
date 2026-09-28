@@ -1,4 +1,5 @@
 import { useGetApiV1EventsIdBudgets, useGetApiV1EventsIdDeals } from "@showme/api-client";
+import { rentalComesOffTheTop } from "@showme/settlement";
 import { type EntitlementBasis, dealEntitlementDetailed } from "@showme/settlement";
 import { allocate, basisPointsToPercent, isTicketRevenueBasis } from "@showme/shared";
 import { useMemo } from "react";
@@ -677,6 +678,14 @@ export interface BudgetSeedSources {
    * multi-act bills where a budget matters most.
    */
   performerParticipantIds: string[];
+  /**
+   * The host and any co-hosts, by participant id — who shares the residual (§25.7.1).
+   *
+   * Only the rental question needs it, and only a rental with a named payer makes it matter. Comma-
+   * joined upstream for the same reason `performerParticipantIds` is: a fresh array every render
+   * would never let the seed settle.
+   */
+  operatorParticipantIds: string[];
 }
 
 /** One budget row, only as much of one as the forecast below reads. */
@@ -711,6 +720,15 @@ export function doorForecastFrom(
   deals: Deal[],
   sharedLines: BudgetLineForDoor[],
   ticketTiers: EventTicketTier[],
+  /**
+   * The participants who share the event's residual — its host and any co-hosts.
+   *
+   * Needed only to answer whether a rental comes off the top (§25.7.1), and passed in rather than
+   * derived here because this function takes deals and lines, not the roster. An empty set answers
+   * the question the way the engine answers it for an event with no operators on the bill: a rental
+   * with a named payer settles between its parties.
+   */
+  operatorParticipantIds: ReadonlySet<string> = new Set(),
 ): DoorForecast {
   const ticketLines = sharedLines.filter(
     (line) => line.kind === "revenue" && isTicketLine(line.details),
@@ -802,8 +820,34 @@ export function doorForecastFrom(
    * with a `deal_id` is excluded above and dropped at the settlement boundary. The
    * room is charged once, in the deal that states it.
    */
+  /*
+   * …AND ONLY THE ONES THE POOL ACTUALLY PAYS (QA sweep run 10, QA10-1 — decisions §25.7.1).
+   *
+   * This summed EVERY non-cancelled rental, which is what the engine used to do and stopped doing
+   * on 2026-09-28: a rental whose deal names who owes it settles between its two parties and the
+   * adjusted net never sees it. For one hour the engine branched and this did not, so on a night
+   * with a co-operator's room hire the planner quoted the act SEK 70,000 while the settlement paid
+   * SEK 73,500 — the exact SEK 3,500 §25.7.1's hand-check names as the act's movement, surfacing
+   * only after terms had been agreed against the forecast.
+   *
+   * `rentalComesOffTheTop` is the engine's own predicate, imported rather than restated. The
+   * comment above this one already promised that *"the Budget Planner moves with the engine, in the
+   * same commit"*; a shared function is the version of that promise that cannot be forgotten.
+   */
   const rentals = deals
     .filter((deal) => deal.status !== "cancelled" && isRental(deal))
+    .filter((deal) =>
+      rentalComesOffTheTop(
+        {
+          payerParticipantId: (deal.parties ?? []).find((party) => party.roleInDeal === "payer")
+            ?.participantId,
+          payeeParticipantIds: (deal.parties ?? [])
+            .filter((party) => party.roleInDeal === "payee")
+            .map((party) => party.participantId),
+        },
+        operatorParticipantIds,
+      ),
+    )
     .reduce((total, deal) => total + BigInt(deal.guaranteeAmount ?? 0), 0n);
   /*
    * The same correction one level up (QA7-2). `sheetRevenue > 0n ? sheetRevenue :
@@ -874,7 +918,12 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
      */
     const sharedLines =
       (budgetsQuery.data ?? []).find((budget) => budget.scope === "shared")?.lines ?? [];
-    const door = doorForecastFrom(deals, sharedLines, sources.ticketTiers);
+    const door = doorForecastFrom(
+      deals,
+      sharedLines,
+      sources.ticketTiers,
+      new Set(sources.operatorParticipantIds),
+    );
 
     return {
       capacity: sources.capacity,

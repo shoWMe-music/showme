@@ -1,7 +1,7 @@
 import { allocate } from "@showme/shared";
 import { applyCommissions } from "./commissions";
 import { costBearingOf } from "./cost-bearing";
-import { isOffTheTop } from "./deal-order";
+import { isOffTheTop, rentalComesOffTheTop } from "./deal-order";
 import { type EntitlementBases, dealEntitlementDetailed } from "./entitlement";
 import { reachesThePool, revenueSharesOf } from "./revenue-shares";
 import { greedyTransfers } from "./transfers";
@@ -275,13 +275,12 @@ export function reconcile(input: SettlementInput): SettlementResult {
      * clause below and always reaches the transfer branch, where `settleDeal` throws naming the
      * deal and the stranger. Two guards for one case is one guard nothing can fail on.
      */
-    // The show paying for its room: the party that owes it shares the residual, and nobody being
-    // paid does. That is #24.1's case, and the only one where the pool is what is paying.
-    const theShowPaysForItsRoom =
-      deal.payerParticipantId === undefined ||
-      (operatorParticipantIds.has(deal.payerParticipantId) &&
-        !deal.payeeParticipantIds.some((payee) => operatorParticipantIds.has(payee)));
-    if (theShowPaysForItsRoom) {
+    /*
+     * The rule itself is `rentalComesOffTheTop` in `deal-order.ts`, because the Budget Planner has
+     * to ask the same question to forecast the same fee — and for one hour it did not, which is
+     * QA10-1: the planner quoted the act SEK 70,000 and this function paid SEK 73,500.
+     */
+    if (rentalComesOffTheTop(deal, operatorParticipantIds)) {
       offTheTop += settleDeal(deal, rentalBases);
       continue;
     }
