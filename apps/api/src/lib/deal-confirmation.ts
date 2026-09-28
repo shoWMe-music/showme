@@ -63,6 +63,30 @@ export function assertAgreementSignable(deal: DealRow): void {
   if (deal.agreementStatus === "draft") {
     throw conflict("Only a sent agreement can be confirmed");
   }
+  /*
+   * A CANCELLED AGREEMENT IS A DEAD ONE (QA sweep run 10, QA10-9).
+   *
+   * `deals.status = 'cancelled'` is the state decisions §25.7.2 chose over deleting, on the grounds
+   * that *"the record that it was offered stays"* — the Cancel dialog says exactly that. A record is
+   * not a live offer, and until this clause both parties' signatures were accepted on one: the sweep
+   * cancelled a sent rental, signed it from each seat, and left a row reading
+   * `agreement_status = confirmed` **and** `status = cancelled` at the same time.
+   *
+   * It is refused HERE rather than in the route because this function is the one gate both doors use —
+   * the in-app confirm and the off-platform share link (`routes/shares.ts`). Signing by link and
+   * signing in the app must not differ by a line in what signing DOES, which is the reason this
+   * function exists at all.
+   *
+   * `GET /deals/awaiting-signature` already filtered cancelled deals out of the dashboard nag
+   * (`ne(status, 'cancelled')`), so the LIST has been stricter than the RULE it claims to mirror —
+   * one rule written in two places, with the enforcing copy behind. Both agree now.
+   *
+   * My own doing, and worth saying: §25.7.2 built the Cancel control that made this reachable from a
+   * screen. A fix carrying its own next defect.
+   */
+  if (deal.status === "cancelled") {
+    throw conflict("This agreement was cancelled, so there is nothing left to sign");
+  }
 }
 
 /** Is this party a signatory? Observers watch the deal; they do not sign it. */

@@ -661,6 +661,32 @@ describe("dealDeletability", () => {
     expect(verdict.reason).not.toContain("left draft");
   });
 
+  it("does not advise cancelling something already cancelled", () => {
+    /*
+     * QA10-9, and it was my own sentence: the card printed *"Cancel it instead"* on a withdrawn deal.
+     * Advice for a thing already done is the sixth instance of a sentence untrue of its reader.
+     */
+    const verdict = dealDeletability(
+      { agreementStatus: "sent", status: "cancelled", name: "Withdrawn offer" },
+      { hasSettlement: false },
+    );
+    expect(verdict.deletable).toBe(false);
+    expect(verdict.reason).toContain("is cancelled");
+    expect(verdict.reason).not.toContain("Cancel it instead");
+    // It says why the row is still there, which is the whole argument for cancelling over deleting.
+    expect(verdict.reason).toContain("record that it was offered");
+  });
+
+  it("still lets a cancelled DRAFT be tidied away", () => {
+    // Both columns say different things: never sent, so nobody else's record — §25.7.2's own case.
+    expect(
+      dealDeletability(
+        { agreementStatus: "draft", status: "cancelled", name: "Never sent" },
+        { hasSettlement: false },
+      ).deletable,
+    ).toBe(true);
+  });
+
   it("speaks in general terms about an unnamed agreement", () => {
     const verdict = dealDeletability({ agreementStatus: "sent" }, { hasSettlement: false });
     expect(verdict.reason).toContain("This agreement");

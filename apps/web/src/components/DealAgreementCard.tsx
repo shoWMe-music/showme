@@ -24,6 +24,16 @@ export interface DealAgreementCardProps {
   dealId: string;
   name: string;
   agreementStatus: string;
+  /**
+   * THE DEAL'S OWN STATUS — `draft` | `confirmed` | `cancelled` (QA sweep run 10, QA10-9).
+   *
+   * A different column from `agreementStatus`, and the card did not receive it, so it could not say
+   * the one thing a reader most needs to know: a **cancelled** agreement read as
+   * *"Sent — awaiting confirmations"* with a live *Confirm your line* button, in both operators' seats.
+   * The only trace of the cancellation was the absence of the Cancel button — an absence, which is the
+   * weakest evidence there is.
+   */
+  dealStatus: string;
   summary: AgreementField[];
   dealStructure: AgreementField[];
   schedule: ScheduleEntry[];
@@ -77,6 +87,7 @@ export function DealAgreementCard({
   dealId,
   name,
   agreementStatus,
+  dealStatus,
   summary,
   dealStructure,
   schedule,
@@ -97,6 +108,12 @@ export function DealAgreementCard({
   onToggleExpanded,
 }: DealAgreementCardProps) {
   const frozen = agreementStatus === "confirmed" || agreementStatus === "signed";
+  /*
+   * Cancelled OUTRANKS the agreement's own status everywhere it is shown. A withdrawn deal that still
+   * reads "awaiting confirmations" is inviting a signature the server now refuses (QA10-9), and it
+   * was collecting them before it did.
+   */
+  const cancelled = dealStatus === "cancelled";
   const signatories = parties.filter((party) => party.roleInDeal !== "observer");
   const signed = signatories.filter((party) => party.confirmedAt != null).length;
   // Whether this card is looking at the WHOLE agreement or one slice of it. Every
@@ -177,8 +194,10 @@ export function DealAgreementCard({
             <Icon name="chevron-down" size={16} />
           </span>
           <span style={{ color: "var(--text)", fontWeight: 600, fontSize: 15 }}>{name}</span>
-          <Badge status={agreementBadgeStatus(agreementStatus)} dot>
-            {AGREEMENT_STATUS_LABEL[agreementStatus] ?? agreementStatus}
+          <Badge status={cancelled ? "cancelled" : agreementBadgeStatus(agreementStatus)} dot>
+            {cancelled
+              ? "Cancelled — withdrawn"
+              : (AGREEMENT_STATUS_LABEL[agreementStatus] ?? agreementStatus)}
           </Badge>
           {signatureSummary && (
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--muted)" }}>
@@ -303,9 +322,13 @@ export function DealAgreementCard({
             // Terms are live until every party signs, but "Draft" is only true before
             // they were sent — after that they are out for confirmation, not a draft.
             draftLabel={
-              agreementStatus === "draft"
-                ? "Draft — editable"
-                : "Terms live until every party signs"
+              cancelled
+                ? // Not "live until every party signs": there is nothing left to sign, which is the
+                  // whole of what cancelling means (decisions §25.7.2).
+                  "Cancelled — these terms pay nobody"
+                : agreementStatus === "draft"
+                  ? "Draft — editable"
+                  : "Terms live until every party signs"
             }
             summary={summary}
             dealStructure={dealStructure}

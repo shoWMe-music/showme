@@ -949,7 +949,17 @@ export interface DealDeletability {
 }
 
 export function dealDeletability(
-  deal: { agreementStatus: string; name?: string | null },
+  deal: {
+    agreementStatus: string;
+    /**
+     * The deal's own status. Needed only so the refusal does not advise cancelling something
+     * ALREADY cancelled (QA sweep run 10, QA10-9): the card showed *"Cancel it instead"* on a
+     * withdrawn deal, which is advice for a thing already done — the sixth instance of a sentence
+     * that is not true of whoever is reading it, and this one was mine.
+     */
+    status?: string | null;
+    name?: string | null;
+  },
   event: {
     /**
      * Does a settlement exist for the EVENT — for anybody on it, not for the caller.
@@ -964,6 +974,17 @@ export function dealDeletability(
   },
 ): DealDeletability {
   const named = deal.name ? `"${deal.name}"` : "This agreement";
+  /*
+   * ALREADY CANCELLED — so there is nothing to advise. It stays undeletable for whichever of the two
+   * reasons applies below, but the sentence says what IS rather than what to do next: cancelling is
+   * done, and it is the reason the record is still here at all (§25.7.2).
+   */
+  if (deal.status === "cancelled" && deal.agreementStatus !== "draft") {
+    return {
+      deletable: false,
+      reason: `${named} is cancelled. It pays nobody, and it stays as the record that it was offered.`,
+    };
+  }
   if (event.hasSettlement) {
     return {
       deletable: false,

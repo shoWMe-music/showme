@@ -649,7 +649,10 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
    *     of the performers they represent — that is the signature that unblocks the deal)
    *   · `confirmedAt IS NULL` — not already signed
    *   · `roleInDeal !== "observer"` — observers watch, they do not sign
-   *   · the agreement is not `draft` (`assertAgreementSignable` refuses only that)
+   *   · the agreement is not `draft` and the deal is not `cancelled` — both of which
+   *     `assertAgreementSignable` now refuses, so this list and that gate agree (QA10-9: the
+   *     cancelled half was filtered HERE and enforced nowhere, which is how a cancelled agreement
+   *     came to carry two signatures)
    *   · `maySignOwnLines`, the same function the confirm route calls
    *
    * Registered BEFORE `/deals/:did` for readability only — find-my-way prefers a static

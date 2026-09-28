@@ -1312,13 +1312,51 @@ describe("deals — the last signature confirms the DEAL, not only the agreement
   });
 
   /**
-   * A CANCELLED DEAL IS NOT RESURRECTED BY A SIGNATURE. Cancelling does not touch
-   * `agreement_status`, so a withdrawn deal can still be sitting at `sent` with a
-   * live share link out — and the last signature to arrive would otherwise walk it
-   * to `confirmed` and put it straight back into the settlement, which is the
-   * money bug `ne(status, 'cancelled')` was added to close.
+   * A WITHDRAWN OFFER CANNOT BE ACCEPTED (QA sweep run 10, QA10-9).
+   *
+   * **This test asserted the opposite until 2026-09-28, and its reason did not survive reading.** It
+   * allowed the last signature to land on a cancelled deal, on the grounds that *"the terms they
+   * signed are still a record worth keeping"* — and then asserted the contradiction that came out:
+   * `status: cancelled` together with `agreementStatus: confirmed`.
+   *
+   * The record worth keeping is the record of what was OFFERED, and that is the deal row and its
+   * snapshot, neither of which a later signature adds to. What a signature says is *"I agree to these
+   * terms"*, and there are no terms on the table once the offer is withdrawn. So the gate refuses it,
+   * and the property the old test was really protecting — a signature must never resurrect a
+   * withdrawn deal — holds more simply than before: the deal stays cancelled and the agreement never
+   * reaches `confirmed` at all.
+   *
+   * The sweep reached it from the other end: it cancelled a `sent` rental with NO signatures and then
+   * collected both, manufacturing a `confirmed` agreement out of a dead one. Same code path.
    */
-  it("does not un-cancel a withdrawn deal when the last signature lands", async () => {
+  it("refuses BOTH signatures on a deal cancelled before anybody signed — the sweep's own path", async () => {
+    /*
+     * QA10-9 verbatim: cancel a `sent` deal with no signatures, then collect one from each seat. It
+     * produced `agreement_status = confirmed` on a `cancelled` row — an agreement that was
+     * simultaneously frozen and withdrawn, out of nothing.
+     */
+    const deal = await seedSplitDeal("dstat7");
+    expect(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: `/api/v1/deals/${deal.dealId}`,
+          headers: auth(deal.opUid),
+          payload: { status: "cancelled" },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    for (const uid of [deal.opUid, deal.aUid, deal.bUid]) {
+      expect((await confirm(deal.dealId, uid)).statusCode).toBe(409);
+    }
+    expect(await statusOf(deal.dealId)).toEqual({
+      status: "cancelled",
+      agreementStatus: "sent",
+    });
+  });
+
+  it("refuses a signature on a withdrawn deal, and never un-cancels it", async () => {
     const deal = await seedSplitDeal("dstat6");
     await confirm(deal.dealId, deal.opUid);
     await confirm(deal.dealId, deal.aUid);
@@ -1330,12 +1368,13 @@ describe("deals — the last signature confirms the DEAL, not only the agreement
     });
     expect(cancelled.statusCode).toBe(200);
 
-    // The last signatory signs anyway — the agreement freezes (the terms they
-    // signed are still a record worth keeping), but the deal stays withdrawn.
-    expect((await confirm(deal.dealId, deal.bUid)).statusCode).toBe(200);
+    const refused = await confirm(deal.dealId, deal.bUid);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.message).toContain("cancelled");
+    // Still withdrawn, and still NOT confirmed — the rollup never ran.
     expect(await statusOf(deal.dealId)).toEqual({
       status: "cancelled",
-      agreementStatus: "confirmed",
+      agreementStatus: "sent",
     });
   });
 });

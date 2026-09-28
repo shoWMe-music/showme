@@ -115,6 +115,25 @@ describe("dealActionsFor — signing your own line (QA10-3)", () => {
     expect(actions.canConfirm).toBe(false);
   });
 
+  it("withholds it on a CANCELLED deal, whoever the party is", () => {
+    /*
+     * QA10-9. A cancelled agreement read *"Sent — awaiting confirmations"* with a live Confirm button
+     * in both operators' seats, and the server took the signature: the row ended up
+     * `agreement_status = confirmed` on a `cancelled` deal. The server refuses it now; this is the
+     * button not being drawn in the first place.
+     */
+    const actions = dealActionsFor(
+      deal({ ...withOwnLine("part-co"), status: "cancelled" }),
+      noEventConfirm,
+      roster("part-co", "co_host"),
+      false,
+    );
+    expect(actions.canConfirm).toBe(false);
+    // And the other endings behave: nothing to cancel twice, and a cancelled draft can still be
+    // tidied away (§25.7.2).
+    expect(actions.canCancel).toBe(false);
+  });
+
   it("withholds it once that party has already signed", () => {
     const actions = dealActionsFor(
       deal({

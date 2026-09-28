@@ -197,6 +197,8 @@ export function EventAgreementTab({
             dealId={deal.id}
             name={deal.name}
             agreementStatus={deal.agreementStatus}
+            // The deal's OWN status, so a cancelled agreement can say so (QA10-9).
+            dealStatus={deal.status}
             summary={agreementSummary(deal, {
               eventTitle,
               eventDate,

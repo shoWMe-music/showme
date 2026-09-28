@@ -168,9 +168,16 @@ export function dealActionsFor(
     canSend: authority.canManage && deal.agreementStatus === "draft",
     // A draft is not signable: the terms have not been put to anybody yet, and
     // `agreement_status` moves draft → sent → confirmed in that order (#1).
+    /*
+     * …and never on a CANCELLED deal (QA10-9). The server refuses it now
+     * (`assertAgreementSignable`), and a button that 409s is the dead affordance this hook's own
+     * docstring promises not to draw. It was worse than dead before the refusal: the signature landed,
+     * and the row ended up `confirmed` and `cancelled` at once.
+     */
     canConfirm:
       (authority.canConfirm || signsAsDealParty) &&
       deal.agreementStatus === "sent" &&
+      deal.status !== "cancelled" &&
       unsignedOwnLines.length > 0,
     canReopen: authority.canManage && frozen,
     // `draft` and `sent` both — a draft's figures are obviously editable, and a SENT one is the
