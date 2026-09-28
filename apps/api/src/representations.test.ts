@@ -274,6 +274,60 @@ describe("representations — agent↔performer standing agreement (#14)", () =>
     ).toBe(true);
   });
 
+  /**
+   * A ROSTER NEEDS NAMES, AND THIS LIST HAD NONE (QA sweep run 7, QA7-5).
+   *
+   * It answered ids alone — enough for a rule, not enough for a screen — and it showed:
+   * **nothing in `apps/web` read this route at all.** An agent had no roster surface, and
+   * the offer composer had no way to name the acts it exists to send offers for without
+   * an N+1 of profile reads.
+   *
+   * BOTH names, because both sides read this list: `or(agentProfileId,
+   * performerProfileId)`, and for the performer the useful name is the agency's.
+   */
+  it("names both sides, for whichever side is reading", async () => {
+    const { db } = harness;
+    const agent = await seedProfile("agent");
+    const performer = await seedProfile("performer");
+    await db
+      .update(schema.profiles)
+      .set({ name: "Astra Booking Agency" })
+      .where(eq(schema.profiles.id, agent.profileId));
+    await db
+      .update(schema.profiles)
+      .set({ name: "Marlo Vance" })
+      .where(eq(schema.profiles.id, performer.profileId));
+
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/representations",
+      headers: auth(agent.userId),
+      payload: {
+        agentProfileId: agent.profileId,
+        performerProfileId: performer.profileId,
+        region: ["SE"],
+        commissionRate: 1000,
+        proposedBy: "agent",
+      },
+    });
+
+    for (const reader of [agent, performer]) {
+      const listed = await app.inject({
+        method: "GET",
+        url: "/api/v1/representations",
+        headers: auth(reader.userId),
+      });
+      const row = listed
+        .json()
+        .find(
+          (candidate: { performerProfileId: string }) =>
+            candidate.performerProfileId === performer.profileId,
+        );
+      expect(row.performerName).toBe("Marlo Vance");
+      expect(row.agentName).toBe("Astra Booking Agency");
+    }
+  });
+
   it("403s a caller who controls neither side", async () => {
     const agent = await seedProfile("agent");
     const performer = await seedProfile("performer");

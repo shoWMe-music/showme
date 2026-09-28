@@ -24,6 +24,19 @@ export interface VenueChoice {
   profileId: string;
   name: string;
   city: string | null;
+  /**
+   * The venue's ISO country, when the source knows it (QA sweep run 7, QA7-5).
+   *
+   * Carried because **currency is a per-country fact** (decisions.md #17) and a caller
+   * that needs the venue's currency has no other way to get it: a performer or an agent
+   * gets a **404** on `GET /profiles/:id` for a venue they are not a member of, so the
+   * search result the picker already holds is the only place this is available to them.
+   *
+   * Null on the caller's OWN profiles branch, which reads `GET /profiles` — that list
+   * carries `location` rather than a flat country, and the one caller that needs the
+   * country is picking somebody else's venue.
+   */
+  country?: string | null;
 }
 
 export interface EventVenuePickerProps {
@@ -92,11 +105,17 @@ export function EventVenuePicker({
       profileId: profile.id,
       name: profile.name,
       city: profile.location?.city ?? null,
+      country: profile.location?.country ?? null,
     }));
   const mineIds = new Set(mine.map((entry) => entry.profileId));
   const found = (search.data?.items ?? [])
     .filter((profile) => !mineIds.has(profile.id))
-    .map((profile) => ({ profileId: profile.id, name: profile.name, city: profile.city }));
+    .map((profile) => ({
+      profileId: profile.id,
+      name: profile.name,
+      city: profile.city,
+      country: profile.country,
+    }));
 
   const choose = (choice: VenueChoice) => {
     // Picking a venue IS the operator naming it, so the name follows the choice.

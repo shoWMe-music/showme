@@ -2,6 +2,7 @@ import { schema } from "@showme/db";
 import { applyRepresentationTermination } from "@showme/db/representation-termination";
 import { isCountryCode, normalizeCountryCodes } from "@showme/shared";
 import { and, eq, inArray, ne, or } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -141,12 +142,32 @@ const RepresentationResponse = z.object({
   terminatedAt: z.string().nullable(),
   terminatedEffectiveAt: z.string().nullable(),
   terminatedBy: z.string().nullable(),
+  /**
+   * WHO THE TWO SIDES ARE, by name (QA sweep run 7, QA7-5).
+   *
+   * The list answered ids alone, which is enough for a rule and not enough for a
+   * screen — and it showed: **nothing in `apps/web` read this route at all**, so an
+   * agent's roster had no surface, and the offer composer had no way to name the acts
+   * it exists to send offers for without an N+1 of profile reads.
+   *
+   * Both names, not just the performer's: the same list is read by the PERFORMER side
+   * (`or(agentProfileId, performerProfileId)` above), and for them the useful name is
+   * the agency's. Null only when the profile behind an id has been erased.
+   */
+  agentName: z.string().nullable(),
+  performerName: z.string().nullable(),
 });
 
 type RepresentationRow = typeof schema.representations.$inferSelect;
 
+/** The two profile names a representation names, by id. */
+type RepresentationNames = { agentName?: string | null; performerName?: string | null };
+
 /** Shape a representation row for the wire (Date columns → ISO strings). */
-function serializeRepresentation(row: RepresentationRow): z.infer<typeof RepresentationResponse> {
+function serializeRepresentation(
+  row: RepresentationRow,
+  names: RepresentationNames = {},
+): z.infer<typeof RepresentationResponse> {
   return {
     id: row.id,
     agentProfileId: row.agentProfileId,
@@ -163,6 +184,11 @@ function serializeRepresentation(row: RepresentationRow): z.infer<typeof Represe
     terminatedAt: row.terminatedAt?.toISOString() ?? null,
     terminatedEffectiveAt: row.terminatedEffectiveAt?.toISOString() ?? null,
     terminatedBy: row.terminatedBy,
+    // Defaulted null rather than omitted: the field is declared on the response, and a
+    // caller that did not join the names must answer "unknown", not strip the key and
+    // have Fastify drop it — which is the mistake this repo has made four times.
+    agentName: names.agentName ?? null,
+    performerName: names.performerName ?? null,
   };
 }
 
@@ -270,16 +296,35 @@ export async function representationRoutes(fastify: FastifyInstance): Promise<vo
         .map((membership) => membership.profileId);
       if (controlledIds.length === 0) return [];
 
+      const agentProfile = alias(schema.profiles, "agent_profile");
+      const performerProfile = alias(schema.profiles, "performer_profile");
       const rows = await database
-        .select()
+        .select({
+          representation: schema.representations,
+          agentName: agentProfile.name,
+          performerName: performerProfile.name,
+        })
         .from(schema.representations)
+        // LEFT joins: a representation outlives the erasure of either profile
+        // (migration 0032 keeps the row and drops the account), and the serializer's
+        // null is the honest answer for one that has been.
+        .leftJoin(agentProfile, eq(agentProfile.id, schema.representations.agentProfileId))
+        .leftJoin(
+          performerProfile,
+          eq(performerProfile.id, schema.representations.performerProfileId),
+        )
         .where(
           or(
             inArray(schema.representations.agentProfileId, controlledIds),
             inArray(schema.representations.performerProfileId, controlledIds),
           ),
         );
-      return rows.map(serializeRepresentation);
+      return rows.map((row) =>
+        serializeRepresentation(row.representation, {
+          agentName: row.agentName,
+          performerName: row.performerName,
+        }),
+      );
     },
   );
 

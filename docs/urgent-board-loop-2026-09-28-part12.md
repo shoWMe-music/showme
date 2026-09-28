@@ -132,3 +132,75 @@ ask about a decided request; ask without a date).
 
 biome **732** clean · web **418** · marketing `tsc` clean · **e2e 112** · api unchanged by this part
 (**1379** at the last full run).
+
+---
+
+## `QA7-5` — the offer composer, and two things found building it
+
+`POST /offers` and its generated `usePostApiV1Offers` have existed all along — route, entitlement
+gate, fee range, pitch and #14's `onBehalfOfProfileId` — and **the hook had no caller anywhere in
+`apps/web`.** So a signed-in act's only route to a venue was to leave the app, find that venue's
+public page and fill in a stranger's form, writing `source: public_form`,
+`sender_profile_id: null`, no fee range and no agency attribution. The Outgoing tab listed seeded
+`performer_offer` rows **no user of this build could produce**, and the free-tier offer cap was
+unreachable code.
+
+### What was built
+
+- **`offerDraft.ts`** — the rule, pure, twelve tests, five mutations red. What a sendable offer is
+  (venue, a date that has not passed, a fee range that is a range, and an **agent must name the
+  act**), the sentence for each problem, and the body to send with every optional key **omitted**
+  rather than sent empty.
+- **`SendOfferDialog.tsx`** — the composer, on the Requests screen's header and withheld from an
+  operator: they receive offers, and the outbound move that is theirs is a suggested event on the
+  Events screen, not a booking request.
+- The **venue picker is `EventVenuePicker`**, which already searches operator profiles and answers
+  with the profile behind the name — so an act picks a room the same way an operator does.
+
+### Two things found while building it
+
+**1. A performer gets 404 on a venue's profile.** The fee is denominated in the **target venue's**
+currency (`venueCurrency`: *"derived from its primary location's country — currency is a per-country
+fact, #17"*), so the composer needs the venue's country — and `GET /profiles/:id` answers **404** to
+a performer or agent who is not a member of it. The picker's own **search result already carries
+`country`** and was dropping it, so `VenueChoice` now passes it through: one fact, no extra request,
+no 404. Worth knowing before anybody reaches for the profile route from a non-member screen again.
+
+**And when the venue has no country the fee fields are withheld**, because the server would store
+the amount with `currency: null` and it *"renders bare"*. This app has already learned once that a
+figure under no symbol is a statement about somebody's money that happens to be false (`Invoices.tsx`,
+QA6-17), so the composer says so and takes the ask in the note instead.
+
+**2. `GET /representations` answered ids alone — and had no reader either.** An agent must name the
+act (#14), and the roster is that list; **nothing in `apps/web` read it at all**, so an agent had no
+roster surface and the picker had no names without an N+1 of profile reads. It now carries
+`agentName` and `performerName` from one join — **both**, because the performer side reads the same
+list and for them the useful name is the agency's. LEFT joins, because a representation outlives the
+erasure of either profile.
+
+### Proven on the running stack, both sender kinds
+
+```
+as performer.b@ — venue picked, SEK fee fields appear, date, pitch, send
+  Neon Tide   | performer_offer | 2026-12-18 | sender ✓ | act ✗ | SEK 18,000–25,000 | pitch ✓
+
+as agent@ — "Offering for" picker lists "Marlo Vance", then venue, date, send
+  Marlo Vance | performer_offer | 2026-12-19 | sender ✓ | act ✓ | venue ✓
+  and the card reads: "Marlo Vance · Pending · via Astra Booking · just now"
+```
+
+**"via Astra Booking"** is the agency attribution the public form loses. The second row also carries
+`venue_profile_id`, which the first does not — `offerBody` sends it (the target IS the venue, and
+`placeOfRequest` requires the two to agree), so an offer now arrives already comparable to the
+operator's calendar rather than relying on QA7-4's reader-side fallback.
+
+### Left out, and said rather than implied
+
+`additionalDates`, `musicUrl` and `videoUrl` are on the route and not on this form. The finding was
+that sending was impossible; alternate dates and media links are a second pass, and the public form
+still takes them. Nothing about the composer blocks adding them.
+
+## Suites
+
+biome **735** clean · web **430** · api **1380** (four files to the Testcontainers flake, each green
+alone) · **e2e 112** · `tsc` clean in web, api and api-client.

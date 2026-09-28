@@ -27,4 +27,8 @@ export type PatchApiV1RepresentationsId200 = {
   terminatedEffectiveAt: string | null;
   /** @nullable */
   terminatedBy: string | null;
+  /** @nullable */
+  agentName: string | null;
+  /** @nullable */
+  performerName: string | null;
 };

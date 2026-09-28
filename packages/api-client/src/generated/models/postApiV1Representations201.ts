@@ -27,4 +27,8 @@ export type PostApiV1Representations201 = {
   terminatedEffectiveAt: string | null;
   /** @nullable */
   terminatedBy: string | null;
+  /** @nullable */
+  agentName: string | null;
+  /** @nullable */
+  performerName: string | null;
 };

@@ -12,7 +12,7 @@ import {
 } from "@showme/design-system";
 import { useQueries } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import {
   DateText,
@@ -23,6 +23,7 @@ import {
 } from "../components";
 import { EventInvitationsCard } from "../components/EventInvitationsCard";
 import { RequestTriageDialogs } from "../components/RequestTriageDialogs";
+import { SendOfferDialog } from "../components/SendOfferDialog";
 import { dayKey } from "../components/calendarGrid";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
@@ -402,10 +403,22 @@ export function Requests() {
   // in step.
   const chips =
     direction === "incoming" ? FILTERS : FILTERS.filter((option) => option.key !== UNREAD_FILTER);
+  /** Whether the offer composer is open — see `SendOfferDialog` (QA7-5). */
+  const [composing, setComposing] = useState(false);
   const chipOrder = chips.map((option) => option.key);
 
   return (
     <>
+      <SendOfferDialog
+        open={composing}
+        onClose={() => setComposing(false)}
+        onSent={() => {
+          // The new offer belongs in the Outgoing list, so land the sender on it rather
+          // than leaving them looking at the tab they were on.
+          setDirection("outgoing");
+          void refetch();
+        }}
+      />
       <SectionHeader
         eyebrow={direction === "outgoing" ? "Outbound" : "Inbound"}
         title={direction === "outgoing" ? "Outgoing Requests" : "Incoming Requests"}
@@ -437,6 +450,27 @@ export function Requests() {
               onChange={setView}
               options={VIEW_OPTIONS}
             />
+            {/*
+              SENDING AN OFFER, which had no control anywhere in the app (QA sweep run 7,
+              QA7-5). `POST /offers` and its generated hook have existed all along; the
+              only producer of a booking request in the codebase was the marketing site's
+              UNAUTHENTICATED public form, so this tab listed seeded rows no user of this
+              build could make.
+
+              Not offered to an operator: they receive offers and answer them, and the
+              outbound move that is theirs — a suggested event — is the Events screen's
+              (`event_participants`, not a booking request). The direction toggle above is
+              hidden from them for the same reason.
+            */}
+            {!isOperator && (
+              <Button
+                variant="primary"
+                leftIcon={<Icon name="mail" size={14} />}
+                onClick={() => setComposing(true)}
+              >
+                Send an offer
+              </Button>
+            )}
             {direction === "incoming" && unreadCount > 0 && (
               <Button variant="ghost" onClick={markAllRead} disabled={isSettingRead}>
                 Mark all read

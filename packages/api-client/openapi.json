@@ -21144,6 +21144,14 @@
                       "terminatedBy": {
                         "type": "string",
                         "nullable": true
+                      },
+                      "agentName": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "performerName": {
+                        "type": "string",
+                        "nullable": true
                       }
                     },
                     "required": [
@@ -21161,7 +21169,9 @@
                       "confirmedByPerformer",
                       "terminatedAt",
                       "terminatedEffectiveAt",
-                      "terminatedBy"
+                      "terminatedBy",
+                      "agentName",
+                      "performerName"
                     ],
                     "additionalProperties": false
                   }
@@ -21284,6 +21294,14 @@
                     "terminatedBy": {
                       "type": "string",
                       "nullable": true
+                    },
+                    "agentName": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "performerName": {
+                      "type": "string",
+                      "nullable": true
                     }
                   },
                   "required": [
@@ -21301,7 +21319,9 @@
                     "confirmedByPerformer",
                     "terminatedAt",
                     "terminatedEffectiveAt",
-                    "terminatedBy"
+                    "terminatedBy",
+                    "agentName",
+                    "performerName"
                   ],
                   "additionalProperties": false
                 }
@@ -21432,6 +21452,14 @@
                     "terminatedBy": {
                       "type": "string",
                       "nullable": true
+                    },
+                    "agentName": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "performerName": {
+                      "type": "string",
+                      "nullable": true
                     }
                   },
                   "required": [
@@ -21449,7 +21477,9 @@
                     "confirmedByPerformer",
                     "terminatedAt",
                     "terminatedEffectiveAt",
-                    "terminatedBy"
+                    "terminatedBy",
+                    "agentName",
+                    "performerName"
                   ],
                   "additionalProperties": false
                 }
