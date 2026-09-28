@@ -208,6 +208,7 @@ export function EventDetailsTab({
           onSave={(ticketTiers) => extrasEditor.save({ ...extras, ticketTiers })}
           onDraft={(ticketTiers) => extrasEditor.change({ ...extras, ticketTiers })}
           onCommit={extrasEditor.commit}
+          hasUnwrittenChanges={extrasEditor.hasUnwrittenChanges}
         />
       )}
     </div>
@@ -802,6 +803,7 @@ function TicketInformationCard({
   onSave,
   onDraft,
   onCommit,
+  hasUnwrittenChanges,
 }: {
   tiers: TicketTier[];
   capacity: number | null;
@@ -811,6 +813,8 @@ function TicketInformationCard({
   onSave: (next: TicketTier[]) => void;
   onDraft: (next: TicketTier[]) => void;
   onCommit: () => void;
+  /** True while the draft holds a figure the server has not been told about. */
+  hasUnwrittenChanges: boolean;
 }) {
   const inventoryTotal = tiers.reduce((sum, tier) => sum + (tier.max || 0), 0);
   const estimateTotal = tiers.reduce((sum, tier) => sum + (tier.est || 0), 0);
@@ -983,9 +987,35 @@ function TicketInformationCard({
         }}
       >
         <span style={{ color: "var(--muted)" }}>Total inventory</span>
-        <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            fontFamily: "var(--font-mono)",
+            color: "var(--text)",
+          }}
+        >
           {inventoryTotal.toLocaleString("en-US")} max · {estimateTotal.toLocaleString("en-US")}{" "}
           est.
+          {/*
+            THESE FIGURES ARE THE DRAFT'S, and the draft is not the record until the
+            field loses focus (QA sweep run 5, QA5-13). The band read "50 max · 40 est."
+            while `events.extras.ticketTiers` held `est: 0`, and a reload took the
+            screen back to zero — a live total is right, and reading like a saved one is
+            not. Blur-saving stays; the band now says which of the two it is.
+          */}
+          {hasUnwrittenChanges && (
+            <span
+              style={{
+                fontFamily: "var(--font-sans)",
+                fontSize: 11.5,
+                color: "var(--brand-amber)",
+              }}
+            >
+              unsaved — click outside the field to save
+            </span>
+          )}
         </span>
       </div>
 

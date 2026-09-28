@@ -48,6 +48,8 @@ export interface EventScheduleEditor {
    * a template loaded onto a filled schedule is the operator's call to tidy up.
    */
   addMany: (items: readonly NewScheduleItem[]) => Promise<void>;
+  /** Delete the named rows, in order and awaited — see the implementation. */
+  removeMany: (scheduleItemIds: readonly string[]) => Promise<void>;
   update: (scheduleItemId: string, change: ScheduleItemChange) => void;
   remove: (scheduleItemId: string) => void;
   isSaving: boolean;
@@ -126,6 +128,25 @@ export function useEventScheduleEditor(eventId: string): EventScheduleEditor {
     [deleteItem, eventId],
   );
 
+  /**
+   * Clear every row, awaited — so a caller can replace a schedule rather than only
+   * pile onto it (QA sweep run 5, QA5-12).
+   *
+   * `removeMany` rather than a route of its own: there is no bulk delete on the API and
+   * inventing one for this would be a migration-scale answer to a button. It mirrors
+   * `addMany` exactly — a loop of `mutateAsync`, in order, so the caller can await the
+   * whole thing before adding — and the same argument applies: these are tens of rows,
+   * not thousands.
+   */
+  const removeMany = useCallback(
+    async (scheduleItemIds: readonly string[]) => {
+      for (const scheduleItemId of scheduleItemIds) {
+        await deleteItem.mutateAsync({ id: eventId, sid: scheduleItemId });
+      }
+    },
+    [deleteItem, eventId],
+  );
+
   return {
     items: schedule.data ?? [],
     isPending: schedule.isPending,
@@ -133,6 +154,7 @@ export function useEventScheduleEditor(eventId: string): EventScheduleEditor {
     error: schedule.error,
     add,
     addMany,
+    removeMany,
     update,
     remove,
     isSaving: createItem.isPending || updateItem.isPending || deleteItem.isPending,

@@ -21,6 +21,20 @@ export interface EventExtrasEditor {
   save: (next: EventExtras) => void;
   /** Persist whatever the draft currently holds — the commit for on-blur fields. */
   commit: () => void;
+  /**
+   * Whether the draft holds something the server has NOT been told about yet
+   * (QA sweep run 5, QA5-13).
+   *
+   * These cards save on blur, which is an ordinary pattern — what made it worth a
+   * finding is that a summary band computed from the draft read like a saved figure.
+   * Measured: *"50 max · 40 est."* on screen with `events.extras.ticketTiers` holding
+   * `est: 0`, and a reload took the screen back to zero.
+   *
+   * Reference identity is the test, the same one the retire effect uses: `change`
+   * builds a new object per keystroke, so a draft that is still the object the last
+   * write carried has had nothing typed into it since.
+   */
+  hasUnwrittenChanges: boolean;
 }
 
 /**
@@ -164,5 +178,11 @@ export function useEventExtrasEditor(event: EditableEventExtras): EventExtrasEdi
     void flush();
   }, [draft, flush]);
 
-  return { extras, change, save, commit };
+  return {
+    extras,
+    change,
+    save,
+    commit,
+    hasUnwrittenChanges: draft !== null && draft !== writtenRef.current,
+  };
 }

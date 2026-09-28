@@ -60,7 +60,10 @@ function TileLabel({ status, children }: { status: Status; children: ReactNode }
  * Built per-render from the session rather than as a module constant, because the
  * answer depends on who is looking.
  */
-function buildColumns(isSingleProfile: boolean): DataTableColumn<SettlementItem>[] {
+function buildColumns(
+  isSingleProfile: boolean,
+  isOperator: boolean,
+): DataTableColumn<SettlementItem>[] {
   return [
     {
       header: isSingleProfile ? "Event" : "Artist / Event",
@@ -126,8 +129,19 @@ function buildColumns(isSingleProfile: boolean): DataTableColumn<SettlementItem>
       },
     },
     {
-      // "Artist payout" reads as someone else's money when the artist IS the viewer.
-      header: isSingleProfile ? "Your payout" : "Artist payout",
+      /*
+       * "Artist payout" reads as someone else's money when the artist IS the viewer.
+       *
+       * AND "PAYOUT" IS THE WRONG WORD FOR AN OPERATOR (QA sweep run 5, QA5-14, run 6
+       * re-confirmed it on a second account). The figure in this column is the reader's
+       * ENTITLEMENT, and for the operator that is the residual they RETAIN while paying
+       * everyone else out — SEK 24,000 and SEK 20,700 in the sweep, against 56,000 and
+       * 46,500 actually leaving the building. The settlement screen already draws this
+       * distinction in words: *"As operator your share is retained; below are the
+       * amounts payable to the other parties."* This column had borrowed the wrong half
+       * of it.
+       */
+      header: isOperator ? "Your share" : isSingleProfile ? "Your payout" : "Artist payout",
       width: "1.1fr",
       align: "right",
       render: (row) => {
@@ -153,7 +167,12 @@ export function Settlements() {
 
   // One profile → the viewer is unambiguously the artist on every row.
   const isSingleProfile = (session?.memberships.length ?? 0) === 1;
-  const columns = useMemo(() => buildColumns(isSingleProfile), [isSingleProfile]);
+  // An operator RETAINS their share rather than being paid it — see the column.
+  const isOperator = session?.kind === "operator";
+  const columns = useMemo(
+    () => buildColumns(isSingleProfile, isOperator),
+    [isSingleProfile, isOperator],
+  );
 
   // `GET /settlements` takes no query and no cursor: it answers with every
   // settlement the caller is a party to, in one response. So this chip really
@@ -202,6 +221,21 @@ export function Settlements() {
               },
             ]}
           />
+
+          {/*
+            THE TILES OVERLAP, AND THAT USED TO BE INVISIBLE (QA sweep run 5, QA5-14).
+            `outstanding` is everything not yet paid — which is right, and the reason is
+            written at `settlementTotals` — so a finalized settlement is inside both it
+            and `Finalized`, and the sweep read `OUTSTANDING SEK 44,700` beside
+            `FINALIZED SEK 20,700` for a ledger holding 44,700 in total. Every figure was
+            correct and the strip read as arithmetic that did not add up. One sentence is
+            cheaper than four disjoint buckets, and truer: these are four questions about
+            the same money, not four slices of it.
+          */}
+          <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5 }}>
+            These count the same money four ways rather than splitting it: Outstanding is everything
+            not yet paid, so anything Finalized or In review is inside it too.
+          </p>
 
           <div
             style={{

@@ -57,6 +57,19 @@ export interface ScheduleTemplates {
   saveAs: (name: string) => void;
   /** True while rows are being written, so the card can say so. */
   isApplying: boolean;
+  /**
+   * The choice a non-empty schedule raises before anything is written — null when
+   * nothing is waiting on an answer. `count` is how many rows would arrive and
+   * `existingCount` how many are already there, so the question can state both.
+   */
+  pendingApply: {
+    what: string;
+    count: number;
+    existingCount: number;
+    add: () => void;
+    replace: () => void;
+    cancel: () => void;
+  } | null;
   /** Why saving is not offered right now, or null. */
   saveBlockedReason: string | null;
 }
@@ -92,20 +105,66 @@ export function useScheduleTemplates(
     },
   });
 
-  /** Write a set of rows, and say so. */
-  const applyDrafts = useCallback(
-    async (drafts: Awaited<ReturnType<typeof startingPointDrafts>>, what: string) => {
+  /**
+   * A SCHEDULE THAT ALREADY HAS ROWS IS ASKED, NOT APPENDED TO (QA sweep run 5, QA5-12).
+   *
+   * `applyDrafts` appended unconditionally, so pressing **Load starting point** on a
+   * schedule that already held the ten-row starting point produced **twenty** rows,
+   * every label duplicated, with no warning and no way to say "replace these". The
+   * toast was honest — *"Added 10 items from the starting point."* — and taking the ten
+   * back was ten clicks.
+   *
+   * So: an empty schedule applies straight away (there is nothing to ask about), and a
+   * schedule with rows raises the pending choice below. Add is still there, because
+   * building a bill out of two templates is a real thing; Replace is the answer that did
+   * not exist.
+   */
+  const [pending, setPending] = useState<{
+    drafts: Awaited<ReturnType<typeof startingPointDrafts>>;
+    what: string;
+  } | null>(null);
+
+  /** Write a set of rows, and say so. `replace` clears what is there first. */
+  const writeDrafts = useCallback(
+    async (
+      drafts: Awaited<ReturnType<typeof startingPointDrafts>>,
+      what: string,
+      mode: "add" | "replace",
+    ) => {
       if (drafts.length === 0) return;
       setApplying(true);
       try {
+        if (mode === "replace") {
+          // Cleared FIRST and awaited, so a failure half-way leaves fewer rows rather
+          // than a doubled schedule — the state this exists to prevent.
+          const existing = editor.items.map((item) => item.id);
+          await editor.removeMany(existing);
+        }
         await editor.addMany(drafts);
-        toast.success(`Added ${drafts.length} items from ${what}.`);
+        toast.success(
+          mode === "replace"
+            ? `Replaced the schedule with ${drafts.length} items from ${what}.`
+            : `Added ${drafts.length} items from ${what}.`,
+        );
       } finally {
         setApplying(false);
         setPickerOpen(false);
+        setPending(null);
       }
     },
     [editor, toast],
+  );
+
+  const applyDrafts = useCallback(
+    async (drafts: Awaited<ReturnType<typeof startingPointDrafts>>, what: string) => {
+      if (drafts.length === 0) return;
+      if (editor.items.length === 0) {
+        await writeDrafts(drafts, what, "add");
+        return;
+      }
+      setPending({ drafts, what });
+    },
+    [editor.items.length, writeDrafts],
   );
 
   const loadStartingPoint = useMemo(() => {
@@ -178,6 +237,16 @@ export function useScheduleTemplates(
     cancelNaming: () => setNaming(false),
     saveAs,
     isApplying,
+    pendingApply: pending
+      ? {
+          what: pending.what,
+          count: pending.drafts.length,
+          existingCount: editor.items.length,
+          add: () => void writeDrafts(pending.drafts, pending.what, "add"),
+          replace: () => void writeDrafts(pending.drafts, pending.what, "replace"),
+          cancel: () => setPending(null),
+        }
+      : null,
     saveBlockedReason,
   };
 }

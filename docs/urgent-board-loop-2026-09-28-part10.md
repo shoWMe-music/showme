@@ -178,3 +178,65 @@ shared **302** · web **405** · e2e **112** · `tsc --noEmit` clean.
 see the request its agent sent in its name), `QA5-12` (the schedule template appends with no way to
 replace), `QA5-13` (a ticket-tier summary drawn from local state), `QA5-14` (three faults on the
 Settlements dashboard).
+
+---
+
+## Run 5's last four — three built, one recorded as a decision
+
+### `QA5-12` — the schedule is asked, not appended to
+
+`applyDrafts` appended unconditionally, so a second **Load starting point** on a schedule that
+already held the ten-row starting point produced **twenty** rows, every label duplicated, no
+warning, and ten clicks to undo. Both answers are real — two templates making one bill is a thing
+people do, and so is starting over — so the choice is raised rather than assumed:
+
+> **This schedule already has items.** The schedule holds 10 items, and the starting point would
+> bring 10 more. Adding keeps both sets; replacing clears the 10 that are there first.
+> `Cancel · Add to them · Replace them`
+
+An empty schedule still applies straight away: there is nothing to ask about.
+
+`removeMany` is new on the editor and mirrors `addMany` exactly — a loop of `mutateAsync`, awaited,
+because there is **no bulk delete on the API** and inventing one for a button would be a
+migration-scale answer to a usability trap. Cleared FIRST and awaited, so a failure half-way leaves
+*fewer* rows rather than the doubled schedule this exists to prevent.
+
+**Proven:** first apply, 10 rows, no dialog. Second apply, the dialog. Pressing **Replace them** →
+`select count(*) from schedule_items where event_id=…e3` → **10**, where the defect produced 20.
+
+### `QA5-13` — a live total that read like a saved one
+
+The blur-save is an ordinary pattern; what made it a finding is that the summary band was computed
+from the DRAFT, so *"50 max · 40 est."* sat on screen while `events.extras.ticketTiers` held
+`est: 0`, and a reload took the screen back to zero. Both are worth keeping — a live total while you
+type, and the truth about what the record holds — so the band now says which it is.
+`hasUnwrittenChanges` uses the same reference-identity test the editor's retire effect already uses:
+`change` builds a new object per keystroke, so a draft that is still the object the last write
+carried has had nothing typed into it since.
+
+**Proven:** `120 max · 85 est.` → type 77 into Door entry's estimate → `120 max · 102 est. ·
+unsaved — click outside the field to save` with the field still focused → blur → the marker goes and
+the figure stays.
+
+### `QA5-14` — three faults, three answers, and one of them is "say it is not built"
+
+| | |
+|---|---|
+| `OUTSTANDING 20,700` beside `FINALIZED 20,700` with nothing saying they overlap | The overlap is deliberate and its reasoning is at `settlementTotals` — so it is now **stated** under the strip: *"These count the same money four ways rather than splitting it: Outstanding is everything not yet paid, so anything Finalized or In review is inside it too."* Four disjoint buckets would be the wrong fix; the figures were each correct and the strip read as arithmetic that did not add up. |
+| **YOUR PAYOUT** over the operator's retained residual | The settlement screen already says *"As operator your share is retained"*; this column had borrowed the wrong half of it. The header is **Your share** for an operator. Proven: `EVENT · DATE · EVENT STATUS · SETTLEMENT · YOUR SHARE`. |
+| *"Top venues by revenue — No revenue yet … once your events start settling"* beside a finalized settlement | **There is no data source.** `GET /insights/profiles/:id/revenue` returns one total and no per-venue roll-up exists, so the copy blamed the reader's data for a missing feature and told them to wait for something that would never arrive. It now says *"Not built yet — Revenue is totalled per event today, not per venue. This panel is waiting on that roll-up rather than on your settlements."* |
+
+### `QA5-11` — recorded in `decisions.md` §25.6, deliberately without a recommendation
+
+`GET /booking-requests?direction=outgoing` answers off `sender_profile_id`, and an agent pitching on
+behalf of their act **is** the sender — so the seed's offer *"Marlo Vance, 9 Dec, at The Lantern
+Hall"* is visible to the agency and invisible to Marlo. #14 moves the business ACTIONS to the agent
+and leaves the act a view floor; whether an offer carrying the act's own name and a fee range sits
+inside that floor, or inside the agency's private pipeline, is a product call with a real cost either
+way. `on_behalf_of_profile_id` is already on the row, so either answer is a `where` clause.
+
+**§25.6 now carries seven rows, and the seventh is the first with no recommendation attached.**
+
+## Suites
+
+biome **732** clean · web **405** · e2e **112** · `tsc --noEmit` clean.

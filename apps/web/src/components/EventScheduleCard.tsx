@@ -1,4 +1,4 @@
-import { Button, Icon, Select, TextField } from "@showme/design-system";
+import { Button, Icon, Modal, Select, TextField } from "@showme/design-system";
 import { useState } from "react";
 import { DateTimeField } from "./DateTimeField";
 import styles from "./eventDetailsFields.module.css";
@@ -108,9 +108,42 @@ export function EventScheduleCard({ eventId, eventDate, canEdit, times }: EventS
  */
 function ScheduleTemplateBar({ templates }: { templates: ScheduleTemplates }) {
   const [name, setName] = useState("");
+  const pending = templates.pendingApply;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+      {/*
+        ADD OR REPLACE, ASKED BEFORE ANYTHING IS WRITTEN (QA sweep run 5, QA5-12).
+        Applying onto a schedule that already had rows doubled it silently — ten labels
+        twice over, and ten clicks to undo. Both answers are real: two templates making
+        one bill is a thing people do, and so is starting over.
+      */}
+      <Modal
+        open={pending !== null}
+        onClose={() => pending?.cancel()}
+        title="This schedule already has items"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => pending?.cancel()}>
+              Cancel
+            </Button>
+            <Button variant="secondary" onClick={() => pending?.add()}>
+              Add to them
+            </Button>
+            <Button variant="primary" onClick={() => pending?.replace()}>
+              Replace them
+            </Button>
+          </>
+        }
+      >
+        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55 }}>
+          {pending
+            ? `The schedule holds ${pending.existingCount} ${
+                pending.existingCount === 1 ? "item" : "items"
+              }, and ${pending.what} would bring ${pending.count} more. Adding keeps both sets; replacing clears the ${pending.existingCount} that are there first.`
+            : ""}
+        </p>
+      </Modal>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         {templates.loadStartingPoint && (
           <Button

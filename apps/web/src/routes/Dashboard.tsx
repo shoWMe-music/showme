@@ -642,10 +642,19 @@ export function Dashboard() {
           >
             Top venues by revenue
           </h3>
+          {/*
+            NOT BUILT, AND IT SHOULD SAY SO (QA sweep run 5, QA5-14; run 6 saw it again).
+            This panel has no data source: `GET /insights/profiles/:id/revenue` returns
+            one TOTAL and there is no per-venue roll-up anywhere. Its old copy — "No
+            revenue yet · Revenue by venue appears here once your events start settling"
+            — sat beside `Recent settlements: Spring Warmup · Finalized SEK 20,700`, so
+            it blamed the reader's data for a feature that does not exist, and told them
+            to wait for something that would never arrive.
+          */}
           <EmptyState
             icon={<Icon name="trending-up" />}
-            title="No revenue yet"
-            description="Revenue by venue appears here once your events start settling."
+            title="Not built yet"
+            description="Revenue is totalled per event today, not per venue. This panel is waiting on that roll-up rather than on your settlements."
           />
         </div>
       </div>
