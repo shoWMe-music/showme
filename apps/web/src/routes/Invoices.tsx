@@ -310,8 +310,9 @@ function NewInvoiceModal({
    * `250000 | EUR` — a bill for €2,500 that nobody wrote. It survived a hard
    * reload, because it was never session state.
    *
-   * `GET /me` carries the account's chosen currency (the Base currency row in
-   * Settings → General writes it). Null means UNCHOSEN, and the KPI comment above
+   * `GET /me` carries the account's chosen currency (the **Account currency** row in
+   * Settings → General writes it — called "Base currency" until QA9-10, which is the
+   * name of the AUTHORITATIVE measure and was never what this field is). Null means UNCHOSEN, and the KPI comment above
    * settles what to do about that: name no currency rather than the wrong one. So
    * an account with no currency cannot submit this form, and the field says why —
    * refusing is the honest answer, and inventing EUR is what produced the defect.
@@ -422,7 +423,7 @@ function NewInvoiceModal({
               draft.problem === "unknown-currency"
                 ? `${draft.code} isn't a currency we know.`
                 : draft.problem === "no-currency" && accountCurrency === null
-                  ? "Set a base currency in Settings → General, or type the one this bill is in."
+                  ? "Set your account currency in Settings → General, or type the one this bill is in."
                   : undefined
             }
             onChange={(changeEvent) => {

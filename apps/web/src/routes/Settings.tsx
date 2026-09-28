@@ -205,14 +205,32 @@ function GeneralPanel({ profileId }: { profileId: string }) {
         />
         <TextField label="Contact email" value={session?.email ?? ""} disabled readOnly />
         <div className={styles.fieldPair}>
+          {/*
+           * "ACCOUNT CURRENCY", not "Base currency" (QA sweep run 9, QA9-10).
+           *
+           * `base currency` is taken, and by the authoritative measure: `events.base_currency`
+           * and `deals.currency` are what a night settles in and what a party is owed. This
+           * control writes `users.currency`, and somebody changing a row labelled "Base
+           * currency" has every reason to believe they changed what is owed.
+           *
+           * It is not merely cosmetic either, which is the half the sweep and
+           * `useDisplayCurrency`'s own docstring both get wrong: `Invoices.tsx` writes it onto
+           * a new bill as that bill's denomination — deliberately, after QA6-17 stored "a bill
+           * for €2,500 that nobody wrote" from a `useState("EUR")`. So the line below names
+           * both jobs and the boundary, rather than claiming either one alone.
+           */}
           <Select
-            label="Base currency"
+            label="Account currency"
             value={currency}
             options={CURRENCIES}
             onChange={setCurrency}
           />
           <Select label="Timezone" value={timezone} options={TIMEZONES} onChange={setTimezone} />
         </div>
+        <span className="muted" style={{ fontSize: 12, marginTop: -8 }}>
+          Your currency: what a new bill is written in, and what screens offer to show figures in.
+          An event and a deal keep their own — this never changes what is owed.
+        </span>
         <div>
           <Button
             variant="primary"

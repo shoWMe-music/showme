@@ -11,10 +11,18 @@ import { useState } from "react";
  * Settings changed precisely nothing anywhere in the product. This is the hook
  * that makes the preference mean something.
  *
- * It is COSMETIC and stays cosmetic (`docs/money.md`, PLAN.md): the payout
- * currency on a deal is authoritative and the FX is locked at finalize. Nothing
- * here touches what is owed, recorded or paid — it only decides what a figure is
- * rendered as.
+ * WHAT THIS HOOK DOES is cosmetic and stays cosmetic (`docs/money.md`, PLAN.md):
+ * the payout currency on a deal is authoritative and the FX is locked at finalize.
+ * Nothing here touches what is owed, recorded or paid — it only decides what a
+ * figure is rendered as.
+ *
+ * `users.currency` ITSELF is not only cosmetic, and this docstring used to say it
+ * was (QA9-10). `Invoices.tsx` writes it onto a new bill as that bill's
+ * denomination, deliberately: a `useState("EUR")` on that form once stored "a bill
+ * for €2,500 that nobody wrote" for an operator whose every event is SEK (QA6-17).
+ * So the Settings control is labelled **Account currency** and names both jobs; a
+ * sentence here calling the field cosmetic was true of the reading and false about
+ * the writing.
  *
  * ── The distinction this hook exists to carry ────────────────────────────────
  *

@@ -303,3 +303,71 @@ origin** — a surviving page holds a connection that leaves the delete pending,
 hangs forever on the auth spinner with a clean console — then open a new page and sign in through
 the form. `apps/web/tests/.auth/*.json` is NOT a shortcut: Firebase persists in IndexedDB, so those
 files carry one `lastActivityAt` key and no session at all.
+
+---
+
+## 6. QA9-10 — the plan, before building
+
+**Which file settles it:** `apps/web/src/routes/Settings.tsx:208-213` for the defect, and
+`apps/web/src/routes/Invoices.tsx:313, 419-425` for the thing reading the code turned up.
+
+**The finding, as filed.** Setting Settings → General → **BASE CURRENCY** to EUR changed one of six
+money screens. Two complaints, called separable: the label names the *authoritative* measure
+(`events.base_currency`, `deals.currency`) while writing the *cosmetic* one (`users.currency`), and
+`useDisplayCurrency` has exactly one consumer.
+
+**The verdict, from reading rather than from the report: `users.currency` is NOT purely cosmetic, so
+neither the sweep's framing nor the hook's own docstring is right.** `Invoices.tsx` reads it as the
+**denomination of a new bill** — and it does so because of QA6-17, where a `useState("EUR")` on that
+form stored *"a bill for €2,500 that nobody wrote"* for an operator whose every event is SEK. That
+is authoritative money, written from this field. So:
+
+- The label is still wrong, but not because the field is cosmetic — because "base currency" is taken.
+  It is the account's OWN currency, doing two jobs: what new bills are written in, and what screens
+  offer to show figures in. **Recommendation, built: "Account currency", with one line under it
+  naming both jobs and the boundary** — it never changes an event's or a deal's own currency.
+- `useDisplayCurrency`'s docstring says *"It is COSMETIC and stays cosmetic … Nothing here touches
+  what is owed, recorded or paid."* True of the HOOK, and read as a claim about the FIELD it is
+  false. Instance twenty, and the first where the sentence is true of its own subject and wrong
+  about the thing next to it.
+
+**The Budget Planner is not a defect, and its own comment says so.** The sweep's table marks it "no",
+but `EventDetail.tsx:962-970` refuses on purpose: *"a peek is a glance, not a preference, and coming
+back to a budget you last looked at in euros and finding it still in euros is the silent-relabel bug
+wearing a memory."* The planner's money fields are EDITABLE — seeding them from a standing preference
+is the one shape that can write a converted number back as an authoritative one. Second time this
+stretch a report named a real symptom over a documented refusal (QA10-12 was the first).
+
+**The four aggregate screens are blocked, and by something worse than effort.** `settlementTotals`
+does `const currency = settlements[0]?.currency ?? null` and labels a sum of every row with the FIRST
+row's currency — so a Swedish operator with one Oslo show already reads a SEK+NOK total labelled SEK,
+with the minor units added together. Converting that total into a preferred currency would multiply
+one wrong label by another. **What a cross-currency total should even say is a product call, so it
+goes to §25.6 with a recommendation rather than getting invented here**, and QA9-10's second half
+rides on the answer.
+
+**The scope, then:** the label and its line, the invoice form's pointer to it, the hook's docstring,
+and one new row in `decisions.md` §25.6.
+
+### QA9-10 — what landed
+
+The control reads **ACCOUNT CURRENCY** with one line under it: *"Your currency: what a new bill is
+written in, and what screens offer to show figures in. An event and a deal keep their own — this
+never changes what is owed."* Read on the running stack as `operator@`. The invoice form's pointer
+follows it, and `useDisplayCurrency`'s docstring no longer calls the field cosmetic.
+
+**What is deliberately NOT built, and where the reason now lives:** the four aggregate money screens,
+because `decisions.md` §25.6 now carries the cross-currency tile question with a recommendation —
+refuse to label a mixed-currency sum today, convert with `≈` once the FX cache is actually filled.
+The row names the three answers and says which of them is *wrong* rather than merely limited, which
+is the part that does not need a ruling: `settlements[0].currency` labelling everyone's sum.
+
+## 7. Next
+
+- Run 10's remaining MINOR/COSMETIC rows from its §2 — read them there, do not re-derive.
+- Run 9's QA9-14 (two minus spacings on one card) and QA9-15 (an event with no act shows its own
+  title in the performer chip) are the last two cosmetics filed against a screen.
+- Then the full pass with the stack down in ONE go — biome, shared, auth, settlement, web, the full
+  API suite against the 1423 baseline plus what this part added, e2e including `motion.spec.ts` —
+  and qa-sweep run 11.
+- **Part 26 starts after this one; this file is at its length.**
