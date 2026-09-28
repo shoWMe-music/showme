@@ -201,6 +201,39 @@ describe("splitCostRows", () => {
  * minute, a SEK 40,255 profit at a "48.5% margin". Those tiles are now withheld,
  * and this is the sentence that stands in their place.
  */
+/**
+ * THE WITHHOLDING IS THE SHARED LEDGER'S (QA sweep run 9 QA9-5, restated as QA10-11).
+ *
+ * A hidden deal means the NIGHT costs more than the sheet can see, so a shared ledger must not
+ * compute a profit — QA4-5, and it stands. A private book is a different ledger: its costs are the
+ * rows its owner typed, and the shared ledger's performer fee is not one of them. Withholding its
+ * margin printed a sentence untrue of the page it was on — *"what the night costs is higher than the
+ * total above"*, where the total above was the operator's own SEK 4,000.
+ *
+ * The asymmetry is the proof: the HOST's private book on the same event always DID print a margin,
+ * because the host can see the deal, so the only operator whose private book could never show one was
+ * the co-promoter — the operator the private book exists for.
+ */
+describe("costsAreIncomplete — and which book is asking", () => {
+  it("still withholds on a SHARED ledger with a hidden deal", () => {
+    expect(costsAreIncomplete(1)).toBe(true);
+    expect(costsAreIncomplete(1, false)).toBe(true);
+    expect(costsIncompleteNoteFor(1, false)).not.toBeNull();
+  });
+
+  it("does not withhold in a PRIVATE book, whatever is hidden on the shared one", () => {
+    expect(costsAreIncomplete(1, true)).toBe(false);
+    expect(costsAreIncomplete(9, true)).toBe(false);
+    expect(costsIncompleteNoteFor(3, true)).toBeNull();
+  });
+
+  it("is unchanged when nothing is hidden, in either book", () => {
+    // The positive control on both sides: the rule only ever fired on a hidden deal.
+    expect(costsAreIncomplete(0, false)).toBe(false);
+    expect(costsAreIncomplete(0, true)).toBe(false);
+  });
+});
+
 describe("costsIncompleteNoteFor", () => {
   it("says nothing when the reader can see every deal", () => {
     expect(costsIncompleteNoteFor(0)).toBeNull();

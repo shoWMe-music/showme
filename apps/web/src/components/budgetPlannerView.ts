@@ -470,12 +470,32 @@ function derivedFeeMinor(editor: BudgetEditor): bigint | null {
  * without it"* and drew a break-even directly underneath. Both readers of the rule
  * now call this, and `budgetPlannerView.test.ts` asserts they agree.
  */
-export function costsAreIncomplete(hiddenDealCount: number): boolean {
+export function costsAreIncomplete(hiddenDealCount: number, isPrivateBook = false): boolean {
+  /*
+   * …AND IT IS THE SHARED LEDGER'S CONDITION, not every book's (QA sweep run 9 QA9-5, restated as
+   * QA10-11).
+   *
+   * A hidden deal means the NIGHT's costs are higher than this sheet can see, so a shared ledger must
+   * not compute a profit from them — that is QA4-5 and it stands. A **private** book is a different
+   * ledger: `PLAN.md:215` calls it *"the extra an operator MAY ALSO keep"*, its costs are the rows
+   * its owner typed, and the performer fee on the shared ledger is not one of them. Withholding its
+   * margin for a deal it never contained said something untrue of the page it was printed on: *"what
+   * the night costs is higher than the total above"*, where "the total above" was the operator's own
+   * SEK 4,000.
+   *
+   * The asymmetry is what proves it. The HOST's private book on the same event DOES print a margin,
+   * because the host can see the deal and `hiddenDealCount` is 0 — so the only operator whose private
+   * book could never show one was the co-promoter, which is the operator the private book exists for.
+   */
+  if (isPrivateBook) return false;
   return hiddenDealCount > 0;
 }
 
-export function costsIncompleteNoteFor(hiddenDealCount: number): string | null {
-  if (!costsAreIncomplete(hiddenDealCount)) return null;
+export function costsIncompleteNoteFor(
+  hiddenDealCount: number,
+  isPrivateBook = false,
+): string | null {
+  if (!costsAreIncomplete(hiddenDealCount, isPrivateBook)) return null;
   const subject =
     hiddenDealCount === 1
       ? "One of this event's deals is"
@@ -523,7 +543,7 @@ export function budgetPlannerViewFrom(
    * mystery. Revenue, the door and the ticket count are untouched: nothing about
    * them depends on a deal.
    */
-  const costsIncomplete = costsAreIncomplete(editor.hiddenDealCount);
+  const costsIncomplete = costsAreIncomplete(editor.hiddenDealCount, editor.isPrivateBook);
   const money = (minor: bigint) =>
     formatFigure ? formatFigure(minor.toString()) : formatMoney(minor.toString(), currency);
 
@@ -756,7 +776,7 @@ export function budgetPlannerViewFrom(
             },
           ]),
     ],
-    costsIncompleteNote: costsIncompleteNoteFor(editor.hiddenDealCount),
+    costsIncompleteNote: costsIncompleteNoteFor(editor.hiddenDealCount, editor.isPrivateBook),
     ticketRevenueTotal: money(projection.ticketRevenue),
     ticketSplit: ticketSplitDisplay(
       editor.seedTicketSplit,
