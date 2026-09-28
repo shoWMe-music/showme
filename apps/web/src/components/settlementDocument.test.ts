@@ -583,6 +583,34 @@ describe("describeBasis — a contract figure in a converted card", () => {
     guarantee: "1800000",
   } as unknown as Parameters<typeof describeBasis>[0];
 
+  /**
+   * TWO SENTENCES FOR A RENTAL (decisions §25.7.1, Daniel 2026-09-28).
+   *
+   * Before the ruling there was one, and it asserted the waterfall: *"settled off the top"*. A
+   * rental whose deal names a payer does not touch the pool at all, and that sentence was printed
+   * on the PAYER's card beside a negative figure — telling a party that money it was paying had
+   * come off a net the rental never reduced.
+   *
+   * `borneByPayer` rides on the basis rather than being worked out by each screen, which is the
+   * only reason this is one assertion and not one per caller.
+   */
+  it("distinguishes a rental the pool paid from one its parties settled", () => {
+    const pooled = { kind: "rental", rental: "500000" } as unknown as Parameters<
+      typeof describeBasis
+    >[0];
+    const betweenParties = {
+      kind: "rental",
+      rental: "500000",
+      borneByPayer: true,
+    } as unknown as Parameters<typeof describeBasis>[0];
+    expect(plain(describeBasis(pooled, "SEK"))).toBe("Rental of SEK 5,000, settled off the top");
+    expect(plain(describeBasis(betweenParties, "SEK"))).toBe(
+      "Rental of SEK 5,000, settled between its parties",
+    );
+    // The figure itself is the deal's either way, and converts the same.
+    expect(plain(describeBasis(betweenParties, "SEK", () => "≈ €440"))).toContain("(≈ €440)");
+  });
+
   it("names only the payout currency when nothing is being converted", () => {
     // Every caller on a card in its own currency, which is the ordinary case.
     expect(plain(describeBasis(basis, "SEK"))).toBe(

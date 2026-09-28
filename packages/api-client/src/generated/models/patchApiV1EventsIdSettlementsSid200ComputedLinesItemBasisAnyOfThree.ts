@@ -9,4 +9,5 @@ import type { PatchApiV1EventsIdSettlementsSid200ComputedLinesItemBasisAnyOfThre
 export type PatchApiV1EventsIdSettlementsSid200ComputedLinesItemBasisAnyOfThree = {
   kind: PatchApiV1EventsIdSettlementsSid200ComputedLinesItemBasisAnyOfThreeKind;
   rental: string;
+  borneByPayer?: boolean;
 };

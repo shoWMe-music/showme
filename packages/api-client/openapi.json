@@ -7799,6 +7799,9 @@
                                         },
                                         "rental": {
                                           "type": "string"
+                                        },
+                                        "borneByPayer": {
+                                          "type": "boolean"
                                         }
                                       },
                                       "required": ["kind", "rental"],
@@ -8448,6 +8451,9 @@
                                             },
                                             "rental": {
                                               "type": "string"
+                                            },
+                                            "borneByPayer": {
+                                              "type": "boolean"
                                             }
                                           },
                                           "required": ["kind", "rental"],
@@ -8907,6 +8913,9 @@
                                       },
                                       "rental": {
                                         "type": "string"
+                                      },
+                                      "borneByPayer": {
+                                        "type": "boolean"
                                       }
                                     },
                                     "required": ["kind", "rental"],

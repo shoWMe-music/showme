@@ -103,10 +103,36 @@ export function reconcile(input: SettlementInput): SettlementResult {
    * not share them: a rental is settled before the split base exists, and the
    * split base is what is left once the rentals have taken theirs.
    */
-  const settleDeal = (deal: SettlementDeal, bases: EntitlementBases): bigint => {
+  const settleDeal = (
+    deal: SettlementDeal,
+    bases: EntitlementBases,
+    /**
+     * A party to CHARGE the whole of this deal to, instead of the pool (decisions §25.7.1).
+     *
+     * Only the rental pass passes it, and only when the deal names a payer. Booked here, in the
+     * one place that already knows the deal's total and its basis, for the same reason the
+     * prepayment loop books both ends in one place: a single-ended entry conjures money into the
+     * settlement and `assertBalanced` then fails somewhere far from the cause.
+     */
+    chargeTo?: string,
+  ): bigint => {
     if (deal.payeeParticipantIds.length === 0) return 0n;
     const settled = dealEntitlementDetailed(deal, bases, ticketsSold);
     const total = settled.amount;
+    /*
+     * The basis EVERY line of this deal carries. For a rental settled between its parties it gains
+     * `borneByPayer`, which is the flag the settlement card reads to choose between "settled off
+     * the top" and "settled between its parties" — one sentence used to be printed for both, and
+     * on the payer's card it appeared beside a negative figure (decisions §25.7.1).
+     *
+     * Stamped here rather than in `dealEntitlementDetailed` because only this function knows the
+     * answer: the rule is about who shares the event's residual, which the entitlement calculator
+     * cannot see.
+     */
+    const basis =
+      chargeTo !== undefined && settled.basis.kind === "rental"
+        ? { ...settled.basis, borneByPayer: true }
+        : settled.basis;
     const weights = deal.payeeParticipantIds.map((payee) => {
       const share = deal.partyShares?.[payee];
       return share != null ? BigInt(share) : 1n;
@@ -132,7 +158,7 @@ export function reconcile(input: SettlementInput): SettlementResult {
         dealId: deal.dealId,
         dealTotal: total,
         amount: payeeAmount,
-        basis: settled.basis,
+        basis,
         ...(settled.bonus > 0n ? { bonus: settled.bonus } : {}),
         ...(settled.escalatorApplied ? { escalatorApplied: true } : {}),
         ...(charged > 0n ? { commissionCharged: charged } : {}),
@@ -157,6 +183,23 @@ export function reconcile(input: SettlementInput): SettlementResult {
         addTo(commissionEarned, charge.participantId, charge.amount);
       }
     });
+    if (chargeTo !== undefined) {
+      if (!entitlement.has(chargeTo)) {
+        throw new Error(
+          `Deal ${deal.dealId} is charged to ${chargeTo}, who is not a participant on this event.`,
+        );
+      }
+      credit(chargeTo, -total);
+      // The payer's own line, so their card can say what took the money rather than showing a
+      // figure that is smaller for no stated reason. Negative `amount`, same `basis` as the
+      // payee's line — it is one agreement seen from its two ends.
+      lines.get(chargeTo)?.push({
+        dealId: deal.dealId,
+        dealTotal: total,
+        amount: -total,
+        basis,
+      });
+    }
     return total;
   };
 
@@ -181,7 +224,70 @@ export function reconcile(input: SettlementInput): SettlementResult {
   const rentalBases: EntitlementBases = { splitBase: 0n, grossRevenue: revenue };
   let offTheTop = 0n;
   for (const deal of deals) {
-    if (isOffTheTop(deal)) offTheTop += settleDeal(deal, rentalBases);
+    if (!isOffTheTop(deal)) continue;
+    /**
+     * WHO ACTUALLY PAYS THE ROOM — decisions §25.7.1 (Daniel, 2026-09-28).
+     *
+     * **The pool pays a rental only when the pool is what owes it and the money leaves the pool
+     * side.** In data: no payer named, or a payer who shares the event's residual paying somebody
+     * who does not. Every other rental with a named payer is a transfer between its two parties.
+     *
+     * This pass used to read a rental's amount and its payee and never `role_in_deal`, so every
+     * rental came off the pool and was divided by everyone sharing the adjusted net. Hand-checked
+     * on a SEK 120,000 night with SEK 15,000 of costs, a 70/30 act deal and a SEK 5,000 room hire
+     * the co-promoter owes the host, computed twice: **the act −3,500, the host +4,250 (the payee),
+     * the co-promoter −750.** The act bore 70% of a room hire it never signed, and the party the
+     * deal names as payer bore 15% of it. `reconcile.test.ts` runs that check both ways.
+     *
+     * The grounds, in one line: a party cannot be charged for an agreement it is not a party to.
+     *
+     * WHY THE TEST IS BOTH ENDS AND NOT JUST THE PAYER, which cost one failing test to find and
+     * one surviving mutation to get right.
+     *
+     * "The deal names a payer" alone would have been simpler, and it would have REVERSED #24.1 in
+     * #24.1's own case. `settlement.test.ts`'s rental fixture names the host — the pool operator —
+     * as the payer of a venue rental, which is precisely *the promoter rents from the venue*, the
+     * case #24.1 settled and is explicit that the act shares. Every rental authored through the app
+     * names a payer, so the simple rule would have made #24.1's behaviour unreachable rather than
+     * narrower, and it would have done it silently: the only thing standing in the way was one
+     * assertion whose stated reason ("the rental, taken first") was a claim about the code.
+     *
+     * §25.6 framed the open question as *a rental between two co-operators* and said in as many
+     * words that #24.1 governs the other case. So the line is drawn at what #24.1 is actually
+     * about: the SHOW paying for its room. That is the pool (an operator) paying somebody outside
+     * the pool, and it is the only shape where calling the rental a cost of the night — a thing
+     * everyone dividing the night shares — is true.
+     *
+     * "Both ends are co-operators" was the first attempt and a mutation showed it was too narrow:
+     * deleting the payer-is-an-operator half changed nothing, because no test covered an ACT
+     * renting the room from the operator. Under that rule the act's own room hire came off the
+     * pool, so the act shared its own rental with everybody and the operator was credited twice —
+     * the same defect as the co-operator case, wearing different clothes. The rule is stated from
+     * the pool's side now, which covers every arrangement rather than the two that were asked about.
+     *
+     * The pool is untouched either way — what a transfer rental does NOT do is shrink the adjusted
+     * net, which is exactly how the act stops paying for it.
+     */
+    /*
+     * A NAMED PAYER WHO IS NOT ON THE EVENT is refused, by `settleDeal`'s own check rather than a
+     * second one here. There WAS a second one here and a surviving mutation showed it was dead: an
+     * unrecognised payer is not in `operatorParticipantIds` either, so it can never satisfy the
+     * clause below and always reaches the transfer branch, where `settleDeal` throws naming the
+     * deal and the stranger. Two guards for one case is one guard nothing can fail on.
+     */
+    // The show paying for its room: the party that owes it shares the residual, and nobody being
+    // paid does. That is #24.1's case, and the only one where the pool is what is paying.
+    const theShowPaysForItsRoom =
+      deal.payerParticipantId === undefined ||
+      (operatorParticipantIds.has(deal.payerParticipantId) &&
+        !deal.payeeParticipantIds.some((payee) => operatorParticipantIds.has(payee)));
+    if (theShowPaysForItsRoom) {
+      offTheTop += settleDeal(deal, rentalBases);
+      continue;
+    }
+    // Otherwise the deal names somebody who owes it and the money does not leave the pool side:
+    // it moves between the two parties and the adjusted net never sees it.
+    settleDeal(deal, rentalBases, deal.payerParticipantId);
   }
 
   /**

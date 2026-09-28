@@ -84,7 +84,7 @@ export interface SerializedEntitlementLine {
  */
 export type SerializedBasis =
   | { kind: "guarantee"; guarantee: string }
-  | { kind: "rental"; rental: string }
+  | { kind: "rental"; rental: string; borneByPayer?: boolean }
   | { kind: "door_split"; basisPoints: number; base?: string }
   | {
       kind: "guarantee_vs_door";
@@ -170,7 +170,11 @@ function serializeBasis(basis: EntitlementBasis): SerializedBasis {
     case "guarantee":
       return { kind: "guarantee", guarantee: basis.guarantee.toString() };
     case "rental":
-      return { kind: "rental", rental: basis.rental.toString() };
+      return {
+        kind: "rental",
+        rental: basis.rental.toString(),
+        ...(basis.borneByPayer ? { borneByPayer: true } : {}),
+      };
     case "door_split":
       return {
         kind: "door_split",

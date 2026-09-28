@@ -73,6 +73,14 @@ export function dealEntitlementDetailed(
       const rental = deal.guaranteeAmount ?? 0n;
       return {
         amount: rental,
+        /*
+         * NO `borneByPayer` HERE, deliberately (decisions §25.7.1). Whether a rental settled
+         * between its parties or came off the top depends on whether BOTH ends share the event's
+         * residual, and this function cannot see who the operators are — only `reconcile` can. It
+         * stamps the flag on the lines it writes. Deciding it here from `payerParticipantId` alone
+         * would mark a pool-paid venue rental as settled between its parties, and the screen would
+         * print the wrong one of two sentences with nothing to contradict it.
+         */
         basis: { kind: "rental", rental },
         bonus: 0n,
         escalatorApplied: false,

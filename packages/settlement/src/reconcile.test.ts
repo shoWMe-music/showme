@@ -1426,3 +1426,255 @@ describe("reconcile — money paid BEFORE the event", () => {
     ).toThrow(/names no payer/);
   });
 });
+
+/**
+ * WHO PAYS THE ROOM WHEN THE ROOM IS RENTED FROM A CO-PROMOTER (decisions §25.7.1).
+ *
+ * The rule Daniel settled on 2026-09-28: **the deal says who owes it → that party pays it; the
+ * deal is silent → the pool pays it.**
+ *
+ * This is the hand-check that produced the question, run as a test: the same night computed twice,
+ * with the rental and without it, and the DELTAS compared. That method is the point. An absolute
+ * assertion on each party's figure would pass on a dozen wrong implementations that happen to hit
+ * one number; the deltas say what the rental itself did to each party, which is the whole question.
+ *
+ * SEK 120,000 of tickets, SEK 15,000 of costs, a 70/30 act deal, and a SEK 5,000 room hire.
+ *
+ * WHICH WAY ROUND THE ROOM HIRE GOES, spelled out because the phrase "a room hire from the host to
+ * the co-promoter" reads both ways and I first built this fixture backwards from it: **the host
+ * owns the room and is the PAYEE; the co-promoter is the named PAYER.** The check that settles it
+ * is the hand-check's own last clause — *"the party named as payer bears 15%"* — which is SEK 750,
+ * and 750 is the co-promoter's figure. A payee cannot lose money by being paid.
+ *
+ * Measured before the fix: **the act −3,500, the host +4,250, the co-promoter −750.** The act bore
+ * 70% of a room hire it never signed; the party that actually owed it bore 15%.
+ */
+describe("reconcile — a rental with a NAMED PAYER is a transfer, not a pool cost (§25.7.1)", () => {
+  const sek = (major: string | number) => majorToMinor(major, "SEK");
+
+  /** The night, with or without the room hire — everything else identical. */
+  function night(options: { rental: "none" | "named-payer" | "no-payer" }): SettlementInput {
+    // The host rents its room TO the co-promoter: host is paid, co-promoter owes it.
+    const roomHire: SettlementDeal = {
+      dealId: "room",
+      structure: "rental",
+      payeeParticipantIds: ["host"],
+      guaranteeAmount: sek(5000),
+      ...(options.rental === "named-payer" ? { payerParticipantId: "co" } : {}),
+    };
+    return {
+      baseCurrency: "SEK",
+      participants: [
+        { participantId: "host", isOperator: true },
+        { participantId: "co", isOperator: true },
+        { participantId: "act" },
+      ],
+      deals: [
+        {
+          dealId: "act-deal",
+          structure: "door_split",
+          payeeParticipantIds: ["act"],
+          splitBasisPoints: 7000,
+        },
+        ...(options.rental === "none" ? [] : [roomHire]),
+      ],
+      budgetLines: [
+        { kind: "revenue", revenueKind: "ticket", amount: sek(120000), collectedBy: "host" },
+        { kind: "cost", amount: sek(15000), paidBy: "host", label: "Production" },
+      ],
+    };
+  }
+
+  const entitlementOf = (result: ReturnType<typeof reconcile>, id: string) =>
+    result.breakdowns.find((party) => party.participantId === id)?.entitlement ?? 0n;
+
+  it("leaves the act untouched, and charges the named payer the whole of it", () => {
+    const without = reconcile(night({ rental: "none" }));
+    const withRental = reconcile(night({ rental: "named-payer" }));
+    assertBalanced(without);
+    assertBalanced(withRental);
+
+    const delta = (id: string) => entitlementOf(withRental, id) - entitlementOf(without, id);
+    // The act never signed it and no longer pays a penny of it.
+    expect(delta("act")).toBe(0n);
+    // The co-promoter signed it and bears the whole SEK 5,000, rather than SEK 750 of it.
+    expect(delta("co")).toBe(-sek(5000));
+    // The host is owed exactly what the agreement says for its room, not 85% of it.
+    expect(delta("host")).toBe(sek(5000));
+
+    // And the pool is untouched, which is the mechanism: a transfer rental does not shrink the
+    // adjusted net, so no percentage deal can see it.
+    expect(withRental.ladder.offTheTop).toBe(0n);
+    expect(withRental.ladder.adjustedNet).toBe(without.ladder.adjustedNet);
+  });
+
+  it("reproduces the OLD arithmetic exactly when the rental names no payer (#24.1 intact)", () => {
+    const without = reconcile(night({ rental: "none" }));
+    const withRental = reconcile(night({ rental: "no-payer" }));
+    assertBalanced(withRental);
+
+    const delta = (id: string) => entitlementOf(withRental, id) - entitlementOf(without, id);
+    /*
+     * The three figures from the hand-check, to the krona. This is #24.1's behaviour and it
+     * survives — for the case #24.1 was written about, where the deal names nobody and the pool
+     * really is what is paying. Pinned as numbers rather than described, because the argument for
+     * changing the other case was these numbers.
+     */
+    expect(delta("act")).toBe(-sek(3500));
+    expect(delta("host")).toBe(sek(4250)); // the payee, who keeps 85% of its own room hire
+    expect(delta("co")).toBe(-sek(750)); // the party that owes it, paying 15% of it
+    expect(withRental.ladder.offTheTop).toBe(sek(5000));
+  });
+
+  /**
+   * THE BOUNDARY — and the reason the rule tests both ends rather than only the payer.
+   *
+   * The classic venue rental names the promoter as payer and the VENUE as payee, and the venue is
+   * not an operator: it does not share the residual. That is #24.1's own case, where the act
+   * shares the room hire, and it must keep working exactly as it did — `settlement.test.ts`'s
+   * end-to-end fixture is that shape, and its assertion ("the rental, taken first") was the only
+   * thing standing between a simpler rule and a silent reversal of an owner decision.
+   */
+  it("still takes a venue rental off the top, even though it names a payer (#24.1)", () => {
+    const base = night({ rental: "named-payer" });
+    const withVenue = reconcile({
+      ...base,
+      // The venue joins the bill and is paid the room hire; it is not an operator.
+      participants: [...base.participants, { participantId: "venue" }],
+      deals: [
+        base.deals[0] as SettlementDeal,
+        {
+          dealId: "room",
+          structure: "rental",
+          payeeParticipantIds: ["venue"],
+          guaranteeAmount: sek(5000),
+          payerParticipantId: "host",
+        },
+      ],
+    });
+    assertBalanced(withVenue);
+    // Off the top, so the adjusted net shrinks and the act's 70% is of the smaller figure.
+    expect(withVenue.ladder.offTheTop).toBe(sek(5000));
+    expect(withVenue.ladder.adjustedNet).toBe(sek(100000));
+    expect(entitlementOf(withVenue, "venue")).toBe(sek(5000));
+    // And the sentence the card prints stays the pool one: no `borneByPayer`.
+    expect(
+      withVenue.breakdowns
+        .find((party) => party.participantId === "venue")
+        ?.lines.find((line) => line.dealId === "room")?.basis,
+    ).toEqual({ kind: "rental", rental: sek(5000) });
+  });
+
+  /**
+   * THE ACT RENTS THE ROOM — a four-wall night, and the shape a surviving mutation found.
+   *
+   * Payer is the act (which does not share the residual), payee is the host (which does). The first
+   * version of this rule asked whether BOTH ends were co-operators, so this fell through to the
+   * off-the-top branch: the act's own room hire came off the pool, the act shared its own rental
+   * with everybody dividing the night, and the host was credited the rental on top of a residual
+   * that had already been reduced by it. Deleting half the condition changed no test, which is what
+   * said the case was uncovered.
+   */
+  it("charges the act for a room it rents itself, and leaves the pool alone", () => {
+    const base = night({ rental: "none" });
+    const fourWall = reconcile({
+      ...base,
+      deals: [
+        base.deals[0] as SettlementDeal,
+        {
+          dealId: "room",
+          structure: "rental",
+          payeeParticipantIds: ["host"],
+          guaranteeAmount: sek(5000),
+          payerParticipantId: "act",
+        },
+      ],
+    });
+    const without = reconcile(base);
+    assertBalanced(fourWall);
+
+    const delta = (id: string) => entitlementOf(fourWall, id) - entitlementOf(without, id);
+    // The act owes it, and owes all of it.
+    expect(delta("act")).toBe(-sek(5000));
+    expect(delta("host")).toBe(sek(5000));
+    // The co-promoter is not in this agreement and pays none of it.
+    expect(delta("co")).toBe(0n);
+    // Nothing came off the top, so the act's own 70% is still of the whole adjusted net — it is
+    // not charged twice for the same room.
+    expect(fourWall.ladder.offTheTop).toBe(0n);
+    expect(fourWall.ladder.adjustedNet).toBe(without.ladder.adjustedNet);
+  });
+
+  it("charges a named payer who is on neither side of the pool", () => {
+    /*
+     * Neither end shares the residual — a rental one non-operator owes another. Implausible as a
+     * booking and still the same rule: the deal names who owes it, and nothing here is the show
+     * paying for its room, so the pool stays out of it. Written because a mutation that dropped
+     * the payer-is-an-operator half of the condition changed no test without it.
+     */
+    const base = night({ rental: "none" });
+    const result = reconcile({
+      ...base,
+      participants: [...base.participants, { participantId: "sub" }],
+      deals: [
+        base.deals[0] as SettlementDeal,
+        {
+          dealId: "room",
+          structure: "rental",
+          payeeParticipantIds: ["sub"],
+          guaranteeAmount: sek(5000),
+          payerParticipantId: "act",
+        },
+      ],
+    });
+    assertBalanced(result);
+    expect(result.ladder.offTheTop).toBe(0n);
+    expect(entitlementOf(result, "sub")).toBe(sek(5000));
+    // The act owes it in full, on top of its door share — which is untouched.
+    const without = reconcile(base);
+    expect(entitlementOf(result, "act") - entitlementOf(without, "act")).toBe(-sek(5000));
+    expect(result.ladder.adjustedNet).toBe(without.ladder.adjustedNet);
+  });
+
+  it("tells the payer what took the money, on its own line", () => {
+    const result = reconcile(night({ rental: "named-payer" }));
+    const payer = result.breakdowns.find((party) => party.participantId === "co");
+    const payerRoomLine = payer?.lines.find((line) => line.dealId === "room");
+    // Negative, and carrying the deal's identity: one agreement seen from its two ends. A figure
+    // that was simply smaller with nothing to point at is what this line exists to prevent.
+    expect(payerRoomLine?.amount).toBe(-sek(5000));
+    expect(payerRoomLine?.dealTotal).toBe(sek(5000));
+    // The flag the SCREEN reads to choose its sentence. Without it the card would say "settled
+    // off the top" over money this party is paying, on a night whose net the rental never touched.
+    expect(payerRoomLine?.basis).toEqual({
+      kind: "rental",
+      rental: sek(5000),
+      borneByPayer: true,
+    });
+
+    const payee = result.breakdowns.find((party) => party.participantId === "host");
+    expect(payee?.lines.find((line) => line.dealId === "room")?.amount).toBe(sek(5000));
+  });
+
+  it("refuses a rental whose named payer is not on the event", () => {
+    /*
+     * Malformed data, refused by name. An unrecognised payer cannot be the pool, so it always
+     * reaches the transfer branch, where charging it would leave the books short by exactly the
+     * rental — and `assertBalanced` would then fail somewhere far from the cause.
+     */
+    expect(() =>
+      reconcile({
+        ...night({ rental: "named-payer" }),
+        deals: [
+          {
+            dealId: "room",
+            structure: "rental",
+            payeeParticipantIds: ["host"],
+            guaranteeAmount: sek(5000),
+            payerParticipantId: "a-stranger",
+          },
+        ],
+      }),
+    ).toThrow(/charged to a-stranger, who is not a participant/);
+  });
+});

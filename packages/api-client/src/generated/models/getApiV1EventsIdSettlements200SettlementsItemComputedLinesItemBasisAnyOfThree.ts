@@ -9,4 +9,5 @@ import type { GetApiV1EventsIdSettlements200SettlementsItemComputedLinesItemBasi
 export type GetApiV1EventsIdSettlements200SettlementsItemComputedLinesItemBasisAnyOfThree = {
   kind: GetApiV1EventsIdSettlements200SettlementsItemComputedLinesItemBasisAnyOfThreeKind;
   rental: string;
+  borneByPayer?: boolean;
 };

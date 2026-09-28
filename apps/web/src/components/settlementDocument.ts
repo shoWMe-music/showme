@@ -438,7 +438,21 @@ export function describeBasis(
     case "guarantee":
       return `Guaranteed ${contract(basis.guarantee)}`;
     case "rental":
-      return `Rental of ${contract(basis.rental)}, settled off the top`;
+      /*
+       * TWO SENTENCES, because there are now two ways a rental settles (decisions §25.7.1).
+       *
+       * `borneByPayer` — the deal named who owes it, so the amount moved between two named parties
+       * and never touched the pool. The old sentence asserted the other case for both, and on the
+       * PAYER's card it appeared beside a negative figure: "settled off the top" over money the
+       * party was paying, on a night whose adjusted net the rental had not touched.
+       *
+       * Neither sentence names the counterparty, which is a real loss and a deliberate one: this
+       * function has the basis and the currency, not the roster, and inventing a lookup for it here
+       * would put a second opinion about who the parties are next to the serializer's.
+       */
+      return basis.borneByPayer
+        ? `Rental of ${contract(basis.rental)}, settled between its parties`
+        : `Rental of ${contract(basis.rental)}, settled off the top`;
     case "door_split":
       // The base is redacted for a party who may not read the event's takings
       // (story.md:44), so the sentence names the RULE and drops the figure rather

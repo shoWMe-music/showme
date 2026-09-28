@@ -9,4 +9,5 @@ import type { PostApiV1EventsIdSettlementCompute200BreakdownsItemLinesItemBasisA
 export type PostApiV1EventsIdSettlementCompute200BreakdownsItemLinesItemBasisAnyOfThree = {
   kind: PostApiV1EventsIdSettlementCompute200BreakdownsItemLinesItemBasisAnyOfThreeKind;
   rental: string;
+  borneByPayer?: boolean;
 };

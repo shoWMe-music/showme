@@ -1300,7 +1300,7 @@ overruling one is a change to a known line rather than an archaeology exercise.
 | **`event.publish` belongs to the performer preset AND the agent preset** | `packages/auth/src/presets.ts` | Either side may announce a show (`123qy9rpe3q`). The agent has it because a DELEGATED performer has no band at all, so without it the one seeded act with representation was the one act that could not publish. It is a preset, not a floor: a venue may narrow it, because a date announced early is a real cost. |
 | **A change notice goes to everyone on the bill minus the actor** — including the actor's own colleagues | `lib/event-change-notice.ts` | It replaced a rename-only notice addressed to the host PROFILE, whose test asserted that your own side hears nothing. The cancellation and publication notices already behave this way, so all three now agree. The noise argument moves to the `events` switch in `notification_preferences`, where a person can act on it. |
 | **[DECIDED — §25.7.3]** **A represented act cannot see the booking request its agent sent in its name** | `routes/booking-requests` scoping | `GET /booking-requests?direction=outgoing` answers off `sender_profile_id`, and an agent pitching on behalf of their act is the sender — so the seed's offer *"Marlo Vance, 10 Dec, at The Lantern Hall"* is visible to the agency and invisible to Marlo (QA sweep run 5, QA5-11). #14 moves the business ACTIONS to the agent and leaves the act a view floor; whether an offer carrying the act's own name and a fee range sits inside that floor, or inside the agency's private pipeline, is the question. **No recommendation — this one is genuinely a product call**: the act losing sight of what is offered in their name is a real cost, and so is an agent's working pipeline becoming a shared inbox. `on_behalf_of_profile_id` is already on the row, so either answer is a `where` clause. |
-| **[DECIDED — §25.7.1]** **An off-the-top rental is paid by the POOL, so a rental between two co-operators is borne mostly by the act** | `packages/settlement/src/reconcile.ts` (the off-the-top pass) | The engine reads a rental's amount and its **payee** and never `deal_parties.role_in_deal`, so the amount comes off the pool and is shared by everyone who divides the adjusted net. Hand-checked on a SEK 120,000 night with SEK 15,000 of costs, a 70/30 act deal and a SEK 5,000 room hire from the host to the co-promoter: computing it twice, with and without the rental, moves **the act −3,500, the host +4,250, the co-promoter −750** — so **the act bears 70% of a room hire it never signed, and the party named as `payer` bears 15%.** #24.1 un-retired the off-the-top rental and is explicit that the act shares it — for the *promoter rents from the venue* case, where the promoter **is** the pool. It says nothing about a rental between two co-operators, which is the case `QA6-1` was filed about. **Recommendation: when the payer is itself a party on the event, settle the rental as a TRANSFER between payer and payee and leave the pool alone; keep #24.1's off-the-top behaviour when no party is the payer (the pool is paying).** The grounds: a party cannot be charged for an agreement it is not a party to, and `role_in_deal` already records who owes it. Whichever way it goes, the settlement screen currently prints *"Rental of SEK 5,000, settled off the top"* under the PAYEE's card and nothing under the payer's. |
+| **[DECIDED — §25.7.1]** **An off-the-top rental is paid by the POOL, so a rental between two co-operators is borne mostly by the act** | `packages/settlement/src/reconcile.ts` (the off-the-top pass) | The engine reads a rental's amount and its **payee** and never `deal_parties.role_in_deal`, so the amount comes off the pool and is shared by everyone who divides the adjusted net. Hand-checked on a SEK 120,000 night with SEK 15,000 of costs, a 70/30 act deal and a SEK 5,000 room hire the co-promoter owes the host (the host owns the room and is the payee): computing it twice, with and without the rental, moves **the act −3,500, the host +4,250, the co-promoter −750** — so **the act bears 70% of a room hire it never signed, and the party named as `payer` bears 15%.** #24.1 un-retired the off-the-top rental and is explicit that the act shares it — for the *promoter rents from the venue* case, where the promoter **is** the pool. It says nothing about a rental between two co-operators, which is the case `QA6-1` was filed about. **Recommendation: when the payer is itself a party on the event, settle the rental as a TRANSFER between payer and payee and leave the pool alone; keep #24.1's off-the-top behaviour when no party is the payer (the pool is paying).** The grounds: a party cannot be charged for an agreement it is not a party to, and `role_in_deal` already records who owes it. Whichever way it goes, the settlement screen currently prints *"Rental of SEK 5,000, settled off the top"* under the PAYEE's card and nothing under the payer's. |
 | **[DECIDED — §25.7.2]** **Whether a deal may be DELETED at all, or only cancelled** | `routes/deals.ts` `DELETE /deals/:did` (built, and called by nothing) | The route exists and has **no caller in either front end** (QA sweep run 8, QA8-1), so a deal typed with the wrong guarantee can be neither corrected nor removed — the only remedy on screen is a second deal on the same event, which double-counts at settlement. The EDIT half needs no decision and is ticketed. Delete does: a deal that has been reconciled is referenced by `settlement_lines` and by the `entitlement` the engine computed from it, so removing one silently rewrites a settled night's arithmetic, and `cancelled` already exists as the state that stops a deal paying without erasing that it existed. Against that: a deal created by mistake and never sent has nothing to preserve, and leaving it `cancelled` clutters every party's Deals tab forever. **Recommendation: allow delete only while `agreement_status = 'draft'` AND no settlement has been computed for the event; everything past that is `cancelled`.** That draws the line where the audit trail starts mattering rather than at a status name. Whichever way it goes, the UI should not offer a control the API will refuse — which is why this is recorded before the control is built rather than after. |
 | **The calendar's day popover may PUBLISH, and nothing else** | `components/CalendarEntryPreview.tsx` | `86cbcn189` says the calendar is view-only; `123qy9rnk21`, three days later, asks that popover for Publish/Unpublish and Invite. Read as a refinement: the event's FACTS stay the workspace's, a named one-press act does not. Invite and Print details were left out for that reason. |
 
@@ -1320,12 +1320,55 @@ payer — there, the pool really is what is paying.
 **Why it was asked:** the engine reads a rental's amount and its payee and never
 `deal_parties.role_in_deal`, so the cost came off the pool and was divided by everyone sharing the
 adjusted net. Hand-checked on a SEK 120,000 night with SEK 15,000 of costs, a 70/30 act deal and a
-SEK 5,000 room hire from the host to the co-promoter, computing it twice: **the act −3,500, the host
+SEK 5,000 room hire **the co-promoter owes the host**, computing it twice: **the act −3,500, the host
 +4,250, the co-promoter −750.** The act bore 70% of a room hire it never signed and the party the
 deal named as payer bore 15%.
 
+*Which way round the room hire goes is worth stating, because "a room hire from the host to the
+co-promoter" — how this was first written down — reads both ways, and I built the test fixture
+backwards from it before catching it: the host owns the room and is the **payee**; the co-promoter is
+the named **payer**. The clause that settles it is the hand-check's own, "the party named as payer
+bore 15%", which is SEK 750 — the co-promoter's figure. A payee cannot lose money by being paid.
+`reconcile.test.ts` now runs the check both ways round, so the ambiguity cannot come back.*
+
 **The grounds, in one line:** a party cannot be charged for an agreement it is not a party to.
 `role_in_deal` already records who owes it, so the engine had the fact and was not reading it.
+
+**How it came out in code, and the one thing in it that is MY call rather than yours.**
+
+The rule as built, stated from the pool's side because that is where it is decided: **the pool pays
+a rental only when the pool is what owes it and the money leaves the pool side** — no payer named, or
+a payer who shares the event's residual paying somebody who does not. That is #24.1's case, and the
+only shape in which calling the room a cost of the night, shared by everyone dividing the night, is
+true. **Every other rental with a named payer is a transfer between its two parties.**
+
+The obvious simpler rule — *the deal names a payer → that party pays it* — is what the question's
+own wording implied, and I built it first. It fails, and one test caught it: `settlement.test.ts`'s
+rental fixture names the **host**, who is the pool, as the payer of a **venue** rental. That is
+precisely *the promoter rents from the venue* — the case #24.1 settled, and is explicit that the act
+shares. Every rental authored through the app names a payer, so the simple rule would not have
+narrowed #24.1, it would have made it unreachable, and silently: the only thing in the way was one
+assertion whose stated reason ("the rental, taken first") happened to be a claim about the code.
+
+§25.6 framed the open question as *a rental between two co-operators* and said in as many words that
+#24.1 governs the other case, so the line is drawn at what #24.1 is actually about: the show paying
+for its room. #24.1 survives intact, which is not mine to overturn as a side effect.
+
+**"Both ends are co-operators" was my first attempt and it was too narrow — a mutation caught it.**
+Deleting half that condition changed no test, because nothing covered an ACT renting the room from
+the operator: payer outside the pool, payee inside it. Under that rule the act's own room hire came
+off the pool, so the act shared its own rental with everybody and the operator was credited the
+rental on top of a residual already reduced by it — the same defect as the co-operator case in
+different clothes. Stated from the pool's side, the rule covers every arrangement rather than the two
+that happened to be asked about: a four-wall night and a rental between two parties who are both
+outside the pool now both settle as transfers, each with its own test.
+
+> **OPEN, and small: do you also want the broader reading?** Under it, a venue rental the promoter
+> signed would stop being shared by the act too — the same principle ("a party cannot be charged for
+> an agreement it is not a party to") applied to #24.1's own case, leaving the promoter to bear the
+> room alone. It is a one-line change (`theShowPaysForItsRoom` becomes just "no payer named") plus
+> updating one fixture's assertion in `settlement.test.ts`. I have NOT done it, because it reverses
+> part of #24.1 and #24.1 is yours. Say the word and it is a five-minute change.
 
 **What this obliges.** The off-the-top pass in `packages/settlement/src/reconcile.ts` branches on
 whether the payer is a party on the event. And the settlement screen — which today prints *"Rental

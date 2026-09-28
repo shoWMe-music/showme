@@ -231,7 +231,17 @@ export type EntitlementBasis =
   /** A fixed amount, whatever the night did. */
   | { kind: "guarantee"; guarantee: bigint }
   /** A fixed amount for the room — settled OFF THE TOP (`deal-order.ts`). */
-  | { kind: "rental"; rental: bigint }
+  /**
+   * A rental, and WHO BORE IT (decisions §25.7.1). `borneByPayer` is true when the deal named a
+   * payer, so the amount moved between two named parties and the pool never saw it; false (or
+   * absent) when nothing said who owed it and it came off the top, the way #24.1 describes.
+   *
+   * On the basis rather than left to each screen to work out, because the sentence the party reads
+   * is different in the two cases and one of the two was being printed for both: *"Rental of SEK
+   * 5,000, settled off the top"* appeared on the payer's card, beside a NEGATIVE figure, on a
+   * rental that was not settled off the top at all.
+   */
+  | { kind: "rental"; rental: bigint; borneByPayer?: boolean }
   /**
    * A share of the ADJUSTED NET (`PoolLadder.adjustedNet`, 2026-09-15). `base` is
    * the figure the percentage was applied to, carried so the party reading the

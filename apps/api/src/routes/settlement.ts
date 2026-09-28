@@ -71,7 +71,13 @@ const TransferParams = z.object({ id: z.string().uuid(), tid: z.string().uuid() 
  */
 const BasisResponse = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("guarantee"), guarantee: z.string() }),
-  z.object({ kind: z.literal("rental"), rental: z.string() }),
+  // `borneByPayer` DECLARED, because Fastify strips a field the schema does not name — which is
+  // how a value can be computed, stored and silently absent from the screen (decisions §25.7.1).
+  z.object({
+    kind: z.literal("rental"),
+    rental: z.string(),
+    borneByPayer: z.boolean().optional(),
+  }),
   // `base` and `door` are OPTIONAL because between them they give away the
   // event's takings, and a party row is redacted of them unless the route has
   // checked the caller may read the pool (`redactPool` in
