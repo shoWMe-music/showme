@@ -324,3 +324,58 @@ not the crew member or the delegated performer. Both are boundaries rather than 
   act on something that may not happen. What they need is the **answer**, which now reaches them.
 - The delegated performer's notice went to their **agent**, which is the delegation working
   (decisions #14) — and the applied change now reaches both.
+
+---
+
+## Three of run 6's minors are defects in THIS loop's own work
+
+Fixed rather than filed, because they are mine.
+
+### `QA6-4` — the entitlement-gap sentence, wrong again in the other branch
+
+QA5-1 fixed the **withheld-party** branch of `entitlementReconciliation` and left the fallback
+asserting a cause unconditionally. Run 6 caught it on an off-the-top rental: gross 100,000 −
+15,000 deductions − **5,000 venue rental off the top** = 80,000 adjusted net against entitlements
+of 85,000 — and with full access granted there was nothing withheld to name, so the screen said
+*"each line also carries the cash that party collected and the deductions taken off them"* over
+`deductibles: 0, 0, 0` and no collections.
+
+**The sentence has now been wrong twice, both times the same way**, so it left the hook:
+`entitlementGapSentence` is pure, in `settlementDocument.ts`, with eight tests, and asks the causes
+**in the order they explain the gap**:
+
+| | |
+|---|---|
+| a **withheld** party | the most specific, and the one figure this reader cannot see |
+| money **off the top**, when the entitlements EXCEED the net | the only thing that can push them above the pool they divide — and deliberately not named when they fall short, which would be the same error again |
+| collections or deductions | only when the rows actually carry them |
+| none of the above | **state the difference and stop.** A reader sent looking for cash nobody took is worse off than one told only that two numbers differ. |
+
+### `QA6-5` — the PATCH answered with the rank it had a moment ago
+
+`placeHoldInQueue` writes with its own `UPDATE`, so the `after` object the route serializes still
+held the old value: the response said `"holdRank": null` on a hold Postgres had just made 2nd, and
+a client rendering the mutation response drew *"1st hold"* on a second hold. It now echoes the rank
+it wrote — and the cleared one, which took a second fix: `reread?.holdRank ?? after.holdRank` reads
+the NULL it is meant to report as "nothing came back" and keeps the stale number. **The same bug,
+one line further on.**
+
+### `QA6-6` — a rank is a position in ONE queue
+
+`placeHoldInQueue` short-circuited on "already has a rank", so a hold sitting 2nd on 4 December,
+moved to 11 December, carried its 2 into a queue that already had one — two holds reading 2nd.
+
+A hold that changes **date, venue or room** has left its queue, so it re-joins the new one at the
+back; a hold that stays put keeps the number somebody gave it. `status` is deliberately not one of
+those fields: coming *into* `on_hold` is arriving in a queue, not moving between them, and a rank
+that exists at that moment was set for this same night. And a hold that lands in an **empty** queue
+gets its `NULL` back — the lone hold's own state — rather than keeping a number describing a night
+it has left.
+
+Six mutations, five red. The sixth is a no-op-write guard (`rank === event.holdRank`) that changes
+no answer, and says so.
+
+## Suites, after all seven of run 6's items
+
+biome **732** clean · api **1377** (3 files to the Testcontainers flake, each green alone) ·
+web **398** · auth **31** · shared **293** · db **25** · e2e **112** · `tsc --noEmit` clean.

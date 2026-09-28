@@ -25,9 +25,29 @@ import type { Transaction } from "./audit";
 /** The fields that can move an event into, out of, or between hold queues. */
 const QUEUE_FIELDS = ["status", "venueProfileId", "stageId", "eventDate"] as const;
 
+/** The three that identify WHICH queue — status says whether it is in one at all. */
+const QUEUE_IDENTITY_FIELDS = ["venueProfileId", "stageId", "eventDate"] as const;
+
 /** Whether this PATCH could have changed which queue the event stands in. */
 export function touchesHoldQueue(changedFields: readonly string[]): boolean {
   return QUEUE_FIELDS.some((field) => changedFields.includes(field));
+}
+
+/**
+ * Did this PATCH move the hold to a DIFFERENT queue?
+ *
+ * A rank is a position in one queue and means nothing in another (QA sweep run 6,
+ * QA6-6): a hold sitting 2nd on 4 December, moved to 11 December, carried its 2 into
+ * a queue that already had one — two holds reading 2nd. So a hold that changes room,
+ * venue or night re-joins at the back, and a hold that stays put keeps the number
+ * somebody gave it.
+ *
+ * `status` is not in here on purpose. Coming INTO `on_hold` is not a move between
+ * queues; it is arriving in one, and a rank that already exists at that moment was
+ * set for this same date and room.
+ */
+export function movedHoldQueue(changedFields: readonly string[]): boolean {
+  return QUEUE_IDENTITY_FIELDS.some((field) => changedFields.includes(field));
 }
 
 /**
@@ -50,6 +70,13 @@ export async function placeHoldInQueue(
     stageId: string | null;
     hostProfileId: string;
   },
+  options: {
+    /**
+     * True when this PATCH changed the date, venue or room — so whatever rank the
+     * hold carries belongs to a queue it has left. See `movedHoldQueue`.
+     */
+    movedQueue?: boolean;
+  } = {},
 ): Promise<number | null> {
   // Only the first of these three is a RULE of its own — an event that is not a hold
   // is not in the queue, it has the night. The other two are short-circuits that save
@@ -60,7 +87,9 @@ export async function placeHoldInQueue(
   // away leaves the answer unchanged, which is the honest reason there is no test
   // pinning them.
   if (event.status !== "on_hold") return null;
-  if (event.holdRank !== null) return null;
+  // A rank the hold already has is somebody's decision — UNLESS it moved queue, in
+  // which case the number describes a night it is no longer on (QA6-6).
+  if (event.holdRank !== null && !options.movedQueue) return null;
   if (event.eventDate === null) return null;
 
   // The same queue key the pool read and every cascade use (`loadSiblings` in
@@ -90,8 +119,26 @@ export async function placeHoldInQueue(
     id: row.id,
     holdRank: row.holdRank ?? 1,
   }));
-  const rank = rankForHoldJoiningQueue({ holdRank: event.holdRank, siblings });
-  if (rank === null) return null;
+  // A hold that moved queue arrives unranked by definition: it holds no position in
+  // the queue it just entered, whatever number it brought with it.
+  const carriedRank = options.movedQueue ? null : event.holdRank;
+  const rank = rankForHoldJoiningQueue({ holdRank: carriedRank, siblings });
+  // Nothing to join, and a stale number from the queue it left would read as a
+  // position in this one — so it goes back to NULL, the lone hold's own state.
+  if (rank === null) {
+    if (options.movedQueue && event.holdRank !== null && siblings.length === 0) {
+      await tx
+        .update(schema.events)
+        .set({ holdRank: null, updatedAt: new Date() })
+        .where(eq(schema.events.id, event.id));
+    }
+    return null;
+  }
+  // Nothing to write when the answer is the number it already has. A no-op UPDATE,
+  // not a rule: mutating this line away changes no result, which is why no test pins
+  // it — it is here so a PATCH that touches a queue field without moving anything
+  // does not write a row.
+  if (rank === event.holdRank) return null;
 
   await tx
     .update(schema.events)

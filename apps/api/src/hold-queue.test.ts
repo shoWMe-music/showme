@@ -145,6 +145,93 @@ describe("a hold joining a queue takes a number", () => {
     expect(pool.holdRank).toBe(2);
   });
 
+  it("answers with the rank it just wrote (QA6-5)", async () => {
+    // The update is its own statement, so the route's `after` object held the rank the
+    // row had BEFORE it — the PATCH answered `holdRank: null` on a hold Postgres had
+    // just made 2nd, and a client that renders the mutation response drew "1st hold".
+    const operator = await seedOperator("hq-echo");
+    await placeHold(operator, "The first pencil", {
+      eventDate: "2027-09-09",
+      venueProfileId: operator.profileId,
+    });
+    const second = await placeHold(operator, "Typed venue pencil", {
+      eventDate: "2027-09-09",
+      venueName: "The room somebody typed",
+    });
+    const attached = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${second}`,
+      headers: headers(operator.userId, operator.profileId),
+      payload: { venueProfileId: operator.profileId },
+    });
+    expect(attached.statusCode).toBe(200);
+    expect(attached.json().holdRank).toBe(2);
+    expect(await rankOf(second)).toBe(2);
+  });
+
+  it("re-ranks a hold that MOVES to another queue instead of carrying its number (QA6-6)", async () => {
+    // A rank is a position in one queue and means nothing in another. A hold sitting
+    // 2nd on one night, moved to a night that already had a 2nd, made two 2nds.
+    const operator = await seedOperator("hq-move");
+    await placeHold(operator, "Origin first", {
+      eventDate: "2027-10-01",
+      venueProfileId: operator.profileId,
+    });
+    const traveller = await placeHold(operator, "The traveller", {
+      eventDate: "2027-10-01",
+      venueProfileId: operator.profileId,
+    });
+    expect(await rankOf(traveller)).toBe(2);
+
+    // The destination already holds a queue of two.
+    await placeHold(operator, "Destination first", {
+      eventDate: "2027-10-08",
+      venueProfileId: operator.profileId,
+    });
+    const destinationSecond = await placeHold(operator, "Destination second", {
+      eventDate: "2027-10-08",
+      venueProfileId: operator.profileId,
+    });
+    expect(await rankOf(destinationSecond)).toBe(2);
+
+    const moved = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${traveller}`,
+      headers: headers(operator.userId, operator.profileId),
+      payload: { eventDate: "2027-10-08" },
+    });
+    expect(moved.statusCode).toBe(200);
+    expect(await rankOf(traveller)).toBe(3);
+    expect(moved.json().holdRank).toBe(3);
+    // And nobody in the destination queue was disturbed.
+    expect(await rankOf(destinationSecond)).toBe(2);
+  });
+
+  it("gives a moved hold its NULL back when it lands in an empty queue", async () => {
+    // Otherwise it reads as "2nd" on a night where it is the only pencil — a number
+    // describing a queue it has left.
+    const operator = await seedOperator("hq-alone");
+    await placeHold(operator, "Crowded first", {
+      eventDate: "2027-11-05",
+      venueProfileId: operator.profileId,
+    });
+    const traveller = await placeHold(operator, "Leaving the crowd", {
+      eventDate: "2027-11-05",
+      venueProfileId: operator.profileId,
+    });
+    expect(await rankOf(traveller)).toBe(2);
+
+    const moved = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${traveller}`,
+      headers: headers(operator.userId, operator.profileId),
+      payload: { eventDate: "2027-11-12" },
+    });
+    expect(moved.statusCode).toBe(200);
+    expect(await rankOf(traveller)).toBeNull();
+    expect(moved.json().holdRank).toBeNull();
+  });
+
   it("leaves a lone hold unranked — NULL is the first hold", async () => {
     const operator = await seedOperator("hq-lone");
     // A queue is per DATE. This pencil on the same stage a week earlier is a

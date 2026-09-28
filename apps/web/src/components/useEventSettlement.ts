@@ -28,6 +28,7 @@ import {
   type EntitlementRule,
   type LadderRow,
   describeBasis,
+  entitlementGapSentence,
   entitlementRules,
   initialsOf,
   isWholeBoard,
@@ -863,28 +864,26 @@ export function useEventSettlement(
       (running, party) => running + BigInt(party.entitlementMinor ?? "0"),
       0n,
     );
-    const adjusted = BigInt(adjustedNetMinor);
-    if (entitlements === adjusted) return null;
-    const direction = entitlements > adjusted ? "more" : "less";
-    const shown = `The entitlements below come to ${formatAmount(entitlements.toString())}, ${direction} than the adjusted net`;
-    /*
-     * A WITHHELD LINE IS THE CAUSE WHEN THERE IS A WITHHELD LINE.
-     *
-     * The clause below used to be asserted unconditionally, and on a co-promotion
-     * it named a cause that was not the cause: the sweep's probe had no collections
-     * and `deductibles: 0` on every row, and the whole gap was the co-host's share
-     * (QA5-1). Saying "each line also carries the cash that party collected" there
-     * sends the reader looking for cash nobody took.
-     *
-     * The withheld total is a LOWER BOUND on the missing entitlement — it is what
-     * this reader transfers that party, which is their entitlement less any cash
-     * they already hold — so the sentence says "at least".
-     */
-    if (withheldTotalMinor > 0n) {
-      return `${shown}. At least ${formatAmount(withheldTotalMinor.toString())} of it belongs to a party whose settlement is not shared with you; it is in Total Payouts as a transfer. The percentages are shares of the entitlements shown.`;
-    }
-    return `${shown}: each line also carries the cash that party collected and the deductions taken off them. The percentages are shares of the entitlements.`;
-  }, [parties, settlements.data, formatAmount, withheldTotalMinor]);
+    // The wording is `entitlementGapSentence` — pure, per-branch tested, and there
+    // rather than here because this sentence has been wrong twice by asserting a
+    // cause the same screen's own data contradicts (QA5-1, then QA6-4).
+    const visible = rows.map((row) => row.computed).filter((computed) => computed != null);
+    return entitlementGapSentence({
+      entitlementsMinor: entitlements,
+      adjustedNetMinor: BigInt(adjustedNetMinor),
+      withheldMinor: withheldTotalMinor,
+      offTheTopMinor: BigInt(settlements.data?.ladder?.offTheTop ?? "0"),
+      collectedMinor: visible.reduce(
+        (running, computed) => running + BigInt(computed.collected),
+        0n,
+      ),
+      deductiblesMinor: visible.reduce(
+        (running, computed) => running + BigInt(computed.deductibles ?? "0"),
+        0n,
+      ),
+      format: formatAmount,
+    });
+  }, [parties, rows, settlements.data, formatAmount, withheldTotalMinor]);
 
   const payable = useMemo(() => parties.filter((party) => party.netTone === "positive"), [parties]);
   /**

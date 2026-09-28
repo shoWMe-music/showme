@@ -142,6 +142,72 @@ export function isWholeBoard(nets: string[]): boolean {
 }
 
 /**
+ * WHY THE ENTITLEMENTS DO NOT SUM TO THE ADJUSTED NET — in the words the night's own
+ * figures support, and **only** those.
+ *
+ * This sentence has now been wrong twice, both times by asserting a cause
+ * unconditionally:
+ *
+ *  - run 5 (**QA5-1**) — a co-promotion whose gap was entirely a withheld party read
+ *    *"each line also carries the cash that party collected and the deductions taken
+ *    off them"* on a settlement where nobody collected anything and `deductibles` was
+ *    `0` on every row;
+ *  - run 6 (**QA6-4**) — the same clause survived in the other branch. An off-the-top
+ *    venue rental of 5,000 leaves the entitlements 5,000 ABOVE the adjusted net, and
+ *    with full access granted there was nothing withheld to name. `deductibles` `0`,
+ *    `0`, `0` again.
+ *
+ * So the causes are asked in the order they explain the gap, and the last branch says
+ * the difference and stops. A reader sent looking for cash nobody took is worse off
+ * than one told only that two numbers differ.
+ *
+ * Pure, and per-branch tested, because that is the only way a sentence like this stops
+ * being re-broken: the wrong answer does not throw, it reads perfectly well.
+ */
+export function entitlementGapSentence(input: {
+  /** Σ entitlement over the parties this reader can see, in minor units. */
+  entitlementsMinor: bigint;
+  adjustedNetMinor: bigint;
+  /** Σ owed to parties paid by transfer whose settlement is withheld — `withheldPayees`. */
+  withheldMinor: bigint;
+  /** What left the pool before the adjusted net was struck (`ladder.offTheTop`). */
+  offTheTopMinor: bigint;
+  /** Σ cash collected by the visible parties. */
+  collectedMinor: bigint;
+  /** Σ deductions taken off the visible parties. */
+  deductiblesMinor: bigint;
+  format: (minorUnits: string) => string;
+}): string | null {
+  const { entitlementsMinor, adjustedNetMinor, format } = input;
+  if (entitlementsMinor === adjustedNetMinor) return null;
+
+  const direction = entitlementsMinor > adjustedNetMinor ? "more" : "less";
+  const opening = `The entitlements below come to ${format(entitlementsMinor.toString())}, ${direction} than the adjusted net`;
+  const shares = "The percentages are shares of the entitlements shown.";
+
+  // 1. A WITHHELD LINE, when there is one. A lower bound — what this reader transfers
+  //    that party is their entitlement less any cash they already hold — so "at least".
+  if (input.withheldMinor > 0n) {
+    return `${opening}. At least ${format(input.withheldMinor.toString())} of it belongs to a party whose settlement is not shared with you; it is in Total Payouts as a transfer. ${shares}`;
+  }
+
+  // 2. MONEY TAKEN OFF THE TOP, which is the only way the entitlements can exceed the
+  //    pool they divide: a rental settled before the adjusted net is struck is in the
+  //    payee's entitlement and not in the base.
+  if (input.offTheTopMinor > 0n && entitlementsMinor > adjustedNetMinor) {
+    return `${opening}. ${format(input.offTheTopMinor.toString())} was settled off the top — it is in a party's entitlement and not in the net the percentages divide. ${shares}`;
+  }
+
+  // 3. The original cause, now stated only when the rows actually carry it.
+  if (input.collectedMinor !== 0n || input.deductiblesMinor !== 0n) {
+    return `${opening}: each line also carries the cash that party collected and the deductions taken off them. ${shares}`;
+  }
+
+  // 4. Nothing here explains it, so nothing is claimed.
+  return `${opening}. ${shares}`;
+}
+
+/**
  * THE PARTIES THIS READER PAYS BUT CANNOT READ A SETTLEMENT FOR.
  *
  * Two scopes, one payload. `GET /events/:id/settlements` scopes the party list

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  entitlementGapSentence,
   entitlementRules,
   matchingSettlements,
   settlementTotals,
@@ -321,5 +322,104 @@ describe("withheldPayees", () => {
         visibleParticipantIds: [HOST],
       }).map((payee) => payee.participantId),
     ).toEqual(["large", "small"]);
+  });
+});
+
+/**
+ * THE SENTENCE THAT HAS BEEN WRONG TWICE (QA5-1, then QA6-4).
+ *
+ * Both times by asserting a cause unconditionally, and both times on a settlement
+ * whose own rows said `deductibles: 0` and nobody collected anything. The branches
+ * are asked in the order they explain the gap, and the last one says the difference
+ * and stops.
+ */
+describe("entitlementGapSentence", () => {
+  const format = (minor: string) => `SEK ${(Number(minor) / 100).toLocaleString("en-US")}`;
+  const base = {
+    withheldMinor: 0n,
+    offTheTopMinor: 0n,
+    collectedMinor: 0n,
+    deductiblesMinor: 0n,
+    format,
+  };
+
+  it("says nothing when the two agree", () => {
+    expect(
+      entitlementGapSentence({
+        ...base,
+        entitlementsMinor: 8_000_000n,
+        adjustedNetMinor: 8_000_000n,
+      }),
+    ).toBeNull();
+  });
+
+  it("names a withheld party first — it is the most specific cause", () => {
+    const sentence = entitlementGapSentence({
+      ...base,
+      entitlementsMinor: 4_400_000n,
+      adjustedNetMinor: 5_000_000n,
+      withheldMinor: 600_000n,
+      // Even with money off the top AND collections in play, the withheld line is
+      // the one this reader cannot see and therefore the one to name.
+      offTheTopMinor: 500_000n,
+      collectedMinor: 8_300_000n,
+    });
+    expect(sentence).toContain("At least SEK 6,000");
+    expect(sentence).toContain("not shared with you");
+  });
+
+  it("names money settled OFF THE TOP when the entitlements exceed the pool (QA6-4)", () => {
+    // The sweep's figures: gross 100,000 − 15,000 deductions − 5,000 rental off the
+    // top = 80,000 adjusted net, against entitlements of 85,000.
+    const sentence = entitlementGapSentence({
+      ...base,
+      entitlementsMinor: 8_500_000n,
+      adjustedNetMinor: 8_000_000n,
+      offTheTopMinor: 500_000n,
+    });
+    expect(sentence).toContain("SEK 5,000 was settled off the top");
+    expect(sentence).not.toContain("the cash that party collected");
+  });
+
+  it("does not blame the off-the-top when the entitlements are BELOW the net", () => {
+    // Money taken off the top can only push the entitlements up. A shortfall has a
+    // different cause, and naming this one would be as wrong as the clause it replaced.
+    const sentence = entitlementGapSentence({
+      ...base,
+      entitlementsMinor: 7_000_000n,
+      adjustedNetMinor: 8_000_000n,
+      offTheTopMinor: 500_000n,
+    });
+    expect(sentence).not.toContain("off the top");
+  });
+
+  it("keeps the original clause where the rows actually carry it", () => {
+    const sentence = entitlementGapSentence({
+      ...base,
+      entitlementsMinor: 5_500_000n,
+      adjustedNetMinor: 5_350_000n,
+      collectedMinor: 150_000n,
+    });
+    expect(sentence).toContain("each line also carries the cash that party collected");
+  });
+
+  it("claims NO cause when the figures support none — the whole lesson", () => {
+    const sentence = entitlementGapSentence({
+      ...base,
+      entitlementsMinor: 8_500_000n,
+      adjustedNetMinor: 8_000_000n,
+    });
+    expect(sentence).toBe(
+      "The entitlements below come to SEK 85,000, more than the adjusted net. The percentages are shares of the entitlements shown.",
+    );
+  });
+
+  it("says which way the difference runs", () => {
+    expect(
+      entitlementGapSentence({ ...base, entitlementsMinor: 100n, adjustedNetMinor: 200n }),
+    ).toContain("less than the adjusted net");
+    expect(
+      entitlementGapSentence({ ...base, entitlementsMinor: 200n, adjustedNetMinor: 100n }),
+    ).toContain("more than the adjusted net");
   });
 });

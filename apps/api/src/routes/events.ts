@@ -49,7 +49,7 @@ import {
 import { notifyPublicationChanged } from "../lib/event-publication";
 import { advanceEventStatus } from "../lib/event-status-ladder";
 import { resolveEventTimezone } from "../lib/event-timezone";
-import { placeHoldInQueue, touchesHoldQueue } from "../lib/hold-queue";
+import { movedHoldQueue, placeHoldInQueue, touchesHoldQueue } from "../lib/hold-queue";
 import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
 import { withIdempotency } from "../plugins/idempotency";
 import { serializeDealUnredacted } from "../serialize/deal";
@@ -1568,7 +1568,29 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
            * is the state this prevents. Details in `lib/hold-queue.ts`.
            */
           if (touchesHoldQueue(changed)) {
-            await placeHoldInQueue(tx, after);
+            /*
+             * THE RESPONSE CARRIES THE RANK IT WROTE — QA sweep run 6 (QA6-5). The
+             * update below is its own statement, so `after` still held the rank the row
+             * had BEFORE it: the PATCH answered `"holdRank": null` on a hold Postgres
+             * had just made 2nd, and a client rendering the mutation response rather
+             * than refetching drew "1st hold" on a second hold.
+             */
+            const placed = await placeHoldInQueue(tx, after, {
+              movedQueue: movedHoldQueue(changed),
+            });
+            if (placed !== null) after.holdRank = placed;
+            else if (movedHoldQueue(changed) && after.holdRank !== null) {
+              // It left a queue and joined an empty one, so its number went back to
+              // NULL — the lone hold's own state (see `placeHoldInQueue`).
+              const [reread] = await tx
+                .select({ holdRank: schema.events.holdRank })
+                .from(schema.events)
+                .where(eq(schema.events.id, id));
+              // Assigned only when the row was found — `?? after.holdRank` would read
+              // the NULL this is here to report as "nothing came back" and keep the
+              // stale number, which is the same bug one line further on.
+              if (reread) after.holdRank = reread.holdRank;
+            }
           }
 
           const statusChanged = changed.includes("status");
