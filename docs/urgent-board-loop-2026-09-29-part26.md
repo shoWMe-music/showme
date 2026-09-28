@@ -201,3 +201,27 @@ which is why nothing here moved.
   suite reconciled against the 1423 baseline plus this stretch's additions, then e2e including
   `motion.spec.ts`.
 - Then qa-sweep run 11.
+
+---
+
+## 7. The full pass, stack down, one go
+
+| Check | Result |
+|---|---|
+| `biome check .` | 742 files, clean |
+| `@showme/shared` | **333** passed |
+| `@showme/auth` | **35** passed |
+| `@showme/settlement` | **74** passed |
+| `@showme/web` | **507** passed |
+| `@showme/api` | **1440** passed, 0 failed |
+| `pnpm test:e2e` | **116** passed, exit 0 |
+
+**The API count needs its arithmetic shown, because the raw run does not read as green.** It ended
+`4 failed | 61 passed (65)` files and `1337 passed | 103 skipped (1440)` tests — **zero failed
+tests**, four lines matching *"waiting for container ports"*, and four whole files lost to the
+Testcontainers port-bind flake: `deals`, `exchange-rate`, `invoices`, `off-platform`. Re-run one at a
+time with the ryuk container pruned between each: **77 + 6 + 15 + 5 = 103**, exactly the skipped
+count, all green. So the suite is 1440 passing and the flake took nothing with it.
+
+e2e is **116**, up from the 112 this repo's own lesson records — the four `motion.spec.ts` tests,
+reduced-motion path included.
