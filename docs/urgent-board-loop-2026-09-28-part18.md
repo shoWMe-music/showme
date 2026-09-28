@@ -250,3 +250,42 @@ is sized below.
 
 *The decision each hides:* none of the three. Each is a sentence outrunning the build, and the build
 is what the handoff's feature list is for.
+
+---
+
+## QA8-8 — a book with no door printed a division of one
+
+**Which file settles it:** `apps/web/src/components/useBudgetEditor.ts:2460` — one seed, gated on
+the `isPrivateBook` flag QA7-3 already introduced.
+
+**Verdict: real, and QA7-3's own docstring is what licensed it.** The private ledger's KPIs read
+`TOTAL REVENUE SEK 0` and its ticket table *"0 tickets planned"*, and two cards below it drew
+`Marlo Vance 60% SEK 55,800 / Neon Tide 40% SEK 37,200` — the **shared** book's door — with the
+sentence that says which door that is absent here, so the card offered no clue.
+
+QA7-3 removed the event's ticket tiers from a private book because *"both are facts about the
+NIGHT, and the night's book is the shared one"*, and then **exempted this card in the same
+paragraph**, arguing from #23.2. That argument is about the **fee** — a fee must not be re-derived
+from whichever slice of revenue a reader is looking at — and it does not reach a card about the
+**door**. `PLAN.md:215` settles it: a private book is *"the extra an operator MAY ALSO keep"*, and
+an extra has no door to divide. The exemption is now corrected in place, next to the fix, because
+the exemption is what would restore the defect.
+
+*Scope:* the seed only. `ticketSplitOf` is unchanged and still returns an empty split for a zero
+door, which is why passing the empty seed is all this takes — no new branch in the pure rule.
+
+### Proven on the running stack, from the right seat
+
+The first reading of this was taken as **`co.host@`** by accident — a session left over from
+QA8-11 — and showed no split card on either book, which looks like the fix working and is
+actually the co-host legitimately not being a party to the deal (their costs read `TOTAL COSTS
+(PARTIAL)`, which is the tell). Re-driven as `operator@`:
+
+| book, as `operator@` | TOTAL REVENUE | split card |
+|---|---|---|
+| Shared ledger | SEK 83,000 | **intact** — *60% Marlo Vance / 40% Neon Tide · DOOR SPLIT · SEK 49,800 / SEK 33,200 · "100% of the door." · "Box office only, before costs and rental — after them the deal pays SEK 50,000."* |
+| My budget | SEK 0 | **gone**, and none of 49,800 / 33,200 / 83,000 appears anywhere on the page |
+
+Worth keeping as a method note: *an absent element is the weakest possible evidence*, because
+everything from a wrong account to a failed render produces it. It only counts beside the positive
+case on the same screen, which is what the two rows above are.

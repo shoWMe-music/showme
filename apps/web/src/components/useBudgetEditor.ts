@@ -952,11 +952,15 @@ export function useBudgetEditor(
    * shared one. A stored line is untouched either way: it is the operator's own assertion
    * and already outranks any seed, which is the rule that makes this safe.
    *
-   * WHAT IS DELIBERATELY UNCHANGED: the derived fee is still event-scoped, and the
-   * "HOW TICKET REVENUE SPLITS" card still reads the same in either book — #23.2 is right
+   * WHAT IS DELIBERATELY UNCHANGED: the derived fee is still event-scoped — #23.2 is right
    * that a fee derived from whichever slice of revenue the reader happens to be looking at
    * "is not the performer's fee and never will be". That argument is about what the fee
    * IS. It never licensed folding it into an empty book's costs.
+   *
+   * THIS PARAGRAPH ALSO EXEMPTED the "HOW TICKET REVENUE SPLITS" card, and that was wrong
+   * (QA8-8). #23.2's point is about the FEE; the split card is about the DOOR, and printing
+   * the shared door's division on a book holding no tickets is the same error this fix
+   * removed one card over. See `seedTicketSplit` below.
    */
   const isPrivateBook = budget != null && budget.scope !== "shared";
 
@@ -2453,11 +2457,31 @@ export function useBudgetEditor(
     addRevenueShare,
     changeRevenueShare,
     removeRevenueShare,
-    // Passed straight through from the seed. The split is a fact about the DEAL
-    // and the event's door, not about the sheet being edited, so the editor
-    // carries it rather than deriving anything from it (#23.2: event-scoped,
-    // never re-derived per book).
-    seedTicketSplit: seedSource.ticketSplit,
+    /*
+     * A BOOK WITH NO DOOR DOES NOT DIVIDE ONE (QA sweep run 8, QA8-8).
+     *
+     * The split is a fact about the DEAL and the event's door, never re-derived per book
+     * (#23.2) — which is why it is passed straight through rather than recomputed, and that
+     * part is unchanged. What it does not license is printing the SHARED door's division on
+     * a private book. Measured: a private ledger whose own KPIs read `TOTAL REVENUE SEK 0`
+     * and whose ticket table read *"0 tickets planned"* carried, two cards below,
+     * `Marlo Vance 60% SEK 55,800 / Neon Tide 40% SEK 37,200` — SEK 93,000, the shared
+     * book's door — and the sentence that says WHICH door that is was absent here, so the
+     * card offered no clue.
+     *
+     * This is QA7-3 one card over. That fix took the event's ticket tiers out of a private
+     * book because *"both are facts about the NIGHT, and the night's book is the shared
+     * one"*; a split OF those tickets is the same fact, divided. `PLAN.md:215` settles it —
+     * a private book is *"the extra an operator MAY ALSO keep"*, and an extra has no door.
+     *
+     * The shared ledger is one click away and draws the same card WITH its explanation,
+     * which is where a reader asking "how does the door split" should be reading it.
+     *
+     * CORRECTION to QA7-3's own docstring above, which recorded this card as deliberately
+     * unchanged: it argued from #23.2's point about the FEE, and applied it to a card about
+     * the DOOR. The fee reasoning was right and did not reach this far.
+     */
+    seedTicketSplit: isPrivateBook ? NO_SEED.ticketSplit : seedSource.ticketSplit,
     hiddenDealCount: seedSource.hiddenDealCount,
     costs: resolvedCosts,
     deductionBases,
