@@ -5,7 +5,6 @@ import {
   INVOICE_STATE_STATUS,
   type InvoiceLineItem,
   invoiceDirectionLabel,
-  invoiceReference,
   invoiceStateLabel,
   isInvoiceOverdue,
   lineItemTotalMinor,
@@ -41,7 +40,10 @@ export function InvoiceDetailModal({
     <Modal
       open={Boolean(invoiceId)}
       onClose={onClose}
-      title={data ? `Invoice ${invoiceReference(data)}` : "Invoice"}
+      /* An un-numbered invoice is titled just "Invoice" — `invoiceReference` returns the
+         em dash for the column it was written for, and "Invoice —" is not a title
+         (QA7-27). A received bill has no number of ours by design. */
+      title={data?.number ? `Invoice ${data.number}` : "Invoice"}
       width={620}
       footer={
         <Button variant="secondary" onClick={onClose}>

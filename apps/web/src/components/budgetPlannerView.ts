@@ -717,7 +717,21 @@ export function budgetPlannerViewFrom(
             // reading order that follows from it: profit, then profit as a rate,
             // then the attendance that would make it zero. We had the last two the
             // other way round, so the row read profit, attendance, rate.
-            { label: "Profit margin", value: `${projection.marginPercent.toFixed(1)}%` },
+            {
+              label: "Profit margin",
+              /*
+               * A MARGIN OF NOTHING IS NOT 0.0% (QA sweep run 7, QA7-26).
+               *
+               * `marginPercent` is `profit / revenue` and falls back to 0 where there is no
+               * revenue to divide — which the strip then printed as a rate. Run 7 caught it
+               * paired with a loss (`PROFIT MARGIN 0.0%` beside `PROFIT / LOSS −SEK 50,150`)
+               * and QA7-3 removed that pairing by stopping the private book seeding itself;
+               * an empty book now reads SEK 0 throughout, where 0.0% is merely unhelpful
+               * rather than contradictory. It is still a claim about a rate that does not
+               * exist, and `—` is what the app says everywhere else for "nothing to show".
+               */
+              value: projection.totalRevenue > 0n ? `${projection.marginPercent.toFixed(1)}%` : "—",
+            },
             {
               label: "Break-even tickets",
               // See the KPI strip above: zero is two answers, and only the engine

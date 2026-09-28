@@ -1766,7 +1766,11 @@ function DealStep(props: {
 
       {structureNeedsSplit(props.structure) && (
         <label>
-          <span style={labelStyle}>{performer.name}&rsquo;s share of the pool</span>
+          {/* "…of the adjusted net", not "of the pool" (QA7-25). The pool is the ladder's
+              own earlier rung — `PoolLadder.adjustedNet` is what a percentage divides
+              (#24.1), and the deal detail screen has always read "Share of the adjusted
+              net". The hint below said it correctly while the label above it did not. */}
+          <span style={labelStyle}>{performer.name}&rsquo;s share of the adjusted net</span>
           <div
             style={{
               display: "flex",
@@ -1797,13 +1801,26 @@ function DealStep(props: {
             />
             <span style={{ color: "var(--muted)", fontFamily: "var(--font-mono)" }}>%</span>
           </div>
-          {/* No "promoter %" and no "venue %" beside it. The pool is revenue less
-              external costs, the deals come out of it, and whatever is left IS the
-              operator's — the engine pays it as the residual (settlement skill).
-              A second percentage box would be the operator dividing their own
-              remainder with themselves. */}
+          {/* No "promoter %" and no "venue %" beside it. The deals come out of the
+              adjusted net and whatever is left IS the operator's — the engine pays it as
+              the residual (settlement skill). A second percentage box would be the
+              operator dividing their own remainder with themselves.
+
+              THE BASE IS THE ADJUSTED NET, and this comment used to say "revenue less
+              external costs" while the hint below said the same (QA7-25). That is
+              `decisions.md` #23.1, which **#24.1 reversed on 2026-09-15**:
+
+                  Gross revenue − Deductions = Net revenue
+                                             − Venue rental (off the top) = Adjusted net
+
+              and every percentage divides the adjusted net. Omitting the off-the-top step
+              told an operator setting 70% that the 70% was of a larger base than the
+              engine would use. The deal detail screen has always said it correctly
+              ("Share of the adjusted net 70%"). Both the comment and the copy are fixed,
+              because the comment is what would restore the wrong sentence next time. */}
           <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>
-            Of revenue less the costs paid to outside suppliers. What is left over is yours.
+            Of the adjusted net — revenue less deductions, and less anything taken off the top such
+            as the venue rental. What is left over is yours.
           </div>
         </label>
       )}

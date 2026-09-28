@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countsAsMoneyOwed, isInvoiceOverdue } from "./invoiceDocument";
+import { countsAsMoneyOwed, invoiceReference, isInvoiceOverdue } from "./invoiceDocument";
 
 /**
  * A DRAFT IS NOT MONEY (QA sweep run 7, QA7-13).
@@ -69,5 +69,30 @@ describe("isInvoiceOverdue", () => {
 
   it("is not overdue on an unparseable date", () => {
     expect(isInvoiceOverdue({ state: "sent", dueDate: "not a date" })).toBe(false);
+  });
+});
+
+/**
+ * A UUID FRAGMENT IS NOT A REFERENCE (QA sweep run 7, QA7-27).
+ *
+ * The fallback printed `1ec9843d` — the first segment of the row's primary key — in the
+ * EVENT / REFERENCE column and in the document title. It looks like a reference and cannot
+ * be quoted to anybody. Two rows legitimately have no number: a received bill, whose
+ * reference belongs to the vendor, and an issued invoice before it is issued.
+ */
+describe("invoiceReference", () => {
+  it("is the invoice's number once it has one", () => {
+    expect(
+      invoiceReference({ number: "LH-2026-014", id: "1ec9843d-0000-4000-8000-000000000001" }),
+    ).toBe("LH-2026-014");
+  });
+
+  it("does not invent one from the primary key", () => {
+    const reference = invoiceReference({
+      number: null,
+      id: "1ec9843d-0000-4000-8000-000000000001",
+    });
+    expect(reference).toBe("—");
+    expect(reference).not.toContain("1ec9843d");
   });
 });

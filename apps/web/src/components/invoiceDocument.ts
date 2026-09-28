@@ -78,9 +78,21 @@ export function invoiceCounterparty(
   return reference ?? "—";
 }
 
-/** The invoice's human handle: its number once issued, else a short id stub. */
+/**
+ * The invoice's human handle: its number, or nothing (QA sweep run 7, QA7-27).
+ *
+ * This fell back to `id.slice(0, 8)`, which printed `1ec9843d` in the EVENT / REFERENCE
+ * column and titled the document *"Invoice 1ec9843d"* — a value that looks like a
+ * reference, is not one, and cannot be quoted to anybody. Two rows legitimately have no
+ * number: a RECEIVED bill, where the reference is the vendor's and is theirs to supply,
+ * and an issued invoice before `POST /invoices/:id/issue` assigns one.
+ *
+ * `—` is the app's own word for "nothing to show here" and what `invoiceCounterparty` in
+ * this same file already returns for it. A provisional number would be a second numbering
+ * scheme for the same document, which is the thing issuing exists to avoid.
+ */
 export function invoiceReference(invoice: Pick<InvoiceRecord, "number" | "id">): string {
-  return invoice.number ?? invoice.id.slice(0, 8);
+  return invoice.number ?? "—";
 }
 
 export function invoiceDirectionLabel(direction: string): string {
