@@ -158,7 +158,43 @@ is the third catching up.
 | drop the name match | red |
 | the threshold base's either/or | red |
 
-## What could NOT be run, and why
+## The owed checks — RUN, once Docker was back
+
+Docker's engine had stopped while the Desktop app stayed alive (see `-part12.md` for the diagnosis
+and the fix). `showme-e2e-postgres` was `Exited (255)` behind it, so the container really had stopped
+as well — it just was not the whole story. All three checks this part deferred are now done:
+
+| | |
+|---|---|
+| **api** | **1379 passed.** Four files to the Testcontainers flake with zero failed tests; each green alone. |
+| **e2e** | **112 passed.** |
+| **QA7-2 on the running stack** | proven — see below |
+
+**QA7-2, driven on the seeded Album Release.** Its shared budget holds the two ticket lines
+(SEK 65,000 + SEK 18,000) and nothing else; a `QA7 Early bird` tier at 250 × 40 was added to
+`events.extras.ticketTiers`, which is the exact shape the sweep used.
+
+```
+TICKET REVENUE  SEK 93,000        360 tickets planned across all types
+HOW TICKET REVENUE SPLITS         60% SEK 55,800  /  40% SEK 37,200      ( = 93,000 )
+"Box office only, before costs and rental — after them the deal pays SEK 60,000."
+
+POST /settlement/compute  →  ladder adjustedNet 6000000
+                             b2 entitlement 3600000   b3 entitlement 2400000
+```
+
+**The planner says SEK 60,000 and the settlement pays SEK 60,000.** Before the fix the split card
+divided 83,000 (49,800 / 33,200) and promised SEK 50,000 against the same compute — and only agreed
+*after* the compute had written the tier into `budget_lines`. Screenshot:
+`docs/screenshots/qa-2026-09-28-run7/qa7-2-planner-and-settlement-agree.png`.
+
+**QA7-1 is not browser-proven and will not be from here:** the sweep's own event (`QA7 Clash Night`,
+a `guarantee_vs_door` deal with a cost row) does not survive a re-seed, and the seeded events have no
+guarantee, so there is nothing on this stack where the guarantee arm governs. It stands on
+hand-checked arithmetic at four attendances plus three mutations — and the next sweep can drive it,
+which is the honest place for it.
+
+## What could not be run at the time, and why
 
 **Docker's daemon stopped answering `docker ps` and has not recovered** — three attempts, 45s, 90s
 and 120s, all timing out — so on this machine there is no Postgres, which means **no dev stack, no
