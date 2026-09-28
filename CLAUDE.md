@@ -110,7 +110,21 @@ twice on 2026-09-28 (`docs/handoff-2026-09-28-urgent-board.md` has the detail):
 - **A mutation survives when every test happens to satisfy the clause another way.** Twelve
   survivors in one stretch, each a filter that looked covered — one venue, one room, one date in
   every fixture, or a payee that was invisible for a second reason. **A test that passes because
-  the case never varies is not covering the line.**
+  the case never varies is not covering the line.** Measured again on 2026-09-28, in tests written
+  the same hour as the rule they covered: a test named *"refuses an agent whose act is on ANOTHER
+  event"* never put the act on that event, because the seed helper seeds the host alone — it would
+  have passed over the exact defect it was written for, and only the surviving mutation said so.
+- **A HARNESS THAT CANNOT MEASURE MUST FAIL LOUDLY, because absence otherwise becomes a verdict.**
+  Two separate versions of this in one day, and both reported healthy code:
+  - the grep for vitest's summary line did not match the ANSI-coloured output, so the result
+    variable was **empty**, an empty string does not match `*failed*`, and four mutations were
+    declared **survivors** off a run nobody had read;
+  - `Tests 58 skipped (58)` — the suite never executed at all (Testcontainers losing a port bind
+    under load) — was likewise not "failed", so three more mutations were called survivors.
+  This is the `tail -3` lesson one layer down: the reporting decided the answer, not the test.
+  **Assert that a run actually ran** — a summary line exists, and something in it passed — and
+  error out when it did not. Also anchor the mutation on a WHOLE line: a bash here-string (`<<<`)
+  appends a newline, so a part-line anchor silently matches nothing.
 
 And the inverse of green-is-not-correct: **a test can pin a belief, and then the defect it hides is
 invisible.** `authorize.test.ts` asserted a co-host gets no deal-scoped confirm *"because operators
