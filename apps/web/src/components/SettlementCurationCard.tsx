@@ -58,8 +58,20 @@ export function SettlementCurationCard({ eventId }: { eventId: string }) {
         </div>
         {/* SMALL OUTLINE CHIPS beside the title, as the design draws them. Filled
             buttons on their own row read as the card's primary action, which they
-            are not — they choose whose view you are editing. */}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flexShrink: 0 }}>
+            are not — they choose whose view you are editing.
+
+            `flexShrink: 0` used to be here and was a 79px page overflow at 390px
+            (QA7-8). A flex item that refuses to shrink takes its MAX-content width —
+            four nowrap buttons, 426px — and keeps it even after the outer row has
+            wrapped it onto a line of its own, so the `flexWrap` on this very element
+            never got a chance to act: the box was never narrowed. Shrinking restored,
+            and `minWidth: 0` removes the min-content floor underneath it — the same
+            fix, for the same reason, as the `minmax(0, Nfr)` note in
+            `InvoiceLedgerTable`. Remove the floor; do not buy pixels.
+
+            The chips still sit beside the title on a wide screen: what puts them
+            there is the title's own `flex: 1 1 280px` basis, not this. */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", minWidth: 0 }}>
           {curation.parties.map((party) => {
             const active = party.participantId === curation.selected?.participantId;
             return (

@@ -38,9 +38,33 @@ export function invoiceStateLabel(state: string): string {
   return state.replace(/_/g, " ").replace(/^\w/, (character) => character.toUpperCase());
 }
 
-/** An invoice is "overdue" when it's unpaid and its due date has passed. */
+/**
+ * WHETHER THIS INVOICE IS MONEY THAT IS STILL MOVING (QA7-13).
+ *
+ * A `draft` is not. The ledger's tiles counted one, so a bill nobody had issued was
+ * totalled under *"Bills you owe"* and an invoice nobody had sent under *"Invoices
+ * you've issued"* — each tile's own subtitle stating the rule its total broke, with
+ * the row beside it still badged **Draft** and offering an **Issue** button.
+ *
+ * It is a DENY-list, not an allow-list of `sent | overdue`, and that is deliberate:
+ * a state this app has not met yet should land in the total rather than vanish from
+ * it. Money missing from a sum is a worse failure than money shown a state early,
+ * because nothing on the screen reveals it.
+ */
+export function countsAsMoneyOwed(invoice: Pick<InvoiceRecord, "state">): boolean {
+  // `draft` has not been issued, `paid` has landed, `void` was called off.
+  return invoice.state !== "draft" && invoice.state !== "paid" && invoice.state !== "void";
+}
+
+/**
+ * An invoice is "overdue" when money is still moving on it and its due date passed.
+ *
+ * This used to exclude only `paid` and `void`, so a DRAFT whose date had slipped was
+ * counted as overdue — the same defect as QA7-13 one function over, and invisible in
+ * the sweep only because the drafts it typed had no due date yet.
+ */
 export function isInvoiceOverdue(invoice: Pick<InvoiceRecord, "state" | "dueDate">): boolean {
-  if (invoice.state === "paid" || invoice.state === "void") return false;
+  if (!countsAsMoneyOwed(invoice)) return false;
   if (!invoice.dueDate) return false;
   const due = new Date(invoice.dueDate).getTime();
   return Number.isFinite(due) && due < Date.now();

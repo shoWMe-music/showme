@@ -44,6 +44,15 @@ import ledgerTable from "./ledgerTable.module.css";
  * `white-space: nowrap` (`Badge.module.css`): a track narrower than the badge
  * does not reflow it, it pushes it back out of the card.
  */
+/**
+ * The counterparty column is headed by WHO THAT PARTY IS on this side of the ledger
+ * (QA7-14). The Sent tab used to say VENDOR over the customers who had been billed —
+ * the same field the New invoice dialog correctly labels BILL TO on its Issued tab.
+ */
+function counterpartyHeader(direction: InvoiceDirection): string {
+  return direction === "issued" ? "Bill to" : "Vendor";
+}
+
 const HEADER_CELLS: { label: string; align?: "right" }[] = [
   { label: "Vendor" },
   { label: "Event / Reference" },
@@ -54,8 +63,12 @@ const HEADER_CELLS: { label: string; align?: "right" }[] = [
   { label: "", align: "right" },
 ];
 
+export type InvoiceDirection = "issued" | "received";
+
 export interface InvoiceLedgerTableProps {
   rows: InvoiceRecord[];
+  /** Which side of the ledger is on screen — it names the counterparty column. */
+  direction: InvoiceDirection;
   onOpenInvoice: (invoiceId: string) => void;
   onIssueInvoice: (invoiceId: string) => void;
   /** Disables the Issue button while its request is in flight. */
@@ -64,6 +77,7 @@ export interface InvoiceLedgerTableProps {
 
 export function InvoiceLedgerTable({
   rows,
+  direction,
   onOpenInvoice,
   onIssueInvoice,
   isIssuing,
@@ -96,7 +110,7 @@ export function InvoiceLedgerTable({
             key={cell.label || `actions-${index}`}
             style={cell.align === "right" ? { textAlign: "right" } : undefined}
           >
-            {cell.label}
+            {index === 0 ? counterpartyHeader(direction) : cell.label}
           </span>
         ))}
       </div>
@@ -119,7 +133,9 @@ function InvoiceLedgerRow({
   onOpenInvoice,
   onIssueInvoice,
   isIssuing,
-}: { invoice: InvoiceRecord } & Omit<InvoiceLedgerTableProps, "rows">) {
+}: { invoice: InvoiceRecord } & Omit<InvoiceLedgerTableProps, "rows" | "direction">) {
+  // `direction` is the HEADER's business, not the row's: a row names its
+  // counterparty from the invoice's own `direction` (`invoiceCounterparty`).
   const reference = invoiceReference(invoice);
   const label = invoiceLineItemLabel(invoice);
   const overdue = isInvoiceOverdue(invoice);

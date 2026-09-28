@@ -203,3 +203,132 @@ reversing a fixture guesses at the original; re-seeding does not.
 biome **735** clean · `tsc` clean · web **443** (up from 435: 5 for `absoluteMinor`, 3 for
 `ownFigureLabel`). API and e2e unrun in this part — both are due in the single pass with the stack
 down, and nothing here touches the API.
+
+---
+
+## Run 7's minors, cluster A — the four cheapest
+
+Planned together because they are four small truths on two screens, and three of them share a file.
+
+### QA7-13 + QA7-19 + QA7-14 — the Bills & Invoices ledger
+
+**Which files settle them:** `apps/web/src/components/invoiceDocument.ts` (the pure rules),
+`apps/web/src/routes/Invoices.tsx` (the tiles), `apps/web/src/components/InvoiceLedgerTable.tsx`
+(one header).
+
+**QA7-13 — verdict: real, and worse than filed.** A `draft` bill was counted in OUTSTANDING
+(PAYABLE) *"Bills you owe"* and a `draft` invoice in RECEIVABLE (SENT) *"Invoices you've issued"*,
+beside a Status of **Draft** and an **Issue** button. The tile subtitles state the rule the totals
+break. The sweep noted OVERDUE got it right — it did not: `isInvoiceOverdue` excludes only `paid` and
+`void`, so **a draft with a past due date is counted as overdue too**. The sweep's drafts simply had no
+due date yet, which is why the third tile looked innocent. One rule, three call sites.
+
+*Scope:* `countsAsMoneyOwed(invoice)` — of the five states (`draft`, `sent`, `paid`, `overdue`,
+`void`), money is still moving on `sent` and `overdue` only. The three tiles consult it; the rows
+themselves are untouched, since a draft still belongs in the ledger it was typed into.
+
+*The decision it hides:* none. Both tiles carry their own subtitle, and each states the rule.
+
+**QA7-19 — verdict: real, and a half-fixed defect rather than a new one.** A performer's tiles read a
+bare `0`. The currency is taken from the ledger's own rows, and an empty ledger has none — which was a
+deliberate fix (run 3: the fallback was `EUR`, so an all-SEK performer read `€0`, and "a number under
+the wrong symbol is worse than a number under none"). Correct, and it stopped one step short: a
+profile's currency is knowable without any invoices at all. `decisions.md` **#17** — currency is a
+per-country fact — and `currencyForCountry` already returns `null` rather than guessing.
+
+*Scope:* the tiles fall back to the profile's own country currency, through the `useGetApiV1Profiles`
+hook the New Event wizard already uses for exactly this. `currencyForCountry`, **not**
+`defaultCurrencyForCountry`: the latter falls back to EUR, which would re-introduce the run-3 defect.
+No country, no currency, and the bare figure stands — which is then the truthful answer.
+
+**QA7-14 — verdict: real, one word.** The Sent tab's first column is headed **VENDOR** over the
+customers who were billed. The table renders one header list for both directions; the New invoice
+dialog already gets it right (**BILL TO** / **FROM**).
+
+*Scope:* the table learns which direction it is showing and heads that column **Bill to** on the
+issued side. **Deliberately not extracted into a pure rule with a test** — it is one ternary with one
+call site, and CLAUDE.md's own bar says a helper with one call site is worse than the lines it
+replaced. The DOM reading is the evidence.
+
+### QA7-8 — the settlement's party chooser overflows at 390px
+
+**Which file settles it:** `apps/web/src/components/SettlementCurationCard.tsx:62`.
+
+**Verdict: real, and the cause is not the missing wrap the finding assumed.** The chooser row already
+has `flexWrap: "wrap"`. It also has **`flexShrink: 0`**, which is the whole defect: a flex item that
+refuses to shrink takes its max-content width — all four buttons on one line, 426px — and keeps it
+even once the outer row has wrapped it onto a line of its own. `flex-wrap` on the inside never gets a
+chance, because the box is never narrowed.
+
+*Scope:* that one item. It regains the default shrink and loses its min-content floor (`minWidth: 0`),
+which is the same fix and the same reason as the `minmax(0, Nfr)` note 30 lines above it in
+`InvoiceLedgerTable` — remove the floor, do not buy pixels. The chips still sit beside the title on a
+wide screen, because the title's `flex: 1 1 280px` basis is what puts them there.
+
+*The decision it hides:* none. `docs/decisions.md` has no rule about breakpoints; CLAUDE.md's
+"Green is not the same as correct" section already records that `scrollWidth <= clientWidth` is the
+measure, and a 79px page overflow fails it.
+
+### Built, and proven on the running stack
+
+**QA7-13.** `countsAsMoneyOwed` — a deny-list of `draft | paid | void`. The three tiles consult it;
+`isInvoiceOverdue` now opens with it, which is what closes the second half. **12 tests** (a new
+`invoiceDocument.test.ts` — the file had none), **four mutations all red**: a draft is money after all
+· only sent counts · paid still counts · overdue drops the state guard. Every date fixture is
+relative to `now`, because a fixture pinned to a calendar date inside a now-relative window is a
+scheduled failure and this repo has already had one go red at midnight.
+
+Proven with a draft bill of SEK 1,234 dated **20 days in the past** — the shape that exercises both
+halves at once — and a draft invoice of SEK 5,000, both created as `operator@`:
+
+| tile | with the drafts, before | with the drafts, now | the ledger's non-draft rows |
+|---|---|---|---|
+| OUTSTANDING (PAYABLE) | SEK 10,234 | **SEK 9,000** | one `overdue` received bill, 900,000 |
+| OVERDUE | SEK 10,234 | **SEK 9,000** | the same bill, due 12 Jun |
+| RECEIVABLE (SENT) | SEK 55,000 | **SEK 50,000** | one `sent` invoice, 5,000,000 |
+
+Both drafts are still listed in the table, badged **Draft** with **Issue** beside them — the fix
+removes them from the totals, not from the ledger they were typed into.
+
+**QA7-19.** Proven as `performer.a@`: **SEK 0 · SEK 0 · SEK 0** where all three read a bare `0`.
+
+Worth recording, because the first attempt did not work and the reason is the interesting part: the
+seeded performer's profile has **no location at all**, so `currencyForCountry` returned null and the
+tiles stayed bare. The currency that fixes it is the one on `GET /me` — the account's own chosen
+currency (`SEK`), which the New invoice dialog *in this same file* already treats as authoritative for
+exactly this purpose. So the fallback chain is ledger → profile country → account currency → nothing,
+and the whole chain is **gated on `invoices.length === 0`**. That gate is the safety argument: on an
+empty ledger every figure is exactly zero, so naming it in the reader's own currency is cosmetic by
+construction. One row, and the rows decide again — because labelling real money with a preference is
+the run-3 defect in the other direction.
+
+**QA7-14.** Proven on both tabs: **BILL TO** now heads the Sent tab's first column, over *QA7-13
+Draft Customer*, *Astra Booking Agency (for Marlo Vance)* and *Söder Live*; the Received tab still
+reads **VENDOR**, over the vendors. The row component's props were narrowed to exclude `direction` —
+a row names its counterparty from the invoice's own field, so the header's business is not the row's.
+
+**QA7-8.** The sweep's own probe — an iframe at 390px — on the Album Release's settlement workspace,
+which carries the same four chooser parties the finding reported (Marlo Vance, Neon Tide, Priya Sound,
+Astra Booking Agency):
+
+| measure | before | now |
+|---|---|---|
+| page `scrollWidth` vs `clientWidth` | 465 vs 386 — **79px of page overflow** | **380 vs 380** |
+| the chooser row | one line, 426px wide | **two lines**, right edge 341 inside 390 |
+| computed `flex-shrink` / `min-width` | `0` / `auto` | **`1` / `0px`** |
+| what one line would need | — | 432px, against a 390px viewport |
+
+And the design intent, measured at 1280px rather than assumed: the chips sit **on one line, to the
+right of the title, on the same top edge** (628 for both), with no overflow. The elements still
+reaching past the viewport at 390px are the tab strip and the status rail, each inside its own
+scroller — which the sweep itself called deliberate.
+
+### One alarm that was wrong, and why it is worth writing down
+
+Re-seeding left a settlement row on the Album Release with a **NULL `participant_id`**, which reads as
+a row no reader can ever be scoped to — against PLAN.md's *"one settlement per participant"*. It is
+not a defect: `packages/db/src/schema/settlement.ts:192` carries
+`CHECK (num_nonnulls(participant_id, representation_id) = 1)`, so a settlement is scoped to a
+participant **or** a representation, and this row is the seed's `albumRepresentation` — an agent's
+private commission, correctly invisible to the operator. The schema answered it in one line. Checking
+the constraint before filing cost a minute; filing it would have cost a reader an hour.

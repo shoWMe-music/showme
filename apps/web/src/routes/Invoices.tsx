@@ -1,6 +1,7 @@
 import {
   type getApiV1ProfilesIdInvoices,
   useGetApiV1Me,
+  useGetApiV1Profiles,
   useGetApiV1ProfilesIdInvoices,
   usePostApiV1Invoices,
   usePostApiV1InvoicesIidIssue,
@@ -14,13 +15,18 @@ import {
   TextField,
   useToast,
 } from "@showme/design-system";
+import { currencyForCountry } from "@showme/shared";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { KpiRow, SegmentedToggle } from "../components";
 import { DateTimeField } from "../components/DateTimeField";
 import { InvoiceDetailModal } from "../components/InvoiceDetailModal";
 import { InvoiceLedgerTable } from "../components/InvoiceLedgerTable";
-import { invoiceAmountDraft, isInvoiceOverdue } from "../components/invoiceDocument";
+import {
+  countsAsMoneyOwed,
+  invoiceAmountDraft,
+  isInvoiceOverdue,
+} from "../components/invoiceDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import { errorMessage } from "../lib/errors";
 import { formatAmount, formatMoney } from "../lib/format";
@@ -47,6 +53,16 @@ export function Invoices() {
   const { data, isPending, isError, error, refetch } = useGetApiV1ProfilesIdInvoices(profileId, {
     query: { enabled: Boolean(profileId) },
   });
+  /**
+   * Two sources for the currency behind an EMPTY ledger's zeros — see `money` below.
+   * The profile's own country is the authoritative one (`decisions.md` #17); the
+   * account's chosen currency is the reader's own stated preference, and the New
+   * invoice dialog in this same file already treats it as exactly that.
+   */
+  const profilesQuery = useGetApiV1Profiles();
+  const homeCountry =
+    profilesQuery.data?.find((profile) => profile.id === profileId)?.location?.country ?? null;
+  const accountCurrency = useGetApiV1Me().data?.currency ?? null;
 
   // `GET /profiles/:id/invoices` returns the profile's whole ledger — no cursor,
   // no query parameters — so the tabs and the KPIs below are over all of it.
@@ -78,16 +94,40 @@ export function Invoices() {
       const amount = Number(invoice.total ?? 0);
       if (!Number.isFinite(amount)) continue;
       if (invoice.currency) currency = invoice.currency;
-      const open = invoice.state !== "paid" && invoice.state !== "void";
-      if (open && invoice.direction === "received") payable += amount;
-      if (open && invoice.direction === "issued") receivable += amount;
+      // A draft is in neither total: see `countsAsMoneyOwed` (QA7-13). The row still
+      // shows in the table below — it is money that has not started moving, not money
+      // that does not exist.
+      const moving = countsAsMoneyOwed(invoice);
+      if (moving && invoice.direction === "received") payable += amount;
+      if (moving && invoice.direction === "issued") receivable += amount;
       if (isInvoiceOverdue(invoice)) overdue += amount;
     }
     return { payable, overdue, receivable, currency };
   }, [invoices]);
-  /** The ledger's own currency where it has one, and an unadorned figure otherwise. */
-  const money = (amount: number) =>
-    kpis.currency ? formatMoney(amount, kpis.currency) : formatAmount(amount);
+  /**
+   * THE LEDGER'S OWN CURRENCY — AND ONLY ON AN EMPTY LEDGER, THE READER'S (QA7-19).
+   *
+   * A performer with no invoices read a bare `0` in all three tiles: the only number
+   * a new account ever sees on this screen, and the one without units. The currency
+   * came from the rows, and there were none.
+   *
+   * The fallbacks are gated on `invoices.length === 0`, and the gate is the whole
+   * safety argument. On an empty ledger every figure here is exactly zero, so naming
+   * it in the reader's own currency is cosmetic by construction. The moment a single
+   * row exists, the rows decide — a ledger whose invoices carry no currency keeps the
+   * unadorned figure, because those totals are real money and labelling real money
+   * with a preference is the run-3 defect (an all-SEK performer reading `€0`) in the
+   * other direction.
+   *
+   * `currencyForCountry`, NOT `defaultCurrencyForCountry`: the latter falls back to
+   * EUR, which is the guess that produced that defect. Nothing known, no symbol.
+   */
+  const money = (amount: number) => {
+    const reader =
+      invoices.length === 0 ? (currencyForCountry(homeCountry) ?? accountCurrency) : null;
+    const denomination = kpis.currency ?? reader;
+    return denomination ? formatMoney(amount, denomination) : formatAmount(amount);
+  };
 
   return (
     <>
@@ -182,6 +222,8 @@ export function Invoices() {
           ) : (
             <LedgerTable
               rows={visible}
+              // "recurring" renders its own empty state above and never reaches here.
+              direction={TAB_DIRECTION[tab as Exclude<Tab, "recurring">]}
               onOpenInvoice={setOpenInvoiceId}
               onIssued={() => void refetch()}
             />
@@ -209,9 +251,15 @@ export function Invoices() {
  * itself is presentational. */
 function LedgerTable({
   rows,
+  direction,
   onOpenInvoice,
   onIssued,
-}: { rows: Invoice[]; onOpenInvoice: (invoiceId: string) => void; onIssued: () => void }) {
+}: {
+  rows: Invoice[];
+  direction: Direction;
+  onOpenInvoice: (invoiceId: string) => void;
+  onIssued: () => void;
+}) {
   const toast = useToast();
   const issue = usePostApiV1InvoicesIidIssue({
     mutation: {
@@ -226,6 +274,7 @@ function LedgerTable({
   return (
     <InvoiceLedgerTable
       rows={rows}
+      direction={direction}
       onOpenInvoice={onOpenInvoice}
       onIssueInvoice={(invoiceId) => issue.mutate({ iid: invoiceId })}
       isIssuing={issue.isPending}
