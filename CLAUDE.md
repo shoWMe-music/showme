@@ -3,8 +3,17 @@
 Live-events **booking + settlement** SaaS. This repo is a **from-scratch rebuild** of the prior Firebase/Firestore
 app, built as a **monorepo**. **Status:** scaffolded and substantially built, with the API and web app deployed.
 
-**START HERE: [docs/handoff-2026-09-21-sse-costs-and-settlement.md](./docs/handoff-2026-09-21-sse-costs-and-settlement.md)** —
-the most recent state. Realtime (SSE) is LIVE for the first time and the app is served from
+**START HERE: [docs/handoff-2026-09-28-urgent-board.md](./docs/handoff-2026-09-28-urgent-board.md)** —
+the most recent state (2026-09-27 → 28). 86 commits working the urgent board through
+`docs/clickup-urgent-audit-2026-09-27.md`, four QA sweeps folded back in, and **seven open
+decisions in `decisions.md` §25.6 that only Ran or Daniel can make** — the seventh deliberately
+without a recommendation. Nothing deployed; nothing written to ClickUp. It also carries the
+lessons this file does not yet: two ways a *mutation* check lies, a test that pinned a false
+belief and hid a major, and a fixture whose absolute date made it fail at midnight.
+
+**Then: [docs/handoff-2026-09-21-sse-costs-and-settlement.md](./docs/handoff-2026-09-21-sse-costs-and-settlement.md)** —
+the state of the DEPLOYED app, which the urgent-board stretch above did not change (it deployed
+nothing). Realtime (SSE) is LIVE for the first time and the app is served from
 `api.showme.music`; `main` is clean and fully deployed. It carries the one thing to pick up
 first (**Ran's 2026-09-21 spec: the budget fee must appear from the DRAFT deal, before
 confirmation — not built**), a correction to this file's own advice about the load balancer,
@@ -91,6 +100,30 @@ product rule isn't written down, **infer it from story.md's purpose/boundary**, 
 - **Currency:** payout currency per deal (authoritative, **locked FX** at finalize) vs. display currency per user (live FX, cosmetic — never touches settled amounts).
 - **Authorization:** ReBAC via joins; `permission_sets.capabilities[]` × profile role; **entitlements** (plan limits) are a separate fresh-read layer.
 - **AI / assistant layer** (2026-07-24, `docs/decisions.md` #16.14–16.15): a Gemini in-app **assistant** + **agent-native** (bring-your-own-AI) surface, both built on the **`authorize(capability)` catalog exposed as tools** — build manual routes tool-shaped so it's a thin add-on. **Naming: `agent` = the booking-agent account kind ONLY; the AI is `assistant`/`ai`.** Platform is **territory-scoped** (`docs/decisions.md` #17): the boundary is **derived from location** — `country` stamp (tax/PRO/currency) + a configurable **`market`** grouping of countries — enforced softly in `authorize()`; re-drawable country→region→city without migration.
+
+## A mutation check can lie, and a test can pin a false belief
+Mutation testing is the standard here for *"can this test fail on this line"*, and it mis-answered
+twice on 2026-09-28 (`docs/handoff-2026-09-28-urgent-board.md` has the detail):
+- **A first-match replace can mutate the wrong occurrence.** Deleting a filter reported green
+  twice; the same string sat twenty lines earlier in a sibling function, and that is where the edit
+  landed. **Anchor the replacement on surrounding lines and assert the match count is 1.**
+- **A mutation survives when every test happens to satisfy the clause another way.** Twelve
+  survivors in one stretch, each a filter that looked covered — one venue, one room, one date in
+  every fixture, or a payee that was invisible for a second reason. **A test that passes because
+  the case never varies is not covering the line.**
+
+And the inverse of green-is-not-correct: **a test can pin a belief, and then the defect it hides is
+invisible.** `authorize.test.ts` asserted a co-host gets no deal-scoped confirm *"because operators
+already carry `agreement.confirm` from floor/preset"*. They never have — and that sentence hid an
+unsignable agreement that froze a whole event's settlement for as long as it existed. When an
+assertion carries a *reason*, the reason is a claim about the code and needs checking too.
+
+## A fixture pinned to an absolute date inside a window measured from `now` is a scheduled failure
+`integrations.test.ts` went red at midnight on 2026-09-28 with no code change: the calendar sync
+window is `now − 30 days … now + 400 days` and the fixture's third event was dated **2026-08-28** —
+exactly 30 days behind the previous day and 31 behind that one. It had been one day from failing
+for weeks and nothing could have said so. Dates in a fixture that a window filters must be
+RELATIVE; keep absolute ones only where the date itself is the assertion (a DST boundary, say).
 
 ## Verifying a test run — a pipe hides the answer
 `pnpm vitest run | tail -3` reports **exit code 0 on a failing suite**, because a pipeline's status is the

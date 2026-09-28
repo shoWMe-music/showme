@@ -1,5 +1,10 @@
 # Handoff — the urgent board, worked through (2026-09-27)
 
+> **SUPERSEDED by `docs/handoff-2026-09-28-urgent-board.md`.** That file is the state at the end
+> of the stretch; this one is the snapshot taken at midnight and is behind by five clusters of
+> work. Kept for the day's narrative — the sweep findings, the decisions and the lessons it
+> records are all still accurate about what happened. Do not scope from its "what is open" list.
+
 **A snapshot of this evening, not a statement about any later day.** This repo has lost a
 full session to trusting a stale handoff (`CLAUDE.md` names the incident), so: everything
 below was true at the last commit listed, and anything you are about to scope from it should
