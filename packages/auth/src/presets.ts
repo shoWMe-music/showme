@@ -266,6 +266,21 @@ const OPERATOR_FLOOR: readonly Capability[] = [
   "schedule.view",
   "deal.view.own",
   "settlement.view.own",
+  /*
+   * TALKING IS NOT AUTHORITY (QA sweep run 9, QA9-2).
+   *
+   * `message.post` lived in three PRESETS and in no floor, so three classes of user were
+   * silently mute — 403 "Missing capability: message.post", with no composer and no sentence
+   * saying why. A represented act (their band does not apply at all: `authorize.ts`,
+   * `if (delegated) continue`), every crew member (no crew preset carries it), and anyone the
+   * app itself invites (Invite Collaborator renders no ACCESS control for a performer and the
+   * accept path copies a null permission set, so they land on the bare floor).
+   *
+   * It is safe on a floor because the capability does not choose a ROOM: `resolvePostTarget`
+   * gates the operators-only thread on `isManagingOperator` and a party thread on readability,
+   * both independently. This grants only "you may speak where you can already read".
+   */
+  "message.post",
 ];
 
 /** A performer's inviolable floor — own slice + confirms; the operator cannot revoke it. */
@@ -281,14 +296,25 @@ const PERFORMER_FLOOR: readonly Capability[] = [
   // Bring their own (sub-hire) crew — sponsored by the performer, scoped to the
   // performer's own reach (decisions #12; story.md sub-hire). Operator never sees it.
   "crew.submit",
+  // See `OPERATOR_FLOOR` (QA9-2): an act invited through the app arrives with no
+  // permission set, and without this cannot answer a question about their own show.
+  "message.post",
 ];
 
-/** A crew member's inviolable floor. */
+/**
+ * A crew member's inviolable floor.
+ *
+ * `message.post` is here because `story.md`'s crew boundary is about the BUDGET — *"they see
+ * the schedule and their own deal, never the budget"* — and never about talking to the
+ * operator about load-in. No crew preset carried it either, so crew were mute on every event
+ * (QA9-2).
+ */
 const CREW_FLOOR: readonly Capability[] = [
   "event.view",
   "schedule.view",
   "deal.view.own",
   "settlement.view.own",
+  "message.post",
 ];
 
 /** A crew LEAD also brings their own team — sponsored by the lead (decisions #12). */
@@ -320,6 +346,11 @@ const DELEGATED_PERFORMER_FLOOR: readonly Capability[] = [
   // show. That is what "riders cannot upload" looked like for every act with an
   // agent — a 403 on attach, from the party whose rider it is.
   "rider.submit",
+  // AND TALKING, for the same reason one paragraph up and one the docstring above already
+  // states: what a performer hands an agent is BUSINESS authority, never their voice.
+  // `if (delegated) continue` in `authorize.ts` means this list IS their whole effective
+  // set, so its omission made every represented act mute (QA9-2).
+  "message.post",
 ];
 
 /**

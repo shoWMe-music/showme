@@ -72,3 +72,80 @@ filter dropped, and inverted to private-only.
 The line refused a `collectedBy`-less revenue line on the way in, which is worth noting as the
 system working: *"Revenue nobody collected raises the pool while nobody holds it, and the settlement
 can never balance."*
+
+---
+
+## QA9-2 — three classes of user are silently mute
+
+**Which file settles it:** `packages/auth/src/presets.ts` — four floors.
+
+**Verdict: real, and an omission rather than a rule.** `message.post` lives in three PRESETS
+(`operator_full`, `performer`, `agent`) and in **no floor**. Three consequences, each with its own
+cause:
+
+1. **A represented act.** `authorize.ts:150` is explicit — `if (delegated) continue; // no band for a
+   delegated performer` — so a delegated performer's effective set is **exactly**
+   `DELEGATED_PERFORMER_FLOOR`, and their preset is not consulted at all. That is the sweep's airtight
+   contrast: `performer.a@` 403 and `performer.b@` 201 on the same event in the same role, the only
+   difference being representation.
+2. **Every crew member, always.** No crew preset carries `message.post` either, so `CREW_FLOOR` being
+   thin is the whole story. `story.md`'s crew boundary is about the **budget** (*"they see the
+   schedule and their own deal, never the budget"*), not about telling the operator when the truck
+   arrives.
+3. **Anyone the app itself onboards.** Invite Collaborator does not render an ACCESS control for a
+   `Performer` role — *"Only a co-operator can be granted more than their role's own access"* — and
+   the accept path copies a null `permissionSetId`. So on every event the app creates, the act lands
+   on the bare floor and cannot speak. Messaging works on the seeded events only because the **seed**
+   attaches a set.
+
+**The rule the floors already state settles it.** `DELEGATED_PERFORMER_FLOOR`'s own docstring: *"they
+keep their VIEW floor plus artistic authorship — the BUSINESS action capabilities (confirm/approve)
+move to the agent. **Delegation, not revocation**."* Posting a message is neither business authority
+nor artistic content, so by that rule it never should have moved. For crew and for a default invite
+there is no delegation at all, so nothing explains it.
+
+**And the capability cannot open a door it should not — verified, not assumed.**
+`resolvePostTarget` gates the operators-only thread on `access.isManagingOperator` (*"Posting into a
+room you cannot read is not a feature"*) and a party thread on `readableThreadParticipantIds`, both
+independent of `message.post`. So the capability means only *"you may speak where you can already
+read"*, which is why adding it to a floor is safe.
+
+**Scope:** `message.post` joins `PERFORMER_FLOOR`, `DELEGATED_PERFORMER_FLOOR`, `CREW_FLOOR` (and so
+`CREW_LEAD_FLOOR`, which spreads it) and `OPERATOR_FLOOR` — the last because a **co-host** invited at
+default access is mute for the same reason. The `agent` floor stays `["event.view"]`: an agent
+participation is the projection of a representation and always arrives with the agent preset
+attached, which carries `message.post` already.
+
+*The decision it hides:* whether muteness was ever intended. Nothing says so — not `story.md`, not
+`decisions.md` #4, and not the floors' own docstrings, which argue the opposite. Taken as an
+omission, and recorded here so overruling it is a change to four named lines.
+
+### Built, and proven on the running stack
+
+`message.post` on four floors. Proven with the sweep's own contrast, after an API restart:
+
+| | before | after |
+|---|---|---|
+| `performer.a@` (represented) posts to their party thread | **403** *Missing capability: message.post* | **201** |
+| `professional@` (crew) posts to theirs | **403** | **201** |
+| `performer.a@` in the browser, `?tab=messages` | no input, no Send, no sentence | **`Message Everyone…`** and a **Send** |
+
+**And the boundary it must not cross, checked rather than assumed:**
+
+| | result |
+|---|---|
+| `performer.a@` → the **operators-only** thread | **403** *Missing capability: budget.view* |
+| `professional@` → the **operators-only** thread | **403** *Missing capability: budget.view* |
+| `performer.a@` → **another act's** party thread | **404** *Thread not found* |
+
+Which is exactly what `resolvePostTarget` promised: the capability grants a voice, never a room.
+
+**Four tests and five mutations red** — the delegated act loses its voice · crew lose theirs · the
+operator floor loses it · the agent floor is widened · confirms come back to a delegated act. The
+last two are the guard rails: the agent floor must stay a projection, and the delegated act must gain
+a voice **without** gaining business authority, which is the boundary its own docstring draws.
+
+*The second half of the finding needs no build.* The sweep's alternative was to render the refusal
+where `canPost` is false; with `message.post` on every participant floor there is no participant for
+whom it is false, so the sentence would be unreachable copy. `canPost` stays on the wire and the UI
+still reads it, which is what makes a future custom permission set legible rather than silent.

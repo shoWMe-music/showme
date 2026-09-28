@@ -858,3 +858,47 @@ describe("delegation is resolved against the representation, not the stale flag 
     expect(agentCaps.size).toBe(0);
   });
 });
+
+/**
+ * TALKING IS NOT AUTHORITY (QA sweep run 9, QA9-2).
+ *
+ * `message.post` lived in three presets and in no floor, so three classes of user were
+ * silently mute: a represented act (whose band is not consulted at all —
+ * `if (delegated) continue` in `authorize.ts`, so the delegated floor IS their whole
+ * effective set), every crew member (no crew preset carries it either), and anyone the app
+ * itself invites, since Invite Collaborator renders no ACCESS control for a performer and the
+ * accept path copies a null permission set.
+ */
+describe("every participant may speak on their own event (QA9-2)", () => {
+  it("puts message.post on every role's floor", () => {
+    for (const role of ["host", "co_host", "performer", "support", "crew", "crew_lead"] as const) {
+      expect(baselineCapabilities(role)).toContain("message.post");
+    }
+  });
+
+  it("keeps it for a DELEGATED act, whose floor is their whole effective set", () => {
+    // The case the contrast proved: `performer.a@` 403 and `performer.b@` 201 on the same
+    // event in the same role, the difference being representation.
+    expect(baselineCapabilities("performer", true)).toContain("message.post");
+    expect(baselineCapabilities("support", true)).toContain("message.post");
+  });
+
+  it("still hands a delegated act no BUSINESS authority — delegation, not revocation", () => {
+    // The boundary the floor's own docstring draws, asserted beside the addition so the two
+    // cannot drift: voice and artistry stay, confirms move to the agent.
+    const delegated = baselineCapabilities("performer", true);
+    expect(delegated).toContain("setlist.author");
+    expect(delegated).toContain("rider.submit");
+    expect(delegated).not.toContain("agreement.confirm");
+    expect(delegated).not.toContain("settlement.confirm");
+  });
+
+  it("leaves the AGENT floor a projection and nothing more", () => {
+    /*
+     * An agent participation is the projection of a representation, never a standing of its
+     * own — and it always arrives with the agent preset attached, which carries
+     * `message.post` already. Widening this floor would be granting a standing.
+     */
+    expect(baselineCapabilities("agent")).toEqual(["event.view"]);
+  });
+});
