@@ -23,13 +23,20 @@ read** — the ClickUp MCP hit its 100-call daily limit; the ten are named at th
 > - **Items 1, 2 and 3 of the day's plan are built** (the venue+room request chain and the
 >   token share link; the outbound invite chain's missing rungs; the bonus ladder and its
 >   entry UI).
-> - **Two full QA sweeps ran against the app**, and every actionable major from the first
->   is fixed. Reports: `docs/qa-sweep-2026-09-27-run4.md` (and run 5).
+> - **Four full QA sweeps ran against the app** (runs 4, 5, 6 and 7), and every actionable
+>   finding from runs 4, 5 and 6 is fixed — four majors and eleven minors from run 6 alone,
+>   three of them defects in the loop's own work. Reports: `docs/qa-sweep-2026-09-27-run4.md`,
+>   `-run5.md`, `-run6.md`, `docs/qa-sweep-2026-09-28-run7.md`.
+> - **Seven decisions are waiting on Ran or Daniel**, in `decisions.md` §25.6. The seventh
+>   deliberately carries no recommendation.
 >
 > **The day's record, in order:** `docs/urgent-board-loop-2026-09-27.md` and its
-> `-part2` … `-part7` continuations. Each entry carries the verdict, the file that settled
-> the ticket, the decision it hid, and how it was proven. **The summary of where things
-> now stand is `docs/handoff-2026-09-27-urgent-board.md`.**
+> `-part2` … `-part8` continuations, then `docs/urgent-board-loop-2026-09-28-part9.md` and
+> `-part10.md` after midnight. **The state as left is
+> `docs/handoff-2026-09-28-urgent-board.md`** — start there rather than here.
+>
+> Each loop entry carries the verdict, the file that settled the ticket, the decision it hid,
+> and how it was proven.
 
 The headline, which is the same finding as 2026-09-04: **the board's count is not the
 work's size.** Of 36 urgent tickets assessed, **13 are already done or nearly**, four

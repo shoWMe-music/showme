@@ -566,3 +566,59 @@ edit does nothing until `pnpm --filter @showme/design-system build` runs, and th
 app keeps rendering the old value with no error anywhere. That cost a
 false-negative measurement in this session: the contrast fix read as "didn't
 work" when it had simply never been built.
+
+## 2026-09-28 — the urgent-board stretch: what was shared, and the one duplicate left standing
+
+Four QA sweeps drove 86 commits of urgent-board work. Most of it was single-caller fixes with
+nothing to share, but three things were pulled together and one was deliberately not.
+
+### Shared, because there were three or more real callers
+
+- **`socialPlatformLabel` / `socialPlatformSlug` / `SOCIAL_PLATFORMS` → `@showme/shared`**
+  (`venue.ts`, beside `amenityLabel`, `dealTypeLabel` and `profileTypeLabel`, which is the pattern
+  this repo already uses three times for this exact shape). Three readers, three different ideas:
+  `ProfileLinkListField` offered the LABEL as the stored value while the database holds a slug, and
+  `ProfilePublicPreview` and `apps/marketing/src/profile.ts` printed the stored string verbatim — so
+  the same row read *"Choose…"* in the editor and lower-case `spotify` on the public page (QA6-18).
+- **`isEventQueryKey` → `apps/web/src/hooks/realtimeInvalidation.ts`.** `useRealtimeStream` listed
+  seven query keys by hand where the generated client exposes twenty-four for an event. A predicate
+  over the event's path replaced the list, which is what the hook's own comment already argued for
+  (QA6-3). Not reuse so much as **deleting a list that could be forgotten** — the better kind.
+- **`entitlementGapSentence` → `settlementDocument.ts`.** One sentence that had been wrong twice by
+  asserting a cause the same screen's data contradicted (QA5-1, then QA6-4). It has one caller and
+  is still worth its own file: the value of moving it is that it is now testable per branch, which
+  is the only thing that stops it being re-broken.
+
+### `hint` on `TextField` — a shared prop with ONE caller, on purpose
+
+`TagInput` already had a `hint` prop with the same 12px `--dim` note; `TextField` did not, so the
+invoice form's refusal (*"XYZ isn't a currency we know."*) had nowhere to go. The rule here is
+three-or-more callers, and this has one — the exception is that the alternative was a hand-rolled
+muted span in one screen, and **two sibling text atoms disagreeing about how a field explains
+itself is the divergence the gate exists to stop.** It is also wired to `aria-describedby`, which a
+local span would not have been.
+
+### Left alone: three identical participant fetches per settlement load (QA6-20)
+
+One load of `/events/$id/settlement` issues `GET /events/:id/participants` **three** times and
+`GET /events/:id/settlement/lines` twice — three hooks each asking the same question, all 200 and
+all cached afterwards. **Not fixed, and here is the reasoning:**
+
+- The three callers are `useEventSettlement`, `useSettlementLines` and `useSettlementCuration`, each
+  of which legitimately needs the roster. Sharing it means either lifting the query to the route and
+  threading it through three hooks — which makes three dumb hooks into three hooks with a required
+  prop — or a fourth hook they all call, which is the right answer and is a refactor of this
+  screen's data layer rather than a fix.
+- TanStack already de-duplicates concurrent identical queries in most cases; these three slip
+  through because they mount in the same tick with different `enabled` gates. That is worth
+  understanding before moving anything, or the "fix" is a coincidence.
+
+**The trigger for doing it properly:** the next change that touches two of those three hooks
+anyway, or the first time this screen is measured as slow on Cloud Run. Until then it is three
+cached reads, and the shape of the fix is known.
+
+### Also worth knowing: a dead constant is easier to spot from a sweep than from the code
+
+`SEEDED_TICKET_SHARE` (0.8) had exactly one reader — a budget seed row that guessed a head count.
+When the guess went (QA6-11), the constant had no callers at all and went with it. Nothing in the
+codebase pointed at it; the sweep did, by measuring what the guess did on a second ledger.
