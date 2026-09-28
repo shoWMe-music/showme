@@ -220,3 +220,105 @@ Recorded here so the next pass does not re-derive it.
 and a room/venue on every `booking_requests` row), and the parked per-user display currency and date
 format. Both are records of unbuilt decisions rather than defects, and neither is this loop's to
 invent.
+
+---
+
+# Built (while the sweep ran)
+
+Three of the plans above landed. All three are API-or-pure, which is what made them safe
+to build under a running sweep: **the dev stack does not reload the API** (CLAUDE.md), so
+editing `apps/api` is invisible to the app the sweep is driving, and a pure function in
+`packages/shared` is proven by its own suite rather than by a browser. The four remaining
+items — QA7-24, 25, 26, 27 — are all web files on screens the sweep is walking, and they
+wait for it.
+
+## QA7-23 — done (`fdd607e`)
+
+Rounds half away from zero now, on magnitudes re-signed at the end so the half travels the
+same distance either side of nothing. Three tests, four mutations red — including
+**"ceiling instead of rounding"**, which is how this could have been fixed wrongly in the
+other direction, and one that drops the sign handling so a negative rounds toward zero.
+
+**Correction to the plan above.** It said the effect is "at most one minor unit on a
+displayed average, which is why this sat unnoticed — and is also why it is safe". The
+first half is right and the second was too quick: `averageTicketPrice` feeds
+`contributionPerHead` and `perHeadIncome`, so an average that truncated low pushed
+break-even a fraction of a ticket HIGH. Still small, still not cosmetic. The sweep filed
+it as "not load-bearing" and I repeated that before reading the call sites.
+
+## QA7-17 — done (`04aa38a`)
+
+**The check was already in the file.** A budget LINE's `costSplit` is the same map, keyed
+the same way, and has been validated since the audit on the reasoning that *"a foreign id
+there breaks the conservation law by the same arithmetic, so it gets the same check"*. The
+planner's copy of the map simply never reached that code. So the membership query is now
+shared by both doors rather than copied for the second, and the refusal reuses the sentence
+a line's `costSplit` already gets — one mistake, one vocabulary.
+
+Four tests, four mutations red, and two of them are worth their counts: dropping the event
+from the membership query fails **five** tests and stubbing the query's result fails
+**eight** — both callers. That is the evidence the shared query is load-bearing for the
+original caller too, not just mine.
+
+## QA7-7 — done (`bb00ec3`)
+
+Same shape as QA7-17, one module over: `assignAgentToEvent` has always refused an agent
+whose act is not on the bill, and the direct `POST /events/:id/participants` never went
+near it. `agentRepresentsSomeoneOnEvent` asks that question one row wider — any
+representation rather than one — in the module that owns it, and the write answers 400 with
+the fix in the message.
+
+**Two of my own tests were vacuous, and only mutation testing said so.**
+
+- *"refuses an agent whose act is on ANOTHER event"* never put the act on that event,
+  because `seedEventWithHost` seeds the host alone. Dropping the event from the join
+  therefore changed nothing: the test would have passed over the exact defect it was
+  written for.
+- Nothing exercised a **removed** participation, so that clause was unguarded.
+
+CLAUDE.md's *"a test that passes because the case never varies is not covering the line"*,
+met twice in one function, in tests written the same hour as the rule. Both fixtures now
+vary the case and both mutations die.
+
+**And a third way the mutation harness lied.** Three runs came back GREEN reporting
+`Tests 58 skipped (58)` — the suite never executed (Testcontainers losing a port bind
+under the sweep's load), and "skipped" is not "failed", so the harness called every one a
+survivor. Absence became a verdict for the second time today. It now errors when a run
+skips everything, and the same three mutations are red on a re-run.
+
+---
+
+## QA7-18 — not built, and the analysis is done so the next pass need not repeat it
+
+Deliberately left: it needs a cross-event authorization walk AND a browser proof of the
+dashboard row, and the second is impossible while a sweep drives the app. Committing the
+route alone would leave *a mechanism with no caller* — the shape this loop has now filed
+seven times.
+
+**The predicate, taken from `POST /deals/:did/confirm` rather than invented:** a line is
+awaiting the reader's signature when it is one of *their* lines (`viewerParticipantIds`,
+which includes the lines of performers an agent represents), `confirmed_at IS NULL`,
+`role_in_deal <> 'observer'` (observers watch, they do not sign), the deal's
+`agreement_status` is not `draft` (`assertAgreementSignable` refuses only that), and
+`maySignOwnLines` holds — which matters, because **QA6-1 was precisely a party who could
+not sign**, and a dashboard row that cannot be acted on would nag forever.
+
+**The three pieces to reuse, all of which already exist:**
+
+- `effectiveEventCapabilitiesForEvents` (`@showme/auth`) — batched capabilities across
+  many events. `routes/activity.ts` is the worked example of a cross-event list built on
+  it, and its docstring sets the bar: *"Two extra queries, whatever the number of events;
+  no N+1."*
+- `maySignOwnLines` (`routes/deals.ts`) — the capability half, event-level then
+  deal-scoped, already handling the crew-signatory case.
+- `resolveDealAuthority` / `resolveRepresentedParticipants` (`lib/deal-authority.ts`) — the
+  delegation rule, including that a representation in its notice period is still live
+  (`isRepresentationActiveAt`, A-19).
+
+**The one real design decision, stated so it can be made rather than drifted into:**
+`resolveDealAuthority` is per-event, so reusing it verbatim means a query pair per event —
+fine for a dashboard's handful, and a step below `activity.ts`'s standard. The alternative
+is a batched `resolveDealAuthorityForEvents`, which is the better shape and a wider change.
+**Recommendation: add the batched version.** The delegation rule is subtle enough that a
+second copy is the thing to avoid, and a batched entry point in the module that owns it is
+the only way to have one copy and no N+1.
