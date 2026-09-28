@@ -1420,21 +1420,34 @@ of thing the line is: not a property of the role `co-host`, but a permission the
 exactly the model the authorization layer already has (`permission_sets.capabilities[]` × role), so
 the answer costs a capability rather than a special case.
 
-**What this obliges — and the trap in it.** `operator_full` **already carries `event.delete`**, and
-a co-host is seeded with it, so a naive reading ("require `event.delete` for `status` and `title`")
-would grant every co-host exactly the power this ruling takes away, and the tests would be green.
-The grant has to be something no preset hands out by default:
+**What this obliged, which turned out to be nothing in the code — and that is the finding.**
 
-- a capability that means *the host's own powers* — `event.administer` — in **no** existing preset;
-- a preset the host can choose for a collaborator that carries it, alongside `operator_full`;
-- `PATCH /events/:id` requiring the host profile **or** `event.administer` for `status` and
-  `title` — and `lib/event-delete.ts`, whose comment *"the show is not theirs to end"* becomes
-  *"unless the host said it is"*;
-- a way on screen to make the grant, or the ruling exists only in the API.
+Checked against the authorization layer rather than assumed: **the ruling is already the behaviour.**
+`OPERATOR_FLOOR` carries neither `event.edit` nor `event.delete`, so a co-host invited with
+*Standard for the role* holds no permission set and cannot rename or cancel anything. A co-host the
+host gave **Full control** to (the Collaborators dialog's own option, `operator_full`, PLAN.md:614's
+paid-plan line) holds `event.edit` and can. Default host-only; grantable by the host. That is
+§25.7.4, built, and it has been all along.
 
-Until the grant surface is built, the enforcement half alone is strictly better than today: a
-co-host who needs to cancel asks the host, which is what happens now anyway, minus the ability to
-retitle an announced show without asking.
+What was missing is that **nothing said so** — which is exactly why two sweeps read it as a hole, and
+why `lib/event-delete.ts`'s comment describes a co-host holding `event.delete` as something to refuse
+rather than as a grant the host made. Three tests in `events-archive.test.ts` now state it: standard
+co-host refused the title and the cancellation, full-control co-host allowed both, creator always
+allowed.
+
+**The trap I nearly walked into, recorded because the next person will meet it too.** My own first
+plan for this row was a new `event.administer` capability plus a preset to carry it. It would have
+been wrong in the other direction: requiring the host profile for `status` and `title` — the obvious
+"fix" — **breaks the grant this ruling exists to protect**, and every existing test would have stayed
+green while it did. The sentence "a co-host can cancel the host's show" describes a defect and a
+granted permission equally well; which one it is depends on a permission set, and no sweep can see
+that from a screen.
+
+**Delete is deliberately NOT part of the grant.** `event-delete.ts` keeps its absolute host-profile
+rule. Cancelling tells every party and can be read; deleting destroys their copy of a night they
+played. Full admin over a show is not the authority to erase other people's records of it — and the
+test that pins this is the one that reads *"refuses a co-host with `event.delete` who is not the
+profile operating the show"*.
 
 ### Still waiting on an input, not a decision
 

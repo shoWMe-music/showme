@@ -42,6 +42,17 @@ import type { Transaction } from "./audit";
  *    A co-promoter holds `operator_full` and therefore `event.delete`, but the
  *    show is not theirs to end. `story.md`: "operator" is a per-event role and the
  *    residual belongs to whoever bears *this* event's risk. **Absolute.**
+ *
+ *    **AND IT IS THE ONE EXCEPTION TO THE HOST'S GRANT** (decisions §25.7.4, 2026-09-28).
+ *    That ruling says cancelling and renaming are the creator's *and the creator's to
+ *    hand over* — Full control in the Collaborators dialog does exactly that, and a
+ *    co-host holding it can cancel a show and retitle it. Deleting stays behind this
+ *    line anyway: cancelling tells every party and can be read, while deleting
+ *    destroys their copy of a night they played and were paid for. Full admin over a
+ *    show is not the authority to erase other people's records of it. So the
+ *    `event.delete` a co-host holds is not a bug in their permission set; it is a
+ *    capability this one route deliberately does not honour, and `events-archive.test.ts`
+ *    pins both halves.
  *  - **Nobody else may be on the bill** — *unless the show is cancelled.* With
  *    another party's participant row present there is normally no delete that is
  *    not also a delete of their copy. A cancellation is the announcement that

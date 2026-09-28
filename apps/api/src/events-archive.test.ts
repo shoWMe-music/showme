@@ -1336,3 +1336,104 @@ describe("cancelling a show tells the bill why (#25.3)", () => {
     expect((activity?.summary as { reason?: string } | null)?.reason).toBeUndefined();
   });
 });
+
+/**
+ * CANCELLING AND RENAMING THE HOST'S SHOW (decisions §25.7.4, Daniel 2026-09-28).
+ *
+ * *"The creator should be able to cancel, but they should also be able to give full admin to the
+ * co host."*
+ *
+ * Two sweeps filed a co-host cancelling and renaming a published show as a hole, and §25.6 framed
+ * the question as *where the line sits* — host-only, or leave it. The ruling changed what kind of
+ * thing the line is: not a property of the role `co_host`, but a permission the host grants. That
+ * is the model the authorization layer already has, which is why NOTHING HERE CHANGED THE CODE:
+ * `OPERATOR_FLOOR` carries neither `event.edit` nor `event.delete`, so a co-host invited with
+ * Standard access cannot rename or cancel anything, and a co-host the host gave **Full control** to
+ * holds `operator_full` and can. The ruling was already the behaviour.
+ *
+ * What was missing is that nothing said so — which is exactly why two sweeps could read it as a
+ * hole, and why `event-delete.ts`'s own comment describes a co-host holding `event.delete` as a
+ * thing to refuse rather than as a grant the host made. These tests are the statement. They are the
+ * trap, too: it would have been very easy to "fix" this by requiring the host profile for `status`
+ * and `title`, which would have broken the grant the ruling exists to protect, with every existing
+ * test still green.
+ *
+ * DELETE IS DELIBERATELY NOT PART OF THE GRANT, and the test above ("refuses a co-host with
+ * event.delete who is not the profile operating the show") is where that lives. Cancelling tells
+ * every party and can be read; deleting destroys their copy of a night they played. Full admin over
+ * a show is not the same as the authority to erase other people's records of it.
+ */
+describe("cancelling and renaming — the creator's, and the creator's to give away (§25.7.4)", () => {
+  async function coPromotedEvent(prefix: string, access: "standard" | "full_control") {
+    const host = await seedMemberWithSet(
+      `${prefix}-host`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const coHost = await seedMemberWithSet(
+      `${prefix}-co`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const event = await seedHostedEvent("Co-promoted night", host, { status: "confirmed" });
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: coHost.profileId,
+      role: "co_host",
+      // Standard access attaches NO permission set — the co-host lands on the operator floor,
+      // which is what "Standard for the role" means in the Collaborators dialog. Full control
+      // attaches the admin-grade bundle, which is the grant the ruling is about.
+      permissionSetId: access === "full_control" ? coHost.permissionSetId : null,
+      status: "confirmed",
+    });
+    return { host, coHost, event };
+  }
+
+  const patch = (
+    eventId: string,
+    actor: { userId: string; profileId: string },
+    body: Record<string, unknown>,
+  ) =>
+    app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${eventId}`,
+      headers: actingAs(actor.userId, actor.profileId),
+      payload: body,
+    });
+
+  it("refuses a STANDARD co-host the title and the cancellation", async () => {
+    const { coHost, event } = await coPromotedEvent("cn-std", "standard");
+
+    expect((await patch(event.id, coHost, { title: "Renamed by a co-host" })).statusCode).toBe(403);
+    expect((await patch(event.id, coHost, { status: "cancelled" })).statusCode).toBe(403);
+
+    const [after] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, event.id));
+    expect(after?.title).toBe("Co-promoted night");
+    expect(after?.status).toBe("confirmed");
+  });
+
+  it("lets a co-host the host gave FULL CONTROL rename and cancel — that is what the grant is", async () => {
+    const { coHost, event } = await coPromotedEvent("cn-full", "full_control");
+
+    const renamed = await patch(event.id, coHost, { title: "Renamed with full control" });
+    expect(renamed.statusCode).toBe(200);
+    const cancelled = await patch(event.id, coHost, { status: "cancelled" });
+    expect(cancelled.statusCode).toBe(200);
+
+    const [after] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, event.id));
+    expect(after?.title).toBe("Renamed with full control");
+    expect(after?.status).toBe("cancelled");
+  });
+
+  it("leaves the creator able to do both, whatever it granted", async () => {
+    const { host, event } = await coPromotedEvent("cn-host", "standard");
+    expect((await patch(event.id, host, { title: "Renamed by the host" })).statusCode).toBe(200);
+    expect((await patch(event.id, host, { status: "cancelled" })).statusCode).toBe(200);
+  });
+});
