@@ -134,3 +134,48 @@ describe("conflictMessage", () => {
     expect(message?.toLowerCase()).not.toMatch(/cannot|can't|not allowed|error|invalid/);
   });
 });
+
+/**
+ * A WHOLE-VENUE QUESTION NAMES NO ROOM (QA sweep run 7, QA7-4, found while proving it).
+ *
+ * `roomIsBusy` answers *"is the room I asked about taken"*, so it is false both when a
+ * named room is free and when no room was named at all. Since QA7-4 the second case is the
+ * common one — an ordinary booking request names the venue and leaves the room as "any" —
+ * and "this room is still free" then answers a question nobody put.
+ */
+describe("conflictMessage — with and without a room in the question", () => {
+  const night = {
+    roomIsBusy: false,
+    events: [{ title: "Marlo Vance — Album Release", stageName: "Main Room" }],
+    blocks: [],
+  };
+
+  it("keeps the reassurance when a room WAS asked about and is free", () => {
+    expect(conflictMessage({ ...night, roomWasAsked: true })).toBe(
+      'Already on this night: "Marlo Vance — Album Release" in Main Room. This room is still free.',
+    );
+  });
+
+  it("says only what is true when no room was named", () => {
+    expect(conflictMessage({ ...night, roomWasAsked: false })).toBe(
+      'Already on this night: "Marlo Vance — Album Release" in Main Room.',
+    );
+  });
+
+  it("defaults to the old sentence, so every existing caller is unchanged", () => {
+    // Omitting the flag must not silently change a message somebody already reads.
+    expect(conflictMessage(night)).toContain("This room is still free.");
+  });
+
+  it("still names the room that IS busy, whatever was asked", () => {
+    // The busy-room branch is about a clash rather than a note, and it never made a
+    // claim about free rooms — so the flag has nothing to change there.
+    const busy = { ...night, roomIsBusy: true };
+    expect(conflictMessage({ ...busy, roomWasAsked: false })).toBe(
+      'Main Room already has "Marlo Vance — Album Release" on this night. You can book it anyway.',
+    );
+    expect(conflictMessage({ ...busy, roomWasAsked: true })).toBe(
+      conflictMessage({ ...busy, roomWasAsked: false }),
+    );
+  });
+});

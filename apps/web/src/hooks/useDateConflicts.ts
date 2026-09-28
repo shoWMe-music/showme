@@ -108,6 +108,20 @@ export function conflictMessage(input: {
   roomIsBusy: boolean;
   events: { title: string; stageName: string | null }[];
   blocks: { reason: string | null }[];
+  /**
+   * Whether a ROOM was named in the question (QA sweep run 7, QA7-4, found while
+   * proving it).
+   *
+   * `roomIsBusy` answers "is the room I asked about taken", so it is `false` both when
+   * a named room is free AND when no room was named at all — and the two need different
+   * sentences. The whole-venue question is now the common one: an ordinary public
+   * booking request names the venue and leaves the room as "any", and the inbox asks
+   * about the venue on its behalf.
+   *
+   * Defaulted true so every existing caller keeps the sentence it had; the inbox passes
+   * false when the request named no room.
+   */
+  roomWasAsked?: boolean;
 }): string | null {
   const blocked = input.blocks[0];
   if (blocked) {
@@ -130,5 +144,15 @@ export function conflictMessage(input: {
   // Room free, building not empty. Say where the other show is, so the reason
   // this is only a note rather than a clash is visible.
   const where = first.stageName ? ` in ${first.stageName}` : "";
+  /*
+   * "This room is still free" is only true of a room somebody ASKED about. On a
+   * whole-venue question — which is what an ordinary booking request with no room
+   * produces — it named no room, so the clause answered a question nobody put and left
+   * the reader wondering which room it meant. The night's other business is the whole
+   * of what can honestly be said.
+   */
+  if (input.roomWasAsked === false) {
+    return `Already on this night: "${first.title}"${where}${others}.`;
+  }
   return `Already on this night: "${first.title}"${where}${others}. This room is still free.`;
 }

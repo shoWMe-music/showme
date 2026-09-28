@@ -114,6 +114,40 @@ function matchesFilter(request: RequestItem, filter: string): boolean {
  * So the empty state counts them and says so. Zero when nothing is selected, or when
  * the chip is already "all" — there is nothing to reveal then.
  */
+/**
+ * WHICH VENUE A CLASH WARNING SHOULD ASK ABOUT, or null when the question is not
+ * this request's to answer (QA sweep run 7, QA7-4).
+ *
+ * The inbox asked only when `venueProfileId` was set, and **every row in the table has
+ * it NULL** — every seeded one, and every one the ordinary public booking form makes,
+ * because that form sent the venue only when a room was picked. So the rule, the
+ * `GET /events/date-conflicts` route, the message and migration `0047`'s column were all
+ * built and correct, and the question had never been asked once in the product.
+ *
+ * `targetProfileId` is the venue on any request addressed to one, and the API PROVES that
+ * rather than this hoping: `placeOfRequest` refuses a request whose `venueProfileId` is
+ * not its target — *"A request can only name the venue it is being sent to"*. So the
+ * fallback cannot name a different venue; it can only supply the one left out.
+ *
+ * `targetIsAVenue` is what keeps the other direction honest. A request addressed to a
+ * PERFORMER has no venue at all and its target is that performer's profile, so asking the
+ * conflicts route about it would be asking a performer which of their rooms is busy. The
+ * caller passes true only for an operator reading their own incoming inbox.
+ *
+ * Pure and here rather than inside the hook because the wrong answer does not throw — it
+ * silently asks nothing, which is the state this fixes.
+ */
+export function clashVenueFor(
+  request: Pick<RequestItem, "status" | "wantedDate" | "venueProfileId" | "targetProfileId">,
+  targetIsAVenue: boolean,
+): string | null {
+  // A declined or archived request is not a booking anybody is about to make, and a clash
+  // warning on one is noise over a decision already taken.
+  if (request.status !== "pending") return null;
+  if (!request.wantedDate) return null;
+  return request.venueProfileId ?? (targetIsAVenue ? request.targetProfileId : null) ?? null;
+}
+
 export function hiddenByFilterOn(
   requests: RequestItem[],
   filter: string,

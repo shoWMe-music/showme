@@ -72,3 +72,63 @@ what this screen may send; it is the screen catching up with them.
 `QA7-4` first, because it is two small changes in two files and it makes the seeded data exercise a
 rule that has never run in the product. Then `QA7-5`, whose composer fills the same column for offers
 and is the larger piece.
+
+---
+
+## `QA7-4` — built, and it found a third fault on the way
+
+### The read: the venue to ask about is the one the request was sent to
+
+`clashVenueFor` (pure, in `hooks/useRequestInbox.ts`, six tests) answers **which** venue a row should
+ask about, and falls back to `targetProfileId`. That fallback is **provably** safe rather than
+hopefully safe: the API's own `placeOfRequest` refuses a request whose `venueProfileId` is not its
+target — *"A request can only name the venue it is being sent to"* — so the two can never disagree,
+and the fallback can only supply the one that was left out.
+
+It is gated on the target actually being a venue. A request addressed to a **performer** has no venue
+and its target is that performer, so asking the conflicts route about it would be asking a performer
+which of their rooms is busy. The caller passes true only for an operator reading their own incoming
+inbox.
+
+### The write: the venue is known even when the room is not
+
+`availability-request.ts` sent the pair only when a room was picked. The room is genuinely
+conditional — *"any"* is an answer — and the **venue never was**. It now goes on every request except
+one addressed to a performer (`asksForAShow`), which is #25.1's requirement met at the producer.
+
+### The third fault, which this fix exposed
+
+With the whole-venue question now the common one, the message read:
+
+> Already on this night: "Marlo Vance — Album Release" in Main Room. **This room is still free.**
+
+**Which room?** `roomIsBusy` answers *"is the room I asked about taken"*, so it is false both when a
+named room is free and when **no room was named at all** — and the trailing clause answers a question
+nobody put. `conflictMessage` now takes `roomWasAsked` (defaulted true, so no existing caller's
+sentence changes) and drops the clause when no room was named. Four tests, including one asserting the
+default is unchanged and one asserting the busy-room branch is unaffected.
+
+### Proven on the running stack
+
+The sweep's exact case — an ordinary public-form request, `venue_profile_id` NULL, on a night the
+venue already has a confirmed show:
+
+```
+POST /booking-requests  {source: public_form, wantedDate: 2026-10-15, no venueProfileId}
+  → stored:  QA7-4 Clash Applicant | 2026-10-15 | has_venue = f | pending
+
+operator's inbox, on that card:
+  "Already on this night: "Marlo Vance — Album Release" in Main Room."
+  WANTED DATE 15 Oct 2026 · SOURCE Public form · [Create Draft] [Make Offer] [Decline] …
+```
+
+**Before the fix: no warning of any kind, and Create Draft offered on a night already sold.** The
+warning now appears on a row whose shape is what every existing request in the database has.
+
+Four mutations of `clashVenueFor`, all red (drop the fallback; ignore whether the target is a venue;
+ask about a decided request; ask without a date).
+
+## Suites
+
+biome **732** clean · web **418** · marketing `tsc` clean · **e2e 112** · api unchanged by this part
+(**1379** at the last full run).

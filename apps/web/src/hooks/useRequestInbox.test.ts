@@ -10,7 +10,7 @@
  * `useRequestInbox` needs React and TanStack Query; the rule worth asserting does not.
  */
 import { describe, expect, it } from "vitest";
-import { UNREAD_FILTER, hiddenByFilterOn } from "./useRequestInbox";
+import { UNREAD_FILTER, clashVenueFor, hiddenByFilterOn } from "./useRequestInbox";
 
 type Row = Parameters<typeof hiddenByFilterOn>[0][number];
 
@@ -44,5 +44,61 @@ describe("hiddenByFilterOn", () => {
     expect(hiddenByFilterOn(unread, UNREAD_FILTER, "2026-10-09")).toBe(0);
     const read = [request("pending", "2026-10-09T00:00:00.000Z", "2026-09-01T00:00:00.000Z")];
     expect(hiddenByFilterOn(read, UNREAD_FILTER, "2026-10-09")).toBe(1);
+  });
+});
+
+/**
+ * THE CLASH QUESTION THAT WAS NEVER ASKED (QA sweep run 7, QA7-4).
+ *
+ * The inbox asked only when `venueProfileId` was set, and every row in the table had it
+ * NULL — every seeded one and every one the ordinary public form made. So the rule, the
+ * `GET /events/date-conflicts` route, the message and migration `0047`'s column were all
+ * built and correct, and the operator was offered **Create Draft** on a night already
+ * sold twice.
+ */
+describe("clashVenueFor", () => {
+  const VENUE = "e2e00000-0000-4000-8000-0000000000a1";
+  const OTHER = "e2e00000-0000-4000-8000-0000000000a6";
+  const row = (over: Record<string, unknown> = {}) =>
+    ({
+      status: "pending",
+      wantedDate: "2026-10-29",
+      venueProfileId: null,
+      targetProfileId: VENUE,
+      ...over,
+    }) as Parameters<typeof clashVenueFor>[0];
+
+  it("falls back to the venue the request was SENT to", () => {
+    // The whole finding: this row is what the public form writes, and it used to ask
+    // nothing at all.
+    expect(clashVenueFor(row(), true)).toBe(VENUE);
+  });
+
+  it("prefers the venue the request names, when it names one", () => {
+    // The API refuses a `venueProfileId` that is not the target, so these can only ever
+    // agree — the preference is for the explicit value rather than a derived one.
+    expect(clashVenueFor(row({ venueProfileId: VENUE }), true)).toBe(VENUE);
+  });
+
+  it("asks nothing when the target is not a venue", () => {
+    // A request addressed to a PERFORMER has no venue, and its target is that performer.
+    // Asking the conflicts route about it would be asking a performer which of their
+    // rooms is busy.
+    expect(clashVenueFor(row({ targetProfileId: OTHER }), false)).toBeNull();
+    // …and not even when it is the reader's own outgoing view of a venue-bound request.
+    expect(clashVenueFor(row(), false)).toBeNull();
+  });
+
+  it("asks nothing about a request nobody is about to act on", () => {
+    // A decided request is not a booking in flight, and a warning on one is noise over a
+    // decision already taken.
+    for (const status of ["declined", "archived", "flagged", "accepted"]) {
+      expect(clashVenueFor(row({ status }), true)).toBeNull();
+    }
+  });
+
+  it("asks nothing without a date — there is nothing to compare", () => {
+    expect(clashVenueFor(row({ wantedDate: null }), true)).toBeNull();
+    expect(clashVenueFor(row({ wantedDate: "" }), true)).toBeNull();
   });
 });

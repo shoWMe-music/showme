@@ -33,6 +33,7 @@ import {
   type RequestItem,
   type RequestViewMode,
   UNREAD_FILTER,
+  clashVenueFor,
   isUnread,
   useRequestInbox,
 } from "../hooks/useRequestInbox";
@@ -161,15 +162,27 @@ function formatFee(request: RequestItem): string {
  * anybody is about to make, and a clash warning on one is noise over a decision already
  * taken.
  */
-function useRequestClashes(requests: RequestItem[]): Map<string, string> {
-  const askable = requests.filter(
-    (request) => request.status === "pending" && request.venueProfileId && request.wantedDate,
-  );
+function useRequestClashes(
+  requests: RequestItem[],
+  askAboutTheTarget: boolean,
+): Map<string, string> {
+  /*
+   * Which venue each row asks about is `clashVenueFor` — including why the fallback to
+   * `targetProfileId` is provably safe, and why the other direction must not ask at all
+   * (QA sweep run 7, QA7-4). Without a room the question is whole-venue, the right answer
+   * for a request that named none; the message already ends "You can book it anyway", so
+   * it informs rather than blocks.
+   */
+  const askable = requests
+    .map((request) => ({ request, venueProfileId: clashVenueFor(request, askAboutTheTarget) }))
+    .filter(
+      (row): row is { request: RequestItem; venueProfileId: string } => row.venueProfileId !== null,
+    );
 
   const queries = useQueries({
-    queries: askable.map((request) =>
+    queries: askable.map(({ request, venueProfileId }) =>
       getGetApiV1EventsDateConflictsQueryOptions({
-        venueProfileId: request.venueProfileId as string,
+        venueProfileId,
         date: request.wantedDate,
         ...(request.stageId ? { stageId: request.stageId } : {}),
       }),
@@ -180,13 +193,16 @@ function useRequestClashes(requests: RequestItem[]): Map<string, string> {
   // itself never leaves this function — the screen reads a string out of it per row, so
   // there is no identity for anything downstream to depend on.
   const clashes = new Map<string, string>();
-  askable.forEach((request, index) => {
+  askable.forEach(({ request }, index) => {
     const data = queries[index]?.data;
     if (!data) return;
     const message = conflictMessage({
       roomIsBusy: data.roomIsBusy,
       events: data.events,
       blocks: data.unavailability,
+      // No room in the request means the question was about the whole venue, and
+      // "this room is still free" would answer one nobody asked (QA7-4).
+      roomWasAsked: Boolean(request.stageId),
     });
     if (message) clashes.set(request.id, message);
   });
@@ -310,7 +326,9 @@ export function Requests() {
    */
   // Asked over the WHOLE inbox rather than the filtered view, so switching tabs does not
   // re-ask a question already answered — the answers are keyed by request id.
-  const clashes = useRequestClashes(requests);
+  // Only an operator reading their INCOMING inbox is being asked about their own rooms —
+  // see `useRequestClashes` for why the other direction must not ask at all.
+  const clashes = useRequestClashes(requests, isOperator && direction === "incoming");
 
   const invitations = useEventInvitations();
   const visibleInvitations = useMemo(

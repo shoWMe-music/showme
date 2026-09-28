@@ -771,7 +771,24 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
       wantedDate,
       // Omitted rather than sent empty — the API takes the key or takes nothing.
       ...(otherDates.length > 0 ? { additionalDates: otherDates } : {}),
-      ...(stageId ? { venueProfileId: target.id, stageId } : {}),
+      /*
+       * THE VENUE IS KNOWN EVEN WHEN THE ROOM IS NOT (QA sweep run 7, QA7-4).
+       *
+       * This sent the pair only when a room was picked, so the ordinary profile booking
+       * form — whose room select defaults to "any" — wrote `venue_profile_id` NULL on
+       * every request. The operator's inbox reads that column to warn about a
+       * double booking, so the check had nothing to compare and **never fired once** in
+       * the product, which is exactly what `decisions.md` #25.1 asks for: *"every
+       * incoming request must carry date + venue + room … because the double-booking
+       * check on an incoming request has nothing to compare without them."*
+       *
+       * A request to a PERFORMER genuinely has no venue (`asksForAShow`), so the venue
+       * goes only when the target is the place being asked — and the room still only
+       * when one was actually chosen, because "any room" is an answer and not a
+       * missing value.
+       */
+      ...(asksForAShow ? {} : { venueProfileId: target.id }),
+      ...(stageId && !asksForAShow ? { stageId } : {}),
       pitch: messageField.value(),
       // Omitted rather than sent empty: the API's schema requires at least one
       // character when the key is present.
