@@ -76,7 +76,30 @@ export async function insightRoutes(fastify: FastifyInstance): Promise<void> {
         .from(schema.budgetLines)
         .innerJoin(schema.budgets, eq(schema.budgets.id, schema.budgetLines.budgetId))
         .innerJoin(schema.events, eq(schema.events.id, schema.budgets.eventId))
-        .where(and(eq(schema.events.hostProfileId, id), eq(schema.budgetLines.kind, "revenue")));
+        .where(
+          and(
+            eq(schema.events.hostProfileId, id),
+            eq(schema.budgetLines.kind, "revenue"),
+            /*
+             * SHARED LEDGERS ONLY — this aggregated the private books too, and one of them
+             * belonged to somebody else (QA sweep run 9, QA9-1).
+             *
+             * `PLAN.md:215`: a private book is *"the extra an operator MAY ALSO keep, existing
+             * only once there is a co-host to keep it from."* Without this predicate the host's
+             * all-time figure carried both private books on a co-promoted event — SEK 12,345 of
+             * it the CO-HOST's — under a screen that says *"Every figure here comes from the
+             * event's shared ledger"*. A leak, not a rounding error.
+             *
+             * The DETAIL route has always enforced this (`visibleBudgetFilter` in
+             * `routes/budget.ts`), so the aggregate was contradicting the route it sits above.
+             * The web's own `projectFromBudgets` filters to `scope === "shared"` for the panel
+             * beside it, which is why the panel was right and only the footnote was wrong —
+             * and why "shared" rather than "shared plus my own" is the answer: one definition,
+             * and it is the panel's.
+             */
+            eq(schema.budgets.scope, "shared"),
+          ),
+        );
 
       const [event] = await database
         .select({ currency: schema.events.baseCurrency })
