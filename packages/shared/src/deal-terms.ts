@@ -147,7 +147,16 @@ export const DEAL_KIND_OPTIONS: DealKindOption[] = [
   {
     value: "rental",
     label: "Rental fee",
-    description: "A fixed amount for the room, settled off the top before any split.",
+    /*
+     * NOT "off the top before any split" unconditionally any more (QA sweep run 10, QA10-7) — and
+     * this one is mine: §25.7.1 made it conditional the same day. A rental whose deal names who owes
+     * it settles as a transfer between its two parties and never touches the adjusted net; only a
+     * rental the POOL pays comes off the top. The dialog cannot know which it will be at the moment
+     * the kind is chosen — the parties are picked further down the same form — so it says what is
+     * true of both and names what decides it.
+     */
+    description:
+      "A fixed amount for the room. Paid by the event unless a party on it is named as the payer, and then it settles between those two.",
     structure: "rental",
     type: "rental",
   },

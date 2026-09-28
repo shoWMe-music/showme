@@ -224,6 +224,77 @@ describe("reconcile — co-operators split the residual", () => {
     expect(result.breakdowns.find((p) => p.participantId === "P2")?.entitlement).toBe(eur(2000));
     assertBalanced(result);
   });
+
+  /**
+   * THE SHARE IS REPORTED, NOT ONLY APPLIED (QA9-7, restated as QA10-6).
+   *
+   * Both operator cards read *"what is left after every other party is paid"* over two
+   * different numbers, because the screen was never told the residual was a fraction of
+   * anything. Asserted on an UNEQUAL split on purpose: at 50/50 the two amounts agree and
+   * the old wording is accidentally true, which is how this survived four sweeps.
+   */
+  it("reports each operator's share of the residual, in basis points", () => {
+    const result = reconcile({
+      baseCurrency: "EUR",
+      participants: [
+        { participantId: "P1", isOperator: true, operatorResidualShare: 25 },
+        { participantId: "P2", isOperator: true, operatorResidualShare: 75 },
+        { participantId: "B" },
+      ],
+      deals: [
+        {
+          dealId: "guar",
+          structure: "guarantee",
+          payeeParticipantIds: ["B"],
+          guaranteeAmount: eur(2000),
+        },
+      ],
+      budgetLines: [
+        { kind: "revenue", revenueKind: "ticket", amount: eur(6000), collectedBy: "P1" },
+      ],
+    });
+
+    const first = result.breakdowns.find((party) => party.participantId === "P1");
+    const second = result.breakdowns.find((party) => party.participantId === "P2");
+    expect(first?.residual).toBe(eur(1000));
+    expect(second?.residual).toBe(eur(3000));
+    // The percentages the cards will print, and they match the money beside them.
+    expect(first?.residualBasisPoints).toBe(2500);
+    expect(second?.residualBasisPoints).toBe(7500);
+    // Nobody who does not share the residual carries a share of it.
+    expect(
+      result.breakdowns.find((party) => party.participantId === "B")?.residualBasisPoints,
+    ).toBeUndefined();
+    assertBalanced(result);
+  });
+
+  /**
+   * A SOLO OPERATOR CARRIES NO SHARE, and that is the fallback's whole job: "your 100% of
+   * what is left" is noise, so the field is absent and the card says "your share of" — the
+   * same sentence a settlement snapshotted before this existed still reads.
+   */
+  it("names no share when one operator takes the whole residual", () => {
+    const result = reconcile({
+      baseCurrency: "EUR",
+      participants: [{ participantId: "P1", isOperator: true }, { participantId: "B" }],
+      deals: [
+        {
+          dealId: "guar",
+          structure: "guarantee",
+          payeeParticipantIds: ["B"],
+          guaranteeAmount: eur(2000),
+        },
+      ],
+      budgetLines: [
+        { kind: "revenue", revenueKind: "ticket", amount: eur(6000), collectedBy: "P1" },
+      ],
+    });
+
+    const only = result.breakdowns.find((party) => party.participantId === "P1");
+    expect(only?.residual).toBe(eur(4000));
+    expect(only?.residualBasisPoints).toBeUndefined();
+    assertBalanced(result);
+  });
 });
 
 describe("dealEntitlement — ported math", () => {

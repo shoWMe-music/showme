@@ -191,6 +191,19 @@ export interface PartyBreakdown {
   deductibles: bigint;
   /** An operator's share of `pool − Σ deal entitlements`. Zero for everyone else. */
   residual: bigint;
+  /**
+   * THE FRACTION `residual` IS, in basis points — 2500 for an operator on 25% of a
+   * co-promotion. The screen cannot name a share it was never told, and two
+   * co-operators reading *"what is left after every other party is paid"* over two
+   * different numbers is the defect this closes (QA9-7, restated as QA10-6).
+   *
+   * Absent when there is only ONE operator: the share is the whole thing, and "your
+   * 100% of what is left" is noise. Absent, too, on any settlement snapshotted before
+   * this existed — a finalized settlement is a legal record and is never rewritten —
+   * so a reader must have a sentence that works without it. Exactly the contract
+   * `EntitlementLine.partyBasisPoints` already has, for the same defect one field over.
+   */
+  residualBasisPoints?: number;
 }
 
 /** A single money movement, greedily matched to minimize the transfer count. */
@@ -338,7 +351,14 @@ export interface PoolLadder {
   costs: bigint;
   /** `revenue − attributed − costs`. The design's "Net revenue". */
   netRevenue: bigint;
-  /** Rentals, taken off the top before any split. The design's "Venue rental". */
+  /**
+   * The rentals the POOL pays, taken off the top before any split — the design's "Venue rental".
+   *
+   * Not every rental: §25.7.1 settles one whose deal names a payer as a transfer between its two
+   * parties, and `rentalComesOffTheTop` is the predicate. A four-wall night where the act rents the
+   * room lands here (the operator is the payee, nobody on the pool's side pays it); an operator
+   * renting from a co-operator does not.
+   */
   offTheTop: bigint;
   /**
    * `netRevenue − offTheTop` — the design's "Adjusted net", and the base every

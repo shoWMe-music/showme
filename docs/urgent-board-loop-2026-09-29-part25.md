@@ -57,6 +57,8 @@ the UI offers. What this does NOT touch is the public form (`public_form`) or a 
 | QA10-11's split control | `32448e8` | A shared-ledger control drawn in a private book |
 | QA10-12's second half | `32448e8` | **Not a defect** — a documented mechanism whose docstring warns against changing it |
 | QA9-5 / QA10-11's margin | `f505396` | One predicate applied one scope too wide |
+| QA10-6 / QA9-7 | see §4 | The same defect as `partyBasisPoints`, one field over, not generalised |
+| QA10-7 | see §4 | A caption my own fix made conditional the same day |
 
 ### QA10-13 — refused, not re-labelled · `54256a5`
 
@@ -118,3 +120,116 @@ sometimes the answer is "covered somewhere better".*
   is what the refusal removes.
 - Run 10's remaining MINOR/COSMETIC rows from its §2.
 - Then the full pass with the stack down in ONE go, and qa-sweep run 11.
+
+---
+
+## 4. QA10-6 / QA9-7 — the plan, before building
+
+**Which file settles it:** `packages/settlement/src/reconcile.ts` first, not
+`apps/web/src/components/settlementDocument.ts`. The screen cannot name a share it was never told.
+
+**The finding.** Two operator cards on one screen at a 25/75 production-costs split:
+
+```
+The Lantern Hall | Operator | SEK 12,875
+  What is left after every other party is paid   SEK 7,875
+Northlight Presents (you) | Co-operator | SEK 18,625
+  What is left after every other party is paid   SEK 23,625
+```
+
+Identical wording over SEK 7,875 and SEK 23,625. *"What is left"* is one quantity — SEK 31,500 — and
+neither card says it is being divided, nor in what ratio. At 50/50 both read SEK 15,750 and the
+sentence is **accidentally true**, which is why it has read as correct for four sweeps.
+
+**The verdict: this exact defect was already fixed once, one field over, and the fix was not
+generalised.** `partyBasisPoints` exists on an `EntitlementLine` for precisely this reason — the QA
+sweep of 2026-09-27 found both acts on a 60/40 reading *"100% of the adjusted net SEK 50,000 — your
+share of the deal's SEK 50,000"* over payouts of 30,000 and 20,000, and the answer was to carry the
+party's own share into the snapshot and name it. `residual` is the same sentence with the same bug
+and no such field. So this is not a copy fix; it is the second instance of a shape, and the first
+instance already established the pattern, the fallback, and the reason for the fallback.
+
+**The scope**, mirroring `partyBasisPoints` at every step:
+
+1. `PartyBreakdown.residualBasisPoints?: number` — this operator's share of the residual in basis
+   points, **absent when there is only one operator** (a share of one is noise) and absent on every
+   settlement snapshotted before today.
+2. `reconcile.ts` computes it from the weights it already allocates by (`operatorResidualShare`,
+   default 1), so the percentage cannot drift from the arithmetic that produced the money.
+3. `SerializedBreakdown` — the one contract shared by the engine, `settlements.computed` (jsonb) and
+   `BreakdownResponse`. **And `BreakdownResponse` itself**, because Fastify strips what a schema does
+   not declare and the field would vanish between a green API test and the browser.
+4. The label: `"Your 25% of what is left after every other party is paid"`, and
+   `"The Lantern Hall's 25% of…"` on somebody else's card under Full settlement access (#24.2) —
+   `whose` already exists for that. **Falling back to `"Your share of…"`** when no share is
+   recorded: true and vague, rather than precise and wrong, which is the ruling `partyBasisPoints`
+   already made for a finalized settlement that is a legal record and is never rewritten.
+
+**The decision it hides: does naming the share disclose a pool fact to a seat that may not read the
+pool?** No, and the shape of the answer is why it is worth writing down. `operatorCostSplit` lives in
+the SHARED ledger's planning assumptions, which a co-host on *Standard for the role* cannot read
+(`OPERATOR_FLOOR` carries no `budget.view`) — so my first instinct was the vaguer
+*"Your share of…"* with no number. It is the wrong call: the share on a card is **that party's own
+term**, the same disclosure `partyBasisPoints` already makes about a deal, and the co-operator's
+residual **amount** is on that screen already. A percentage is strictly less than the amount it
+produced. What stays out is the other operator's share, and party scoping already handles that.
+
+### QA10-6 / QA9-7 — the residual names its own share · what landed
+
+Built as planned, engine first. Measured on the running stack, Album Release at 25/75 with the
+acts on 65% so a residual exists at all (SEK 32,200):
+
+```
+Northlight Presents (you) | Co-operator | SEK 24,150
+  Your 75% of what is left after every other party is paid   SEK 24,150
+```
+
+and the same compute's payload carries `residualBasisPoints: 2500` for The Lantern Hall against
+`7500` for Northlight — the two cards can no longer read identically over different numbers. The
+host's own card was not read in a second browser seat: both tabs share one browser profile and one
+session, and signing out did not take. What is measured is the payload for both parties and the
+render for one, plus a unit test for the other party's wording; that is the honest extent of it.
+
+Five mutations, all killed — the label ignoring the share, the engine reporting a share for a solo
+operator, the share computed as the raw weight rather than the fraction, the possessive never
+trimming a trailing s, and **the API schema not declaring the field**, which is the one that
+matters: without `residualBasisPoints` in `BreakdownResponse` the engine test, the snapshot test and
+the web test all stay green while the browser renders "your share of" forever. Fastify strips what
+it is not told about.
+
+Fixed on the way, all three found by reading rather than by the sweep:
+
+- **`"Northlight Presents's 75%"`** — `whose` appends `'s` unconditionally, and four captions on
+  somebody else's card (#24.2) run through it. `possessiveOf` now gives a name already ending in s
+  the apostrophe alone.
+- **QA10-7's rental copy** (`packages/shared/src/deal-terms.ts`) — *"settled off the top before any
+  split"* was made conditional by my own §25.7.1 the same day, so the New-deal dialog was promising
+  a settlement the engine will not perform. It now says what is true of both shapes and names what
+  decides between them, because the dialog genuinely cannot know yet: the parties are chosen further
+  down the same form. **Instance eighteen** of a comment — here a caption — stating a rule the code
+  does not keep, and the second of the "correct when written, world moved underneath it" variant.
+- **`PartyBreakdown.offTheTop`'s docstring** — *"Rentals, taken off the top before any split"*, the
+  same sentence one layer down in the engine's own types. Now names the predicate
+  (`rentalComesOffTheTop`) and the four-wall case that keeps it from being simply "whoever pays".
+
+### And a Testcontainers flake that perpetuates itself
+
+`settlement.test.ts` failed twice running with *"Timed out after 10000ms while waiting for container
+ports to be bound"* and **117 skipped, zero failed** — the shape the handoff warns about. A manual
+`docker run -P` bound a port in under six seconds, so the daemon was fine. What was not fine:
+**each failed run leaves its `testcontainers-ryuk` container behind, and the leftover makes the next
+run fail identically.** Two were up; `docker rm -f` on both, and the same command passed 117/117
+first try. The lesson is not "retry" — it is that the retry is guaranteed to fail the same way until
+the reaper is pruned, which reads exactly like a permanent break. **`docker ps -a --filter
+name=testcontainers-ryuk` before concluding anything from that timeout.**
+
+One more small trap recorded in passing: `$CLAUDE_JOB_DIR/tmp/dburl.txt` is the **in-container**
+url (`localhost:5432`) and works only through `docker exec`. Anything run on the host — the seed
+script, for one — needs the `DATABASE_URL` from `api-env.txt` (`127.0.0.1:55432`).
+
+**Fixture hygiene.** The browser check needed an unequal split, a residual, and a revenue line
+inserted into the sealed settlement copy, all typed straight into the database. Those are exactly
+the edits that become somebody else's phantom finding, so the event was restored with
+`DATABASE_URL=… pnpm --filter @showme/db seed:e2e` — it deletes by seeded id and rebuilt Album
+Release to the split of 10000, zero settlement lines, one settlement (`…f4`) and no planning
+assumptions. Verified after the fact rather than assumed.

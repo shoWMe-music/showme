@@ -511,6 +511,15 @@ export interface EntitlementRule {
  * of this — which is honest, and the reason the card falls back to showing the
  * bare entitlement rather than inventing an explanation for it.
  */
+/**
+ * A party's name as a possessive — and an apostrophe alone when the name already ends in
+ * s, because "Northlight Presents's 75% of what is left" is not a sentence anybody wrote
+ * on purpose. Four captions on somebody else's card run through this (#24.2).
+ */
+function possessiveOf(name: string): string {
+  return name.endsWith("s") ? `${name}'` : `${name}'s`;
+}
+
 export function entitlementRules(
   computed: ComputedBreakdown,
   currency: string,
@@ -541,7 +550,9 @@ export function entitlementRules(
   const rules: EntitlementRule[] = [];
   /** The possessive of the party's name, or of "you" on the reader's own card. The
    * nominative form moved to `payoutAdjustments` with the cash rows that used it. */
-  const whose = owner.isYours ? "your" : `${owner.name || "that party"}'s`;
+  const whose = owner.isYours ? "your" : possessiveOf(owner.name || "that party");
+  /** The same possessive where it OPENS a caption rather than sitting inside one. */
+  const sentenceStart = `${whose.charAt(0).toUpperCase()}${whose.slice(1)}`;
 
   for (const line of computed.lines ?? []) {
     // A shared split pays the DEAL a total and this party a PORTION of it. Naming
@@ -602,7 +613,26 @@ export function entitlementRules(
   if (computed.residual != null && computed.residual !== "0") {
     rules.push({
       key: "residual",
-      label: "What is left after every other party is paid",
+      /*
+       * WHOSE SHARE, AND HOW MUCH OF IT — because two co-operators read this same sentence over two
+       * different numbers (QA sweep run 9 QA9-7, restated as QA10-6).
+       *
+       * Measured on one screen at a 25/75 split: The Lantern Hall's card said *"What is left after
+       * every other party is paid — SEK 7,875"* and Northlight's said the same words over
+       * **SEK 23,625**. "What is left" is a single quantity (SEK 31,500) and neither card said it was
+       * being divided. At 50/50 both read SEK 15,750 and the wording is accidentally true, which is
+       * why it read as correct for four sweeps.
+       *
+       * The same sentence, the same bug and the same fix as `partyBasisPoints` on a shared deal line
+       * twenty lines above — down to the fallback: a settlement snapshotted before the engine
+       * recorded the share says "your share", which is true and vague rather than precise and wrong,
+       * and a solo operator says it too, a share of one being nothing to name.
+       */
+      label: `${sentenceStart} ${
+        computed.residualBasisPoints != null
+          ? `${basisPointsToPercent(computed.residualBasisPoints)}% of`
+          : "share of"
+      } what is left after every other party is paid`,
       value: formatAmount(computed.residual),
     });
   }

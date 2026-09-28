@@ -92,6 +92,8 @@ export function reconcile(input: SettlementInput): SettlementResult {
    */
   const deductibleLines = new Map<string, { label: string; amount: bigint }[]>();
   const residualOf = new Map<string, bigint>();
+  /** Each operator's share of that residual, in basis points. Co-promotions only. */
+  const residualShareOf = new Map<string, number>();
   const addTo = (map: Map<string, bigint>, participantId: string, amount: bigint) => {
     map.set(participantId, (map.get(participantId) ?? 0n) + amount);
   };
@@ -337,9 +339,22 @@ export function reconcile(input: SettlementInput): SettlementResult {
   if (operators.length > 0) {
     const weights = operators.map((operator) => BigInt(operator.operatorResidualShare ?? 1));
     const parts = allocate(residual, weights);
+    /*
+     * The SHARE, alongside the money, and derived from the same weights — so the
+     * percentage a card names can never drift from the arithmetic that produced the
+     * figure beside it. Only on a co-promotion: one operator's share is the whole
+     * residual, and `residualBasisPoints` explains nothing there.
+     */
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0n);
     operators.forEach((operator, index) => {
       credit(operator.participantId, parts[index] ?? 0n);
       addTo(residualOf, operator.participantId, parts[index] ?? 0n);
+      if (operators.length > 1 && totalWeight > 0n) {
+        residualShareOf.set(
+          operator.participantId,
+          Number(((weights[index] ?? 0n) * 10_000n) / totalWeight),
+        );
+      }
     });
   }
 
@@ -470,6 +485,9 @@ export function reconcile(input: SettlementInput): SettlementResult {
       commissionEarned: commissionEarned.get(party.participantId) ?? 0n,
       deductibles: deductibles.get(party.participantId) ?? 0n,
       residual: residualOf.get(party.participantId) ?? 0n,
+      ...(residualShareOf.has(party.participantId)
+        ? { residualBasisPoints: residualShareOf.get(party.participantId) }
+        : {}),
     };
   });
 

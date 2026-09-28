@@ -3885,6 +3885,16 @@ describe("settlement — the 2026-08-26 money rules", () => {
     expect(rowOf(leadPart).residual).toBe("560000");
     expect(rowOf(coPart).residual).toBe("240000");
 
+    /*
+     * AND THE SHARE REACHES THE RESPONSE, which is a separate claim from the engine
+     * computing it: Fastify strips what the schema does not declare, and a field that
+     * exists in `reconcile()`, is stored in `computed`, and is absent from
+     * `BreakdownResponse` passes every engine test while the card renders "your share of"
+     * forever (QA9-7 / QA10-6, and `details.perGuest` before it).
+     */
+    expect(rowOf(leadPart).residualBasisPoints).toBe(7000);
+    expect(rowOf(coPart).residualBasisPoints).toBe(3000);
+
     const netSum = body.breakdowns.reduce(
       (total: bigint, row: { net: string }) => total + BigInt(row.net),
       0n,

@@ -30,6 +30,12 @@ export interface SerializedBreakdown {
   deductibles?: string;
   residual?: string;
   /**
+   * The fraction `residual` is, in basis points. Absent on a solo operator (the share
+   * is the whole thing) and on any settlement snapshotted before this existed — the
+   * sentence on the card has to work without it. Not money, so not a string.
+   */
+  residualBasisPoints?: number;
+  /**
    * Money moved before the night under a deal (`prepaid.ts`). Optional on the way
    * IN for the same reason as the four above: a settlement finalized before this
    * existed is a legal record and is never rewritten, so it reads back as absent
@@ -241,6 +247,9 @@ export function serializeBreakdown(breakdown: PartyBreakdown): SerializedBreakdo
     commissionEarned: breakdown.commissionEarned.toString(),
     deductibles: breakdown.deductibles.toString(),
     residual: breakdown.residual.toString(),
+    ...(breakdown.residualBasisPoints != null
+      ? { residualBasisPoints: breakdown.residualBasisPoints }
+      : {}),
   };
 }
 

@@ -7906,6 +7906,9 @@
                           "residual": {
                             "type": "string"
                           },
+                          "residualBasisPoints": {
+                            "type": "number"
+                          },
                           "prepaid": {
                             "type": "string"
                           },
@@ -8558,6 +8561,9 @@
                               "residual": {
                                 "type": "string"
                               },
+                              "residualBasisPoints": {
+                                "type": "number"
+                              },
                               "prepaid": {
                                 "type": "string"
                               },
@@ -9019,6 +9025,9 @@
                         },
                         "residual": {
                           "type": "string"
+                        },
+                        "residualBasisPoints": {
+                          "type": "number"
                         },
                         "prepaid": {
                           "type": "string"

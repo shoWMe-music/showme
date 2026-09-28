@@ -217,6 +217,76 @@ describe("entitlementRules", () => {
     );
   });
 
+  /**
+   * THE RESIDUAL NAMES THE SHARE IT IS (QA9-7, restated as QA10-6).
+   *
+   * Two operator cards on one screen at 25/75: *"What is left after every other party is
+   * paid — SEK 7,875"* and, in the same words, **SEK 23,625**. "What is left" is one
+   * quantity and neither card said it was being divided. Asserted on an unequal split for
+   * the same reason the engine test is: at 50/50 the old sentence is accidentally true.
+   */
+  it("names the operator's OWN share of the residual", () => {
+    const rules = entitlementRules(
+      {
+        entitlement: "787500",
+        collected: "0",
+        deductibles: "0",
+        lines: [],
+        residual: "787500",
+        residualBasisPoints: 2500,
+      } as never,
+      "SEK",
+      money,
+    );
+
+    expect(rules.find((rule) => rule.key === "residual")?.label).toBe(
+      "Your 25% of what is left after every other party is paid",
+    );
+  });
+
+  it("falls back to 'your share' when no share was recorded", () => {
+    // A solo operator (a share of one is nothing to name) and every settlement finalized
+    // before the engine carried the field — a legal record that is never rewritten. Vague
+    // and true, which is the ruling `partyBasisPoints` already made.
+    const rules = entitlementRules(
+      {
+        entitlement: "2070000",
+        collected: "0",
+        deductibles: "0",
+        lines: [],
+        residual: "2070000",
+      } as never,
+      "SEK",
+      money,
+    );
+
+    expect(rules.find((rule) => rule.key === "residual")?.label).toBe(
+      "Your share of what is left after every other party is paid",
+    );
+  });
+
+  it("names the party, not the reader, on somebody else's card", () => {
+    // Full settlement access (#24.2) puts the other operator's card in front of a reader,
+    // and "Your 75%" under their name is the QA6-9 pronoun bug one caption further along.
+    const rules = entitlementRules(
+      {
+        entitlement: "2362500",
+        collected: "0",
+        deductibles: "0",
+        lines: [],
+        residual: "2362500",
+        residualBasisPoints: 7500,
+      } as never,
+      "SEK",
+      money,
+      { isYours: false, name: "Northlight Presents" },
+    );
+
+    expect(rules.find((rule) => rule.key === "residual")?.label).toBe(
+      "Northlight Presents' 75% of what is left after every other party is paid",
+    );
+  });
+
   it("says nothing about collected cash when there is none", () => {
     const rules = entitlementRules(
       { entitlement: "3000000", collected: "0", deductibles: "0", lines: [] } as never,

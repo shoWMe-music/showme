@@ -21,6 +21,7 @@ export type PatchApiV1EventsIdSettlementsSid200Computed = {
   commissionEarned?: string;
   deductibles?: string;
   residual?: string;
+  residualBasisPoints?: number;
   prepaid?: string;
   prepaidCounterpartyIds?: string[];
   deductibleLines?: PatchApiV1EventsIdSettlementsSid200ComputedDeductibleLinesItem[];

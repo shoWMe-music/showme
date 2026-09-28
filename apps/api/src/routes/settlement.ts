@@ -159,6 +159,15 @@ const BreakdownResponse = z.object({
   commissionEarned: z.string().optional(),
   deductibles: z.string().optional(),
   residual: z.string().optional(),
+  /**
+   * The fraction that residual is, in basis points, so the card can say *"your 25% of
+   * what is left"* instead of two co-operators reading one sentence over two numbers
+   * (QA9-7 / QA10-6). Absent on a solo operator and on anything snapshotted before it
+   * existed. **Declared here or Fastify strips it**, which is how the same field's
+   * sibling `details.perGuest` once passed every API test and reached the browser as
+   * nothing.
+   */
+  residualBasisPoints: z.number().optional(),
   /** Money moved before the night under a deal. Optional for the same reason. */
   prepaid: z.string().optional(),
   /** Who that early money was with, so the screen can name both ends of it. */
