@@ -1,10 +1,11 @@
 import { Badge, Button } from "@showme/design-system";
 import type { KeyboardEvent, MouseEvent } from "react";
-import { formatDay, formatMoney } from "../lib/format";
+import { formatDay } from "../lib/format";
 import styles from "./InvoiceLedgerTable.module.css";
 import {
   INVOICE_STATE_STATUS,
   type InvoiceRecord,
+  invoiceAmountText,
   invoiceCounterparty,
   invoiceLineItemLabel,
   invoiceReference,
@@ -215,7 +216,7 @@ function InvoiceLedgerRow({
       <span className={styles.cellDue}>{formatDay(invoice.dueDate)}</span>
 
       <span className={styles.cellAmount} style={{ textAlign: "right" }}>
-        {formatMoney(invoice.total, invoice.currency ?? "EUR")}
+        {invoiceAmountText(invoice)}
       </span>
 
       <span className={styles.cellState}>

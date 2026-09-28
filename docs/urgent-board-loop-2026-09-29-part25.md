@@ -233,3 +233,73 @@ the edits that become somebody else's phantom finding, so the event was restored
 `DATABASE_URL=… pnpm --filter @showme/db seed:e2e` — it deletes by seeded id and rebuilt Album
 Release to the split of 10000, zero settlement lines, one settlement (`…f4`) and no planning
 assumptions. Verified after the fact rather than assumed.
+
+---
+
+## 5. QA9-12's render half — the plan, before building
+
+**Which file settles it:** `apps/web/src/components/invoiceDocument.ts` — the module that already
+owns this table's vocabulary — and then its two readers.
+
+**What is left of the finding.** The API half landed in `7cf4927`: an invoice with no total can no
+longer be SENT (*"This invoice has no amount on it yet. Add the total before sending it — an invoice
+without one reads as zero everywhere it is listed."*). What survives is the sentence that quote
+makes: the ledger still prints **`SEK 0`** where the column is NULL, so a draft nobody has finished
+asserts an amount of zero, three columns to the right of a `—` the same row uses for a category it
+does not have.
+
+**The verdict.** `formatMoney(null, currency)` coerces null to 0 by design — `amountMinor ?? 0` —
+and that is right nearly everywhere: a total of nothing IS zero. It is wrong for exactly this field,
+where null means *"nobody has typed the amount yet"* and zero would be a claim. So the fix is at the
+two call sites that render `invoice.total`, not in `formatMoney`, and it is the same ruling
+`settlementTotals` already made: an em dash rather than a zero when there is nothing at all.
+
+**The scope.** One predicate in `invoiceDocument.ts`, used by `InvoiceLedgerTable` (the row) and
+`InvoiceDetailModal` (the Total key-value). Two call sites rather than the review gate's three, and
+deliberately so: this is not an extraction for reuse but one rule about one nullable column, and the
+module those two screens already share is where a rule about an invoice field belongs. `Invoices.tsx`
+is NOT a third: its `Number(invoice.total ?? 0)` feeds the money TILES, where a null contributing
+zero is correct and QA7-13 is the reason.
+
+**The decision it hides: is a null total ever legitimately zero?** No — and the API now agrees in
+both directions. `total` is optional only so a draft can be written before its amount is known, and
+a genuinely zero invoice writes `"0"`, which prints as `SEK 0` and should.
+
+### QA9-12's render half — an em dash, and one more sentence it made untrue · what landed
+
+Measured live as `operator@`, both rows on one screen:
+
+```
+VENDOR                     EVENT / REFERENCE   CATEGORY  DUE          AMOUNT     STATUS
+QA9-12 amountless vendor   —                   —         15 Jan 2026  —          Draft
+Nordic Sound Rentals AB    PA + backline hire  —         13 Jun 2026  SEK 9,000  Overdue
+```
+
+and in the detail overlay, `Total —`. The tiles did not move, which is QA7-13 still holding.
+
+**The detail modal already had this rule on two sibling fields** — the VAT amount and a line-item
+total are both `x != null ? formatMoney(x) : "—"` — and the invoice's own total was the one field it
+was missing. That is the sharpest form of this recurring shape yet: not a comment stating a rule the
+code does not keep, but *the same file keeping the rule twice and not the third time*.
+
+And a sentence the fix made untrue two lines above it: **"No line items — this invoice carries a
+total only"** printed directly over the new `Total —`, promising a total on the one invoice that has
+neither. It now reads *"Nothing itemised and no total yet — this draft is still being written"* when
+there is no total. Nineteen.
+
+Two mutations killed on the predicate (the early return, and ignoring the row's own currency). The
+two CALL SITES are covered by the browser reading above and by nothing repeatable: no e2e spec
+drives the ledger's rows, and the fixture it would need — an invoice with a null total — is one the
+API now refuses to send, so it would have to be posted by the spec itself. Recorded rather than
+papered over, the same way QA9-5's surviving mutation was.
+
+### Switching seats in the MCP browser, since this cost half an hour
+
+Both tabs share one browser profile, so two accounts cannot be open at once, and the account menu's
+**Sign out** did not end the session (the URL moved to `/login`, which is not a route, while the next
+navigation rendered the dashboard from live authenticated data). What works: delete the origin's
+IndexedDB (`firebaseLocalStorageDb` and `firebase-heartbeat-database`), **close every page on that
+origin** — a surviving page holds a connection that leaves the delete pending, and a fresh tab then
+hangs forever on the auth spinner with a clean console — then open a new page and sign in through
+the form. `apps/web/tests/.auth/*.json` is NOT a shortcut: Firebase persists in IndexedDB, so those
+files carry one `lastActivityAt` key and no session at all.

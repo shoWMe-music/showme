@@ -4,6 +4,7 @@ import { formatDay, formatMoney } from "../lib/format";
 import {
   INVOICE_STATE_STATUS,
   type InvoiceLineItem,
+  invoiceAmountText,
   invoiceDirectionLabel,
   invoiceStateLabel,
   isInvoiceOverdue,
@@ -99,7 +100,7 @@ function InvoiceDocument({ invoice }: { invoice: InvoiceDetail }) {
 
       <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <Eyebrow>Amount</Eyebrow>
-        <InvoiceLines items={lineItems} currency={currency} />
+        <InvoiceLines items={lineItems} currency={currency} hasTotal={invoice.total != null} />
         {vat && (
           <KeyValueRow
             label={vat.rate != null ? `VAT ${vat.rate}%` : "VAT"}
@@ -107,7 +108,7 @@ function InvoiceDocument({ invoice }: { invoice: InvoiceDetail }) {
             mono
           />
         )}
-        <KeyValueRow label="Total" value={formatMoney(invoice.total, currency)} mono total />
+        <KeyValueRow label="Total" value={invoiceAmountText(invoice, currency)} mono total />
       </Card>
 
       {links.length > 0 && (
@@ -135,13 +136,23 @@ function InvoiceDocument({ invoice }: { invoice: InvoiceDetail }) {
   );
 }
 
-function InvoiceLines({ items, currency }: { items: InvoiceLineItem[]; currency: string }) {
+function InvoiceLines({
+  items,
+  currency,
+  hasTotal,
+}: { items: InvoiceLineItem[]; currency: string; hasTotal: boolean }) {
   // A draft raised from the "New invoice" form carries no line items — say so
   // rather than showing an empty block above the total.
+  //
+  // "…carries a total only" was untrue of the one invoice that has NEITHER, which is
+  // the same draft QA9-12 is about: the row above now reads `Total —`, and a sentence
+  // promising a total sat directly over the dash saying there is none.
   if (items.length === 0) {
     return (
       <span className="muted" style={{ fontSize: 12 }}>
-        No line items — this invoice carries a total only.
+        {hasTotal
+          ? "No line items — this invoice carries a total only."
+          : "Nothing itemised and no total yet — this draft is still being written."}
       </span>
     );
   }

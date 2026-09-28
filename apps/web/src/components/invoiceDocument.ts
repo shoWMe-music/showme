@@ -1,5 +1,6 @@
 import type { Status } from "@showme/design-system";
 import { isCurrencyCode, majorToMinor } from "@showme/shared";
+import { formatMoney } from "../lib/format";
 
 /**
  * Pure readers for an invoice record, shared by the Bills & Invoices ledger row
@@ -68,6 +69,28 @@ export function isInvoiceOverdue(invoice: Pick<InvoiceRecord, "state" | "dueDate
   if (!invoice.dueDate) return false;
   const due = new Date(invoice.dueDate).getTime();
   return Number.isFinite(due) && due < Date.now();
+}
+
+/**
+ * THE AMOUNT, OR AN EM DASH — never `SEK 0` for a column that is NULL (QA9-12).
+ *
+ * `total` is nullable so a draft can be written before its amount is known, and
+ * `formatMoney` coerces a null to zero by design (right nearly everywhere: a total of
+ * nothing IS zero). On this field it is a claim rather than a gap — the sweep read
+ * *"— · — · — · 15 Jan 2026 · SEK 0 · Overdue"*, a row asserting an amount three columns
+ * to the right of the dash it used for a category it does not have. A genuinely zero
+ * invoice stores `"0"` and still prints `SEK 0`, which is the distinction worth keeping.
+ *
+ * The API half of this refuses to SEND an amountless invoice (`routes/invoices.ts`), so
+ * new rows can only sit in draft; the ones already written, and anything an integration
+ * posts, still reach this table.
+ */
+export function invoiceAmountText(
+  invoice: Pick<InvoiceRecord, "total" | "currency">,
+  fallbackCurrency = "EUR",
+): string {
+  if (invoice.total == null) return "—";
+  return formatMoney(invoice.total, invoice.currency ?? fallbackCurrency);
 }
 
 /** Who the invoice faces: the recipient when we issued it, the issuer when we owe it. */

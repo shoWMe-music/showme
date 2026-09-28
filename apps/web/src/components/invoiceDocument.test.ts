@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { countsAsMoneyOwed, invoiceReference, isInvoiceOverdue } from "./invoiceDocument";
+import {
+  countsAsMoneyOwed,
+  invoiceAmountText,
+  invoiceReference,
+  isInvoiceOverdue,
+} from "./invoiceDocument";
 
 /**
  * A DRAFT IS NOT MONEY (QA sweep run 7, QA7-13).
@@ -94,5 +99,36 @@ describe("invoiceReference", () => {
     });
     expect(reference).toBe("—");
     expect(reference).not.toContain("1ec9843d");
+  });
+});
+
+/**
+ * `SEK 0` IS A CLAIM; A NULL TOTAL IS A GAP (QA sweep run 9, QA9-12).
+ *
+ * The ledger read *"— · — · — · 15 Jan 2026 · SEK 0 · Overdue"* — a row asserting an
+ * amount of zero three columns to the right of the dash it used for a category it does
+ * not have. The same modal already had this rule on the VAT amount and on a line-item
+ * total; the invoice's own total was the one field it was missing.
+ */
+describe("invoiceAmountText", () => {
+  /** `Intl.NumberFormat` separates a currency with U+00A0, which no source file types. */
+  const plain = (text: string) => text.replace(/\u00a0|\u202f/g, " ");
+
+  it("prints an em dash when nobody has typed an amount yet", () => {
+    expect(invoiceAmountText({ total: null, currency: "SEK" })).toBe("—");
+  });
+
+  it("prints a genuine zero AS a zero — the distinction is the whole point", () => {
+    expect(plain(invoiceAmountText({ total: "0", currency: "SEK" }))).toBe("SEK 0");
+  });
+
+  it("formats an amount in the invoice's own currency", () => {
+    expect(plain(invoiceAmountText({ total: "777700", currency: "SEK" }))).toBe("SEK 7,777");
+  });
+
+  it("falls back to the caller's currency when the row carries none", () => {
+    // The ledger passes nothing and gets EUR, which is what it did before this existed.
+    expect(plain(invoiceAmountText({ total: "500", currency: null }, "SEK"))).toBe("SEK 5");
+    expect(plain(invoiceAmountText({ total: "500", currency: null }))).toBe("€5");
   });
 });
