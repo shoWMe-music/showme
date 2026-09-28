@@ -27,6 +27,21 @@ interface StreamEvent {
   messageId?: string;
   link?: string;
   title?: string;
+  /**
+   * "THIS GOT STALE", not "look at this" — no bell, no sound, just the refetch.
+   *
+   * Every other frame is a notification or implies one, which is why the two are
+   * fused below. A settlement recompute is neither: the figures on an open screen
+   * moved and the party owed the money should see it, but an operator iterating on
+   * a cost split would otherwise ring the co-host's speaker once per attempt
+   * (QA sweep run 10, QA10-8). The settlement moments that ARE news — pending
+   * review, finalized, paid — still write real notifications with a preference gate.
+   *
+   * Said in the payload rather than read off `type`: the type vocabulary is 65
+   * strings in another package, and the comment below is about why this hook does
+   * not branch on it.
+   */
+  quiet?: boolean;
 }
 
 const INITIAL_RETRY_MILLISECONDS = 1_000;
@@ -90,14 +105,17 @@ export function useRealtimeStream(streamUrl: string | undefined): void {
     const handleEvent = (event: StreamEvent) => {
       const client = queryClientRef.current;
       // Every event this service emits is either a notification or implies one, so
-      // the feed is always refetched; the badge updates without a poll.
-      void client.invalidateQueries({ queryKey: getGetApiV1NotificationsQueryKey() });
-      // …and for the same reason, every frame rings (ClickUp `123qy9rnk3k`).
-      // Rung HERE rather than off the refetched feed because the frame is the
-      // moment something arrived; watching the query result would also ring on a
-      // window refocus, a cache eviction and every other reason a list refetches.
-      // The module answers "is this device muted" itself and is silent if so.
-      playNotificationSound();
+      // the feed is always refetched; the badge updates without a poll. Except a
+      // `quiet` frame, which is the one kind that is neither — see the field.
+      if (!event.quiet) {
+        void client.invalidateQueries({ queryKey: getGetApiV1NotificationsQueryKey() });
+        // …and for the same reason, every frame rings (ClickUp `123qy9rnk3k`).
+        // Rung HERE rather than off the refetched feed because the frame is the
+        // moment something arrived; watching the query result would also ring on a
+        // window refocus, a cache eviction and every other reason a list refetches.
+        // The module answers "is this device muted" itself and is silent if so.
+        playNotificationSound();
+      }
       /**
        * …AND THE SCREENS THE FRAME MAKES WRONG.
        *

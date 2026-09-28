@@ -9,6 +9,7 @@ import {
   settlementPartyReach,
   settlementRecipients,
 } from "@showme/db/notify";
+import { publish } from "@showme/db/publish";
 import {
   type EscalatorTier,
   type RevenueShare,
@@ -1348,6 +1349,58 @@ function sameBreakdown(left: StoredBreakdown | null, right: StoredBreakdown): bo
 
 export async function settlementRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+
+  /**
+   * A SECOND OPERATOR'S OPEN SCREEN LEARNS THE FIGURES MOVED (QA sweep run 10, QA10-8).
+   *
+   * Measured: with the co-host's Settlement tab open, the host recomputed at a 25/75 split
+   * and the co-host went on reading a residual of SEK 15,750 while the database held
+   * 23,625 — *"the party who is owed money watched their own figure change by SEK 7,875 and
+   * saw nothing"* — until a hard reload.
+   *
+   * The client half was already right. `isEventQueryKey` invalidates every mounted query
+   * under `/api/v1/events/:id` for any frame carrying an `eventId`, so one frame is all it
+   * takes. What was missing is the frame: `POST …/settlement/compute` wrote an audit row
+   * and returned, and it was not alone — SEVEN of this plugin's twelve mutating routes
+   * emitted nothing at all (compute, the per-settlement PATCH, the three settlement-line
+   * routes, the curation PUT).
+   *
+   * HENCE A HOOK AND NOT SEVEN `publish` CALLS. A rule kept in seven handlers is a rule the
+   * eighth will not keep, and this is the file whose own client-side twin exists because a
+   * hand-maintained list of twenty-four query keys was missing the one that mattered
+   * (QA6-3). `onResponse` runs after the reply is sent, so a failure here cannot reach the
+   * caller — which is also why it swallows its own errors, like every other notify in this
+   * app.
+   *
+   * QUIET, and that is the decision rather than an implementation detail. `handleEvent` on
+   * the client rings and refetches the bell for *every* frame, on the stated premise that
+   * "every event this service emits is either a notification or implies one". A recompute
+   * breaks that premise: it is freshness, not news, and an operator iterating on a split
+   * would ring the co-host's speaker once per attempt. The settlement moments that ARE news
+   * — pending review, finalized, paid — write real notifications with a preference gate
+   * behind them, and still do. `quiet` is said in the payload rather than inferred from the
+   * type, because the type vocabulary is 65 strings in another package and keying behaviour
+   * off it is the mistake `useRealtimeStream`'s own comment warns against.
+   */
+  app.addHook("onResponse", async (request, reply) => {
+    if (request.method === "GET" || request.method === "HEAD") return;
+    if (reply.statusCode >= 300) return;
+    const eventId = (request.params as { id?: string } | undefined)?.id;
+    if (!eventId) return;
+    try {
+      const { database } = request.server;
+      const recipients = await eventParticipantRecipients(
+        database,
+        eventId,
+        request.principal?.userId ?? null,
+      );
+      for (const userId of recipients) {
+        await publish(database, userId, { type: "settlement.changed", eventId, quiet: true });
+      }
+    } catch (cause) {
+      request.log.warn({ err: cause, eventId }, "settlement realtime nudge failed");
+    }
+  });
 
   // Compute: build the engine input from the DB spine, reconcile, persist one
   // settlement per participant + the transfers. Idempotent (money-adjacent).

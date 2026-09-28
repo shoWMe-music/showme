@@ -3,6 +3,8 @@ import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { convertMinorUnits } from "@showme/shared";
 import { and, asc, eq, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
@@ -5866,5 +5868,185 @@ describe("settlement — a deal that entitles nobody", () => {
     expect(response.statusCode).toBe(409);
     expect(response.json().error.message).toContain("Advance into the void");
     expect(response.json().error.message).toContain("names nobody it was paid to");
+  });
+});
+
+/**
+ * A SECOND OPERATOR'S OPEN SCREEN LEARNS THE FIGURES MOVED — QA sweep run 10, QA10-8.
+ *
+ * The co-host watched their own residual change by SEK 7,875 and saw nothing until a hard
+ * reload, because `POST …/settlement/compute` emitted no frame at all. The fix is a hook on
+ * the whole plugin rather than a `publish` in the handler — seven of its twelve mutating
+ * routes were silent — so what is asserted here is the HOOK's rules, not one route's.
+ *
+ * HOW IT IS OBSERVED. `pg_notify` has no readable effect inside the session that issues it,
+ * and the test harness's second connection is a Drizzle instance rather than a raw client
+ * that could `LISTEN`. So a proxy records `execute` on its way through, and the channel and
+ * payload are decoded the way `publish.test.ts` decodes them. It reuses the SAME container —
+ * a second `startTestDatabase()` for four assertions is not a trade this machine wins.
+ */
+describe("settlement realtime — the quiet frame", () => {
+  let spiedApp: FastifyInstance;
+  let executed: SQL[] = [];
+
+  beforeAll(async () => {
+    const spiedDatabase = new Proxy(harness.db, {
+      get(target, property, _receiver) {
+        if (property === "execute") {
+          return async (query: SQL) => {
+            executed.push(query);
+            return (target as unknown as { execute: (q: SQL) => Promise<unknown> }).execute(query);
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as typeof harness.db;
+
+    spiedApp = buildTestApp({ database: spiedDatabase, tokenVerifier: fakeVerifier }, [
+      settlementRoutes,
+    ]);
+    await spiedApp.ready();
+  });
+
+  afterAll(async () => {
+    await spiedApp?.close();
+  });
+
+  /**
+   * Wait for the nudge, because it is deliberately NOT part of the response.
+   *
+   * The hook runs `onResponse` — after the reply is sent, so a slow or failing notify can
+   * never reach the caller — which means `inject` resolving says nothing about whether the
+   * frame has been published yet. Polling for it is the honest shape; asserting straight
+   * after the inject passed only by accident of timing, and here it did not even do that.
+   */
+  const waitForFrames = async (count: number) => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (framesPublished().length >= count) return framesPublished();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return framesPublished();
+  };
+
+  /** Every realtime frame this request published, as `{ channel, payload }`. */
+  const framesPublished = () =>
+    executed
+      .map((query) => new PgDialect().sqlToQuery(query))
+      .filter((compiled) => compiled.sql.includes("pg_notify"))
+      .map((compiled) => ({
+        channel: compiled.params[0] as string,
+        payload: JSON.parse(compiled.params[1] as string) as Record<string, unknown>,
+      }));
+
+  async function seedCoPromotion(prefix: string) {
+    const { db } = harness;
+    const lead = await seedMemberWithSet(
+      `${prefix}-lead`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const co = await seedMemberWithSet(
+      `${prefix}-co`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: lead.profileId,
+        title: "Realtime co-promotion",
+        baseCurrency: "EUR",
+        createdBy: lead.userId,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+
+    await db.insert(schema.eventParticipants).values([
+      {
+        eventId: event.id,
+        profileId: lead.profileId,
+        role: "host" as const,
+        permissionSetId: lead.permissionSetId,
+        status: "confirmed" as const,
+      },
+      {
+        eventId: event.id,
+        profileId: co.profileId,
+        role: "co_host" as const,
+        permissionSetId: co.permissionSetId,
+        status: "confirmed" as const,
+      },
+    ]);
+    return { event, lead, co };
+  }
+
+  it("nudges the OTHER operator on a recompute, quietly, and never the actor", async () => {
+    const { event, lead, co } = await seedCoPromotion("rt-quiet");
+    executed = [];
+
+    const response = await spiedApp.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(lead.userId),
+      payload: {},
+    });
+    expect(response.statusCode).toBe(200);
+
+    const frames = await waitForFrames(1);
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.channel).toBe(`showme_user_${co.userId}`);
+    expect(frames[0]?.payload).toEqual({
+      type: "settlement.changed",
+      eventId: event.id,
+      quiet: true,
+    });
+    /*
+     * `quiet` is the whole point and is asserted on its own as well as in the shape above:
+     * without it the client rings and refetches the bell for every frame, so an operator
+     * iterating on a cost split would ring the co-host's speaker once per attempt.
+     */
+    expect(frames[0]?.payload.quiet).toBe(true);
+    // The actor is reading the answer in the response. Telling them their own screen is
+    // stale is the one message that can never be useful.
+    expect(frames.map((frame) => frame.channel)).not.toContain(`showme_user_${lead.userId}`);
+  });
+
+  it("says nothing on a READ — a GET makes nobody's screen stale", async () => {
+    const { event, lead } = await seedCoPromotion("rt-read");
+    executed = [];
+
+    const response = await spiedApp.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/settlements`,
+      headers: auth(lead.userId),
+    });
+    expect(response.statusCode).toBe(200);
+    // An ABSENT frame is the weakest evidence there is, so give the hook the same window
+    // the positive case needed before concluding it published nothing.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(framesPublished()).toEqual([]);
+  });
+
+  it("says nothing when the request was REFUSED", async () => {
+    // A negative test needs a request valid in every way except the one it tests: this
+    // body and route are fine, and the caller is simply not on the event.
+    const { event } = await seedCoPromotion("rt-refused");
+    const stranger = await seedMemberWithSet(
+      "rt-stranger",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    executed = [];
+
+    const response = await spiedApp.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(stranger.userId),
+      payload: {},
+    });
+    expect(response.statusCode).toBeGreaterThanOrEqual(400);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(framesPublished()).toEqual([]);
   });
 });
