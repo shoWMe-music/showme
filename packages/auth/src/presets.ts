@@ -1,4 +1,4 @@
-import type { Capability } from "@showme/shared";
+import { type Capability, confirmsOwnDealLines } from "@showme/shared";
 
 /**
  * Profile-membership roles (mirrors the DB `profile_member_role` enum). The role
@@ -439,11 +439,12 @@ const DEAL_SIGNATORY_FLOOR: readonly Capability[] = ["agreement.confirm"];
  * `agreement.confirm` outright, so no host reaches this dead end by any path the
  * app has. Adding them would be widening authority on speculation.
  */
-const DEAL_SCOPED_CONFIRM_EVENT_ROLES: ReadonlySet<EventRole> = new Set([
-  "crew",
-  "crew_lead",
-  "co_host",
-]);
+/*
+ * The set itself now lives in `@showme/shared`'s `confirmsOwnDealLines`, because the WEB asks the
+ * same question to decide whether to draw the *Confirm your line* button and its copy was one entry
+ * behind: it had crew and crew_lead and not `co_host`, so a co-host named as a deal party was offered
+ * no control while this rule answered 200 to the same account (QA sweep run 10, QA10-3).
+ */
 
 /**
  * The DEAL-scoped floor (decisions #4's floor, resolved per agreement instead of
@@ -461,8 +462,8 @@ export function dealPartyBaselineCapabilities(
   role: EventRole,
   roleInDeal: DealPartyRole,
 ): readonly Capability[] {
-  if (roleInDeal === "observer") return [];
-  if (!DEAL_SCOPED_CONFIRM_EVENT_ROLES.has(role)) return [];
+  // Including the observer rule, which is part of the same question and was stated twice.
+  if (!confirmsOwnDealLines(role, roleInDeal)) return [];
   return DEAL_SIGNATORY_FLOOR;
 }
 

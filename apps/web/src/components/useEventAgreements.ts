@@ -16,6 +16,7 @@ import { useToast } from "@showme/design-system";
 import {
   type CreateDealPayload,
   type DealDraft,
+  confirmsOwnDealLines,
   createDealPayload,
   dealDeletability,
 } from "@showme/shared";
@@ -110,8 +111,17 @@ export interface DealActions {
   canCancel: boolean;
 }
 
-/** The event roles whose authority to sign is DEAL-scoped, mirroring `@showme/auth`. */
-const DEAL_SCOPED_CONFIRM_ROLES = new Set(["crew", "crew_lead"]);
+/*
+ * The event roles whose authority to sign is DEAL-scoped used to be restated here as
+ * `new Set(["crew","crew_lead"])` — "mirroring `@showme/auth`", and one entry behind it (QA sweep run
+ * 10, QA10-3). The server's set has carried `co_host` all along, so a co-host named as the payer of a
+ * room hire was offered no *Confirm your line* control while `POST /deals/:did/confirm` answered 200
+ * to the same account, and `POST /settlement/compute` refuses while the agreement is unsigned — so
+ * that night could not be settled from the browser at all.
+ *
+ * `confirmsOwnDealLines` in `@showme/shared` is now the one definition and `@showme/auth` reads it
+ * too. Mirroring is the problem; a mirror is a copy that drifts.
+ */
 
 /**
  * Which lifecycle moves are available on ONE deal, for THIS caller.
@@ -144,7 +154,10 @@ export function dealActionsFor(
   );
   const signsAsDealParty = unsignedOwnLines.some((party) => {
     const participant = roster.find((member) => member.id === party.participantId);
-    return participant != null && DEAL_SCOPED_CONFIRM_ROLES.has(participant.role);
+    // The server's own rule, not a mirror of it (QA10-3). It carries the observer clause too, which
+    // the filter above also applies — harmless, and the filter is what makes "unsigned own lines"
+    // mean what it says.
+    return participant != null && confirmsOwnDealLines(participant.role, party.roleInDeal);
   });
   const frozen = deal.agreementStatus === "confirmed" || deal.agreementStatus === "signed";
   // The rule itself is in `@showme/shared` and the route asks the same function — the ruling says

@@ -54,3 +54,47 @@ export function humanizeEnumValue(raw: string): string {
 export function eventParticipantRoleLabel(role: string): string {
   return EVENT_PARTICIPANT_ROLE_LABELS[role] ?? humanizeEnumValue(role);
 }
+
+/**
+ * DOES THIS PARTY SIGN ITS OWN LINE ON ONE AGREEMENT, without holding event-scoped
+ * `agreement.confirm`? (QA sweep run 10, QA10-3.)
+ *
+ * The owner's rule for crew reads across word for word: *"they can confirm an agreement if it is with
+ * them."* A co-promoter standing behind a party line on ONE agreement is exactly that, and it stays
+ * deal-scoped for the same reason — a co-host on *Standard for the role* still holds no event-scoped
+ * `agreement.confirm`, so they still do not decide whether the show happens (`hold/confirm`).
+ *
+ * **IT LIVES HERE BECAUSE BOTH SIDES ASK IT, AND THE CLIENT'S COPY WAS ONE ENTRY BEHIND.** The
+ * server's set has carried `co_host` all along; `useEventAgreements.ts` restated it as
+ * `new Set(["crew","crew_lead"])`, so a co-host named as the payer of a room hire was offered no
+ * *Confirm your line* control while `POST /deals/:did/confirm` answered **200** to the same account.
+ * The Dashboard then told them *"Sign your line on QA10 Rental Night"* and linked to a card with no
+ * button on it, and `POST /settlement/compute` refuses while the agreement is unsigned — so from the
+ * browser that night could not be settled at all. `CLAUDE.md` already records this shape as *"an
+ * unsignable agreement that froze a whole event's settlement"*.
+ *
+ * `useEventAgreements.ts`'s own comment stated the intent the duplicate broke: the button is offered
+ * *"to exactly the callers `POST /deals/:did/confirm` will accept — no dead affordance, and no hidden
+ * one either."* One definition is what makes that true rather than aspirational.
+ *
+ * Takes plain strings because the two callers type their roles differently — `@showme/auth` has
+ * `EventRole` and `DealPartyRole`, the web has whatever the API sent — and an unrecognised value
+ * answers `false`, which is the safe direction: no button rather than a dead one.
+ *
+ * `host` is deliberately NOT here, and that is measured rather than assumed: `POST /events` writes
+ * the host's participant row with `operator_full`, which carries `agreement.confirm` outright, so no
+ * host reaches this dead end by any path the app has. A `performer` and a `support` act are absent
+ * for the same kind of reason — `PERFORMER_FLOOR` carries `agreement.confirm`, so they never need it.
+ */
+const DEAL_SCOPED_CONFIRM_EVENT_ROLES: ReadonlySet<string> = new Set([
+  "crew",
+  "crew_lead",
+  "co_host",
+]);
+
+export function confirmsOwnDealLines(eventRole: string, roleInDeal: string): boolean {
+  // An observer is on the deal to READ it. Nothing about being able to see an agreement says
+  // anything about being able to sign it (decisions #4).
+  if (roleInDeal === "observer") return false;
+  return DEAL_SCOPED_CONFIRM_EVENT_ROLES.has(eventRole);
+}

@@ -28,6 +28,94 @@ function deal(overrides: Partial<Deal> = {}): Deal {
 const manager: AgreementAuthority = { canCompose: true, canManage: true, canConfirm: true };
 const bystander: AgreementAuthority = { canCompose: false, canManage: false, canConfirm: false };
 
+/**
+ * WHO IS OFFERED *CONFIRM YOUR LINE* (QA sweep run 10, QA10-3).
+ *
+ * The rule is `confirmsOwnDealLines` in `@showme/shared`, which `@showme/auth` also reads — these
+ * tests are the client end of it. The defect they exist for: this file restated the server's set as
+ * `["crew","crew_lead"]`, the server's has carried `co_host` all along, and so a co-host named as the
+ * payer of a room hire got no button while the confirm route answered 200 to the same account. The
+ * settlement then refuses to compute while the agreement is unsigned, which is how a missing button
+ * freezes a night.
+ */
+describe("dealActionsFor — signing your own line (QA10-3)", () => {
+  const sent = { agreementStatus: "sent", status: "draft" };
+  /** Nobody holding event-scoped `agreement.confirm` — the seat the deal-scoped rule is for. */
+  const noEventConfirm: AgreementAuthority = {
+    canCompose: false,
+    canManage: false,
+    canConfirm: false,
+  };
+  const withOwnLine = (participantId: string, roleInDeal = "payer") => ({
+    ...sent,
+    parties: [{ participantId, roleInDeal, isYours: true, confirmedAt: null }],
+  });
+
+  it("offers a CO-HOST named as a party the confirm control", () => {
+    const actions = dealActionsFor(
+      deal(withOwnLine("part-co")),
+      noEventConfirm,
+      [{ id: "part-co", role: "co_host" }] as Parameters<typeof dealActionsFor>[2],
+      false,
+    );
+    expect(actions.canConfirm).toBe(true);
+  });
+
+  it("still offers it to crew and a crew lead", () => {
+    for (const role of ["crew", "crew_lead"]) {
+      const actions = dealActionsFor(
+        deal(withOwnLine("part-crew")),
+        noEventConfirm,
+        [{ id: "part-crew", role }] as Parameters<typeof dealActionsFor>[2],
+        false,
+      );
+      expect(actions.canConfirm).toBe(true);
+    }
+  });
+
+  it("withholds it from an OBSERVER, whatever their event role", () => {
+    // Being able to read an agreement says nothing about being able to sign it (#4). The observer
+    // clause is inside the shared rule, so both sides apply it.
+    const actions = dealActionsFor(
+      deal(withOwnLine("part-co", "observer")),
+      noEventConfirm,
+      [{ id: "part-co", role: "co_host" }] as Parameters<typeof dealActionsFor>[2],
+      false,
+    );
+    expect(actions.canConfirm).toBe(false);
+  });
+
+  it("withholds it on a DRAFT, because the terms have not been put to anybody", () => {
+    const actions = dealActionsFor(
+      deal({ ...withOwnLine("part-co"), agreementStatus: "draft" }),
+      noEventConfirm,
+      [{ id: "part-co", role: "co_host" }] as Parameters<typeof dealActionsFor>[2],
+      false,
+    );
+    expect(actions.canConfirm).toBe(false);
+  });
+
+  it("withholds it once that party has already signed", () => {
+    const actions = dealActionsFor(
+      deal({
+        ...sent,
+        parties: [
+          {
+            participantId: "part-co",
+            roleInDeal: "payer",
+            isYours: true,
+            confirmedAt: "2026-09-28T00:00:00Z",
+          },
+        ],
+      }),
+      noEventConfirm,
+      [{ id: "part-co", role: "co_host" }] as Parameters<typeof dealActionsFor>[2],
+      false,
+    );
+    expect(actions.canConfirm).toBe(false);
+  });
+});
+
 describe("dealActionsFor — ending an agreement (decisions §25.7.2)", () => {
   it("offers Delete on a draft when the night has no settlement", () => {
     const actions = dealActionsFor(deal(), manager, [], false);
