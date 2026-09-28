@@ -39,9 +39,11 @@ export function BudgetBreakEvenChart({ breakEven }: BudgetBreakEvenChartProps) {
            capacity" — the one reader who cannot see the chart got the opposite of
            what it shows. Noticed while proving QA4-5. */
         aria-label={
-          chart.hasBreakEven
+          chart.coverage === "on_chart"
             ? `Revenue passes total cost at ${breakEven.breakEvenLabel} of ${breakEven.capacityLabel} capacity`
-            : `Revenue never passes total cost inside ${breakEven.capacityLabel} capacity`
+            : chart.coverage === "covered_before_doors"
+              ? "Revenue already covers total cost before a ticket is sold"
+              : `Revenue never passes total cost inside ${breakEven.capacityLabel} capacity`
         }
       >
         {/* The money scale. Without it the lines showed a shape and no figures —
@@ -141,9 +143,17 @@ export function BudgetBreakEvenChart({ breakEven }: BudgetBreakEvenChartProps) {
             break-even is still stated rather than pinned to an edge it does not
             sit on. */}
         <span style={{ color: "#F4A046" }}>
-          {chart.hasBreakEven
+          {/*
+            THREE OUTCOMES, not two (QA9-6). `hasBreakEven` still decides the MARKER above —
+            there is nothing to pin at zero — but a night whose standing revenue already covers
+            its costs is the opposite of one that never breaks even, and this sentence used to
+            call them the same thing beside a tile correctly reading 0.
+          */}
+          {chart.coverage === "on_chart"
             ? `Revenue passes total cost at ${breakEven.breakEvenLabel} of ${breakEven.capacityLabel} capacity.`
-            : `Revenue never passes total cost inside ${breakEven.capacityLabel} capacity.`}
+            : chart.coverage === "covered_before_doors"
+              ? "Revenue already covers total cost before a ticket is sold."
+              : `Revenue never passes total cost inside ${breakEven.capacityLabel} capacity.`}
         </span>
         <span>{breakEven.capacityLabel} cap</span>
       </div>

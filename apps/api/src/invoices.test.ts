@@ -258,8 +258,149 @@ describe("payout accounts (decisions #5)", () => {
       method: "POST",
       url: `/api/v1/profiles/${issuer.profileId}/payout-accounts`,
       headers: auth("pay-viewer"),
-      payload: { type: "swish", identifier: "123" },
+      /*
+       * A body that would otherwise SUCCEED. Fastify validates before `preHandler`, so a
+       * malformed payload here answers 400 and the 403 this test exists to prove never
+       * happens — the assertion would pass while measuring the wrong refusal. The payload
+       * used to be `identifier: "123"`, which was only valid while nothing checked a swish
+       * number's shape (QA9-17).
+       */
+      payload: { type: "swish", identifier: "0701234567" },
     });
     expect(response.statusCode).toBe(403);
+  });
+
+  /**
+   * AN IDENTIFIER THAT MATCHES ITS OWN METHOD, AND A CURRENCY THAT EXISTS (QA sweep run 9, QA9-17).
+   *
+   * QA8-10 closed "no number at all"; this closes "a number that is not one". The sweep found
+   * `{"type":"iban","identifier":"not-an-iban","currency":"XYZ"}` stored as 201 — an IBAN payout
+   * account holding prose, denominated in a currency that does not exist. `payout_accounts` has
+   * no caller in either front end yet, which is the argument FOR closing it now: the first caller
+   * will be written against whatever this accepts.
+   *
+   * The shape checks are deliberately loose (no mod-97, no Luhn) — see the route. So these tests
+   * assert that PROSE is refused and that a real number in each of the three methods is taken,
+   * rather than pinning a strictness the route does not claim.
+   */
+  it("refuses an identifier that is not the method's kind of number, and an invented currency", async () => {
+    const issuer = await seedProfile("pay-shape");
+    const post = (payload: Record<string, unknown>) =>
+      app.inject({
+        method: "POST",
+        url: `/api/v1/profiles/${issuer.profileId}/payout-accounts`,
+        headers: auth("pay-shape"),
+        payload,
+      });
+
+    // The sweep's exact body.
+    expect(
+      (await post({ type: "iban", identifier: "not-an-iban", currency: "XYZ" })).statusCode,
+    ).toBe(400);
+    // Each half on its own, so neither test passes because of the other's defect.
+    expect((await post({ type: "iban", identifier: "not-an-iban" })).statusCode).toBe(400);
+    expect(
+      (await post({ type: "iban", identifier: "SE4550000000058398257466", currency: "XYZ" }))
+        .statusCode,
+    ).toBe(400);
+    // A bankgiro number is not an IBAN and a phone number is not a bankgiro.
+    expect((await post({ type: "iban", identifier: "5051-6905" })).statusCode).toBe(400);
+    expect((await post({ type: "bankgiro", identifier: "0701234567" })).statusCode).toBe(400);
+    expect((await post({ type: "swish", identifier: "SE4550000000058398257466" })).statusCode).toBe(
+      400,
+    );
+
+    expect(
+      await app
+        .inject({
+          method: "GET",
+          url: `/api/v1/profiles/${issuer.profileId}/payout-accounts`,
+          headers: auth("pay-shape"),
+        })
+        .then((response) => response.json()),
+    ).toHaveLength(0);
+  });
+
+  it("takes a real number in each of the three methods, however it is spaced", async () => {
+    const issuer = await seedProfile("pay-real");
+    const post = (payload: Record<string, unknown>) =>
+      app.inject({
+        method: "POST",
+        url: `/api/v1/profiles/${issuer.profileId}/payout-accounts`,
+        headers: auth("pay-real"),
+        payload,
+      });
+
+    // An IBAN as a person writes it, in groups of four. Spacing is stripped, not rejected —
+    // refusing a legitimate account is the worse failure of the two.
+    expect(
+      (await post({ type: "iban", identifier: "SE45 5000 0000 0583 9825 7466" })).statusCode,
+    ).toBe(201);
+    // The dash prints a bankgiro number; it does not constitute one.
+    expect((await post({ type: "bankgiro", identifier: "50516905" })).statusCode).toBe(201);
+    expect((await post({ type: "swish", identifier: "+46701234567" })).statusCode).toBe(201);
+    // Every currency in the platform's own list, and no currency at all, both stand.
+    expect(
+      (await post({ type: "swish", identifier: "0701234567", currency: "NOK" })).statusCode,
+    ).toBe(201);
+  });
+
+  /**
+   * THE SAME RULE ON THE WAY IN AND ON THE WAY BACK (QA9-17).
+   *
+   * `PATCH` takes a `.partial()` of the same object, so the pair `(type, identifier)` is checked
+   * only when both arrive together — an identifier sent alone cannot be checked without reading
+   * the stored row. What must NOT happen is an account created correctly and then edited into
+   * prose, which is exactly what sending the pair does.
+   */
+  it("refuses an edit that turns a real IBAN into prose", async () => {
+    const issuer = await seedProfile("pay-edit");
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/profiles/${issuer.profileId}/payout-accounts`,
+      headers: auth("pay-edit"),
+      payload: { type: "iban", identifier: "SE4550000000058398257466" },
+    });
+    expect(created.statusCode).toBe(201);
+    const accountId = created.json().id;
+
+    const patch = (payload: Record<string, unknown>) =>
+      app.inject({
+        method: "PATCH",
+        // The edit route is FLAT (`/payout-accounts/:pid`) while the create route is nested
+        // under the profile — a nested PATCH answers 404, which reads exactly like "no such
+        // account" rather than "no such route".
+        url: `/api/v1/payout-accounts/${accountId}`,
+        headers: auth("pay-edit"),
+        payload,
+      });
+
+    expect((await patch({ type: "iban", identifier: "not-an-iban" })).statusCode).toBe(400);
+    expect((await patch({ currency: "XYZ" })).statusCode).toBe(400);
+    /*
+     * THE HALF-EDIT, which is the case a schema cannot reach: the body carries no `type`, so the
+     * method it must be judged against is the STORED one. A surviving mutation found this — the
+     * schema's `type === undefined` guard could be deleted with every test still green, because
+     * the request that guard exists for was never sent.
+     */
+    expect((await patch({ identifier: "not-an-iban" })).statusCode).toBe(400);
+    // The same half-edit with a real number of the stored method lands.
+    expect((await patch({ identifier: "SE35 5000 0000 0549 1000 3123" })).statusCode).toBe(200);
+    // …and a half-edit that changes the METHOD is judged against the new one, not the old.
+    expect((await patch({ type: "swish", identifier: "0701234567" })).statusCode).toBe(200);
+    expect((await patch({ identifier: "SE3550000000054910003123" })).statusCode).toBe(400);
+    expect((await patch({ type: "iban", identifier: "SE4550000000058398257466" })).statusCode).toBe(
+      200,
+    );
+    // And a real edit still lands.
+    expect((await patch({ holderName: "Acme AB", currency: "EUR" })).statusCode).toBe(200);
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/profiles/${issuer.profileId}/payout-accounts`,
+      headers: auth("pay-edit"),
+    });
+    expect(list.json()[0].identifier).toBe("SE4550000000058398257466");
+    expect(list.json()[0].holderName).toBe("Acme AB");
   });
 });

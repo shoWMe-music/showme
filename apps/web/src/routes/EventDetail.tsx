@@ -307,7 +307,19 @@ export function EventDetail() {
   const hostParty =
     roster.find((party) => party.role === "host") ??
     roster.find((party) => party.role === "co_host");
-  const performerName = performerParty ? participantName(performerParty) : event.title;
+  /*
+   * NULL when no act is on the bill — never the event's own title (QA sweep run 9, QA9-15).
+   *
+   * The header's first chip is the slot the ACT occupies on every other event, so filling it
+   * with `event.title` invented one: a night created with no PERFORMER PROFILE linked read
+   * `QN QA9 Regression Night · TH The Lantern Hall`, two inches above an Event Information panel
+   * correctly saying `Performer —` and a Details tab saying `No performers added yet`. One screen,
+   * three answers, and the most prominent was the fabricated one.
+   *
+   * The chip is dropped rather than shown empty: a night with no act yet is an ordinary state —
+   * a hold, a date being held open — and the two panels below already say so in words.
+   */
+  const performerName = performerParty ? participantName(performerParty) : null;
   const venueLabel = event.venueName ?? "Venue";
   const operatorName = hostParty ? participantName(hostParty) : "—";
 
@@ -482,13 +494,19 @@ export function EventDetail() {
               flexWrap: "wrap",
             }}
           >
-            <IdentityChip
-              initials={initials(performerName)}
-              label={performerName}
-              avatarUrl={performerParty?.avatarUrl}
-              tone="brand"
-            />
-            <span style={{ color: "var(--dim)" }}>·</span>
+            {performerName !== null && (
+              <>
+                <IdentityChip
+                  initials={initials(performerName)}
+                  label={performerName}
+                  avatarUrl={performerParty?.avatarUrl}
+                  tone="brand"
+                />
+                {/* The separator belongs to the chip before it, or an act-less event opens with
+                    a stray middot. */}
+                <span style={{ color: "var(--dim)" }}>·</span>
+              </>
+            )}
             <IdentityChip initials={initials(venueLabel)} label={venueLabel} tone="amber" />
             <span style={{ color: "var(--dim)" }}>·</span>
             {/* The one date on this screen a reader wants to LEAVE for: it is

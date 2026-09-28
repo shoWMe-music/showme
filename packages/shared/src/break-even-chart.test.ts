@@ -304,3 +304,97 @@ describe("the wedges between the two lines", () => {
     expect(chart.profitAreaPoints?.split(" ")).toHaveLength(4);
   });
 });
+
+/**
+ * "NONE NEEDED" IS NOT "NEVER" (QA sweep run 9, QA9-6).
+ *
+ * The chart's caption and its `aria-label` branched on `hasBreakEven`, which answers *"is there
+ * a crossing to draw"*. A sponsor-funded night whose standing revenue already covers its costs
+ * has no crossing to draw AND breaks even before the doors open, so the caption called it
+ * *"Revenue never passes total cost"* beside a KPI tile correctly reading **0** — and the
+ * `aria-label` said it too, so the reader who cannot see the chart got the same wrong sentence.
+ *
+ * `hasBreakEven` is unchanged and still decides the MARKER; `coverage` is what a sentence reads.
+ */
+describe("why there is no marker — three cases, not two", () => {
+  const chartFor = (inputs: Parameters<typeof computeBudgetProjection>[0], capacity: number) =>
+    computeBreakEvenChart({ projection: computeBudgetProjection(inputs), capacity });
+
+  it("draws the crossing when it is inside the room", () => {
+    const chart = chartFor(
+      {
+        ticketTiers: [{ unitAmount: major(100), quantity: 500 }],
+        averageBarSpend: 0n,
+        capacity: 1000,
+        otherRevenue: 0n,
+        costs: [major(20000)],
+      },
+      1000,
+    );
+    expect(chart.coverage).toBe("on_chart");
+    expect(chart.hasBreakEven).toBe(true);
+  });
+
+  it("says the costs are already covered when standing revenue pays them", () => {
+    // The sweep's own shape: SEK 10,000 of sponsorship against SEK 5,000 of production, and no
+    // ticket sold yet. The night is SEK 5,000 up.
+    const chart = chartFor(
+      {
+        ticketTiers: [],
+        averageBarSpend: 0n,
+        capacity: 400,
+        otherRevenue: major(10000),
+        costs: [major(5000)],
+      },
+      400,
+    );
+    expect(chart.coverage).toBe("covered_before_doors");
+    // No marker, and that part was always right — there is nothing to pin at zero.
+    expect(chart.hasBreakEven).toBe(false);
+  });
+
+  it("does not call a crossing BEYOND the room 'already covered'", () => {
+    /*
+     * The case the second half of the predicate actually guards, and a surviving mutation is
+     * what found it: `breakEvenReachable` is true whenever there IS a crossing, including one
+     * past the capacity being drawn — so reading it alone would describe a night needing more
+     * tickets than the room holds as already paid for. Run 1 measured exactly this shape (427
+     * of a 400 room), and it is a real answer an operator needs.
+     */
+    const chart = chartFor(
+      {
+        ticketTiers: [{ unitAmount: major(100), quantity: 200 }],
+        averageBarSpend: 0n,
+        capacity: 200,
+        otherRevenue: 0n,
+        costs: [major(50000)], // 500 tickets of headroom in a 200-seat house
+      },
+      200,
+    );
+    expect(chart.hasBreakEven).toBe(false);
+    expect(chart.coverage).toBe("beyond_this_room");
+  });
+
+  it("still says NEVER when there is no crossing to be had", () => {
+    /*
+     * Both halves of the predicate matter here: an unreachable break-even also reports
+     * `breakEvenTickets === 0`, so reading `breakEvenReachable` alone would call this "covered"
+     * — which is the opposite of true. A 100% split with a processing fee never breaks even
+     * (QA8-3), and this is that shape.
+     */
+    const chart = chartFor(
+      {
+        ticketTiers: [{ unitAmount: major(100), quantity: 100 }],
+        averageBarSpend: 0n,
+        capacity: 100,
+        otherRevenue: 0n,
+        paymentProcessing: { percentBasisPoints: 150, flatPerTicket: 0n },
+        costs: [major(3000), major(7000)],
+        attendanceDependentCosts: [{ plannedMinor: major(7000), splitBasisPoints: 10_000 }],
+      },
+      100,
+    );
+    expect(chart.coverage).toBe("beyond_this_room");
+    expect(chart.hasBreakEven).toBe(false);
+  });
+});

@@ -89,6 +89,30 @@ export interface BreakEvenChart {
    * marker is hidden rather than pinned to an edge it does not sit on.
    */
   readonly hasBreakEven: boolean;
+  /**
+   * WHY there is no marker — which is not one fact but three (QA sweep run 9, QA9-6).
+   *
+   * `hasBreakEven` answers *"is there a crossing to draw"*, and it is right about that. The
+   * CAPTION borrowed it and said *"Revenue never passes total cost"*, which conflates a night
+   * already covered before the doors open with one that cannot be covered at all. Measured on a
+   * sponsor-funded book: `PROFIT / LOSS SEK 5,000 · BREAK-EVEN TICKETS 0` beside *"Revenue never
+   * passes total cost inside 400 capacity"* — and the SVG's `aria-label` carried the same
+   * sentence, so the reader who cannot see the chart got it too.
+   *
+   * The engine already draws this distinction and says so in as many words
+   * (`budget-planning.ts`: *"`uncovered <= 0` is a true zero … the one case where
+   * `breakEvenTickets === 0` means 'none needed' rather than 'never'"*), and exports
+   * `breakEvenReachable` for it. This is that field reaching the one surface that contradicted
+   * it.
+   *
+   *  - `on_chart` — the crossing is inside the room and drawn.
+   *  - `covered_before_doors` — standing revenue already covers the entered costs. Zero tickets
+   *    needed, which is the opposite of never.
+   *  - `beyond_this_room` — no crossing inside the capacity being drawn, whether because it
+   *    lies past the room or because there is none at all. One sentence serves both: the
+   *    operator's question is *"can this room do it"*.
+   */
+  readonly coverage: "on_chart" | "covered_before_doors" | "beyond_this_room";
   /** Tickets at the crossing, rounded — what the footer labels the marker with. */
   readonly breakEvenTickets: number;
   /** The x-axis end label: the capacity actually being drawn against. */
@@ -213,6 +237,23 @@ export function computeBreakEvenChart(inputs: BreakEvenChartInputs): BreakEvenCh
     guideTop: PADDING_TOP,
     guideBottom: HEIGHT - PADDING_BOTTOM,
     hasBreakEven: breakEvenAt > 0 && breakEvenAt < capacity,
+    coverage:
+      breakEvenAt > 0 && breakEvenAt < capacity
+        ? "on_chart"
+        : /*
+           * BOTH HALVES, and a surviving mutation is what established which case the second
+           * one guards — this comment first claimed the wrong one.
+           *
+           * `breakEvenReachable` is `breakEvenTickets > 0 || uncovered <= 0`, so it is ALSO
+           * true when the crossing lies beyond the room: reading it alone would describe a
+           * night needing 500 tickets in a 400-seat house as "already covered". `=== 0` is
+           * what pins this branch to the zero-tickets case. An unreachable break-even
+           * reports zero tickets too, but `breakEvenReachable` is false there, so that case
+           * never reaches this test.
+           */
+          projection.breakEvenReachable && projection.breakEvenTickets === 0
+          ? "covered_before_doors"
+          : "beyond_this_room",
     // The KPI band's figure, not a second rounding of the same crossing: two
     // numbers for one thing on one screen is how a screen loses an operator's
     // trust. `breakEvenTickets` rounds a part ticket UP, because half a ticket
