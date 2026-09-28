@@ -207,6 +207,177 @@ export async function resolveDealAuthority(
   };
 }
 
+/**
+ * THE SAME ANSWER AS `resolveDealAuthority`, FOR MANY EVENTS AT ONCE (QA7-18).
+ *
+ * A cross-event question — *"which deals are waiting for my signature?"* — cannot call the
+ * per-event resolver in a loop without becoming an N+1, and it must not carry a second copy
+ * of the delegation rule, which is the subtle half of this module: both edges per performer
+ * (the participation flagged delegated AND a live representation covering the venue's
+ * country), and `status = 'active'` being only a prefilter because a representation working
+ * out an agreed notice period is still active while one whose moment has passed is dead —
+ * A-19, the caveat a second implementation would lose first.
+ *
+ * So: four queries, whatever the number of events, which is the standard `routes/activity.ts`
+ * sets for a cross-event read (*"Two extra queries, whatever the number of events; no
+ * N+1"*). The per-event resolver above is unchanged and remains the one every deal route
+ * uses — this is the same rules over a wider `WHERE`, not a fork of them.
+ */
+export async function resolveDealAuthorityForEvents(
+  request: FastifyRequest,
+  eventIds: readonly string[],
+  capabilitiesByEvent: Map<string, Set<Capability>>,
+): Promise<Map<string, DealAuthority>> {
+  const principal = request.principal;
+  if (!principal) throw new Error("principal missing after authentication");
+  const byEvent = new Map<string, DealAuthority>();
+  if (eventIds.length === 0) return byEvent;
+  const { database } = request.server;
+  const events = [...eventIds];
+
+  // 1. The caller's OWN standing on each event.
+  const mine = await database
+    .select({
+      id: schema.eventParticipants.id,
+      eventId: schema.eventParticipants.eventId,
+      profileId: schema.eventParticipants.profileId,
+      role: schema.eventParticipants.role,
+    })
+    .from(schema.eventParticipants)
+    .innerJoin(
+      schema.profileMembers,
+      eq(schema.profileMembers.profileId, schema.eventParticipants.profileId),
+    )
+    .where(
+      and(
+        inArray(schema.eventParticipants.eventId, events),
+        eq(schema.profileMembers.userId, principal.userId),
+        eq(schema.profileMembers.status, "active"),
+        ne(schema.eventParticipants.status, "removed"),
+      ),
+    );
+
+  const ownByEvent = new Map<string, { id: string; role: string }[]>();
+  const agentProfilesByEvent = new Map<string, string[]>();
+  for (const row of mine) {
+    const own = ownByEvent.get(row.eventId) ?? [];
+    own.push({ id: row.id, role: row.role });
+    ownByEvent.set(row.eventId, own);
+    if (row.role === "agent" && row.profileId) {
+      const agents = agentProfilesByEvent.get(row.eventId) ?? [];
+      agents.push(row.profileId);
+      agentProfilesByEvent.set(row.eventId, agents);
+    }
+  }
+
+  /*
+   * Only the events the caller reaches AS AGENT need the delegation graph at all, and on
+   * most readers' dashboards that is none of them — so the three queries below are skipped
+   * entirely rather than run over an empty set.
+   */
+  const agentEvents = [...agentProfilesByEvent.keys()];
+  const delegatedByEvent = new Map<string, string[]>();
+  if (agentEvents.length > 0) {
+    const allAgentProfiles = [...new Set([...agentProfilesByEvent.values()].flat())];
+
+    // 2. Every non-removed participation on those events, for its delegation flag.
+    const participants = await database
+      .select({
+        id: schema.eventParticipants.id,
+        eventId: schema.eventParticipants.eventId,
+        profileId: schema.eventParticipants.profileId,
+        details: schema.eventParticipants.details,
+      })
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          inArray(schema.eventParticipants.eventId, agentEvents),
+          ne(schema.eventParticipants.status, "removed"),
+        ),
+      );
+    const delegated = participants
+      .map((participant) => ({
+        ...participant,
+        agentProfileId: delegatedToAgentProfileId(participant.details),
+      }))
+      .filter(
+        (participant) =>
+          participant.profileId != null &&
+          participant.agentProfileId != null &&
+          (agentProfilesByEvent.get(participant.eventId) ?? []).includes(
+            participant.agentProfileId,
+          ),
+      );
+
+    if (delegated.length > 0) {
+      // 3. The representations behind those flags — `isRepresentationActiveAt` decides,
+      //    never the column (A-19).
+      const now = new Date();
+      const representations = (
+        await database
+          .select()
+          .from(schema.representations)
+          .where(
+            and(
+              inArray(schema.representations.agentProfileId, allAgentProfiles),
+              inArray(
+                schema.representations.performerProfileId,
+                delegated
+                  .map((participant) => participant.profileId)
+                  .filter((profileId): profileId is string => profileId !== null),
+              ),
+              eq(schema.representations.status, "active"),
+            ),
+          )
+      ).filter((representation) => isRepresentationActiveAt(representation, now));
+
+      // 4. The venue country per event — the territory ceiling, which can shrink after
+      //    an assignment was made.
+      const venues = await database
+        .select({
+          eventId: schema.events.id,
+          country: schema.profileLocations.country,
+        })
+        .from(schema.events)
+        .leftJoin(
+          schema.profileLocations,
+          eq(schema.profileLocations.profileId, schema.events.venueProfileId),
+        )
+        .where(inArray(schema.events.id, agentEvents));
+      const countryByEvent = new Map(venues.map((row) => [row.eventId, row.country ?? null]));
+
+      for (const participant of delegated) {
+        const representation = representations.find(
+          (row) =>
+            row.agentProfileId === participant.agentProfileId &&
+            row.performerProfileId === participant.profileId,
+        );
+        if (!representation) continue;
+        if (!countryInRegion(countryByEvent.get(participant.eventId) ?? null, representation)) {
+          continue;
+        }
+        const forEvent = delegatedByEvent.get(participant.eventId) ?? [];
+        forEvent.push(participant.id);
+        delegatedByEvent.set(participant.eventId, forEvent);
+      }
+    }
+  }
+
+  for (const eventId of events) {
+    const own = ownByEvent.get(eventId) ?? [];
+    const ownParticipantIds = own.map((row) => row.id);
+    const representedParticipantIds = delegatedByEvent.get(eventId) ?? [];
+    byEvent.set(eventId, {
+      ownParticipantIds,
+      representedParticipantIds,
+      viewerParticipantIds: [...ownParticipantIds, ...representedParticipantIds],
+      actsOnlyAsAgent: own.length > 0 && own.every((row) => row.role === "agent"),
+      isManagingOperator: capabilitiesByEvent.get(eventId)?.has("budget.view") ?? false,
+    });
+  }
+  return byEvent;
+}
+
 /** Load a deal's party lines (unscoped — the serializer applies party-scoping). */
 export async function loadDealParties(
   request: FastifyRequest,

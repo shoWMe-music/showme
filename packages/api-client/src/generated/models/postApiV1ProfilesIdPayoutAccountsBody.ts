@@ -8,7 +8,8 @@ import type { PostApiV1ProfilesIdPayoutAccountsBodyType } from './postApiV1Profi
 
 export type PostApiV1ProfilesIdPayoutAccountsBody = {
   type: PostApiV1ProfilesIdPayoutAccountsBodyType;
-  identifier?: string;
+  /** @minLength 1 */
+  identifier: string;
   currency?: string;
   holderName?: string;
   bankName?: string;

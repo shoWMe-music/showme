@@ -4221,6 +4221,67 @@
         }
       }
     },
+    "/api/v1/deals/awaiting-signature": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "dealId": {
+                            "type": "string"
+                          },
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "eventTitle": {
+                            "type": "string"
+                          },
+                          "eventDate": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "dealName": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "signedCount": {
+                            "type": "number"
+                          },
+                          "signatoryCount": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "dealId",
+                          "eventId",
+                          "eventTitle",
+                          "eventDate",
+                          "dealName",
+                          "signedCount",
+                          "signatoryCount"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["items"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/deals/{did}": {
       "get": {
         "parameters": [
@@ -16853,7 +16914,15 @@
                         "properties": {
                           "category": {
                             "type": "string",
-                            "enum": ["bookings", "holds", "deals", "settlements", "events", "tasks"]
+                            "enum": [
+                              "bookings",
+                              "holds",
+                              "deals",
+                              "settlements",
+                              "events",
+                              "messages",
+                              "tasks"
+                            ]
                           },
                           "label": {
                             "type": "string"
@@ -16906,7 +16975,15 @@
                       "properties": {
                         "category": {
                           "type": "string",
-                          "enum": ["bookings", "holds", "deals", "settlements", "events", "tasks"]
+                          "enum": [
+                            "bookings",
+                            "holds",
+                            "deals",
+                            "settlements",
+                            "events",
+                            "messages",
+                            "tasks"
+                          ]
                         },
                         "inApp": {
                           "type": "boolean"
@@ -16942,7 +17019,15 @@
                         "properties": {
                           "category": {
                             "type": "string",
-                            "enum": ["bookings", "holds", "deals", "settlements", "events", "tasks"]
+                            "enum": [
+                              "bookings",
+                              "holds",
+                              "deals",
+                              "settlements",
+                              "events",
+                              "messages",
+                              "tasks"
+                            ]
                           },
                           "label": {
                             "type": "string"
@@ -25082,7 +25167,8 @@
                     "enum": ["bankgiro", "iban", "swish"]
                   },
                   "identifier": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                   },
                   "currency": {
                     "type": "string"
@@ -25097,7 +25183,7 @@
                     "type": "boolean"
                   }
                 },
-                "required": ["type"],
+                "required": ["type", "identifier"],
                 "additionalProperties": false
               }
             }
@@ -25183,7 +25269,8 @@
                     "enum": ["bankgiro", "iban", "swish"]
                   },
                   "identifier": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                   },
                   "currency": {
                     "type": "string"

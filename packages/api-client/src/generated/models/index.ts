@@ -47,6 +47,8 @@ export * from './getApiV1BookingRequestsParams';
 export * from './getApiV1BookingRequestsStatus';
 export * from './getApiV1Calendar200Item';
 export * from './getApiV1CalendarParams';
+export * from './getApiV1DealsAwaitingSignature200';
+export * from './getApiV1DealsAwaitingSignature200ItemsItem';
 export * from './getApiV1DealsDid200';
 export * from './getApiV1DealsDid200PartiesItem';
 export * from './getApiV1DealsDid200PartiesItemShare';

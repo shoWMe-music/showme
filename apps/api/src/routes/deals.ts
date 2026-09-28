@@ -2,13 +2,14 @@ import {
   type DealPartyRole,
   type EventRole,
   dealPartyBaselineCapabilities,
+  effectiveEventCapabilitiesForEvents,
   liveEventDelegations,
 } from "@showme/auth";
-import { schema } from "@showme/db";
+import { type Database, schema } from "@showme/db";
 import { dealPartyRecipients, notifyUsers } from "@showme/db/notify";
 import { type PrepaidTerms, prepaidAmountOf } from "@showme/settlement";
 import type { Capability } from "@showme/shared";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -21,6 +22,7 @@ import {
   loadDealParties,
   requireDealAccess,
   resolveDealAuthority,
+  resolveDealAuthorityForEvents,
 } from "../lib/deal-authority";
 import {
   agreementIsFrozen,
@@ -35,6 +37,28 @@ import { isDealVisible, serializeDeal, serializeDealUnredacted } from "../serial
 
 const EventParams = z.object({ id: z.string().uuid() });
 const DealParams = z.object({ did: z.string().uuid() });
+
+/**
+ * One deal that is waiting for the caller's signature — the dashboard's row (QA7-18).
+ *
+ * Carries the night and the count, not the terms: it exists to route somebody to the Deals
+ * tab, and every figure on the deal itself is already party-scoped there. `signedCount` and
+ * `signatoryCount` are the same pair the Budget Planner's sentence uses, so the dashboard
+ * and the planner say the same thing about the same deal.
+ */
+const AwaitingSignatureResponse = z.object({
+  items: z.array(
+    z.object({
+      dealId: z.string(),
+      eventId: z.string(),
+      eventTitle: z.string(),
+      eventDate: z.string().nullable(),
+      dealName: z.string().nullable(),
+      signedCount: z.number(),
+      signatoryCount: z.number(),
+    }),
+  ),
+});
 
 /**
  * Read straight off the Postgres enum, so this surface can never again outlive the
@@ -587,6 +611,142 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
   // Read one deal — authorize via its event, then party-scope. A caller who is not
   // a party (directly or through a representation) gets a 404: visibility is not an
   // existence leak, and being the host is not itself the grant (decisions #4).
+  /**
+   * WHICH DEALS ARE WAITING FOR MY SIGNATURE — across every event (QA sweep run 7, QA7-18).
+   *
+   * The dashboard's "Needs attention" card states its own rule: *"what is left … is what
+   * somebody ELSE is waiting on"*. A deal at `sent` with the reader's own line unsigned is
+   * exactly that, and there was no way to ask the question: deals are reachable only per
+   * event (`/events/:id/deals`) or by id, so the screen whose job is routing people to the
+   * Confirm button said *"You're all caught up"*.
+   *
+   * THE PREDICATE IS THE CONFIRM ROUTE'S, term for term, because a row the reader cannot act
+   * on would nag forever — and QA6-1 was precisely a party who could not sign:
+   *
+   *   · a line the caller stands behind (`viewerParticipantIds`, so an agent sees the lines
+   *     of the performers they represent — that is the signature that unblocks the deal)
+   *   · `confirmedAt IS NULL` — not already signed
+   *   · `roleInDeal !== "observer"` — observers watch, they do not sign
+   *   · the agreement is not `draft` (`assertAgreementSignable` refuses only that)
+   *   · `maySignOwnLines`, the same function the confirm route calls
+   *
+   * Registered BEFORE `/deals/:did` for readability only — find-my-way prefers a static
+   * segment over a parameter, so the order does not decide it.
+   */
+  app.get(
+    "/deals/awaiting-signature",
+    { schema: { response: { 200: AwaitingSignatureResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      const profileIds = principal.memberships.map((membership) => membership.profileId);
+      if (profileIds.length === 0) return { items: [] };
+
+      // The events the caller stands on at all — the same reachability `routes/activity.ts`
+      // starts from, and the bound for everything below.
+      const standing = await database
+        .select({ eventId: schema.eventParticipants.eventId })
+        .from(schema.eventParticipants)
+        .where(
+          and(
+            inArray(schema.eventParticipants.profileId, profileIds),
+            ne(schema.eventParticipants.status, "removed"),
+          ),
+        );
+      const reachable = [...new Set(standing.map((row) => row.eventId))];
+      if (reachable.length === 0) return { items: [] };
+
+      const capabilitiesByEvent = await effectiveEventCapabilitiesForEvents(
+        database,
+        principal,
+        reachable,
+      );
+      const authorityByEvent = await resolveDealAuthorityForEvents(
+        request,
+        reachable,
+        capabilitiesByEvent,
+      );
+
+      /*
+       * `cancelled` is not a deal anybody signs, and `draft` is the reader's own unfinished
+       * work rather than somebody waiting — the same distinction that moved tasks off the
+       * attention card. Both are excluded in SQL rather than filtered after.
+       */
+      const deals = await database
+        .select({
+          id: schema.deals.id,
+          eventId: schema.deals.eventId,
+          name: schema.deals.name,
+          eventTitle: schema.events.title,
+          eventDate: schema.events.eventDate,
+        })
+        .from(schema.deals)
+        .innerJoin(schema.events, eq(schema.events.id, schema.deals.eventId))
+        .where(
+          and(
+            inArray(schema.deals.eventId, reachable),
+            ne(schema.deals.agreementStatus, "draft"),
+            ne(schema.deals.status, "cancelled"),
+          ),
+        );
+      if (deals.length === 0) return { items: [] };
+
+      const parties = await database
+        .select()
+        .from(schema.dealParties)
+        .where(
+          inArray(
+            schema.dealParties.dealId,
+            deals.map((deal) => deal.id),
+          ),
+        );
+      const partiesByDeal = new Map<string, DealPartyRow[]>();
+      for (const party of parties) {
+        const forDeal = partiesByDeal.get(party.dealId) ?? [];
+        forDeal.push(party);
+        partiesByDeal.set(party.dealId, forDeal);
+      }
+
+      const items: {
+        dealId: string;
+        eventId: string;
+        eventTitle: string;
+        eventDate: string | null;
+        dealName: string | null;
+        signedCount: number;
+        signatoryCount: number;
+      }[] = [];
+      for (const deal of deals) {
+        const authority = authorityByEvent.get(deal.eventId);
+        if (!authority) continue;
+        const dealParties = partiesByDeal.get(deal.id) ?? [];
+        const mine = dealParties.filter(
+          (party) =>
+            authority.viewerParticipantIds.includes(party.participantId) &&
+            party.confirmedAt == null &&
+            party.roleInDeal !== "observer",
+        );
+        if (mine.length === 0) continue;
+        const capabilities = capabilitiesByEvent.get(deal.eventId) ?? new Set<Capability>();
+        if (!(await maySignOwnLines(database, capabilities, mine))) continue;
+
+        const signatories = dealParties.filter((party) => party.roleInDeal !== "observer");
+        items.push({
+          dealId: deal.id,
+          eventId: deal.eventId,
+          eventTitle: deal.eventTitle,
+          eventDate: deal.eventDate,
+          dealName: deal.name,
+          signedCount: signatories.filter((party) => party.confirmedAt != null).length,
+          signatoryCount: signatories.length,
+        });
+      }
+      return { items };
+    },
+  );
+
   app.get(
     "/deals/:did",
     { schema: { params: DealParams, response: { 200: DealResponse } } },
@@ -1191,7 +1351,13 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
  * are not named on — and never a line of somebody else's on a deal they are.
  */
 async function maySignOwnLines(
-  tx: Transaction,
+  /*
+   * A transaction OR the pool: the confirm route asks inside its write, and
+   * `GET /deals/awaiting-signature` asks outside one. Same question, same answer, one
+   * implementation — a second copy of this is how a dashboard starts offering a row the
+   * confirm route then refuses (QA6-1 was exactly a party who could not sign).
+   */
+  tx: Transaction | Database,
   capabilities: Set<Capability>,
   mine: DealPartyRow[],
 ): Promise<boolean> {

@@ -55,6 +55,7 @@ import type {
   GetApiV1BookingRequestsParams,
   GetApiV1Calendar200Item,
   GetApiV1CalendarParams,
+  GetApiV1DealsAwaitingSignature200,
   GetApiV1DealsDid200,
   GetApiV1Events200,
   GetApiV1EventsDateConflicts200,
@@ -2469,7 +2470,93 @@ const {mutation: mutationOptions} = options ?
 
       return useMutation(mutationOptions, queryClient);
     }
-    export const getApiV1DealsDid = (
+    export const getApiV1DealsAwaitingSignature = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1DealsAwaitingSignature200>(
+      {url: `/api/v1/deals/awaiting-signature`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1DealsAwaitingSignatureQueryKey = () => {
+    return [
+    `/api/v1/deals/awaiting-signature`
+    ] as const;
+    }
+
+    
+export const getGetApiV1DealsAwaitingSignatureQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1DealsAwaitingSignatureQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>> = ({ signal }) => getApiV1DealsAwaitingSignature(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1DealsAwaitingSignatureQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>>
+export type GetApiV1DealsAwaitingSignatureQueryError = unknown
+
+
+export function useGetApiV1DealsAwaitingSignature<TData = Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1DealsAwaitingSignature<TData = Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1DealsAwaitingSignature<TData = Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1DealsAwaitingSignature<TData = Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1DealsAwaitingSignature>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1DealsAwaitingSignatureQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const getApiV1DealsDid = (
     did: string,
  signal?: AbortSignal
 ) => {

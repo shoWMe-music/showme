@@ -493,6 +493,214 @@ const confirm = (dealId: string, uid: string) =>
 const sendAgreement = (dealId: string, uid: string) =>
   app.inject({ method: "POST", url: `/api/v1/deals/${dealId}/send`, headers: auth(uid) });
 
+/**
+ * WHICH DEALS ARE WAITING FOR MY SIGNATURE — across every event (QA sweep run 7, QA7-18).
+ *
+ * The dashboard's "Needs attention" card states its own rule: what belongs there is *"what
+ * somebody ELSE is waiting on"*. A deal at `sent` with the reader's own line unsigned is
+ * exactly that, and there was no way to ask the question — deals were reachable only per
+ * event or by id, so the screen whose job is routing people to Confirm said "You're all
+ * caught up".
+ *
+ * Every assertion below is a term of the CONFIRM route's own predicate, because the two must
+ * agree: a row the reader cannot act on would nag forever, and QA6-1 was precisely a party
+ * who could not sign.
+ */
+describe("deals — what is waiting for my signature", () => {
+  const awaiting = (uid: string) =>
+    app.inject({ method: "GET", url: "/api/v1/deals/awaiting-signature", headers: auth(uid) });
+
+  it("names a sent deal whose own line is unsigned, with the count the planner shows", async () => {
+    const deal = await seedSplitDeal("await-basic");
+
+    const mine = await awaiting(deal.aUid);
+    expect(mine.statusCode).toBe(200);
+    expect(mine.json().items).toHaveLength(1);
+    const row = mine.json().items[0];
+    expect(row.dealId).toBe(deal.dealId);
+    expect(row.eventId).toBe(deal.event.id);
+    // The same pair the Budget Planner's sentence uses, so the two screens cannot
+    // disagree about the same deal (QA7-9).
+    expect(row.signedCount).toBe(0);
+    expect(row.signatoryCount).toBe(3);
+  });
+
+  it("drops the deal from a party's list the moment they sign, and not before", async () => {
+    const deal = await seedSplitDeal("await-signs");
+
+    expect((await awaiting(deal.aUid)).json().items).toHaveLength(1);
+    expect((await confirm(deal.dealId, deal.aUid)).statusCode).toBe(200);
+    expect((await awaiting(deal.aUid)).json().items).toHaveLength(0);
+
+    // …and the OTHER party is still waiting, with the count moved on.
+    const stillB = (await awaiting(deal.bUid)).json().items;
+    expect(stillB).toHaveLength(1);
+    expect(stillB[0].signedCount).toBe(1);
+  });
+
+  it("says nothing about a DRAFT agreement — that is your own unfinished work", async () => {
+    // The distinction the attention card is built on, and the same one that moved tasks
+    // off it: somebody else waiting, versus something you have not finished.
+    const deal = await seedSplitDeal("await-draft", { send: false });
+
+    expect((await awaiting(deal.aUid)).json().items).toHaveLength(0);
+    expect((await sendAgreement(deal.dealId, deal.opUid)).statusCode).toBe(200);
+    expect((await awaiting(deal.aUid)).json().items).toHaveLength(1);
+  });
+
+  it("gives an AGENT their act's line and NO other deal on the same bill", async () => {
+    /*
+     * Two halves of #14 in one reading, on a fixture that carries both deals.
+     *
+     * A delegated performer hands their `agreement.confirm` to their agent, so the agent
+     * signing the performer's OWN line is what moves the deal (A-03) — resolve only the
+     * caller's own participations and the one account that can act is the one account never
+     * told. And the agent's `event_participants(role=agent)` row is reachability, never a
+     * blanket event grant: on the OTHER act's deal, on the same night, they are an outsider.
+     */
+    const deal = await seedRepresentedAgent("await-agent");
+
+    const agentSees = (await awaiting(deal.agentUid)).json().items;
+    expect(agentSees.map((row: { dealId: string }) => row.dealId)).toEqual([deal.clientDealId]);
+    expect(agentSees.map((row: { dealId: string }) => row.dealId)).not.toContain(deal.otherDealId);
+  });
+
+  it("shows an undelegated act its own deal, and shows a DELEGATED act nothing", async () => {
+    /*
+     * The two halves of A-03, and the second one is the point of asking
+     * `maySignOwnLines` at all rather than just "is this line unsigned".
+     *
+     * `other` represents themselves: their line is theirs to sign, and the list says so.
+     * `client` has delegated to an agent, and `POST /deals/:did/confirm` answers their own
+     * confirm with **403** — *"the action moved to the agent"*. A row on their dashboard
+     * would be an instruction they cannot carry out, which is QA6-1's shape exactly: the
+     * list must refuse what the confirm route refuses.
+     *
+     * The agent's side is asserted in the test above, so between the two, the deal is
+     * offered to precisely the account that can act on it.
+     */
+    const deal = await seedRepresentedAgent("await-scoped");
+
+    expect(
+      (await awaiting(deal.otherUid)).json().items.map((r: { dealId: string }) => r.dealId),
+    ).toEqual([deal.otherDealId]);
+    expect((await awaiting(deal.clientUid)).json().items).toHaveLength(0);
+  });
+
+  it("never asks an OBSERVER to sign — they watch the deal, they do not sign it", async () => {
+    /*
+     * The one term of the predicate no existing fixture exercised, and a mutation that made
+     * observers signatories survived until this test existed. `decisions.md` resolved
+     * co-operator transparency as an `observer` party for targeted sharing, so this is the
+     * role a co-promoter is given to READ a deal — offering them a Confirm they would be
+     * refused is the opposite of what that role is for.
+     */
+    const operator = await seedMemberWithSet(
+      "await-obs-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "await-obs-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const watcher = await seedMemberWithSet(
+      "await-obs-watch",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...performer, role: "performer" },
+        { ...watcher, role: "co_host" },
+      ],
+      "await-obs-op",
+    );
+    const partOf = (profileId: string) =>
+      participants.find((row) => row.profileId === profileId)?.id as string;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("await-obs-op"),
+      payload: {
+        type: "performance",
+        structure: "guarantee",
+        name: "Watched guarantee",
+        currency: "SEK",
+        guaranteeAmount: "400000",
+        parties: [
+          { participantId: partOf(operator.profileId), roleInDeal: "payer" },
+          { participantId: partOf(performer.profileId), roleInDeal: "payee" },
+          { participantId: partOf(watcher.profileId), roleInDeal: "observer" },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect((await sendAgreement(created.json().id, "await-obs-op")).statusCode).toBe(200);
+
+    // The signatories are asked…
+    expect((await awaiting("await-obs-perf")).json().items).toHaveLength(1);
+    // …and the observer is not, though their line is every bit as unsigned.
+    expect((await awaiting("await-obs-watch")).json().items).toHaveLength(0);
+    // And the count they would have been counted in excludes them: payer + payee.
+    expect((await awaiting("await-obs-perf")).json().items[0].signatoryCount).toBe(2);
+  });
+
+  it("drops an agent whose representation no longer covers the venue's country", async () => {
+    /*
+     * The territory ceiling (#14, and #17: the platform is territory-scoped). A region can
+     * SHRINK after an assignment was made, and the per-event resolver has always honoured
+     * that — a mutation removing the check from the batched one survived until this test,
+     * which is exactly the risk a second copy of the delegation rule would have carried.
+     *
+     * Seeded IN region and then shrunk, because that is the only way this state is reachable:
+     * `assignAgentToEvent` refuses an out-of-region event outright, so a fixture that starts
+     * out of region never gets an assignment to test against — the first attempt at this test
+     * failed on the fixture's own `expect(assigned).toBe(true)`, which is the code stating
+     * that fact.
+     *
+     * The venue is the host's own profile and its country is SE. The agent reaches the event,
+     * the delegation flag on the act's participation is still there, and the representation
+     * now covers NO only — so the agent stands behind nobody here.
+     */
+    const deal = await seedRepresentedAgent("await-region");
+    await harness.db
+      .update(schema.representations)
+      .set({ region: ["NO"] })
+      .where(eq(schema.representations.id, deal.representationId));
+
+    expect((await awaiting(deal.agentUid)).json().items).toHaveLength(0);
+    // The act itself is unaffected — this is the agent's reach shrinking, not the deal's.
+    expect((await awaiting(deal.otherUid)).json().items).toHaveLength(1);
+  });
+
+  it("is empty for an account standing on no event at all", async () => {
+    const nobody = await seedMemberWithSet(
+      "await-nobody",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    expect(nobody.profileId).toBeTruthy();
+    expect((await awaiting("await-nobody")).json().items).toHaveLength(0);
+  });
+
+  it("reaches across events rather than one at a time", async () => {
+    // The whole reason the route exists: `/events/:id/deals` could already answer this for
+    // one event, and a dashboard cannot ask it per event without an N+1.
+    const first = await seedSplitDeal("await-multi-1");
+    const second = await seedSplitDeal("await-multi-2");
+
+    const firstRows = (await awaiting(first.aUid)).json().items;
+    const secondRows = (await awaiting(second.aUid)).json().items;
+    expect(firstRows.map((row: { eventId: string }) => row.eventId)).toEqual([first.event.id]);
+    expect(secondRows.map((row: { eventId: string }) => row.eventId)).toEqual([second.event.id]);
+  });
+});
+
 describe("deals — per-party confirm (decisions #1)", () => {
   it("confirms one party at a time and freezes the snapshot only when all have confirmed", async () => {
     const deal = await seedSplitDeal("dc");

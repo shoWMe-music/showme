@@ -8,6 +8,7 @@ import type { PatchApiV1PayoutAccountsPidBodyType } from './patchApiV1PayoutAcco
 
 export type PatchApiV1PayoutAccountsPidBody = {
   type?: PatchApiV1PayoutAccountsPidBodyType;
+  /** @minLength 1 */
   identifier?: string;
   currency?: string;
   holderName?: string;

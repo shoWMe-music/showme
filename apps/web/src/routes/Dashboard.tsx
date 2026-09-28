@@ -1,5 +1,6 @@
 import {
   useGetApiV1BookingRequests,
+  useGetApiV1DealsAwaitingSignature,
   useGetApiV1Events,
   useGetApiV1InsightsProfilesIdSummary,
   useGetApiV1Settlements,
@@ -161,6 +162,15 @@ export function Dashboard() {
    * appear. Six are asked for so the card can say whether there are more.
    */
   const tasks = useGetApiV1Tasks({ limit: 6, completed: "false", order: "priority" });
+  /**
+   * The deals waiting for this reader's signature, across every event (QA sweep run 7, QA7-18).
+   *
+   * There is no other way to ask: deals are reachable per event or by id, so the screen whose
+   * whole job is routing people to the Confirm button could not see one. The route's predicate
+   * is the confirm route's own, `maySignOwnLines` included — so every row here is a row the
+   * reader can actually act on, which is what QA6-1 made non-negotiable.
+   */
+  const awaitingSignature = useGetApiV1DealsAwaitingSignature();
 
   const greetingName = displayNameForGreeting(user?.displayName, session?.kind, session?.email);
 
@@ -210,6 +220,33 @@ export function Dashboard() {
       onAction: () => navigate({ to: "/requests" }),
     });
   }
+  /*
+   * A DEAL WAITING FOR YOUR SIGNATURE IS THE PUREST CASE OF THE RULE BELOW (QA7-18).
+   *
+   * Every other party is waiting on this reader, the event's Deals tab offers **Confirm your
+   * line**, and this card — the one that exists to route them there — used to say "You're all
+   * caught up". The count comes from the server and is the same pair the Budget Planner's own
+   * sentence uses, so the two screens cannot disagree about one deal.
+   */
+  for (const deal of awaitingSignature.data?.items ?? []) {
+    const signed =
+      deal.signatoryCount > 0 ? `${deal.signedCount} of ${deal.signatoryCount} signed` : "unsigned";
+    attention.push({
+      id: `deal-${deal.dealId}`,
+      icon: "file",
+      color: "#C8A24A",
+      title: `Sign your line on ${deal.eventTitle}`,
+      detail: `${deal.dealName ?? "Agreement"} · ${signed} · ${formatDay(deal.eventDate)}`,
+      action: "Open",
+      onAction: () =>
+        navigate({
+          to: "/events/$eventId",
+          params: { eventId: deal.eventId },
+          search: { tab: "deals" },
+        }),
+    });
+  }
+
   /*
    * TASKS ARE NO LONGER FOLDED IN HERE. They have a section of their own below
    * (`123qy9rnk27`), and listing the same five jobs twice on one screen is noise

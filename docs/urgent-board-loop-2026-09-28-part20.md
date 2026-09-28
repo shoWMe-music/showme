@@ -75,7 +75,38 @@ now have one, and all six mutations are red:
 
 **9 tests added, 72 in `deals.test.ts`** (up from 63).
 
-## What is left on QA7-18
+## Built: the dashboard row, and both halves proven
+
+`pnpm --filter @showme/api-client sync-spec && generate` — worth noting `sync-spec` dumps the spec
+from a **script** (`dump-openapi.ts`) rather than from the running server, so it needed no restart
+and would have been safe mid-sweep after all. Then one `AttentionItem` per row, linking to that
+event's Deals tab.
+
+### Proven on the running stack, from both seats
+
+The seeded state is unusually good for this: `…d1` has two of three lines signed and the
+**operator's** unsigned, and `…d2` on a second event has one of two.
+
+| reader | before | after |
+|---|---|---|
+| `operator@` dashboard | *"You have **4** things that need attention today"* | *"**5** things"*, with **"Sign your line on Marlo Vance — Album Release · Album Release — Door Split · 2 of 3 signed · 15 Oct 2026 · Open"** |
+| `GET /deals/awaiting-signature` as `operator@` | — | **two** deals, on **two different events** — the case the route exists for |
+| `performer.a@` | — | **empty**, and correctly so: they are delegated, so the confirm route 403s them and their agent signs |
+| `agent@` dashboard | *"You're all caught up"* | **"Sign your line on Marlo Vance — Album Release · 0 of 3 signed"** |
+
+The agent's row is the one that justifies the batched resolver: it appears because
+`resolveDealAuthorityForEvents` resolves the delegation — both edges per performer, and the
+representation live at `now` — so the account that can actually sign is the account that is told.
+To reach it the deal was **reopened** (`POST /deals/:did/reopen`), which returns every line to
+unsigned; the seed was restored afterwards.
+
+The count in the detail line is the server's `signedCount` / `signatoryCount` — the same pair the
+Budget Planner's sentence uses, so the two screens cannot disagree about one deal.
+
+## What is left on QA7-18 — nothing
+
+### The original list, for the record
+
 
 1. Restart the API, `pnpm --filter @showme/api-client sync-spec && generate` for the hook.
 2. One `AttentionItem` per row on `Dashboard.tsx`, linking to that event's Deals tab, with the

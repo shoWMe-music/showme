@@ -15,5 +15,6 @@ export const PutApiV1NotificationsPreferences200PreferencesItemCategory = {
   deals: 'deals',
   settlements: 'settlements',
   events: 'events',
+  messages: 'messages',
   tasks: 'tasks',
 } as const;
