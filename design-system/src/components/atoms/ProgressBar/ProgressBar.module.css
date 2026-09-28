@@ -18,5 +18,7 @@
   border-radius: 999px;
   background: linear-gradient(90deg, #EE5746, #F4A046);
   transform-origin: left;
-  animation: sm-grow var(--duration-slow) var(--ease-out) both;
+  /* `smGrow` lives in styles/tokens.css — the file the marketing site imports too. It was declared
+     twice under two names; this is the one that survives. */
+  animation: smGrow var(--duration-slow) var(--ease-out) both;
 }

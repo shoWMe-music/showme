@@ -31,7 +31,26 @@ export function useModalMotion(open: boolean) {
       timeline.fromTo(
         panel.current,
         { autoAlpha: 0, y: reducedMotion ? 0 : 12, scale: reducedMotion ? 1 : 0.96 },
-        { autoAlpha: 1, y: 0, scale: 1, duration: reducedMotion ? 0 : DURATION.slow, ease: EASE.out },
+        {
+          autoAlpha: 1,
+          y: 0,
+          scale: 1,
+          duration: reducedMotion ? 0 : DURATION.slow,
+          ease: EASE.out,
+          /*
+           * NO TRANSFORM LEFT AT REST. The tween lands on an identity matrix, and an identity
+           * transform is still a transform: it makes the panel a containing block, so anything
+           * `position: fixed` rendered INSIDE it anchors to the panel instead of the viewport.
+           * Nothing hits it today — the Select popover portals to `<body>` and escapes — which is
+           * exactly why it is worth clearing before something does.
+           *
+           * `useViewMotion` and `useCollapseMotion` both already say this in their own words
+           * ("clearProps strips the transform on completion so the wrapper does not stay a
+           * containing block"; "Nothing here translates"). This is the third hook agreeing with
+           * them rather than the one exception (the animation pass, 2026-09-28).
+           */
+          clearProps: "transform",
+        },
         reducedMotion ? 0 : "-=0.1",
       );
       return () => { timeline.kill(); };

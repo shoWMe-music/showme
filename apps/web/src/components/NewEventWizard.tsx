@@ -4,7 +4,7 @@ import {
   useGetApiV1ProfilesId,
   usePostApiV1Events,
 } from "@showme/api-client";
-import { Icon, type IconName, Select, useToast } from "@showme/design-system";
+import { Icon, type IconName, Select, useModalMotion, useToast } from "@showme/design-system";
 import {
   DEAL_STRUCTURE_OPTIONS,
   type DealDraft,
@@ -578,7 +578,26 @@ export function NewEventWizard({
     return () => document.removeEventListener("keydown", onKeyDown);
   });
 
-  if (!open) return null;
+  /*
+   * THE SAME MOTION EVERY OTHER DIALOG HAS (the animation pass, 2026-09-28).
+   *
+   * This wizard draws its own overlay and panel rather than using the shared `Modal` shell — the
+   * close button below already records that, having had to grow its own touch target for the same
+   * reason. The cost nobody had written down is motion: every other dialog in the product fades its
+   * scrim and rises its panel (`useModalMotion`), and the app's most prominent one — Create New
+   * Event — simply appeared, and vanished, with no transition at all.
+   *
+   * `useModalMotion` is the shell's motion without the shell, so the two cannot drift: it owns the
+   * exit tween as well, which is why the guard below is `rendered` rather than `open`. While the
+   * panel is fading out, `open` is already false — so every effect above that keys on `open` stays
+   * off, exactly as it does inside the real `Modal`.
+   *
+   * Porting the whole wizard onto `Modal` is the better end state and is a much larger change: it
+   * owns its own header, stepper and footer. This buys the motion now without pretending to be that.
+   */
+  const motion = useModalMotion(open);
+
+  if (!motion.rendered) return null;
   // Rendered through a portal to <body>: the app's `.content__page` sets
   // `will-change: transform`, which makes it a containing block for
   // position:fixed — so an in-tree overlay would clip to the content column.
@@ -854,8 +873,9 @@ export function NewEventWizard({
   };
 
   const overlay = (
-    // biome-ignore lint/a11y/useSemanticElements: overlay modal needs a positioned backdrop div, not <dialog>
     <div
+      ref={motion.scrim}
+      // biome-ignore lint/a11y/useSemanticElements: overlay modal needs a positioned backdrop div, not <dialog>
       role="dialog"
       aria-modal="true"
       aria-label={isHold ? "Place a hold" : "Create new event"}
@@ -874,6 +894,7 @@ export function NewEventWizard({
       onMouseDown={(clickEvent) => clickEvent.target === clickEvent.currentTarget && requestClose()}
     >
       <div
+        ref={motion.panel}
         style={{
           width: "100%",
           maxWidth: 620,

@@ -55,6 +55,9 @@ input[type="number"] {
   background-clip: padding-box;
 }
 
-@keyframes sm-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes sm-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-@keyframes sm-pulse { 0% { transform: scale(1); opacity: .6; } 80%, 100% { transform: scale(2.6); opacity: 0; } }
+/* Three keyframes used to be declared here — `sm-rise`, `sm-grow` and `sm-pulse` — duplicating
+   tokens.css's `smRise`, `smGrow` and `smPulse` under a second naming convention. Only one of the
+   six had a user: `sm-grow`, the ProgressBar's fill, which now reads `smGrow`. The pulse pair went
+   entirely; the two pulses the product actually draws live with their components
+   (`statusDotGlow`, `badgeGlow`). Two definitions of one animation is how somebody edits the copy
+   nothing uses and sees nothing change. */

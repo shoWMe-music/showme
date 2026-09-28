@@ -46,16 +46,36 @@ describe("dealActionsFor — signing your own line (QA10-3)", () => {
     canManage: false,
     canConfirm: false,
   };
-  const withOwnLine = (participantId: string, roleInDeal = "payer") => ({
+  /**
+   * A roster of one. Cast through `unknown` because a participant row carries `profileId`, `name`,
+   * `avatarUrl`, `genres` and three more fields, and the only two this rule reads are `id` and
+   * `role` — spelling out the rest would say that they matter.
+   */
+  const roster = (id: string, role: string) =>
+    [{ id, role }] as unknown as Parameters<typeof dealActionsFor>[2];
+
+  /** One party line of the caller's own, unsigned — the shape the deal-scoped rule reads. */
+  const withOwnLine = (participantId: string, roleInDeal = "payer"): Partial<Deal> => ({
     ...sent,
-    parties: [{ participantId, roleInDeal, isYours: true, confirmedAt: null }],
+    // `id` and `version` are the generated type's, not this rule's: no branch of `dealActionsFor`
+    // reads them, and giving them real values is cheaper than a cast that hides the next field.
+    parties: [
+      {
+        id: `line-${participantId}`,
+        version: 1,
+        participantId,
+        roleInDeal,
+        isYours: true,
+        confirmedAt: null,
+      },
+    ],
   });
 
   it("offers a CO-HOST named as a party the confirm control", () => {
     const actions = dealActionsFor(
       deal(withOwnLine("part-co")),
       noEventConfirm,
-      [{ id: "part-co", role: "co_host" }] as Parameters<typeof dealActionsFor>[2],
+      roster("part-co", "co_host"),
       false,
     );
     expect(actions.canConfirm).toBe(true);
@@ -66,7 +86,7 @@ describe("dealActionsFor — signing your own line (QA10-3)", () => {
       const actions = dealActionsFor(
         deal(withOwnLine("part-crew")),
         noEventConfirm,
-        [{ id: "part-crew", role }] as Parameters<typeof dealActionsFor>[2],
+        roster("part-crew", role),
         false,
       );
       expect(actions.canConfirm).toBe(true);
@@ -79,7 +99,7 @@ describe("dealActionsFor — signing your own line (QA10-3)", () => {
     const actions = dealActionsFor(
       deal(withOwnLine("part-co", "observer")),
       noEventConfirm,
-      [{ id: "part-co", role: "co_host" }] as Parameters<typeof dealActionsFor>[2],
+      roster("part-co", "co_host"),
       false,
     );
     expect(actions.canConfirm).toBe(false);
@@ -89,7 +109,7 @@ describe("dealActionsFor — signing your own line (QA10-3)", () => {
     const actions = dealActionsFor(
       deal({ ...withOwnLine("part-co"), agreementStatus: "draft" }),
       noEventConfirm,
-      [{ id: "part-co", role: "co_host" }] as Parameters<typeof dealActionsFor>[2],
+      roster("part-co", "co_host"),
       false,
     );
     expect(actions.canConfirm).toBe(false);
@@ -101,6 +121,8 @@ describe("dealActionsFor — signing your own line (QA10-3)", () => {
         ...sent,
         parties: [
           {
+            id: "line-part-co",
+            version: 1,
             participantId: "part-co",
             roleInDeal: "payer",
             isYours: true,
@@ -109,7 +131,7 @@ describe("dealActionsFor — signing your own line (QA10-3)", () => {
         ],
       }),
       noEventConfirm,
-      [{ id: "part-co", role: "co_host" }] as Parameters<typeof dealActionsFor>[2],
+      roster("part-co", "co_host"),
       false,
     );
     expect(actions.canConfirm).toBe(false);

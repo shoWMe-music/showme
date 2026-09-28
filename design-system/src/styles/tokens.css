@@ -240,7 +240,9 @@ input, button, select { font-family: inherit; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { opacity: .85; }
 
-@keyframes smPulse { 0% { transform: scale(1); opacity: .6; } 80%, 100% { transform: scale(2.6); opacity: 0; } }
+/* `smPulse` was here and had no user in either app. The two pulses the product actually draws —
+   `statusDotGlow` and `badgeGlow` — live with their components, differ from each other, and answer
+   `prefers-reduced-motion` themselves; a third, unused one was only a thing to edit by mistake. */
 @keyframes smRise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes smGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 /* The screen entrance. `useViewMotion` plays the SAME rise from JS for routes

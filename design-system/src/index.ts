@@ -55,6 +55,13 @@ export type { EmptyStateProps } from "@/components/molecules/EmptyState/EmptySta
 
 export { Modal } from "@/components/molecules/Modal/Modal";
 export type { ModalProps } from "@/components/molecules/Modal/Modal";
+/*
+ * The Modal's motion, exported for the one dialog that draws its own panel: the app's New Event
+ * wizard, which owns its header, stepper and footer and so cannot take the shell. Exported so that
+ * dialog plays the SAME open/close as every other one rather than a second version of it — before
+ * this it played none at all (the animation pass, 2026-09-28).
+ */
+export { useModalMotion } from "@/components/molecules/Modal/useModalMotion";
 
 export { Tabs } from "@/components/molecules/Tabs/Tabs";
 export type { TabsProps, TabItem } from "@/components/molecules/Tabs/Tabs";
