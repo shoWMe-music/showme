@@ -334,3 +334,13 @@ first used a hand-rolled lookalike formatter with a plain space — which differ
 by that invisible character, so the parenthetical appeared and the test failed over the very thing
 it was written to prove absent. It compares against `formatMoney` itself now. **A test that fakes
 the function under comparison is testing the fake.**
+
+---
+
+## What part 18 closed
+
+Run 8's minors and cosmetics, all of them: QA8-6, QA8-7, QA8-8, QA8-9, QA8-10, QA8-11, QA8-13,
+QA8-14, and QA8-12 verified as already closed by QA8-5. Plus run 7's QA7-24.
+
+**What is left is in part 19** — QA8-1 and QA8-2 sized as tickets, and QA7-18, whose analysis is
+finished in part 16.
