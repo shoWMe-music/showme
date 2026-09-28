@@ -176,12 +176,80 @@ describe("participants — authorize + serialize + audit", () => {
     expect(forPerformer[0]?.type).toBe("event.participant_added");
     expect(forPerformer[0]?.eventId).toBe(event.id);
     expect(forPerformer[0]?.title).toBe('Added to "Roster Night"');
+    /*
+     * AND THE LINK GOES SOMEWHERE THEY CAN GO (QA sweep run 9, QA9-3).
+     *
+     * A row this route creates is `invited`, and `authorize` excludes `invited` from a standing
+     * participation — correctly, since nothing is granted until the invitation is answered. So
+     * `/events/:id` answered 404 to the person the bell had just told they were added, and the
+     * sweep's screenshot reads "Couldn't load this event — Event not found". `/requests` is where
+     * `EventInvitationsCard` renders `GET /me/event-invitations` with Accept and Decline on it.
+     */
+    expect(forPerformer[0]?.link).toBe("/requests");
+    // The 404 it used to point at, so this test carries its own reason.
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/v1/events/${event.id}`,
+          headers: auth("notify-perf"),
+        })
+      ).statusCode,
+    ).toBe(404);
 
     const forOperator = await db
       .select()
       .from(schema.notifications)
       .where(eq(schema.notifications.userId, "notify-op"));
     expect(forOperator).toHaveLength(0);
+  });
+
+  /**
+   * …AND A CO-PROMOTER IS SENT TO THE EVENT, because they can open it (QA9-3).
+   *
+   * The other half of the same rule, and the half a surviving mutation found missing: making the
+   * link *always* `/requests` broke no test. A `co_host` added through this route lands
+   * **`accepted`**, not `invited` — this file's own comment gives the reason, *"adding a
+   * co-promoter here RECORDS an arrangement rather than asking a question"* — so they hold a
+   * standing participation, the event opens for them, and sending them to an invitations inbox that
+   * has nothing in it would be the mirror image of the bug.
+   */
+  it("sends an added co-promoter to the event itself, which opens for them", async () => {
+    const { db } = harness;
+    const { operator, event } = await seedEventWithHost("cohost-link");
+    const coHost = await seedMemberWithSet(
+      "cohost-link-co",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("cohost-link-op"),
+      payload: { profileId: coHost.profileId, role: "co_host" },
+    });
+    expect(added.statusCode).toBe(201);
+    expect(added.json().status).toBe("accepted");
+    expect(operator.profileId).not.toBe(coHost.profileId);
+
+    const bell = await db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "cohost-link-co"));
+    expect(bell).toHaveLength(1);
+    expect(bell[0]?.link).toBe(`/events/${event.id}`);
+
+    // …and it is not a dead link: the event answers for them.
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/v1/events/${event.id}`,
+          headers: auth("cohost-link-co"),
+        })
+      ).statusCode,
+    ).toBe(200);
   });
 
   it("shows a performer only the public fields of other participants", async () => {

@@ -35,6 +35,7 @@ import { loadEventSummary } from "../lib/event-summary";
 import { resolveEventTimezone } from "../lib/event-timezone";
 import { createPerformerStub } from "../lib/off-platform";
 import { PaginationQuery, decodeCursor, paginate } from "../lib/pagination";
+import { participantAddedLink } from "../lib/participant-added-link";
 import { createSlidingWindowRateLimiter } from "../lib/rate-limit";
 import { isRepresentationActiveAt } from "../lib/representation-rules";
 
@@ -905,7 +906,11 @@ async function deliverDraftEventInvitation(
             body: `Your agent's request became a draft event${event.eventDate ? ` on ${event.eventDate}` : ""}. You are on it as the act.`,
             eventId: event.id,
             actorDisplay: request.firebaseUser?.name ?? undefined,
-            link: `/events/${event.id}`,
+            // The act is attached to a DRAFT event as `invited`, so the event 404s for them
+            // until the invitation is answered (QA9-3).
+            // A fixed `invited`, which is what this path's own insert writes for the act a few
+            // lines above — `attached` carries the delivery channel, not the participant row.
+            link: participantAddedLink("invited", event.id),
             metadata: { eventId: event.id },
           },
         );

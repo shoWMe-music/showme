@@ -643,9 +643,29 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
               body: "Open the invitation to accept or decline.",
               eventId: result.targetEventId ?? undefined,
               actorDisplay: request.firebaseUser?.name ?? undefined,
-              // Not the token link: the recipient is signed in already, and the
-              // event (or the team screen) is where the invitation is answered.
-              link: result.targetEventId ? `/events/${result.targetEventId}` : "/team",
+              /*
+               * THE TOKEN LINK, because it is the only page that can answer this (QA sweep run 9,
+               * QA9-3).
+               *
+               * This used to be `/events/:id`, under the comment *"the recipient is signed in
+               * already, and the event (or the team screen) is where the invitation is answered."*
+               * The first half is true and the second is not: nothing is granted until the
+               * invitation is redeemed, so `GET /events/:id` answers **404** to the very person the
+               * bell just told to *"open the invitation to accept or decline"*. The sweep followed
+               * that link and read, whole: *"Couldn't load this event — Event not found."* The
+               * refusal was correct; the link was the bug.
+               *
+               * `/invitations/:token` is the page with the Accept and Decline buttons on it, and it
+               * works for a signed-in recipient — the sweep completed the journey by pulling the
+               * token out of Postgres by hand, which is how we know. So the bell now carries what
+               * the email carries. An invitation with no token (a code-only invite) still has
+               * nowhere in-app to land, and falls back to the team screen as before.
+               */
+              link: result.token
+                ? `/invitations/${result.token}`
+                : result.targetEventId
+                  ? `/events/${result.targetEventId}`
+                  : "/team",
               metadata: { invitationId: result.id },
             },
           );

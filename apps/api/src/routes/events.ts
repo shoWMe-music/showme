@@ -50,6 +50,7 @@ import { notifyPublicationChanged } from "../lib/event-publication";
 import { advanceEventStatus } from "../lib/event-status-ladder";
 import { resolveEventTimezone } from "../lib/event-timezone";
 import { movedHoldQueue, placeHoldInQueue, touchesHoldQueue } from "../lib/hold-queue";
+import { participantAddedLink } from "../lib/participant-added-link";
 import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
 import { withIdempotency } from "../plugins/idempotency";
 import { serializeDealUnredacted } from "../serialize/deal";
@@ -1239,7 +1240,14 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
             body: `You were added to "${body.title}".`,
             eventId: body.id,
             actorDisplay: request.firebaseUser?.name ?? undefined,
-            link: `/events/${body.id}`,
+            /*
+             * NOT the event (QA9-3). Everyone joined at creation is written `invited` — the insert
+             * above says so in as many words, *"being named on a bill somebody else is drawing up is
+             * not the same as having agreed to play it"* — and an `invited` row cannot open the
+             * event. This is a fixed `invited` rather than a status read back, because that is the
+             * only status this path can produce.
+             */
+            link: participantAddedLink("invited", body.id),
             metadata: { eventId: body.id },
           });
         } catch (error) {

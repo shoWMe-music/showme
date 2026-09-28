@@ -23,6 +23,7 @@ import { assertGrantAdminAllows } from "../lib/entitlements";
 import { advanceEventStatus } from "../lib/event-status-ladder";
 import { loadEventSummary } from "../lib/event-summary";
 import { createPerformerStub } from "../lib/off-platform";
+import { participantAddedLink } from "../lib/participant-added-link";
 import { signProfileImageUrls } from "../lib/profile-media";
 import { withIdempotency } from "../plugins/idempotency";
 import { type ParticipantProfileFace, serializeParticipant } from "../serialize/participant";
@@ -512,7 +513,9 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
               body: `You were added as ${created.role} to "${event?.title ?? "an event"}".`,
               eventId: id,
               actorDisplay: request.firebaseUser?.name ?? undefined,
-              link: `/events/${id}`,
+              // An `invited` row cannot open the event yet, so the bell must not send them there
+              // (QA9-3). `/requests` is where the invitation is answered.
+              link: participantAddedLink(created.status, id),
               metadata: { participantId: created.id, role: created.role },
             });
           } catch (error) {

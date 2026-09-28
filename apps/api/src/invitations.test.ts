@@ -2683,6 +2683,98 @@ describe("invitations — accepting attaches the act's agent, and tells them (`1
     expect(bell[0]?.body).toContain("agent");
   });
 
+  /**
+   * THE BELL'S LINK HAS TO BE ANSWERABLE (QA sweep run 9, QA9-3).
+   *
+   * `invitation.received` said *"Open the invitation to accept or decline"* and linked to
+   * `/events/:id`, which answers **404** to the very person it is addressed to — nothing is granted
+   * until the invitation is redeemed. The sweep followed it and read, whole: *"Couldn't load this
+   * event — Event not found."* The refusal was correct; the link was the bug.
+   *
+   * Asserted as the TOKEN path rather than "not /events/…", because the useful property is that the
+   * link reaches the one page with Accept and Decline on it. The second half of the test proves that
+   * page actually answers for this recipient — a link that merely 200s would not be enough.
+   */
+  it("points the invited person's bell at the page that can answer it", async () => {
+    const { db } = harness;
+    const host = await seedOwner("inv-link-host");
+    await seedUser("inv-link-act", "performer");
+    const [actProfile] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "performer",
+        ownerUserId: "inv-link-act",
+        name: "Linked Act",
+        slug: "inv-link-act",
+      })
+      .returning();
+    if (!actProfile) throw new Error("act profile seed failed");
+    await db.insert(schema.profileMembers).values({
+      profileId: actProfile.id,
+      userId: "inv-link-act",
+      role: "owner",
+      status: "active",
+    });
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: host.profileId,
+        title: "Link Night",
+        baseCurrency: "SEK",
+        createdBy: "inv-link-host",
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: host.profileId,
+      role: "host",
+      permissionSetId: host.permissionSetId,
+      status: "confirmed",
+    });
+
+    const invited = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("inv-link-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        recipientEmail: "inv-link-act@example.showme.test",
+        recipientName: "Linked Act",
+        targetEventId: event.id,
+        role: "performer",
+        permissionSetId: host.granteeSetId,
+      },
+    });
+    expect(invited.statusCode).toBe(201);
+    const token = invited.json().token as string;
+
+    const bell = await db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "inv-link-act"));
+    expect(bell).toHaveLength(1);
+    expect(bell[0]?.type).toBe("invitation.received");
+    expect(bell[0]?.link).toBe(`/invitations/${token}`);
+
+    // And that page answers for this recipient — the whole point of sending them there.
+    const landing = await app.inject({
+      method: "GET",
+      url: `/api/v1/invitations/${token}`,
+      headers: { ...auth("inv-link-act"), "x-profile-id": actProfile.id },
+    });
+    expect(landing.statusCode).toBe(200);
+
+    // Where it used to send them, for contrast: the event itself is a 404 until they accept.
+    const theEvent = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}`,
+      headers: { ...auth("inv-link-act"), "x-profile-id": actProfile.id },
+    });
+    expect(theEvent.statusCode).toBe(404);
+  });
+
   it("attaches nobody for an unrepresented act, and tells nobody", async () => {
     const { db } = harness;
     const host = await seedOwner("inv-solo-host");
