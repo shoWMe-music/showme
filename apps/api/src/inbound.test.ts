@@ -665,6 +665,57 @@ describe("inbound — an agent offers on behalf of the act it represents (decisi
     expect(afterLapse.statusCode).toBe(400);
   });
 
+  /**
+   * A SERVICE DOES NOT OFFER TO PLAY (QA sweep run 8, QA8-6).
+   *
+   * `story.md:61` says a team-and-crew member is *"not talent … an arm's-length service
+   * provider paid a fixed fee"*, and its marketplace runs the other way — crew apply to
+   * jobs operators post. The one sender dialog was offered to every non-operator kind and
+   * wrote one vocabulary, so a FOH engineer's offer was stored `sender_type: performer`
+   * against a `team_and_crew` profile and the venue's inbox announced a sound engineer as
+   * an act. Refused rather than re-labelled: a crew-initiated pitch is the unbuilt
+   * marketplace, not this route.
+   */
+  it("400s a team-and-crew profile offering to play a date", async () => {
+    const target = await seedOwnerWithProfile("crew-offer-tgt");
+    const crew = await seedOwnerWithProfile("crew-offer-pro", "team_and_crew");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("crew-offer-pro"), "x-profile-id": crew.profileId },
+      payload: { targetProfileId: target.profileId, wantedDate: "2026-11-28" },
+    });
+
+    expect(created.statusCode).toBe(400);
+    expect(created.json().error.message).toContain("service rather than an act");
+
+    // And nothing was written — the row that named a sound engineer as a performer is
+    // as much of the defect as the 201 was.
+    const rows = await harness.db
+      .select({ id: schema.bookingRequests.id })
+      .from(schema.bookingRequests)
+      .where(eq(schema.bookingRequests.senderProfileId, crew.profileId));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("still lets a PERFORMER send the same offer, which is what the route is for", async () => {
+    // The guard is about the account KIND, so the neighbouring kinds must be unaffected —
+    // the agent's and performer's use of this dialog was verified correct by the sweep.
+    const target = await seedOwnerWithProfile("crew-offer-ok-tgt");
+    const performer = await seedOwnerWithProfile("crew-offer-ok-perf", "performer");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/offers",
+      headers: { ...auth("crew-offer-ok-perf"), "x-profile-id": performer.profileId },
+      payload: { targetProfileId: target.profileId, wantedDate: "2026-11-29" },
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(created.json().senderType).toBe("performer");
+  });
+
   it("400s a non-agent profile trying to offer on someone else's behalf", async () => {
     const target = await seedOwnerWithProfile("ob4-tgt");
     const other = await seedOwnerWithProfile("ob4-other", "performer");

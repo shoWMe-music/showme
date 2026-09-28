@@ -269,6 +269,16 @@ export function Requests() {
    * `direction=outgoing` for anyone who asks, so nothing here is a permission.
    */
   const isOperator = session?.kind === "operator";
+  /*
+   * A TEAM-AND-CREW ACCOUNT HAS NO OFFER TO SEND (QA8-6).
+   *
+   * `story.md:61`: crew are *"not talent … an arm's-length service provider paid a fixed
+   * fee"*, and the marketplace described there runs the other way — they apply to jobs
+   * operators post, which is unbuilt. The API refuses the write; this stops the form being
+   * drawn for an answer already known, which is the same rule QA7-15 applied to the team
+   * invite dialog: a refusal the caller could have been told before they typed.
+   */
+  const canSendOffer = !isOperator && session?.kind !== "team_and_crew";
   // Incoming = requests targeting me; Outgoing = offers/requests I have sent
   // (fix-list #6) — answered by the server, over every page of the inbox.
   const {
@@ -462,7 +472,7 @@ export function Requests() {
               (`event_participants`, not a booking request). The direction toggle above is
               hidden from them for the same reason.
             */}
-            {!isOperator && (
+            {canSendOffer && (
               <Button
                 variant="primary"
                 leftIcon={<Icon name="mail" size={14} />}

@@ -84,3 +84,45 @@ indistinguishable from one left unfixed.
 And the harness earned its keep again: one run came back `ERROR — nothing ran | Tests 30 skipped`
 rather than GREEN, which is this morning's hardening catching the Testcontainers flake instead of
 reporting a survivor from it. The mutation was red on a re-run.
+
+---
+
+## QA8-6 — a crew account could offer to play, and it was filed as a performer
+
+**Which files settle it:** `apps/api/src/routes/inbound.ts:1343` (the write) and
+`apps/web/src/routes/Requests.tsx:271` (the button).
+
+**Verdict: real, and story.md decides it without needing Ran.** `story.md:61`: a team-and-crew
+member is *"**not** talent … an arm's-length service provider paid a **fixed fee**"*, and the
+marketplace it describes runs the **other way** — *"operators/performers post jobs and
+team-and-crew members apply"*. Nothing about the kind offers a room a show.
+
+The mechanism is one ternary: `senderType = kind === "agent" ? "agency" : "performer"`, so
+`team_and_crew` fell into `performer`. The row then said `source: performer_offer, sender_type:
+performer` about a `team_and_crew` profile, and the venue's inbox announced a sound engineer as an
+act under **SOURCE: Performer offer**. The row being wrong about who sent it is worse than the
+button existing.
+
+**Refused rather than re-labelled, and that is the decision.** A crew-initiated pitch is the
+**marketplace**, which is unbuilt; giving it a second vocabulary here would ship a surface nobody
+has designed, on a route whose whole subject is offers to play. The API answers 400 naming the
+boundary, and the web stops drawing a form whose answer is already known — the same rule QA7-15
+applied to the invite dialog.
+
+*The decision it hides, recorded rather than invented:* **how a crew member should approach a
+venue at all.** story.md answers it — they apply to posted jobs — and that is the team-and-crew
+marketplace, still unbuilt and already on the handoff's feature list. This closes the wrong door
+without pretending to open the right one.
+
+### Proven on the running stack
+
+| | before | after |
+|---|---|---|
+| `POST /offers` as `professional@` | **201**, `source: performer_offer`, `sender_type: performer` | **400** — *"A team-and-crew profile is a service rather than an act…"*, and no row written |
+| `POST /offers` as `performer.a@` | 201 | **201**, `senderType: performer` — unchanged |
+| the **Send an offer** button, crew | offered | **gone** |
+| the **Send an offer** button, performer | offered | **still there** |
+
+Two tests and three mutations red — the guard never fires, it refuses performers instead, it
+refuses everyone but an agent. The last two fail **thirteen** tests each, which is the evidence
+that the neighbouring kinds are genuinely covered rather than merely unaffected.

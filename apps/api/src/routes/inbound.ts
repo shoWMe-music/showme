@@ -1339,6 +1339,31 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
         .limit(1);
       if (!sender) throw badRequest("Select a profile to send the offer from");
 
+      /*
+       * A SERVICE DOES NOT OFFER TO PLAY (QA sweep run 8, QA8-6).
+       *
+       * `story.md:61` draws this boundary in as many words: a team-and-crew member is
+       * *"**not** talent … an arm's-length service provider paid a **fixed fee**"*, and the
+       * marketplace it describes runs the other way — *"operators/performers post jobs and
+       * team-and-crew members apply"*. Nothing about the account kind offers a room a show.
+       *
+       * The dialog was offered to every non-operator kind and wrote one vocabulary, so a
+       * FOH engineer's offer was stored `source: performer_offer, sender_type: performer`
+       * against a `team_and_crew` profile, and the venue's inbox announced a sound engineer
+       * as an act under **SOURCE: Performer offer**. The row was wrong about who sent it,
+       * which is worse than the button existing.
+       *
+       * Refused rather than re-labelled: a crew-initiated pitch is the MARKETPLACE, which
+       * is unbuilt, and inventing a second vocabulary for it here would ship a surface
+       * nobody has designed. `story.md` says what the account kind is for; this says no to
+       * the rest.
+       */
+      if (senderMembership.kind === "team_and_crew") {
+        throw badRequest(
+          "A team-and-crew profile is a service rather than an act, so it cannot offer to play a date. An offer to play comes from a performer, or from the agent who represents them.",
+        );
+      }
+
       // An AGENT offers on behalf of an act it represents (decisions.md #14). Both
       // edges are required — the sending profile is an `agent`, AND a live
       // representation links it to that performer — and a failure is an explicit
