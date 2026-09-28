@@ -165,6 +165,83 @@ export function isWholeBoard(nets: string[]): boolean {
 }
 
 /**
+ * A row under the card's divider: something that moves the PAYOUT without being part of
+ * the entitlement above it.
+ */
+export interface PayoutAdjustment {
+  key: string;
+  label: string;
+  /** The magnitude, formatted. The sign is `reducesPayout`, not a character in here. */
+  value: string;
+  /** True when it takes the payout further from the entitlement rather than nearer. */
+  reducesPayout: boolean;
+}
+
+/**
+ * WHY THE PAYOUT IS NOT THE ENTITLEMENT (QA sweep run 8, QA8-5; QA7-10 for the advance).
+ *
+ * The rules above the divider sum to the entitlement, which is the card's headline. These
+ * are the cash terms that sit between it and what actually moves, straight out of the
+ * engine's own arithmetic:
+ *
+ *     net = entitlement − held,  held = collected − paid + prepaid
+ *
+ * so, read as adjustments to the entitlement: money this party already COLLECTED reduces
+ * what is still coming to them, costs they PAID increase it, and an advance does whichever
+ * its direction says. Nothing here is negated in the label — `reducesPayout` carries the
+ * direction so one renderer draws the sign, the same rule `prepaidReducesPayout` follows.
+ *
+ * `paid` is the answer to a complaint of its own: the SEK 10,800 an operator had fronted
+ * appeared nowhere on their card, while the workspace's Payout tab printed it.
+ *
+ * PERSON-AWARE, and that is QA6-9's finding rather than a nicety — once #24.2 puts another
+ * party's card in front of a reader, *"the money you collected"* under the operator's name
+ * tells a performer they took a hundred thousand they never touched. Same `owner` argument
+ * and same three-way naming as `entitlementRules`.
+ */
+export function payoutAdjustments(
+  computed: ComputedBreakdown,
+  currency: string,
+  formatAmount: (minorUnits: string) => string = (minorUnits) => formatMoney(minorUnits, currency),
+  owner: { isYours: boolean; name: string } = { isYours: true, name: "" },
+  /** The advance's own sentence, which names both ends and is built where the names are. */
+  prepaidLabel: string | null = null,
+): PayoutAdjustment[] {
+  const adjustments: PayoutAdjustment[] = [];
+  const who = owner.isYours ? "you" : owner.name || "that party";
+
+  if (computed.collected != null && computed.collected !== "0") {
+    adjustments.push({
+      key: "collected",
+      label: `Less the money ${who} collected on the night`,
+      value: formatAmount(computed.collected),
+      reducesPayout: true,
+    });
+  }
+  if (computed.paid != null && computed.paid !== "0") {
+    adjustments.push({
+      key: "paid",
+      label: `Plus the costs ${who} paid on the night`,
+      value: formatAmount(computed.paid),
+      reducesPayout: false,
+    });
+  }
+  if (computed.prepaid != null && computed.prepaid !== "0" && prepaidLabel) {
+    // A POSITIVE prepaid is money this party received early, so it comes off what is
+    // still owed; the payer's is negative and goes the other way. The magnitude is what
+    // renders, so the sign is read once, here.
+    const received = !computed.prepaid.startsWith("-");
+    adjustments.push({
+      key: "prepaid",
+      label: prepaidLabel,
+      value: formatAmount(received ? computed.prepaid : computed.prepaid.slice(1)),
+      reducesPayout: received,
+    });
+  }
+  return adjustments;
+}
+
+/**
  * WHY THE ENTITLEMENTS DO NOT SUM TO THE ADJUSTED NET — in the words the night's own
  * figures support, and **only** those.
  *
@@ -384,9 +461,8 @@ export function entitlementRules(
   owner: { isYours: boolean; name: string } = { isYours: true, name: "" },
 ): EntitlementRule[] {
   const rules: EntitlementRule[] = [];
-  /** "you" on your own card, the party's name on anybody else's. */
-  const who = owner.isYours ? "you" : owner.name || "that party";
-  /** The possessive of the same. */
+  /** The possessive of the party's name, or of "you" on the reader's own card. The
+   * nominative form moved to `payoutAdjustments` with the cash rows that used it. */
   const whose = owner.isYours ? "your" : `${owner.name || "that party"}'s`;
 
   for (const line of computed.lines ?? []) {
@@ -452,27 +528,27 @@ export function entitlementRules(
       value: formatAmount(computed.residual),
     });
   }
-  /**
-   * CASH THIS PARTY ALREADY HOLDS — the row the column was missing.
+  /*
+   * CASH IS NOT ENTITLEMENT, and a `collected` row here was the eighth instance this
+   * stretch of a comment asserting a rule the code does not keep (QA8-5).
    *
-   * The engine's `entitlement` is `deal lines + revenue you collected − costs
-   * fronted for you`, and the card printed the first and the last. So a party who
-   * collected anything read a headline the rows beneath it could not reach:
-   * measured 2026-09-26, a SEK 33,600 headline over rows of 32,100 and −3,500, with
-   * the SEK 5,000 sponsorship they had taken at the door appearing nowhere. Three
-   * numbers, arithmetic for two of them — and it is the card an act reads to decide
-   * whether they were paid correctly.
+   * Run 6 added one, on the stated belief that *"the engine's `entitlement` is `deal
+   * lines + revenue you collected − costs fronted for you`"*. `reconcile.ts:348-369`
+   * says otherwise, in three lines: `entitlement = owed` (the allocation alone),
+   * `held = collected − paid + prepaid`, `net = owed − held`. Cash never enters the
+   * allocation.
    *
-   * Placed before the deductions so the column reads in the order the engine adds
-   * it up.
+   * It nevertheless appeared to make the column sum, and the reason is worth keeping:
+   * `reconcile.ts:255` credits a NON-POOLED line's collector with what they kept, so a
+   * performer holding their own merch line has that amount in `entitlement` AND in
+   * `collected`. For an operator collecting POOLED door revenue it is cash to pay out,
+   * outside the allocation entirely — SEK 20,700 of entitlement over a row of 78,000.
+   * Right for one party kind by coincidence, wrong for the other by construction.
+   *
+   * The cash rows live in `payoutAdjustments` below, under the divider QA7-10 opened
+   * for exactly this: things that explain the gap between the entitlement and what
+   * moves.
    */
-  if (computed.collected != null && computed.collected !== "0") {
-    rules.push({
-      key: "collected",
-      label: `Plus the money ${who} collected on the night`,
-      value: formatAmount(computed.collected),
-    });
-  }
   if (computed.deductibles != null && computed.deductibles !== "0") {
     rules.push({
       key: "deductibles",

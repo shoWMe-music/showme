@@ -94,3 +94,89 @@ the reader as the agent — so their headlines cannot move, which is what §2 of
 what the tests must pin.
 
 *The decision it hides:* none. #14 already makes an agent's money on a night their commission.
+
+---
+
+## QA8-3 and QA8-4 — built and proven
+
+**QA8-3.** One term removed from `derivedAt`'s base. Before and after on the same screen, the
+seeded Album Release as `operator@`:
+
+| | before | after |
+|---|---|---|
+| TOTAL REVENUE | SEK 83,000 | unchanged |
+| TOTAL COSTS | SEK 84,245 | unchanged |
+| PROFIT / LOSS | −SEK 1,245 | unchanged |
+| BREAK-EVEN TICKETS | **130** | **No break-even** |
+| the chart caption | *"Revenue passes total cost at 130 tickets of 400 capacity."* | gone |
+
+Measured by reverting the one line, reloading, reading, and restoring — not inferred. Worth noting
+that the seeded 320-ticket sheet gave the **same 130** the sweep measured on its 360-ticket one:
+on a 100% split the fabricated crossing is wherever the share arm first governs, and the planned
+attendance has nothing to do with it. That is the mechanism confirming itself.
+
+Three tests moved or were added, and **a test pinned the defect** — the third time this loop. The
+share-arm case asserted **51** and listed *"dropping the processing fee 52"* among the WRONG
+answers, 52 being the right one. Its derivation was internally consistent; its premise was not.
+QA7-1's docstring also claimed the base *"cannot move the number"* on the share arm; it moves it by
+a ticket, because the base changes the per-head coefficient (98.5 against 97). Both corrected in
+place, because both are what made the term survive a run.
+
+**QA8-4.** `ownFigure` on the hook — the reader's own net plus their own commission. Proven as
+`agent@` on the Album Release: **SEK 3,000 · Your payout**, where it read SEK 0 against three other
+screens saying 3,000.
+
+---
+
+## QA8-5 — the card's rows do not sum to its headline, and the comment says why they should
+
+**Which files settle it:** `apps/web/src/components/settlementDocument.ts` (the rules builder) and
+`SettlementPartyCard.tsx` (where the rows are drawn).
+
+**Verdict: real, and the engine settles it in one line.** `reconcile.ts:348-369`:
+
+```
+entitlement = owed                       (the allocation alone)
+held        = collected − paid + prepaid (cash)
+net         = owed − held
+```
+
+So `collected` is **never** a component of the entitlement, and the card's headline is the
+entitlement. The `collected` row was added by run 6's QA6-9 on the stated belief that *"the engine's
+`entitlement` is `deal lines + revenue you collected − costs fronted for you`"* — which is not what
+the engine does, and is the eighth instance this stretch of a comment asserting a rule the code does
+not keep.
+
+**Why QA6-9's arithmetic nevertheless worked, which is the interesting part.** `reconcile.ts:255`
+credits a non-pooled line's collector with what they kept: `if (!pooled && line.collectedBy)
+credit(line.collectedBy, line.amount − movedAway)`. So for a performer keeping their own merch line,
+the amount lands in `entitlement` AND in `collected`, and the row appeared to make the column sum.
+For an operator collecting **pooled** door revenue it does not: the cash is theirs to pay out, not
+theirs to keep, and `collected` sits outside the allocation entirely. Hence SEK 20,700 over rows of
+20,700 and 78,000. The row was right for one party kind by coincidence and wrong for the other by
+construction.
+
+**Scope — one rule for the whole card, rather than a patch per row.** Above the dividing line go the
+things that sum to the **entitlement**: the deal lines, `commissionEarned`, `residual`, and
+`deductibles` with its itemisation (those ARE inside the allocation —
+`credit(participantId, -amount)` at `reconcile.ts:263`). Below it go the things that explain the gap
+between the entitlement and what actually **moves**, which is exactly the place QA7-10 established
+for the advance:
+
+| row | direction, from `net = entitlement − collected + paid − prepaid` |
+|---|---|
+| money this party collected | reduces the payout — they already hold it |
+| costs this party paid | increases it — they are owed it back |
+| an advance received / paid | reduces / increases, as now |
+
+`collected` and `paid` are already on `SettlementParty`; no new payload. The QA8-5 complaint that the
+SEK 10,800 paid *"appears nowhere on the card"* is answered by the same change rather than a
+separate one.
+
+*What must not be lost:* QA6-9's real finding was that these sentences are **person-aware** — *"Plus
+the money you collected"* had appeared on a performer's screen under the operator's name, once #24.2
+put another party's card in front of a reader. The new builder carries the same `owner` argument and
+the same three-way naming, and QA6-9's tests move with the row rather than being deleted with it.
+
+*The decision it hides:* none. The engine's three lines settle which side of the divider each row
+belongs on.

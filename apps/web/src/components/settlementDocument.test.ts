@@ -4,6 +4,7 @@ import {
   entitlementRules,
   matchingSettlements,
   ownFigureLabel,
+  payoutAdjustments,
   settlementTotals,
   withheldPayees,
 } from "./settlementDocument";
@@ -70,38 +71,93 @@ describe("matchingSettlements", () => {
 });
 
 /**
- * THE COLUMN HAS TO ADD UP TO ITS OWN HEADLINE (QA sweep run 2, 2026-09-26).
+ * THE COLUMN HAS TO ADD UP TO ITS OWN HEADLINE (QA sweep run 2, corrected by run 8's QA8-5).
  *
- * The engine's `entitlement` is `deal lines + revenue you collected − costs fronted
- * for you`. The card printed the first and the last, so a party who collected
- * anything read a headline its rows could not reach: a SEK 33,600 headline over rows
- * of 32,100 and −3,500, with the SEK 5,000 sponsorship they took at the door
- * appearing nowhere. Verified against a live breakdown of the same shape:
- * entitlement 31,500 = 30,000 + 5,000 − 3,500.
+ * This described the engine's `entitlement` as *"deal lines + revenue you collected −
+ * costs fronted for you"* and added a `collected` row on that basis. `reconcile.ts:348-369`
+ * says otherwise, in three lines: `entitlement = owed` — the allocation alone — then
+ * `held = collected − paid + prepaid` and `net = owed − held`. Cash never enters the
+ * allocation.
+ *
+ * **And the original measurement was real, which is why this survived two runs.** It
+ * verified `entitlement 31,500 = 30,000 + 5,000 − 3,500` against a live breakdown, and that
+ * party had collected a NON-POOLED line: `reconcile.ts:255` credits such a collector with
+ * what they kept, so their 5,000 is in the allocation AND in `collected`. Generalising from
+ * it put the row on operators too, where pooled door cash is money to pay out and sits
+ * outside the allocation entirely — SEK 20,700 of entitlement over a row of SEK 78,000.
+ *
+ * So the rules carry what the allocation carries, and the cash rows moved to
+ * `payoutAdjustments`, under the divider QA7-10 opened for the advance.
  */
 describe("entitlementRules", () => {
   const money = (minor: string) => `SEK ${(Number(minor) / 100).toLocaleString("en-IE")}`;
 
-  it("shows the money the party collected, so the rows reach the headline", () => {
-    const rules = entitlementRules(
-      {
-        entitlement: "3150000",
-        collected: "500000",
-        deductibles: "350000",
-        lines: [],
-      } as never,
+  it("keeps CASH out of the rules that sum to the entitlement", () => {
+    const computed = {
+      entitlement: "3150000",
+      collected: "500000",
+      paid: "200000",
+      deductibles: "350000",
+      lines: [],
+    } as never;
+
+    const keys = entitlementRules(computed, "SEK", money).map((rule) => rule.key);
+    expect(keys).not.toContain("collected");
+    expect(keys).not.toContain("paid");
+    // The deductions DO belong: `reconcile.ts:263` credits them negatively into the
+    // allocation, so they are part of the sum the headline states.
+    expect(keys).toContain("deductibles");
+  });
+
+  it("puts the cash under the divider instead, with the direction the engine gives it", () => {
+    const adjustments = payoutAdjustments(
+      { entitlement: "3150000", collected: "500000", paid: "200000", lines: [] } as never,
       "SEK",
       money,
     );
 
-    const collected = rules.find((rule) => rule.key === "collected");
-    expect(collected).toBeDefined();
+    const collected = adjustments.find((row) => row.key === "collected");
     expect(collected?.value).toBe("SEK 5,000");
-    expect(collected?.negative).toBeFalsy();
+    // `net = entitlement − collected + paid`: cash in hand comes OFF what is still owed…
+    expect(collected?.reducesPayout).toBe(true);
+    // …and money this party laid out is added back to it.
+    expect(adjustments.find((row) => row.key === "paid")?.reducesPayout).toBe(false);
+  });
 
-    // Reads in the engine's own order: what you collected before what came off you.
-    const keys = rules.map((rule) => rule.key);
-    expect(keys.indexOf("collected")).toBeLessThan(keys.indexOf("deductibles"));
+  it("carries an advance under the divider too, in whichever direction it went", () => {
+    const received = payoutAdjustments(
+      { entitlement: "0", prepaid: "500000", lines: [] } as never,
+      "SEK",
+      money,
+      { isYours: true, name: "" },
+      "Paid in advance by The Lantern Hall",
+    );
+    expect(received[0]?.label).toBe("Paid in advance by The Lantern Hall");
+    expect(received[0]?.value).toBe("SEK 5,000");
+    expect(received[0]?.reducesPayout).toBe(true);
+
+    // The PAYER's side is negative in the engine, and the magnitude is what renders —
+    // "− −SEK 5,000" was the shape to avoid.
+    const paidOut = payoutAdjustments(
+      { entitlement: "0", prepaid: "-500000", lines: [] } as never,
+      "SEK",
+      money,
+      { isYours: true, name: "" },
+      "Paid in advance to Marlo Vance",
+    );
+    expect(paidOut[0]?.value).toBe("SEK 5,000");
+    expect(paidOut[0]?.reducesPayout).toBe(false);
+  });
+
+  it("says nothing about an advance it cannot name", () => {
+    // `prepaidLabel` is null on a settlement snapshotted before the engine recorded the
+    // counterparty, and a bare figure with no counterparty is what QA7-10 refused.
+    const adjustments = payoutAdjustments(
+      { entitlement: "0", prepaid: "500000", lines: [] } as never,
+      "SEK",
+      money,
+    );
+    expect(adjustments).toEqual([]);
   });
 
   it("names the party's OWN percentage on a shared split", () => {
@@ -442,30 +498,35 @@ describe("entitlementRules — whose card is it", () => {
     lines: [],
   } as unknown as Parameters<typeof entitlementRules>[0];
 
+  /*
+   * The cash sentence moved to `payoutAdjustments` with the row (QA8-5), so the
+   * person-awareness is asserted on BOTH builders — the finding is about the pronoun, and
+   * it applies wherever the sentence lives.
+   */
   it("says 'you' on the reader's own card", () => {
     const labels = entitlementRules(computed, "SEK").map((rule) => rule.label);
-    expect(labels).toContain("Plus the money you collected on the night");
     expect(labels).toContain("Less costs somebody else fronted on your behalf");
+    const cash = payoutAdjustments(computed, "SEK").map((row) => row.label);
+    expect(cash).toContain("Less the money you collected on the night");
   });
 
   it("names the party on anybody else's", () => {
-    const labels = entitlementRules(computed, "SEK", undefined, {
-      isYours: false,
-      name: "The Lantern Hall",
-    }).map((rule) => rule.label);
-    expect(labels).toContain("Plus the money The Lantern Hall collected on the night");
+    const other = { isYours: false, name: "The Lantern Hall" };
+    const labels = entitlementRules(computed, "SEK", undefined, other).map((rule) => rule.label);
     expect(labels).toContain("Less costs somebody else fronted on The Lantern Hall's behalf");
-    // And never the reader.
-    expect(labels.join(" ")).not.toMatch(/\byou\b/);
+    const cash = payoutAdjustments(computed, "SEK", undefined, other).map((row) => row.label);
+    expect(cash).toContain("Less the money The Lantern Hall collected on the night");
+    // And never the reader, on either half of the card.
+    expect([...labels, ...cash].join(" ")).not.toMatch(/\byou\b/);
   });
 
   it("falls back to a phrase rather than an empty possessive", () => {
     // A party whose name this reader may not see still gets a readable sentence.
-    const labels = entitlementRules(computed, "SEK", undefined, {
-      isYours: false,
-      name: "",
-    }).map((rule) => rule.label);
-    expect(labels).toContain("Plus the money that party collected on the night");
+    const nameless = { isYours: false, name: "" };
+    const cash = payoutAdjustments(computed, "SEK", undefined, nameless).map((row) => row.label);
+    expect(cash).toContain("Less the money that party collected on the night");
+    const labels = entitlementRules(computed, "SEK", undefined, nameless).map((rule) => rule.label);
+    expect(labels).toContain("Less costs somebody else fronted on that party's behalf");
   });
 });
 

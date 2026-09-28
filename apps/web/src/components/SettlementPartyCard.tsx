@@ -134,45 +134,58 @@ export function SettlementPartyCard({ party }: { party: SettlementParty }) {
         </div>
       ))}
       {/*
-        THE ADVANCE, WHICH EXPLAINED A GAP NOTHING ON THIS TAB MENTIONED
-        (QA sweep run 7, QA7-10).
+        WHAT SITS BETWEEN THE ENTITLEMENT AND THE PAYOUT — the rows under the divider
+        (QA sweep run 7, QA7-10 for the advance; run 8, QA8-5 for the cash).
 
-        Measured: an act's card itemised its 70% door share and its SEK 3,000 deduction
-        beautifully, showed an entitlement of SEK 67,000 — and the Total Payouts card two
-        inches away said SEK 62,000. The SEK 5,000 advance that accounts for the difference
-        appeared nowhere on the tab. The engine had it (`"prepaid":"500000"`), the label was
-        built (`prepaidLabelOf`), and `packages/settlement/src/types.ts:160` states the
-        requirement in as many words — *"'paid in advance by X' rather than printing a figure
-        with no counterparty"*. Nothing rendered either.
+        The rules above SUM to the headline. These do not belong in that sum and each one
+        moved the payout away from it with nothing on the tab to say so:
 
-        BELOW the rules and separated, because an advance is not part of the entitlement: the
-        rules above sum to the entitlement, and this explains the gap between that and the
-        payout. Folding it in would make the column stop adding up, which is the fault a
-        previous sweep found on this very card.
+        - the ADVANCE. Measured: an act's card itemised its 70% door share and its SEK
+          3,000 deduction beautifully, showed an entitlement of SEK 67,000 — and the Total
+          Payouts card two inches away said SEK 62,000. The engine had it
+          (`"prepaid":"500000"`), the label was built, and nothing rendered either.
+        - the CASH. A `collected` row used to sit among the rules, on a belief about the
+          engine that `reconcile.ts` does not share, so an operator read SEK 20,700 over
+          rows of 20,700 and 78,000 — a format that states a sum, not keeping it. And the
+          SEK 10,800 they had PAID appeared nowhere at all.
+
+        One divider, one list, one renderer for the sign: `reducesPayout` decides it, so no
+        label carries a minus of its own and the two halves cannot disagree about direction.
       */}
-      {party.prepaid !== null && party.prepaidLabel !== null && (
+      {party.adjustments.length > 0 && (
         <div
           style={{
             display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
+            flexDirection: "column",
             padding: "7px 0 0",
             marginTop: 3,
-            fontSize: 12.5,
-            color: "var(--muted)",
             borderTop: "2px solid var(--border)",
           }}
         >
-          <span>{party.prepaidLabel}</span>
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              color: party.prepaidReducesPayout ? "var(--brand-red)" : "var(--text)",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {party.prepaidReducesPayout ? `− ${party.prepaid}` : party.prepaid}
-          </span>
+          {party.adjustments.map((adjustment) => (
+            <div
+              key={adjustment.key}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "3px 0",
+                fontSize: 12.5,
+                color: "var(--muted)",
+              }}
+            >
+              <span>{adjustment.label}</span>
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  color: adjustment.reducesPayout ? "var(--brand-red)" : "var(--text)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {adjustment.reducesPayout ? `− ${adjustment.value}` : adjustment.value}
+              </span>
+            </div>
+          ))}
         </div>
       )}
     </Card>

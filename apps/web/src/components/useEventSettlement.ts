@@ -27,6 +27,7 @@ import type { Transfer } from "./WhoOwesWhomBoard";
 import {
   type EntitlementRule,
   type LadderRow,
+  type PayoutAdjustment,
   describeBasis,
   entitlementGapSentence,
   entitlementRules,
@@ -34,6 +35,7 @@ import {
   isWholeBoard,
   ladderRows,
   netToneOf,
+  payoutAdjustments,
   transferStateOf,
   withheldPayees,
 } from "./settlementDocument";
@@ -115,18 +117,6 @@ export interface SettlementParty {
    * Null when nothing moved early.
    */
   prepaidLabel: string | null;
-  /**
-   * Whether the advance LOWERS what is still payable to this party (QA sweep run 7,
-   * QA7-10).
-   *
-   * The sign of `prepaid` carries the direction and `prepaidLabel` says it in words, but a
-   * card also has to decide whether to draw a minus — so the direction is resolved once,
-   * here, rather than by a renderer re-reading a formatted string.
-   *
-   * True for money this party already RECEIVED: their entitlement stands and the payout is
-   * that much smaller. False for money they already PAID OUT, which leaves them owed more.
-   */
-  prepaidReducesPayout: boolean;
   net: string | null;
   /**
    * The same figure with its sign stripped — for a label that already names the
@@ -159,6 +149,14 @@ export interface SettlementParty {
    * an explanation for it.
    */
   rules: EntitlementRule[];
+  /**
+   * The rows UNDER the card's divider — cash that moves the payout without being part of
+   * the entitlement above it (QA8-5, and QA7-10 for the advance).
+   *
+   * `rules` sum to the headline; these explain the distance from it to what actually
+   * moves. Built by `payoutAdjustments` from the engine's own `net = entitlement − held`.
+   */
+  adjustments: PayoutAdjustment[];
 }
 
 /** One remark in the review thread, with its author resolved to a person. */
@@ -1261,10 +1259,8 @@ function toParty(
     // zero on a night where nothing moved early — both mean "no row to show".
     prepaid:
       computed?.prepaid != null && computed.prepaid !== "0" ? formatAmount(computed.prepaid) : null,
+    // Still read by the who-owes-whom board, which renders the advance as its own row.
     prepaidLabel: prepaidLabelOf(computed, nameOf),
-    // A positive advance is money this party received — see `prepaidLabelOf`, where the
-    // same sign decides "by" against "to".
-    prepaidReducesPayout: !(computed?.prepaid ?? "0").startsWith("-"),
     net: computed ? formatAmount(computed.net) : null,
     netAbsolute: computed ? formatAmount(absoluteMinor(computed.net)) : null,
     // The raw minor units alongside the formatted figure, ONLY so totals can be
@@ -1277,6 +1273,17 @@ function toParty(
     // about them (QA6-9). `name` is already resolved above.
     rules: computed
       ? entitlementRules(computed, currency, formatAmount, { isYours: row.isYours, name })
+      : [],
+    // The same `owner` and the same formatter as the rules above it, so a card previewed
+    // in another currency converts both halves or neither.
+    adjustments: computed
+      ? payoutAdjustments(
+          computed,
+          currency,
+          formatAmount,
+          { isYours: row.isYours, name },
+          prepaidLabelOf(computed, nameOf),
+        )
       : [],
   };
 }
