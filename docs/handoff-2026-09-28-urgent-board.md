@@ -45,6 +45,14 @@ missing caller.** Today produced it seven more times, and added two siblings of 
   `packages/settlement` with its entry UI (`123qy9rnwud` / `123qy9rp8k3`).
 - **Every actionable finding from QA sweeps 4, 5 and 6** — four majors and eleven
   minors/cosmetics from run 6 alone, including three defects in this loop's own work.
+- **Sweep run 8, everything but its two majors** — QA8-6 through QA8-14, plus run 7's QA7-24.
+  Four of those were sentences that were false about whoever was reading them (an agent told a
+  commission was "private to you and your agent"; a crew account offered a dialog for offering to
+  play; a reader instructed to edit a tab that refuses them; a co-host told to ask the host for
+  something the host has no control for), two were promises the product does not keep (an RSVP's
+  "keep an eye on your inbox", a Billing panel's "add a bank account"), one was a bell that never
+  rang (`messages.ts` was the only interactive event route that never wrote a notification), and
+  one was a private book printing the shared book's door.
 - **Sweep run 8's three number defects** — QA8-3 (the break-even scan and the headline fee
   divided different bases, so a card read BREAK-EVEN 130 beside a loss; it now says *no
   break-even*, which on a 100% split is the truth), QA8-4 (an agent's headline read SEK 0
@@ -60,8 +68,8 @@ missing caller.** Today produced it seven more times, and added two siblings of 
   QA7-26 and QA7-27 — which leaves **QA7-18 and QA7-24** as the only actionable items left
   from run 7.
 
-Suites at `f308a93`, run in one pass: **biome 737 clean · shared 308 · web 467 · api 1388 ·
-e2e 112**, `tsc --noEmit` clean. The API's full run lost the same four files to the
+Suites at `fc37a41`, run in one pass: **biome 737 clean · shared 308 · web 472 · api 1410 ·
+e2e 112**, `tsc --noEmit` clean in web, api and shared. The API's full run lost the same four files to the
 Testcontainers port-bind flake with **zero failed tests** (four `Timed out after 10000ms
 while waiting for container ports` in the log); each passed when re-run alone.
 
@@ -120,7 +128,26 @@ seat** (`123qy9rnge6`), the **agreement PDF** (`86cbcn1f8`), **Print details** a
   refusal after the submit is at least true. A client-side guess at a paywall is how a UI starts
   disagreeing with the thing it is guessing about, so this waits for the API to say.
 
-### 4. Run 7's remaining minors, in order of size
+### 4. Three tickets, sized in `docs/urgent-board-loop-2026-09-28-part19.md`
+
+All three are the same shape — **a working back end with no front end**, which is run 7's QA7-5 at
+feature scale — so none is a fix and none should be half-built:
+
+- **QA8-1, a deal's money is write-once.** `PATCH /deals/:id` accepts `advanceAmount` on a `sent`
+  deal and the planner re-seeds, which is exactly Ran's 2026-09-21 spec; what is missing is every
+  control, and `DELETE /deals/:did` has no caller at all. Two sentences promise otherwise, one of
+  them written by this loop for QA7-9. **Ticket the edit path; leave delete behind a decision** —
+  whether a deal with a computed settlement may be removed or only cancelled.
+- **QA8-2, the representation lifecycle has no screen.** Four routes alive and driven directly,
+  `apps/jobs` already sweeping due terminations, and one caller in either front end. One piece is
+  not built at all: a proposal writes no notification. **Notification first**, then answer, propose,
+  delegate, terminate — the reverse of the order the routes were written in, because it is the
+  order in which each becomes usable.
+- **QA7-18, a deal awaiting your signature is not on the dashboard.** Analysis finished in part 16;
+  the one decision is to add a batched `resolveDealAuthorityForEvents` rather than a second copy of
+  the delegation rule.
+
+### 5. Run 7's remaining minors, in order of size
 
 `QA7-17` (an `operatorCostSplit` keyed by `profiles.id` is accepted, stored, echoed back and then
 silently ignored, because the settlement keys it by `event_participants.id` — the UI is correct and
@@ -131,14 +158,14 @@ the link — the boundary holds, the refusal is at the wrong end), `QA7-11` (the
 endpoint, which is the same gap as `QA6-19` above). Then NOTEs `QA7-20`–`QA7-23` and COSMETICs
 `QA7-24`–`QA7-27`.
 
-### 5. Recorded rather than built
+### 6. Recorded rather than built
 
 `QA6-14` (a permission set is provisioned per event, so the event's set list is six rows called
 `operator_full` — a data-model question, not a display fix) and `QA6-20` (three identical
 participant fetches per settlement load — one shared hook, filed for
 `docs/codebase-reuse-audit.md`).
 
-### 6. The owed session
+### 7. The owed session
 
 `123qy9rng6d` — the settlement vocabulary session with Ran. Still unheld, still the right call:
 the naming has been changed three times from written notes and each was wrong.
@@ -209,6 +236,17 @@ a ticket, because the base changes the per-head coefficient — so an assertion 
 difference had been read as evidence about a different wrong base. **When a fix comes with an
 explanation of why it is safe, the explanation is a claim about the code too.**
 
+### A sentence has to be true of whoever is reading it — FIVE instances now
+
+Run 6 found the first (`"Plus the money you collected"` on a performer's screen under the
+operator's name, once #24.2 put another party's card in front of a reader). This stretch added four
+more: an agent told a commission was *"private to you and your agent"*; *"Edit them there"* pointing
+at a tab that refuses the reader; *"Ask the host to add you to it"* naming a control the host does
+not have; *"Keep an eye on your inbox"* over a route that sends nothing. The pattern is one rule
+with two halves — **person-awareness** (does this sentence's "you" mean the reader?) and
+**capability-awareness** (can the reader do the thing it names?) — and the fix is the same both
+times: build the sentence where the names and the capabilities already are, not in the component.
+
 ### A test can pin a false belief, and then the defect is invisible
 
 `authorize.test.ts` asserted a co-host gets no deal-scoped confirm *"because operators already
@@ -243,8 +281,13 @@ exactly 30 days behind the 27th, 31 behind the 28th. It had been one day from fa
 
 ## The local stack, as left
 
-**Up** (`pnpm dev`) and freshly re-seeded, with the settlements on the Album Release computed by
-hand for the QA8-4 and QA8-5 proofs and then wiped by the re-seed. The sweeps mutate the seed (cancelled shows, extra holds, replaced schedules,
+**Down** — `pnpm test:e2e` was the last thing run and it tears the manual stack down. The seed was
+restored (`seed:e2e`) before that pass, so the probe rows this stretch created — an RSVP, two
+offers, a numberless bill, an advance on deal `…d1` — are all gone.
+
+`pnpm dev` does NOT start the marketing site; the public event page needs
+`pnpm --filter @showme/marketing dev` and it binds to **`localhost:5173` over IPv6 only**, so a
+`curl 127.0.0.1:5173` health check never answers and looks like a failed boot. The sweeps mutate the seed (cancelled shows, extra holds, replaced schedules,
 computed settlements), and so do proofs: re-run `pnpm --filter @showme/db seed:e2e` rather than
 hand-reversing a fixture. Hand-reversing guesses at the original — re-seeding revealed that the
 pristine deal `…d1` carries a NULL `confirmed_snapshot` and an **unsigned** first party, which a

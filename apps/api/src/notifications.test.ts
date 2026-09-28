@@ -211,12 +211,23 @@ describe("notification preferences", () => {
     expect(response.statusCode).toBe(200);
 
     const { preferences } = response.json();
+    /*
+     * THE WHOLE CATALOG, IN ORDER — including `messages`, which QA8-7 added between `events`
+     * and `tasks` so a message notification could be switched off at all (an uncategorised
+     * type is delivered unconditionally, and messages are the app's most frequent event).
+     *
+     * This list is spelled out rather than read from `NOTIFICATION_CATEGORIES` on purpose:
+     * asserting the catalog against itself would pass whatever the catalog said, and the
+     * ORDER is what the settings screen renders. A new category should make this test fail
+     * once, deliberately, in front of someone.
+     */
     expect(preferences.map((preference: { category: string }) => preference.category)).toEqual([
       "bookings",
       "holds",
       "deals",
       "settlements",
       "events",
+      "messages",
       "tasks",
     ]);
     // In-app is on everywhere; email is on for the ones that cost money or a date
@@ -233,6 +244,9 @@ describe("notification preferences", () => {
     // (ClickUp `123qy9rnk3k`): being HANDED a job is somebody else acting on work
     // you now owe, and a crew member who is not in the app that afternoon has no
     // other way to learn of it. That is the costs-a-date side of the rule.
+    // `messages` is NOT here, and that is the decision QA8-7 recorded: a chat line is
+    // neither a date nor a payment, and one active thread would out-mail every category
+    // that is. The bell still rings — `inApp` defaults on for all seven, asserted above.
     expect(emailOn).toEqual(["bookings", "holds", "deals", "settlements", "tasks"]);
   });
 
