@@ -6,9 +6,10 @@
  * just started, a stored value nobody recognises, a clock that stepped backwards.
  * Each is one line here and an afternoon of waiting in a browser.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_IDLE_MINUTES,
+  IDLE_REASON_STORAGE_KEY,
   IDLE_TIMEOUT_OPTIONS,
   IDLE_TIMEOUT_STORAGE_KEY,
   idleMinutesFromStored,
@@ -16,6 +17,8 @@ import {
   millisecondsUntilIdle,
   readIdleStorage,
   storedFromIdleMinutes,
+  takeIdleLogoutNotice,
+  writeIdleStorage,
 } from "./idleLogout";
 
 const MINUTE = 60_000;
@@ -122,5 +125,66 @@ describe("readIdleStorage — a storage that throws must not take the app with i
     expect(idleMinutesFromStored(readIdleStorage(IDLE_TIMEOUT_STORAGE_KEY))).toBe(
       DEFAULT_IDLE_MINUTES,
     );
+  });
+});
+
+/**
+ * THE NOTE THE SIGN-OUT LEAVES BEHIND (QA sweep run 5, QA5-6).
+ *
+ * `useIdleLogout` called `signOut()` and said nothing, so the sign-in screen could not
+ * tell a timeout from an expired token or a bug. The note is `localStorage` rather than
+ * router state because the sign-out tears the React tree down.
+ */
+describe("takeIdleLogoutNotice", () => {
+  /*
+   * This suite runs in NODE, not jsdom — the rest of the file is pure arithmetic and
+   * `readIdleStorage` is wrapped precisely because `localStorage` can throw. So the
+   * storage is stubbed rather than assumed: a Map behind the three methods the module
+   * uses, which is also the only place in these tests that needs a browser at all.
+   */
+  beforeEach(() => {
+    const store = new Map<string, string>();
+    (globalThis as { window?: unknown }).window = {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          store.set(key, value);
+        },
+        removeItem: (key: string) => {
+          store.delete(key);
+        },
+      },
+    };
+  });
+
+  afterEach(() => {
+    (globalThis as { window?: unknown }).window = undefined;
+  });
+
+  it("answers null when no timeout has fired", () => {
+    expect(takeIdleLogoutNotice()).toBeNull();
+  });
+
+  it("carries the limit that fired, so the sentence can name it", () => {
+    writeIdleStorage(IDLE_REASON_STORAGE_KEY, "15");
+    expect(takeIdleLogoutNotice()).toEqual({ minutes: 15 });
+  });
+
+  it("takes the note AWAY — it explains this sign-out, never the next one", () => {
+    writeIdleStorage(IDLE_REASON_STORAGE_KEY, "60");
+    expect(takeIdleLogoutNotice()).toEqual({ minutes: 60 });
+    // A note left behind would greet somebody who signed out on purpose.
+    expect(takeIdleLogoutNotice()).toBeNull();
+    expect(readIdleStorage(IDLE_REASON_STORAGE_KEY)).toBeNull();
+  });
+
+  it("ignores a note that is not a positive number of minutes, and still clears it", () => {
+    // Nothing writes these, but a stale or hand-edited key must not render
+    // "You were signed out after NaN minutes".
+    for (const junk of ["", "off", "nonsense", "0", "-5"]) {
+      writeIdleStorage(IDLE_REASON_STORAGE_KEY, junk);
+      expect(takeIdleLogoutNotice()).toBeNull();
+      expect(readIdleStorage(IDLE_REASON_STORAGE_KEY)).toBeNull();
+    }
   });
 });

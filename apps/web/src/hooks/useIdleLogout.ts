@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import {
   IDLE_ACTIVITY_STORAGE_KEY,
+  IDLE_REASON_STORAGE_KEY,
   IDLE_TIMEOUT_STORAGE_KEY,
   idleMinutesFromStored,
   isIdlePastLimit,
@@ -123,7 +124,14 @@ export function useIdleLogout(): void {
 
     /** Ask the question. Called by the timer, by coming back to the tab, and on mount. */
     const check = () => {
-      if (isIdlePastLimit(lastActivityAt(), Date.now(), limit())) {
+      const limitMinutes = limit();
+      if (isIdlePastLimit(lastActivityAt(), Date.now(), limitMinutes)) {
+        // LEAVE A NOTE FIRST (QA sweep run 5, QA5-6). The sign-out tears this tree
+        // down, so the reason cannot travel in state — `AuthScreen` reads and clears
+        // it. Written before `signOut` because after it this code is gone.
+        if (limitMinutes !== null) {
+          writeIdleStorage(IDLE_REASON_STORAGE_KEY, String(limitMinutes));
+        }
         void signOut();
         return;
       }

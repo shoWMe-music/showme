@@ -1,6 +1,7 @@
 import { ApiError } from "@showme/api-client";
 import { Button, Card, Input } from "@showme/design-system";
 import { type FormEvent, useState } from "react";
+import { takeIdleLogoutNotice } from "../lib/idleLogout";
 import { useAuth } from "./AuthProvider";
 
 function messageFor(error: unknown): string {
@@ -24,6 +25,12 @@ export function AuthScreen() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * Read ONCE, at mount, and taken away in the same step — a lazy `useState`
+   * initialiser rather than an effect, so it cannot be read twice by a re-render and
+   * cannot flash in after the screen has already drawn.
+   */
+  const [idleNotice] = useState(() => takeIdleLogoutNotice());
 
   async function run(action: () => Promise<void>) {
     setError(null);
@@ -63,6 +70,31 @@ export function AuthScreen() {
             ? "A couple of quick questions come next."
             : "Sign in to your shoWMe account."}
         </p>
+
+        {/*
+          WHY YOU ARE LOOKING AT THIS SCREEN, when the timeout is the answer
+          (QA sweep run 5, QA5-6). `useIdleLogout` used to call `signOut()` and say
+          nothing, so somebody returning to a laptop could not tell a timeout from an
+          expired token, a revoked session or a bug — and the setting they would change
+          is on the other side of the sign-in they were just asked for. Read once and
+          cleared, so it explains this sign-out and never the next one.
+        */}
+        {idleNotice && (
+          <p
+            style={{
+              margin: "0 0 20px",
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid var(--border)",
+              background: "var(--shape-fill)",
+              fontSize: 13,
+              lineHeight: 1.5,
+            }}
+          >
+            You were signed out after {idleNotice.minutes} minutes without activity. Change or
+            switch off that timeout in Settings → Security once you are back in.
+          </p>
+        )}
 
         <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
           <Input

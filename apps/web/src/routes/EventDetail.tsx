@@ -28,7 +28,7 @@ import {
 import { eventParticipantRoleLabel, humanizeEnumValue } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BudgetPlanner,
   type CrewMember,
@@ -107,14 +107,46 @@ function participantName(participant: Participant): string {
 
 export function EventDetail() {
   const { eventId } = useParams({ from: "/events/$eventId" });
-  // Which panel a link asked for (`?tab=budget`). The initial value only —
-  // clicking a tab afterwards moves this state and deliberately does not rewrite
-  // the URL, so the workspace still behaves as one screen rather than pushing a
-  // history entry per tab.
+  // Which panel a link asked for (`?tab=budget`). The initial value only — the tab
+  // the reader is looking at lives in state, and `selectTab` below keeps the URL in
+  // step with it WITHOUT pushing a history entry.
   const requestedTab = useSearch({ from: "/events/$eventId" }).tab;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState(requestedTab ?? "details");
+
+  /**
+   * CHANGING A TAB WRITES `?tab=`, WITH `replace` (QA sweep run 5, QA5-9).
+   *
+   * Not writing it at all was a decision, stated here: *"the workspace still behaves as
+   * one screen rather than pushing a history entry per tab"* — and the sweep's second
+   * symptom, `history.back()` leaving the event, is exactly what that decision buys.
+   * `replace: true` keeps every bit of it: no entry is pushed, so Back still leaves the
+   * workspace.
+   *
+   * What it removes is the decision's one real cost. A reload landed on Event Details
+   * whatever the reader was looking at, and the URL of the panel in front of them could
+   * not be copied to anybody. The read path has always worked — `?tab=messages` typed by
+   * hand opens the right panel — so only the write was missing.
+   *
+   * The DEFAULT panel writes no parameter, so the bare `/events/:id` stays bare and
+   * nothing puts `?tab=details` in front of a reader who never chose it.
+   */
+  const selectTab = useCallback(
+    (next: string) => {
+      setTab(next);
+      void navigate({
+        to: "/events/$eventId",
+        params: { eventId },
+        search: (previous: Record<string, unknown>) => ({
+          ...previous,
+          tab: next === "details" ? undefined : next,
+        }),
+        replace: true,
+      });
+    },
+    [eventId, navigate],
+  );
 
   /**
    * ARRIVING FROM A NOTIFICATION SHOULD LAND ON THE PANEL (ClickUp `86cbcgq5f`:
@@ -534,7 +566,7 @@ export function EventDetail() {
           event's facts, so it is a row on the Event Information card with the
           rest of them — not a second control above the tabs. */}
       <div ref={tabsBarRef}>
-        <EventTabsBar tabs={tabs} value={activeTab} onChange={setTab} />
+        <EventTabsBar tabs={tabs} value={activeTab} onChange={selectTab} />
       </div>
 
       {/* One wrapper for all nine panels: the content scoots in from whichever

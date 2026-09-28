@@ -47,6 +47,23 @@ export const DEFAULT_IDLE_MINUTES = 60;
 
 export const IDLE_TIMEOUT_STORAGE_KEY = "showme.security.idleLogoutMinutes";
 export const IDLE_ACTIVITY_STORAGE_KEY = "showme.security.lastActivityAt";
+/**
+ * A ONE-SHOT NOTE THAT THE TIMEOUT IS WHY YOU ARE LOOKING AT A SIGN-IN SCREEN
+ * (QA sweep run 5, QA5-6).
+ *
+ * `useIdleLogout` called `signOut()` and the reason died with the React tree, so
+ * somebody returning to a laptop landed on *"Welcome back — Sign in to your shoWMe
+ * account."* and could not tell a timeout from an expired token, a revoked session or
+ * a bug. The setting they would need is on the other side of the sign-in they were
+ * just asked for.
+ *
+ * `localStorage` rather than router state precisely BECAUSE the sign-out tears the tree
+ * down — and the timeout it explains is already a per-device `localStorage` preference
+ * (decisions #25.6), so the note belongs to the same device as the rule that fired it.
+ * Read once and cleared, so it explains the sign-out that just happened and never the
+ * next one.
+ */
+export const IDLE_REASON_STORAGE_KEY = "showme.security.signedOutByIdleAt";
 
 /** The value stored for "never log me out". Spelled once so both ends agree. */
 const OFF = "off";
@@ -144,6 +161,16 @@ export function writeIdleStorage(key: string, value: string): void {
   }
 }
 
+/** The same, for taking a one-shot note away once it has been read. */
+export function clearIdleStorage(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Same reasoning as the write: a storage failure must not take the app down. The
+    // cost of a note that cannot be cleared is one extra sentence on one screen.
+  }
+}
+
 /**
  * SIGNING IN IS ACTIVITY — stamp it at the source.
  *
@@ -160,4 +187,19 @@ export function writeIdleStorage(key: string, value: string): void {
  */
 export function recordSignInActivity(): void {
   writeIdleStorage(IDLE_ACTIVITY_STORAGE_KEY, String(Date.now()));
+}
+
+/**
+ * Take the "you were signed out by the timeout" note, if one is waiting.
+ *
+ * Reads and CLEARS in one step: a note left behind would explain the next sign-in
+ * screen too, including one the user asked for. Returns the limit in minutes so the
+ * sentence can name it.
+ */
+export function takeIdleLogoutNotice(): { minutes: number } | null {
+  const stored = readIdleStorage(IDLE_REASON_STORAGE_KEY);
+  if (stored === null) return null;
+  clearIdleStorage(IDLE_REASON_STORAGE_KEY);
+  const minutes = Number(stored);
+  return Number.isFinite(minutes) && minutes > 0 ? { minutes } : null;
 }

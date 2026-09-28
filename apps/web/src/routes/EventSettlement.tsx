@@ -1285,7 +1285,18 @@ function EntryMethodCard({
   settlement,
   hasLines,
 }: { settlement: EventSettlementData; hasLines: boolean }) {
-  if (!settlement.authority.canCompute || hasLines) return null;
+  /*
+   * …AND NOT ONCE THE FIGURES ARE FROZEN (QA sweep run 5, QA5-8; run 4's QA4-12 was
+   * the half of it that has already been fixed).
+   *
+   * The condition asked "are there lines?" where it means "is this still open?". A
+   * FINALIZED settlement with no captured lines therefore still offered *Start from
+   * the Budget Planner* — and pressing it now raises the server's own refusal as a
+   * toast, which is better than run 4's silence and still an offer that cannot be
+   * taken. `Spring Warmup` is exactly that shape: `finalized`, zero rows in
+   * `settlement_lines`.
+   */
+  if (!settlement.authority.canCompute || hasLines || settlement.isFinalized) return null;
   const blocked = settlement.isBusy || settlement.unsignedAgreementsNotice != null;
   return (
     <Card padding="lg" style={CARD_COLUMN}>
@@ -1358,7 +1369,10 @@ function FinancialsTab({
   // while it is on screen the locator does not ALSO offer a bare "Run the
   // settlement". Two buttons that do the same thing, one of which quietly picks
   // an answer to a question the other is asking, is worse than either alone.
-  const chooserIsShowing = settlement.authority.canCompute && editor.lines.length === 0;
+  // The same three conditions the card itself applies — see `EntryMethodCard` for why
+  // `isFinalized` is one of them (QA5-8).
+  const chooserIsShowing =
+    settlement.authority.canCompute && editor.lines.length === 0 && !settlement.isFinalized;
   const guide = settlement.authority.canCompute ? (
     <SettlingHappensHereCard
       eventId={eventId}

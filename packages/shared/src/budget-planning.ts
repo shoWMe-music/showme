@@ -216,6 +216,21 @@ export interface BudgetProjection {
    */
   readonly breakEvenTickets: number;
   /**
+   * Whether a break-even EXISTS at all — false when no attendance makes the night
+   * stop losing money (QA sweep run 5, QA5-7, and run 4's QA4-10 before it).
+   *
+   * `breakEvenTickets` is `0` for two different answers and cannot tell them apart:
+   * *"no break-even"* (a non-positive contribution per head, or a scan that found no
+   * crossing inside its bound) and *"you break even at zero tickets"* (the standing
+   * revenue already covers the entered costs). The docstrings below have said twice
+   * that *"the screen renders that as 'no break-even', never as 'none needed'"* — and
+   * the screen rendered **`0`**, directly above a chart captioned *"Revenue never
+   * passes total cost inside 420 capacity."*
+   *
+   * So the reason travels rather than being inferred from the number.
+   */
+  readonly breakEvenReachable: boolean;
+  /**
    * Revenue that arrives whether or not a ticket sells — the standing other-revenue
    * row plus every custom row. The break-even line's intercept, and the ONLY
    * revenue that offsets a fixed cost rather than riding on attendance.
@@ -403,6 +418,14 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
     }
   }
 
+  /*
+   * Reachable when a crossing was actually found, or when there was nothing to cover
+   * in the first place. `uncovered <= 0` is a true zero — the standing revenue already
+   * pays the entered costs — and it is the one case where `breakEvenTickets === 0`
+   * means "none needed" rather than "never".
+   */
+  const breakEvenReachable = breakEvenTickets > 0 || uncovered <= 0n;
+
   const marginPercent = totalRevenue > 0n ? (Number(profit) / Number(totalRevenue)) * 100 : 0;
   // Per GUEST: the people who came, not the seats that exist (see `attendees`).
   const guests = attendees > 0n ? attendees : 1n;
@@ -420,6 +443,7 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
     ticketsSold,
     averageTicketPrice,
     breakEvenTickets,
+    breakEvenReachable,
     standingRevenue,
     perHeadRevenue,
     variableCostPerTicket,

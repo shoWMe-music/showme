@@ -674,7 +674,18 @@ export function budgetPlannerViewFrom(
             // A COUNT, left plain. It is neither good nor bad until you know the
             // room, and the tile beside it already says whether the night makes
             // money.
-            { label: "Break-even tickets", value: projection.breakEvenTickets },
+            //
+            // …AND "0" IS NOT A COUNT WHEN THERE IS NO CROSSING (QA sweep run 5,
+            // QA5-7). The engine has said twice in its own docstrings that zero means
+            // "no break-even" and that the screen renders it that way; the screen
+            // rendered `0`, which reads as "you break even before selling a ticket" —
+            // the opposite — directly above a chart captioned "Revenue never passes
+            // total cost inside 420 capacity". `breakEvenReachable` is the engine
+            // saying which of the two zeros this is.
+            {
+              label: "Break-even tickets",
+              value: projection.breakEvenReachable ? projection.breakEvenTickets : "No break-even",
+            },
           ]),
     ],
     // TONED THE SAME WAY THE STRIP IS, which is what the design does and what we
@@ -709,7 +720,11 @@ export function budgetPlannerViewFrom(
             { label: "Profit margin", value: `${projection.marginPercent.toFixed(1)}%` },
             {
               label: "Break-even tickets",
-              value: projection.breakEvenTickets.toLocaleString(),
+              // See the KPI strip above: zero is two answers, and only the engine
+              // knows which (QA5-7).
+              value: projection.breakEvenReachable
+                ? projection.breakEvenTickets.toLocaleString()
+                : "No break-even",
             },
           ]),
       // What the sheet expects to SELL. The grid showed revenue and cost per

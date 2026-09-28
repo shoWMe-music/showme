@@ -1,7 +1,8 @@
 import { type AvatarTone, EmptyState, Icon, SectionHeader } from "@showme/design-system";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { AudienceCard } from "../components";
+import { isDestinationForKind } from "../shell/navigation";
 
 /** A fan/audience-CRM contact: a ticket buyer, newsletter subscriber or social
  * follower, tagged by city + tier. Shape mirrors the prototype's card. */
@@ -26,7 +27,44 @@ type ViewMode = "grid" | "list";
  * added and wired here in place of this constant. NO mock contacts. */
 const CONTACTS: AudienceContact[] = [];
 
+/**
+ * The route stays registered for every kind — hiding a sidebar link is a navigation
+ * decision, not an authorization one — but the fanbase belongs to the room and to the
+ * act, so reaching this by URL as anybody else says so (QA sweep run 5, QA5-10; run 6
+ * re-confirmed it as `professional@`).
+ *
+ * `shell/navigation.ts` already withholds the entry from `team_and_crew` and `agent`
+ * with the reasoning quoted from story.md — a FOH engineer *"has no fanbase in
+ * shoWMe"*, and for the agent *"the fanbase is the act's, not the agency's"* — and both
+ * sidebars honour it. Typing the URL rendered the whole screen anyway.
+ *
+ * This is the FOURTH instance of a wrapper `/setlists`, `/reports` and `/projections`
+ * already use, so the pattern is the repo's rather than an invention. Nothing leaked
+ * today (the screen is empty for everyone — there is no audience read endpoint yet,
+ * QA6-19), which is why this was minor; the sentence is what stops it from becoming
+ * something else the day the endpoint lands.
+ */
+function AudienceOwnersOnly({ children }: { children: ReactNode }) {
+  const { session } = useAuth();
+  if (isDestinationForKind("/audience", session?.kind ?? null)) return <>{children}</>;
+  return (
+    <EmptyState
+      icon={<Icon name="users" />}
+      title="An audience belongs to the room and to the act"
+      description="The venue's own following and the performer's are theirs. A crew member is booked for the night, and an agent represents the act — neither has a fanbase here."
+    />
+  );
+}
+
 export function Audience() {
+  return (
+    <AudienceOwnersOnly>
+      <AudienceScreen />
+    </AudienceOwnersOnly>
+  );
+}
+
+function AudienceScreen() {
   const { session } = useAuth();
   const profileId = session?.memberships[0]?.profileId ?? "";
   const [view, setView] = useState<ViewMode>("grid");

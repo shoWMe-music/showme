@@ -121,3 +121,60 @@ multiple-reasons caption has none of its own beyond the 401-test web suite.
 
 biome **732** clean · api **1379** (4 files to the Testcontainers flake, each green alone) ·
 shared **299** · web **401** · e2e **112** · `tsc --noEmit` clean in shared, api, web and marketing.
+
+---
+
+## Run 5's five small minors, built from the plan in `-part8.md`
+
+### `QA5-7` — the engine had already committed to the wording; the screen hadn't
+
+`computeBudgetProjection`'s docstrings say twice that `0` means *"no break-even"* and that
+*"the screen renders that as 'no break-even', never as 'none needed'"*. It rendered **`0`**,
+directly above a chart captioned *"Revenue never passes total cost inside 420 capacity."*
+
+`0` is two answers and the number cannot tell them apart, so `breakEvenReachable` now travels with
+it: **false** when the contribution per head is non-positive or the attendance scan found no
+crossing, **true** when there was nothing left to cover (the honest zero — the standing revenue
+already pays the entered costs, so none are needed). Three mutations, three red.
+
+### `QA5-9` — `replace: true` keeps the decision and drops its only cost
+
+Not writing `?tab=` is stated in `EventDetail.tsx` as a decision, and the sweep's second symptom —
+`history.back()` leaving the event — is what it buys. `replace: true` keeps every bit of that and
+removes the cost. **Measured in the browser:**
+
+```
+click Deals   → …/e2e…e1?tab=deals      history.length 3
+click Budget  → …/e2e…e1?tab=budget     history.length 3   ← no entry pushed
+reload        → Budget Planner selected                     ← was Event Details
+history.back()→ /login                                      ← still leaves the event
+```
+
+The default panel writes no parameter, so a bare `/events/:id` stays bare.
+
+### `QA5-6`, `QA5-10`, `QA5-8`
+
+- **QA5-6** — `useIdleLogout` leaves a one-shot note (`localStorage`, beside the two
+  `showme.security.*` keys the feature already owns) and `AuthScreen` reads and **clears** it in a
+  lazy `useState` initialiser. Proven by stamping the activity three hours back with a 15-minute
+  limit: *"You were signed out after 15 minutes without activity. Change or switch off that timeout
+  in Settings → Security once you are back in."* Four tests, including four junk values that must
+  render nothing and still clear the key.
+- **QA5-10** — `/audience` is the **fourth** instance of the boundary wrapper `/setlists`,
+  `/reports` and `/projections` use. As `professional@`: *"An audience belongs to the room and to the
+  act"*, and the CRM no longer renders.
+- **QA5-8** — the chooser asked *"are there lines?"* where it means *"is this still open?"*. Both
+  conditions gained `isFinalized`, so `Spring Warmup` (finalized, zero `settlement_lines`) shows
+  **Finalized** instead of offering *Start from the Budget Planner*.
+
+Screenshot: `docs/screenshots/qa-2026-09-27-run5/qa5-6-idle-logout-says-why.png`.
+
+## Suites
+
+biome **732** clean · api **1379** (4 files to the Testcontainers flake, each green alone) ·
+shared **302** · web **405** · e2e **112** · `tsc --noEmit` clean.
+
+**Still open from run 5:** `QA5-11` (a decision — whether #14's view floor lets a represented act
+see the request its agent sent in its name), `QA5-12` (the schedule template appends with no way to
+replace), `QA5-13` (a ticket-tier summary drawn from local state), `QA5-14` (three faults on the
+Settlements dashboard).

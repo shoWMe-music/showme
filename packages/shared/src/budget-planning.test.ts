@@ -602,3 +602,57 @@ describe("the basis of a revenue row", () => {
     expect(projection.perHeadRevenue).toBe(major(7));
   });
 });
+
+/**
+ * ZERO IS TWO ANSWERS (QA sweep run 5's QA5-7, run 4's QA4-10 before it).
+ *
+ * The screen printed `BREAK-EVEN TICKETS 0` directly above a chart captioned
+ * *"Revenue never passes total cost inside 420 capacity."* — which reads as the
+ * opposite of what the engine meant. `breakEvenTickets` is `0` both when no
+ * attendance can make the night stop losing money and when there is nothing left to
+ * cover, so the reason has to travel as its own field.
+ */
+describe("breakEvenReachable", () => {
+  it("is true with a real crossing, and the count is the crossing", () => {
+    const projection = computeBudgetProjection({
+      ticketTiers: [{ unitAmount: major(250), quantity: 300 }],
+      averageBarSpend: 0n,
+      capacity: 400,
+      otherRevenue: 0n,
+      costs: [major(50000)],
+    });
+    expect(projection.breakEvenReachable).toBe(true);
+    expect(projection.breakEvenTickets).toBe(200);
+  });
+
+  it("is TRUE at zero tickets when the standing revenue already covers the costs", () => {
+    // The honest zero: nothing is left to cover, so none are needed. This is the case
+    // a bare "No break-even" would have been wrong about.
+    const projection = computeBudgetProjection({
+      ticketTiers: [{ unitAmount: major(250), quantity: 100 }],
+      averageBarSpend: 0n,
+      capacity: 400,
+      otherRevenue: major(20000),
+      costs: [major(10000)],
+    });
+    expect(projection.breakEvenTickets).toBe(0);
+    expect(projection.breakEvenReachable).toBe(true);
+  });
+
+  it("is FALSE when every extra guest loses money", () => {
+    // A non-positive contribution per head: a free ticket with a fee on it brings
+    // nothing and costs something, so no attendance crosses. The engine's own comment
+    // says 0 says so — and this is the zero the screen was printing as a count.
+    const projection = computeBudgetProjection({
+      ticketTiers: [{ unitAmount: 0n, quantity: 300 }],
+      averageBarSpend: 0n,
+      capacity: 400,
+      otherRevenue: 0n,
+      costs: [major(50000)],
+      paymentProcessing: { percentBasisPoints: 0, flatPerTicket: major(5) },
+    });
+    expect(projection.contributionPerHead).toBeLessThanOrEqual(0n);
+    expect(projection.breakEvenTickets).toBe(0);
+    expect(projection.breakEvenReachable).toBe(false);
+  });
+});
