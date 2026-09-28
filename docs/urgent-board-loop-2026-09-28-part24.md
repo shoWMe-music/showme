@@ -163,6 +163,43 @@ intermediate frames, because the hook does not shorten the tween, it does not cr
 - Blocked: `86cbcn1q4`, `86cbcn1rr`, `86c9mq7q9` until `/design-login` works.
 - §25.6's other five rows, and §25.7.1's one follow-up question, still Daniel's.
 
+## 3b. QA10-4, second leg — the plan, before building
+
+**Which file settles it:** `apps/api/src/routes/participants.ts` (`GET /me/event-invitations`) — and
+then a route that does not exist yet.
+
+**The verdict: the sweep's two causes are one cause, and it is the second one.** Checked against the
+code rather than taken as read:
+
+- `INVITABLE_ROLES` excluding `co_host` is **unobservable on its own**. Nothing in the app can create
+  an `invited` co-host participant row: `POST /events` accepts only `performer` and `support`
+  (`events.ts:250`), `POST /events/:id/participants` writes a co-host **`accepted`** (its own comment:
+  *"adding a co-promoter here RECORDS an arrangement rather than asking a question"*), and the token
+  accept writes `accepted` too (`invitations.ts:1075`). So adding `co_host` to that list would change
+  no answer — it would be a widening on speculation, which is what §25.7.4 warned about.
+- **The real defect is leg 2, and it is wider than the sweep framed it.** The query reads
+  `event_participants` for events the caller already touches; an email-addressed collaborator invite
+  writes **only an `invitations` row** and no participant row, so `eventIds` is empty and the answer is
+  `[]`. That is true for **every role**, not only co-host — a performer invited by email is equally
+  invisible. Co-host is simply the dialog's default, which is why the sweep met it there.
+
+**The scope: build the read that does not exist.** Run 9's QA9-3 already recorded *"There is no
+'invitations addressed to me' read"*; I fixed the bell's link that tick and left the gap. `GET
+/profiles/:id/invitations` lists what a profile has **sent**. So:
+
+1. `GET /me/invitations` — pending `invitations` rows whose recipient email is the caller's, with the
+   token, the target event and the role. **Additive**: the existing endpoint's shape is untouched, so
+   no nullable `participantId` ripples through a response two screens already read.
+2. The invitation card lists them with a link to `/invitations/:token` — the page that already works
+   end to end (the sweep drove it by hand), rather than inline Accept/Decline, because the accept for
+   a token invitation is token-keyed and there is no participant row for `participation/accept` to move.
+
+**The decision it hides: may the caller be handed the token?** Yes, and it widens nothing. The token
+is the grant, and the population that gets this list is exactly the population
+`POST /invitations` already notifies — `lower(users.email) = recipient_email`, the same match, the same
+person who receives the token by email. What would be new is a *different* user reading it, and the
+match is what prevents that. It is asserted in a test rather than left to the reader.
+
 ## 4. Full pass
 
 biome **742** · shared **330** · auth **35** · settlement **72** · web **490** · api **1423**

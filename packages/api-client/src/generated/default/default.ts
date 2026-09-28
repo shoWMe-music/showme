@@ -105,6 +105,7 @@ import type {
   GetApiV1Me200,
   GetApiV1MeEventInvitations200Item,
   GetApiV1MeExport200,
+  GetApiV1MeInvitations200Item,
   GetApiV1Notifications200,
   GetApiV1NotificationsParams,
   GetApiV1NotificationsPreferences200,
@@ -9547,6 +9548,92 @@ export function useGetApiV1EventsIdInvitations<TData = Awaited<ReturnType<typeof
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetApiV1EventsIdInvitationsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const getApiV1MeInvitations = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1MeInvitations200Item[]>(
+      {url: `/api/v1/me/invitations`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1MeInvitationsQueryKey = () => {
+    return [
+    `/api/v1/me/invitations`
+    ] as const;
+    }
+
+    
+export const getGetApiV1MeInvitationsQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1MeInvitations>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1MeInvitations>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1MeInvitationsQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1MeInvitations>>> = ({ signal }) => getApiV1MeInvitations(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1MeInvitations>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1MeInvitationsQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1MeInvitations>>>
+export type GetApiV1MeInvitationsQueryError = unknown
+
+
+export function useGetApiV1MeInvitations<TData = Awaited<ReturnType<typeof getApiV1MeInvitations>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1MeInvitations>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1MeInvitations>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1MeInvitations>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1MeInvitations<TData = Awaited<ReturnType<typeof getApiV1MeInvitations>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1MeInvitations>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1MeInvitations>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1MeInvitations>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1MeInvitations<TData = Awaited<ReturnType<typeof getApiV1MeInvitations>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1MeInvitations>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1MeInvitations<TData = Awaited<ReturnType<typeof getApiV1MeInvitations>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1MeInvitations>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1MeInvitationsQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

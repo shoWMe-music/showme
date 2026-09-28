@@ -211,6 +211,7 @@ export * from './getApiV1MeEventInvitations200ItemRequestStatus';
 export * from './getApiV1MeExport200';
 export * from './getApiV1MeExport200Data';
 export * from './getApiV1MeExport200DataItem';
+export * from './getApiV1MeInvitations200Item';
 export * from './getApiV1Notifications200';
 export * from './getApiV1Notifications200ItemsItem';
 export * from './getApiV1Notifications200ItemsItemMetadata';

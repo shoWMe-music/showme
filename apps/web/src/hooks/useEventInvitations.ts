@@ -1,9 +1,11 @@
 import {
+  type getApiV1MeInvitations,
   getGetApiV1EventsQueryKey,
   getGetApiV1MeEventInvitationsQueryKey,
   postApiV1EventsIdParticipationAccept,
   postApiV1EventsIdParticipationDecline,
   useGetApiV1MeEventInvitations,
+  useGetApiV1MeInvitations,
 } from "@showme/api-client";
 import { useToast } from "@showme/design-system";
 import { useQueryClient } from "@tanstack/react-query";
@@ -57,6 +59,29 @@ export interface EventInvitation {
   requestStatus: "pending" | "accepted" | "declined" | "expired" | "cancelled";
 }
 
+/**
+ * AN INVITATION SENT TO THIS USER'S EMAIL, which is a different object (QA sweep run 10, QA10-4).
+ *
+ * `EventInvitation` above is a **participation** — a row on the bill, answered in place. This is an
+ * `invitations` row with a token, and until it is redeemed there is no participation at all: nothing
+ * for `/events/:id/participation/accept` to move, and nothing for `/me/event-invitations` to find.
+ * That is why an Invite Collaborator invitation left the invitee's inbox empty and their Dashboard
+ * saying *"You're all caught up"* — for every role, not only the co-host the sweep met it on.
+ *
+ * It is answered on its own page (`/invitations/:token`), so the card LINKS rather than offering
+ * Accept and Decline. Two shapes, one heading: what the reader has is "an invitation addressed to
+ * me", and which mechanism carries it is not their problem.
+ */
+/*
+ * Derived from the endpoint rather than restated, the same way `useEventAgreements` derives its
+ * `Deal` — a hand-written copy of a response shape is one more thing that can fall behind it. The
+ * intersection narrows `token` to non-null, which is what `addressed` below filters for: a row this
+ * card can actually open.
+ */
+export type AddressedInvitation = Awaited<ReturnType<typeof getApiV1MeInvitations>>[number] & {
+  token: string;
+};
+
 export interface EventInvitationsView {
   /**
    * UNANSWERED ones only — what "you have an invitation" means on the Events
@@ -67,6 +92,11 @@ export interface EventInvitationsView {
   invitations: EventInvitation[];
   /** Every invitation addressed to this user, whatever its state. */
   all: EventInvitation[];
+  /**
+   * Pending EMAIL invitations — the ones with a token, which are answered on their own page. Only
+   * ever unanswered: the endpoint returns `pending` rows and an answered one stops being one.
+   */
+  addressed: AddressedInvitation[];
   isLoading: boolean;
   /** The event id currently being answered, so one card can show a pending state. */
   answering: string | null;
@@ -80,6 +110,11 @@ export function useEventInvitations(): EventInvitationsView {
   const [answering, setAnswering] = useState<string | null>(null);
 
   const query = useGetApiV1MeEventInvitations();
+  /*
+   * The second source. Two reads rather than one, because they are two objects with two answers — see
+   * `AddressedInvitation`. Both are cheap, and the screens that show one always want the other.
+   */
+  const addressedQuery = useGetApiV1MeInvitations();
 
   const answer = useCallback(
     async (invitation: EventInvitation, decision: "accept" | "decline", note?: string) => {
@@ -118,7 +153,12 @@ export function useEventInvitations(): EventInvitationsView {
   return {
     invitations: all.filter((one) => one.requestStatus === "pending"),
     all,
-    isLoading: query.isLoading,
+    // Only the ones with somewhere to go: a code-only invite has no in-app page, so offering a row
+    // that cannot be opened would be the dead affordance this whole finding is about.
+    addressed: (addressedQuery.data ?? []).filter(
+      (one): one is AddressedInvitation => one.token != null,
+    ),
+    isLoading: query.isLoading || addressedQuery.isLoading,
     answering,
     accept: useCallback((invitation: EventInvitation) => answer(invitation, "accept"), [answer]),
     decline: useCallback(

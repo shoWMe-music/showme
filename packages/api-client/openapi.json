@@ -17856,6 +17856,71 @@
         }
       }
     },
+    "/api/v1/me/invitations": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "token": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "role": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "eventId": {
+                        "type": "string"
+                      },
+                      "eventTitle": {
+                        "type": "string"
+                      },
+                      "eventDate": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "hostName": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "invitedAt": {
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "token",
+                      "role",
+                      "eventId",
+                      "eventTitle",
+                      "eventDate",
+                      "hostName",
+                      "invitedAt",
+                      "expiresAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/profiles/{id}/invitations": {
       "get": {
         "parameters": [

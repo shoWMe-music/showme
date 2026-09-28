@@ -342,6 +342,26 @@ export function Requests() {
   const clashes = useRequestClashes(requests, isOperator && direction === "incoming");
 
   const invitations = useEventInvitations();
+  /**
+   * EMAIL INVITATIONS, under the tab that means "still to answer" (QA sweep run 10, QA10-4).
+   *
+   * They are always unanswered — the endpoint returns `pending` rows only — so they belong under
+   * Pending and under All, and nowhere else: on Accepted, Declined or Expired they would be the one
+   * row in the bucket that does not belong to it. `Unread` is a booking-request notion and these have
+   * no such state, which is the same reasoning the participation filter below gives.
+   *
+   * The day rail filters them too, so picking a date does not leave a row behind that ignores it.
+   */
+  const addressedHere = useMemo(
+    () =>
+      invitations.addressed.filter((invitation) => {
+        if (filter !== "pending" && filter !== "all") return false;
+        if (selectedDay && invitation.eventDate !== selectedDay) return false;
+        return true;
+      }),
+    [invitations.addressed, filter, selectedDay],
+  );
+
   const visibleInvitations = useMemo(
     () =>
       invitations.all.filter((invitation) => {
@@ -551,16 +571,17 @@ export function Requests() {
               // in a table.
               style={{ display: "flex", flexDirection: "column", gap: 16 }}
             >
-              {visibleInvitations.length > 0 && (
+              {(visibleInvitations.length > 0 || addressedHere.length > 0) && (
                 <EventInvitationsCard
                   invitations={visibleInvitations}
+                  addressed={addressedHere}
                   answering={invitations.answering}
                   onAccept={invitations.accept}
                   onDecline={invitations.decline}
                   heading={
-                    visibleInvitations.length === 1
+                    visibleInvitations.length + addressedHere.length === 1
                       ? "1 event invitation"
-                      : `${visibleInvitations.length} event invitations`
+                      : `${visibleInvitations.length + addressedHere.length} event invitations`
                   }
                   // Only an unanswered one can still be answered. On the other
                   // tabs the row is a record, and a button that would 409 is
@@ -568,7 +589,9 @@ export function Requests() {
                   actionable={filter === "pending"}
                 />
               )}
-              {visible.length === 0 && visibleInvitations.length === 0 ? (
+              {visible.length === 0 &&
+              visibleInvitations.length === 0 &&
+              addressedHere.length === 0 ? (
                 <Card padding="lg">
                   <div style={{ textAlign: "center", color: "var(--muted)", padding: "24px 0" }}>
                     <Icon name="inbox" size={28} />

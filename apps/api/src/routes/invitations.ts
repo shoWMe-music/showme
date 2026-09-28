@@ -4,6 +4,7 @@ import { type Database, schema } from "@showme/db";
 import { notifyUsers } from "@showme/db/notify";
 import { invitationExpiresAt } from "@showme/shared";
 import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -760,6 +761,125 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
    * a duplicate), and a declined one lingering as a card looks like an
    * outstanding ask.
    */
+  /**
+   * THE INVITATIONS ADDRESSED TO ME — the read that did not exist (QA sweep run 10, QA10-4).
+   *
+   * Run 9's QA9-3 recorded the gap in as many words — *"There is no 'invitations addressed to me'
+   * read"* — and that tick only fixed the bell's LINK. The consequence the sweep then measured: an
+   * operator invites somebody through **Invite Collaborator**, the invitee signs in, and
+   * `GET /me/event-invitations` answers `[]` while the row plainly exists. Their Dashboard says *"You're
+   * all caught up — nothing needs your attention today."*
+   *
+   * WHY THE OTHER ENDPOINT CANNOT DO IT, since two reads called "invitations" is a thing to justify.
+   * `/me/event-invitations` is the **participation** inbox: it answers off `event_participants` for
+   * events the caller already touches, and its accept is `POST /events/:id/participation/accept`, which
+   * moves a participant row. A collaborator invite writes **only an `invitations` row** — no
+   * participation exists until the token is redeemed — so there is nothing for that query to find and
+   * nothing for that accept to move. The two are different objects with different answers, and merging
+   * them would have meant a nullable `participantId` through a response two screens already read.
+   *
+   * The sweep framed this as a co-host problem because co-host is the Invite Collaborator dialog's
+   * default role. It is not about the role: **every** email-addressed invitation is invisible this way,
+   * a performer's included. Adding `co_host` to `INVITABLE_ROLES` — the sweep's other suggestion —
+   * would have changed no answer at all, because nothing in the app creates an `invited` co-host row
+   * (`events.ts` accepts only performer/support, and both the direct add and the token accept write
+   * `accepted`).
+   *
+   * WHY THE TOKEN IS IN THE RESPONSE. It is the grant, so it is worth being explicit: this hands it to
+   * exactly the population `POST /invitations` already notifies — the user whose verified email matches
+   * `recipient_email`, i.e. the person it is emailed to. The match is the protection, and a test asserts
+   * that a different signed-in user gets nothing. Without the token there is nowhere for the card to
+   * send them: `/invitations/:token` is the only page that can answer one, and it works (the sweep drove
+   * it end to end by hand).
+   */
+  const AddressedInvitationResponse = z.object({
+    id: z.string(),
+    /**
+     * THE LINK THAT CAN ANSWER IT. `/invitations/:token` is the only page with Accept and Decline on
+     * it for this kind of invitation, so withholding the token would leave the card with nowhere to
+     * point. Null for a code-only invite.
+     */
+    token: z.string().nullable(),
+    role: z.string().nullable(),
+    eventId: z.string(),
+    eventTitle: z.string(),
+    eventDate: z.string().nullable(),
+    hostName: z.string().nullable(),
+    invitedAt: z.string(),
+    expiresAt: z.string().nullable(),
+  });
+
+  app.get(
+    "/me/invitations",
+    { schema: { response: { 200: z.array(AddressedInvitationResponse) } } },
+    async (request) => {
+      const { database } = request.server;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      /*
+       * The caller's own address, from the VERIFIED token rather than from anything they sent. This is
+       * the same normalisation and the same comparison `POST /invitations` uses to decide whose bell
+       * rings, so the two cannot disagree about who an invitation is for.
+       */
+      const myEmail = normalizeEmail(request.firebaseUser?.email);
+      /*
+       * A caller with no address on their token — a phone sign-in — is addressed by nothing. Kept
+       * although a mutation shows it cannot change the ANSWER (`lower(email) = NULL` is never true, so
+       * the query would return nothing anyway): what it changes is that no query runs at all. Said
+       * plainly rather than left looking like a guard a test forgot to cover.
+       */
+      if (!myEmail) return [];
+
+      const host = alias(schema.profiles, "invitation_host_profile");
+      const rows = await database
+        .select({
+          id: schema.invitations.id,
+          token: schema.invitations.token,
+          role: schema.invitations.role,
+          createdAt: schema.invitations.createdAt,
+          expiresAt: schema.invitations.expiresAt,
+          eventId: schema.events.id,
+          eventTitle: schema.events.title,
+          eventDate: schema.events.eventDate,
+          hostName: host.name,
+        })
+        .from(schema.invitations)
+        .innerJoin(schema.events, eq(schema.events.id, schema.invitations.targetEventId))
+        .leftJoin(host, eq(host.id, schema.events.hostProfileId))
+        .where(
+          and(
+            sql`lower(${schema.invitations.recipientEmail}) = ${myEmail}`,
+            /*
+             * EVENT invitations only. A mutation shows this cannot change the answer either, because
+             * the inner join above is on `target_event_id` and a `profile_member` invitation has none —
+             * so the join already drops them. It stays as the statement of what this list IS, and the
+             * test below pins the behaviour at the boundary rather than at whichever line enforces it.
+             */
+            eq(schema.invitations.type, "event_participant"),
+            eq(schema.invitations.status, "pending"),
+            // Expired is gone everywhere else in this module (`loadInvitation` 404s on it), so it must
+            // not linger here either — an ask nobody can answer is worse than no ask.
+            or(isNull(schema.invitations.expiresAt), gt(schema.invitations.expiresAt, new Date())),
+          ),
+        )
+        .orderBy(desc(schema.invitations.createdAt));
+
+      return rows.map((row) => ({
+        id: row.id,
+        // Null only for a code-only invite, which has nowhere in-app to land either way.
+        token: row.token,
+        role: row.role,
+        eventId: row.eventId,
+        eventTitle: row.eventTitle,
+        eventDate: row.eventDate ?? null,
+        hostName: row.hostName ?? null,
+        invitedAt: row.createdAt.toISOString(),
+        expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+      }));
+    },
+  );
+
   app.get(
     "/profiles/:id/invitations",
     { schema: { params: IdParams, response: { 200: z.array(EventInvitationResponse) } } },

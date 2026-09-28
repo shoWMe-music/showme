@@ -2,7 +2,7 @@ import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import type { EmailMessage } from "@showme/shared";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
@@ -2773,6 +2773,267 @@ describe("invitations — accepting attaches the act's agent, and tells them (`1
       headers: { ...auth("inv-link-act"), "x-profile-id": actProfile.id },
     });
     expect(theEvent.statusCode).toBe(404);
+  });
+
+  /**
+   * THE INVITATIONS ADDRESSED TO ME (QA sweep run 10, QA10-4).
+   *
+   * An operator invites somebody through Invite Collaborator; the invitee signs in and their inbox is
+   * empty, because `/me/event-invitations` answers off `event_participants` and a collaborator invite
+   * writes only an `invitations` row. Their Dashboard said *"You're all caught up"* about an invitation
+   * sitting in the database with their name on it.
+   *
+   * The second test is the one that matters most: the token is the grant, and the only thing standing
+   * between it and the wrong reader is the email match. So a different signed-in user is asserted to
+   * get nothing, rather than that being left to the reader of the `where` clause.
+   */
+  it("lists an invitation addressed to the caller, with the link that can answer it", async () => {
+    const { db } = harness;
+    const host = await seedOwner("inv-mine-host");
+    /*
+     * The invitee is a CO-PROMOTER with a profile of its own, because that is what a co-host
+     * invitation is for and because accepting one needs a profile to join WITH — a user with no
+     * profile is refused, correctly, by the accept route.
+     */
+    await seedUser("inv-mine-act", "operator");
+    const [inviteeProfile] = await db
+      .insert(schema.profiles)
+      .values({
+        kind: "operator",
+        ownerUserId: "inv-mine-act",
+        name: "Addressed Co-promoter",
+        slug: "inv-mine-act",
+      })
+      .returning();
+    if (!inviteeProfile) throw new Error("invitee profile seed failed");
+    await db.insert(schema.profileMembers).values({
+      profileId: inviteeProfile.id,
+      userId: "inv-mine-act",
+      role: "owner",
+      status: "active",
+    });
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: host.profileId,
+        title: "Addressed Night",
+        baseCurrency: "SEK",
+        createdBy: "inv-mine-host",
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: host.profileId,
+      role: "host",
+      permissionSetId: host.permissionSetId,
+      status: "confirmed",
+    });
+
+    const invited = await app.inject({
+      method: "POST",
+      url: "/api/v1/invitations",
+      headers: { ...auth("inv-mine-host"), "x-profile-id": host.profileId },
+      payload: {
+        type: "event_participant",
+        source: "collaborator",
+        // The fake verifier makes the bearer token the uid and the email `<uid>@example.showme.test`,
+        // so this is the address the invitee actually signs in with.
+        recipientEmail: "inv-mine-act@example.showme.test",
+        recipientName: "Addressed Act",
+        targetEventId: event.id,
+        // CO-OPERATOR, the Invite Collaborator dialog's own default — the role the sweep used, and the
+        // one `/me/event-invitations` could never have returned.
+        role: "co_host",
+        permissionSetId: host.granteeSetId,
+      },
+    });
+    expect(invited.statusCode).toBe(201);
+    const token = invited.json().token as string;
+
+    const mine = await app.inject({
+      method: "GET",
+      url: "/api/v1/me/invitations",
+      headers: auth("inv-mine-act"),
+    });
+    expect(mine.statusCode).toBe(200);
+    const rows = mine.json() as {
+      token: string;
+      role: string;
+      eventId: string;
+      eventTitle: string;
+      hostName: string;
+    }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.token).toBe(token);
+    expect(rows[0]?.role).toBe("co_host");
+    expect(rows[0]?.eventId).toBe(event.id);
+    expect(rows[0]?.eventTitle).toBe("Addressed Night");
+    // `seedOwner` names the profile after the uid, so this IS the host's display name.
+    expect(rows[0]?.hostName).toBe("inv-mine-host");
+
+    // The link is answerable — the whole reason the token is in the payload.
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/v1/invitations/${rows[0]?.token}`,
+          headers: auth("inv-mine-act"),
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    /*
+     * AND THE REASON THE PARTICIPATION INBOX CANNOT SEE IT: there is no participant row yet. Asserted
+     * against the table rather than against `/me/event-invitations`, which this test app does not
+     * register — and the row's absence is the underlying fact that endpoint would only be reporting.
+     */
+    expect(
+      await db
+        .select()
+        .from(schema.eventParticipants)
+        .where(
+          and(
+            eq(schema.eventParticipants.eventId, event.id),
+            ne(schema.eventParticipants.profileId, host.profileId),
+          ),
+        ),
+    ).toHaveLength(0);
+
+    // Once answered it leaves the list: a redeemed ask is not an outstanding one.
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/invitations/${token}/accept`,
+          headers: { ...auth("inv-mine-act"), "x-profile-id": inviteeProfile.id },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/v1/me/invitations",
+          headers: auth("inv-mine-act"),
+        })
+      ).json(),
+    ).toHaveLength(0);
+  });
+
+  it("shows an invitation to nobody but its addressee", async () => {
+    const { db } = harness;
+    const host = await seedOwner("inv-else-host");
+    await seedUser("inv-else-act", "performer");
+    await seedUser("inv-else-other", "performer");
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: host.profileId,
+        title: "Somebody Else's Invitation",
+        baseCurrency: "SEK",
+        createdBy: "inv-else-host",
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    // The host has to be ON the event, or `POST /invitations` answers 404 for want of a capability on
+    // it — which is the right refusal and not what this test is about.
+    await db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: host.profileId,
+      role: "host",
+      permissionSetId: host.permissionSetId,
+      status: "confirmed",
+    });
+
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/v1/invitations",
+          headers: { ...auth("inv-else-host"), "x-profile-id": host.profileId },
+          payload: {
+            type: "event_participant",
+            source: "collaborator",
+            recipientEmail: "inv-else-act@example.showme.test",
+            targetEventId: event.id,
+            role: "performer",
+            permissionSetId: host.granteeSetId,
+          },
+        })
+      ).statusCode,
+    ).toBe(201);
+
+    // The addressee sees it…
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/v1/me/invitations",
+          headers: auth("inv-else-act"),
+        })
+      ).json(),
+    ).toHaveLength(1);
+    // …and a different signed-in user does not. The token is the grant; the email match is the only
+    // thing keeping it from the wrong reader, so it is asserted rather than assumed.
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/v1/me/invitations",
+          headers: auth("inv-else-other"),
+        })
+      ).json(),
+    ).toHaveLength(0);
+    // Not even the host who sent it — this list is the recipient's, not the sender's.
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/v1/me/invitations",
+          headers: auth("inv-else-host"),
+        })
+      ).json(),
+    ).toHaveLength(0);
+  });
+
+  it("keeps a profile-membership invitation out of the event list", async () => {
+    /*
+     * The boundary, pinned at the behaviour rather than at whichever line enforces it. Today TWO things
+     * do — the `type` filter and the inner join on `target_event_id`, which a profile invitation does
+     * not have — so a mutation can delete either and this still passes. That is recorded in the route
+     * rather than papered over: the test says what a reader needs (a profile invite is not an event
+     * invite), and the route says which line is redundant with which.
+     */
+    const host = await seedOwner("inv-kind-host");
+    await seedUser("inv-kind-member", "operator");
+
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/v1/invitations",
+          headers: { ...auth("inv-kind-host"), "x-profile-id": host.profileId },
+          payload: {
+            type: "profile_member",
+            source: "collaborator",
+            recipientEmail: "inv-kind-member@example.showme.test",
+            targetProfileId: host.profileId,
+            profileRole: "editor",
+          },
+        })
+      ).statusCode,
+    ).toBe(201);
+
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/v1/me/invitations",
+          headers: auth("inv-kind-member"),
+        })
+      ).json(),
+    ).toHaveLength(0);
   });
 
   it("attaches nobody for an unrepresented act, and tells nobody", async () => {

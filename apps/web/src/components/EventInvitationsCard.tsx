@@ -1,6 +1,7 @@
 import { Badge, Button, Icon, Modal, TextField } from "@showme/design-system";
+import { eventParticipantRoleLabel } from "@showme/shared";
 import { useState } from "react";
-import type { EventInvitation } from "../hooks/useEventInvitations";
+import type { AddressedInvitation, EventInvitation } from "../hooks/useEventInvitations";
 import { DateText } from "./DateText";
 
 /**
@@ -29,6 +30,19 @@ import { DateText } from "./DateText";
  */
 export interface EventInvitationsCardProps {
   invitations: EventInvitation[];
+  /**
+   * EMAIL INVITATIONS — the other kind, listed in the same card (QA sweep run 10, QA10-4).
+   *
+   * An Invite Collaborator invitation is an `invitations` row with a token and no participation, so
+   * it never appeared here and the invitee's Dashboard said *"You're all caught up"* about an ask
+   * with their name on it. It is answered on its own page, so these rows carry a LINK rather than
+   * Accept and Decline — `/invitations/:token` is the only page that can move one.
+   *
+   * Same card on purpose: what the reader has is "an invitation addressed to me", and which of two
+   * mechanisms carries it is not their problem. Defaults to empty, so the two screens that render
+   * this card without them are unchanged.
+   */
+  addressed?: AddressedInvitation[];
   /** The event id currently being answered, so its buttons can go quiet. */
   answering: string | null;
   /**
@@ -51,6 +65,7 @@ export interface EventInvitationsCardProps {
 
 export function EventInvitationsCard({
   invitations,
+  addressed = [],
   answering,
   onAccept,
   onDecline,
@@ -86,7 +101,9 @@ export function EventInvitationsCard({
     closeDecline();
   };
 
-  if (invitations.length === 0) return null;
+  // Either list is reason enough to draw the card; both empty and it disappears, as before.
+  if (invitations.length === 0 && addressed.length === 0) return null;
+  const total = invitations.length + addressed.length;
 
   return (
     <section
@@ -105,10 +122,7 @@ export function EventInvitationsCard({
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
         <Icon name="mail" />
         <h2 id="pending-invitations-heading" style={{ margin: 0, fontSize: 14.5, fontWeight: 600 }}>
-          {heading ??
-            (invitations.length === 1
-              ? "You have an invitation"
-              : `You have ${invitations.length} invitations`)}
+          {heading ?? (total === 1 ? "You have an invitation" : `You have ${total} invitations`)}
         </h2>
       </div>
 
@@ -189,6 +203,62 @@ export function EventInvitationsCard({
           );
         })}
       </ul>
+
+      {addressed.length > 0 && (
+        <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+          {addressed.map((invitation) => (
+            <li
+              key={invitation.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 14,
+                flexWrap: "wrap",
+                padding: "11px 13px",
+                borderRadius: 9,
+                border: "1px solid var(--border)",
+              }}
+            >
+              <div style={{ minWidth: 0, flex: "1 1 220px" }}>
+                <div
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {invitation.eventTitle}
+                </div>
+                <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
+                  {/* Same reasoning as the rows above: nothing to link to until it is accepted. */}
+                  <DateText value={invitation.eventDate} weekday link={false} />
+                  {invitation.role ? ` · as ${eventParticipantRoleLabel(invitation.role)}` : ""}
+                  {invitation.hostName ? ` · from ${invitation.hostName}` : ""}
+                </div>
+              </div>
+              {/*
+                A LINK, not a pair of buttons. The accept for this kind is token-keyed and there is no
+                participation for `participation/accept` to move, so answering happens on the
+                invitation's own page — which is also where the role and the access it grants are
+                spelled out before anybody says yes.
+              */}
+              <Button
+                variant="secondary"
+                style={{ flex: "0 0 auto" }}
+                leftIcon={<Icon name="mail" size={14} />}
+                onClick={() => {
+                  window.location.href = `/invitations/${invitation.token}`;
+                }}
+              >
+                Open the invitation
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <Modal
         open={declining !== null}

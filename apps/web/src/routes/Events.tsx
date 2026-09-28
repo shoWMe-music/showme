@@ -115,6 +115,9 @@ export function Events() {
     <div style={{ width: "100%", maxWidth: 1180, margin: "0 auto" }}>
       <EventInvitationsCard
         invitations={invitations.invitations}
+        // Email invitations too (QA10-4). They are unanswered by definition — the endpoint returns
+        // pending rows only — so they belong exactly where the unanswered participations are.
+        addressed={invitations.addressed}
         answering={invitations.answering}
         onAccept={invitations.accept}
         onDecline={invitations.decline}
