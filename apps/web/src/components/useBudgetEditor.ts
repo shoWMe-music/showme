@@ -632,6 +632,14 @@ export interface BudgetEditor {
   /** How co-operators share what the event carries — participant id to basis points. */
   operatorCostSplit: Record<string, number> | null;
   setOperatorCostSplit: (next: Record<string, number> | null) => void;
+  /**
+   * WHICH BOOK IS OPEN (QA sweep run 10, QA10-11's second half).
+   *
+   * The private book already drops the derived performer fee (#23.2 / QA7-3) and the door-split card
+   * (QA8-8); the production-costs split is the third thing that belongs to the shared ledger alone —
+   * it is an agreement BETWEEN two operators, and a book kept from one of them has nothing to agree.
+   */
+  isPrivateBook: boolean;
   /** Every slice a revenue line gives away, flattened across the lines (#23.2). */
   revenueShares: RevenueShareRow[];
   /** The revenue lines a share can be taken FROM — anything with money on it. */
@@ -2452,6 +2460,7 @@ export function useBudgetEditor(
     ticketTiers: tiers,
     operatorCostSplit,
     setOperatorCostSplit,
+    isPrivateBook,
     revenueShares: revenueShareRows,
     revenueShareSources,
     addRevenueShare,

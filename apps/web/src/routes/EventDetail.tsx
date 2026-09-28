@@ -1132,6 +1132,7 @@ function BudgetTab({
         ticketsPlannedLabel={view.ticketsPlannedLabel}
         ticketSplit={view.ticketSplit}
         operatorCostSplit={editor.operatorCostSplit}
+        isPrivateBook={editor.isPrivateBook}
         onOperatorCostSplitChange={editor.setOperatorCostSplit}
         revenueShares={{
           rows: editor.revenueShares,

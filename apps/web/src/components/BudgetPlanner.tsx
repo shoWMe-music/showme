@@ -113,6 +113,8 @@ export interface BudgetPlannerProps {
   revenueShares: BudgetRevenueSharesCardProps;
   /** How co-operators share what the event carries, and how to change it. */
   operatorCostSplit: Record<string, number> | null;
+  /** True on "My budget" — the shared-ledger controls are not drawn there (QA10-11). */
+  isPrivateBook: boolean;
   onOperatorCostSplitChange?: (next: Record<string, number> | null) => void;
   capacity: string;
   avgBarSpend: string;
@@ -270,6 +272,7 @@ export function BudgetPlanner({
   ticketSplit,
   revenueShares,
   operatorCostSplit,
+  isPrivateBook,
   onOperatorCostSplitChange,
   capacity,
   avgBarSpend,
@@ -791,11 +794,20 @@ export function BudgetPlanner({
             title="Costs"
             subtitle="Each cost says who paid it, and who carries it at settlement."
           />
-          <ProductionCostsSplit
-            participants={participants}
-            split={operatorCostSplit}
-            onChange={onOperatorCostSplitChange}
-          />
+          {/*
+            SHARED LEDGER ONLY (QA sweep run 10, QA10-11). Its own subtitle says what it is — *"For
+            co-promotions. Agree once how the operators share everything the event carries"* — and a
+            PRIVATE book is the one book the other operator cannot see, so there is nothing to agree
+            in it. The same reasoning already removed the derived performer fee (QA7-3) and the
+            door-split card (QA8-8) from this book; this is the third.
+          */}
+          {!isPrivateBook && (
+            <ProductionCostsSplit
+              participants={participants}
+              split={operatorCostSplit}
+              onChange={onOperatorCostSplitChange}
+            />
+          )}
           <CostAttributionLegend />
           {/* THE COST TABLE. Every caption — Carried by, To be deducted from, Deal —
               used to sit beside its own control on every row. They are column
