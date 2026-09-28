@@ -56,8 +56,15 @@ export function EventSettlementTab({ eventId, currency, capabilities }: EventSet
    * and the magnitude is what gets printed — `ownFigureLabel` carries that rule.
    * The entitlement is not lost: it heads the party's own card below, where the
    * rules that sum to it are.
+   *
+   * AND `net` ALONE IS STILL NOT IT, for the third seat (QA8-4). An agent's money on
+   * an event is a commission, which is a representation-scoped settlement with no
+   * participant — so their event `net` is genuinely 0 and this read "SEK 0 · Your
+   * payout" over a night the dashboard, `/settlements` and the Total Payouts card
+   * below all agreed paid them SEK 3,000. `ownFigure` is net plus own commission,
+   * summed in the hook where the minor units are.
    */
-  const headline = settlement.ownParty?.netAbsolute;
+  const ownFigure = settlement.ownFigure;
   // The PRO filing is the operator's, and the ceiling refuses the capability to
   // everyone else (`OPERATOR_FILING_CAPABILITIES`). Asking for it here means the
   // link appears only for someone who could actually file — a pointer to a screen
@@ -85,7 +92,7 @@ export function EventSettlementTab({ eventId, currency, capabilities }: EventSet
         <div style={{ fontSize: 44, fontWeight: 500, letterSpacing: "-0.03em" }}>
           {/* No entitlement yet is a real "not yet" — the event has not been
               reconciled — so it says so rather than printing a zero. */}
-          {headline ?? "Not reconciled yet"}
+          {ownFigure?.amount ?? "Not reconciled yet"}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           {/* "No settlement rows" and "no settlement row FOR YOU" are different
@@ -95,8 +102,8 @@ export function EventSettlementTab({ eventId, currency, capabilities }: EventSet
               it. The payload is already party-scoped, so an empty `parties` can
               only mean nothing has been computed yet. */}
           <span className="muted">
-            {settlement.ownParty
-              ? ownFigureLabel(settlement.ownParty.netTone)
+            {ownFigure
+              ? ownFigureLabel(ownFigure.tone)
               : settlement.parties.length === 0
                 ? "This event hasn't been reconciled yet"
                 : "You are not a party to this settlement"}

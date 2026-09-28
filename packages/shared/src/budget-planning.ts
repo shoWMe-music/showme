@@ -435,8 +435,31 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
      * exactly what it printed.
      *
      * The base here is the ladder's adjusted net rebuilt at this attendance: revenue less
-     * every cost that is NOT the derived fee itself — `trulyFixedCosts` (which carries the
-     * production costs and any off-the-top rental) and the per-ticket variable cost.
+     * `trulyFixedCosts`, which carries the production costs and any off-the-top rental.
+     *
+     * AND NOT THE PER-TICKET VARIABLE COST, which this subtracted until QA8-3 — the
+     * sentence above used to name it, and naming it is what made the defect legible after
+     * the fact. The payment-processing rate is not a budget line: `routes/budget.ts` keeps
+     * it as a RATE, *"never amounts … derived from these rates by
+     * `computeBudgetProjection()` when the screen renders and never stored"*. So the
+     * settlement engine never deducts it before applying a split, the headline fee on the
+     * same card does not either, and a scan that did divided a base no other figure uses.
+     *
+     * On a 100% split the disagreement is total rather than marginal:
+     *
+     *     costs(N) = fixed + split×(revenue(N) − fixed − v·N) + v·N
+     *              = revenue(N)                                   when split = 100%
+     *
+     * — the scan's costs become identically equal to its own revenue, so `revenue − costs
+     * >= 0` holds at the FIRST attendance where the share arm governs and the loop reports
+     * that as the crossing. Measured by run 8: **BREAK-EVEN TICKETS 130** printed beside
+     * **PROFIT / LOSS −SEK 1,395** at 360 tickets planned, with the caption agreeing with
+     * the 130. The true answer there is that the night never breaks even — an act on 100%
+     * of revenue-less-fixed-costs leaves the operator paying the processing fee out of
+     * nothing — and `breakEvenReachable` is what says so.
+     *
+     * `v·N` still counts in `costsAt` below. It is real money and break-even must cover
+     * it; it simply is not part of what a percentage divides.
      *
      * A NEGATIVE base needs no clamp, and one was written here and then deleted: below the
      * attendance that covers the costs the share comes out negative, and `share > floor`
@@ -450,22 +473,32 @@ export function computeBudgetProjection(inputs: BudgetInputs): BudgetProjection 
      * Worth stating, because it says which half of the fix carries the weight. At any
      * break-even the scan finds, revenue equals costs, so the adjusted net equals the fee
      * itself — and if the fee is `split × adjustedNet` with a split below 100%, that forces
-     * `adjustedNet × (1 − split) = 0`. **So on the SHARE arm the adjusted net at break-even
-     * is ~0 whatever the base is made of, and getting the base wrong cannot move the number.**
+     * `adjustedNet × (1 − split) = 0`. So on the SHARE arm the adjusted net at break-even is
+     * ~0 whatever the base is made of, and the base moves the answer only a little.
      *
-     * The base matters on the GUARANTEE arm, where the fee is a constant and the base only
-     * decides which arm governs — which is exactly the case QA7-1 measured: a SEK 12,000
-     * floor, the screen saying 200 and the truth 109.
+     * **"Only a little" and "not at all" are different claims, and this said the second one
+     * until QA8-3.** The net at the crossing is ~0 either way, but the base changes the
+     * per-head COEFFICIENT — 98.5 against 97 in the share-arm test below — so the crossing
+     * really does move, by a ticket there. Believing it could not move is part of why the
+     * processing term sat in this base for a run: an assertion that recorded the difference
+     * (51 against 52) had been read as evidence about a wrong base rather than about this one.
      *
-     * One consequence for the tests: `standingRevenue`'s presence in this base cannot be
-     * pinned by a break-even assertion for the reason above, and a fixture tuned to catch it
-     * would be tuned rather than true. It is here because it is part of the ladder's net
-     * revenue, and the headline fee this scan is made to agree with includes it.
+     * The base matters MOST on the GUARANTEE arm, where the fee is a constant and the base
+     * only decides which arm governs — which is exactly the case QA7-1 measured: a SEK 12,000
+     * floor, the screen saying 200 and the truth 109. And it matters most of all at a 100%
+     * split, where a base with the variable cost taken out made the scan's costs identically
+     * equal its revenue (see above): not a shifted answer but a fabricated one.
+     *
+     * One consequence for the tests: `standingRevenue`'s presence in this base is only weakly
+     * pinned by a break-even assertion, for the reason above. It is here because it is part of
+     * the ladder's net revenue, and the headline fee this scan is made to agree with includes
+     * it.
      */
     const derivedAt = (tickets: number): bigint => {
       const revenueHere = standingRevenue + perHeadIncome * BigInt(tickets);
-      const costsBeforeTheFee = trulyFixedCosts + variableCostPerTicket * BigInt(tickets);
-      const adjustedNetHere = revenueHere - costsBeforeTheFee;
+      // `trulyFixedCosts` alone — see above. The per-ticket processing rate is not a
+      // line, so nothing that applies a split may subtract it first (QA8-3).
+      const adjustedNetHere = revenueHere - trulyFixedCosts;
       return sum(
         derivedCosts.map((cost) => {
           const share =

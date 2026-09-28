@@ -377,6 +377,26 @@ export interface EventSettlement {
   /** The caller's own party line, if they are a party at all. */
   ownParty: SettlementParty | null;
   /**
+   * WHAT THIS NIGHT MOVES FOR THE READER — the one figure a settlement screen leads with.
+   *
+   * `ownParty.net` is not it, and the third seat is where that shows. An agent's money on
+   * an event is a COMMISSION (#14): a representation-scoped settlement with a null
+   * `participantId`, so the event breakdown carries `net 0` for them and is right to. The
+   * headline read "SEK 0 · Your payout" while the dashboard, `/settlements` and this
+   * workspace's own Total Payouts all said SEK 3,000, and a transfer row existed for it
+   * (QA sweep run 8, QA8-4).
+   *
+   * So it is the reader's own net PLUS their own commission, summed here on minor units
+   * rather than in a component (`docs/money.md`, and components stay dumb). `commissions`
+   * only ever carries rows naming the reader as the agent, so this is identical to `net`
+   * for an operator and a performer — which is why QA7-28's proof in those two seats still
+   * stands.
+   *
+   * Null when the reader is not a party at all: a real "nothing here for you", which the
+   * tab distinguishes from an unreconciled event.
+   */
+  ownFigure: { amount: string; tone: "positive" | "negative" | "neutral" } | null;
+  /**
    * Whether the visible lines are the WHOLE board (Σ net = 0) or a party-scoped
    * slice. A slice is a redaction, never an accounting error — see `isWholeBoard`.
    */
@@ -958,6 +978,26 @@ export function useEventSettlement(
     return formatAmount(total.toString());
   }, [payable, ownCommissionMinor, withheldTotalMinor, formatAmount]);
 
+  const ownParty = useMemo(() => parties.find((party) => party.isYours) ?? null, [parties]);
+  /**
+   * The reader's own position, commission included — see `ownFigure` on the interface for
+   * why the commission has to be in it (QA8-4).
+   *
+   * The MAGNITUDE is formatted, because the label beside it names the direction in words
+   * ("You owe SEK 45,000", never "You owe −SEK 45,000"), and the tone is taken from the
+   * combined total rather than from `netTone`: an agent whose net is 0 and whose commission
+   * is positive is owed money, and the sign has to follow the figure actually shown.
+   */
+  const ownFigure = useMemo(() => {
+    if (!ownParty) return null;
+    if (ownParty.netMinor == null) return null;
+    const total = BigInt(ownParty.netMinor) + ownCommissionMinor;
+    return {
+      amount: formatAmount(absoluteMinor(total.toString())),
+      tone: netToneOf(total.toString()),
+    };
+  }, [ownParty, ownCommissionMinor, formatAmount]);
+
   const transfers = useMemo(
     () =>
       (settlements.data?.transfers ?? [])
@@ -1070,7 +1110,8 @@ export function useEventSettlement(
     isInviting: inviteToSettlement.isPending,
     deals: dealRows,
     agreements: agreementRows,
-    ownParty: parties.find((party) => party.isYours) ?? null,
+    ownParty: ownParty,
+    ownFigure: ownFigure,
     isWholeBoard: isWholeBoard(
       rows.filter((row) => row.computed != null).map((row) => row.computed?.net ?? "0"),
     ),

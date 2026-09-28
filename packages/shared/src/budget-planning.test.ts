@@ -319,27 +319,39 @@ describe("budget projection", () => {
 
     it("solves on the adjusted net when the SHARE governs, standing revenue and fees included", () => {
       /*
-       * THE CASE THAT MAKES EVERY TERM OF THE BASE LOAD-BEARING (QA7-1).
+       * THE CASE THAT MAKES EVERY TERM OF THE BASE LOAD-BEARING (QA7-1, corrected by QA8-3).
        *
        * The Open Mic fixture above is governed by its guarantee, so the base can be wrong in
-       * three different ways and the answer does not move. Here there is no floor at all,
-       * there IS a standing revenue and a per-ticket fee, and the share governs throughout —
-       * so dropping any one term from the adjusted net changes the answer.
+       * several ways and the answer does not move. Here there is no floor at all, there IS a
+       * standing revenue and a per-ticket processing fee, and the share governs throughout.
+       *
+       * THIS TEST PINNED THE DEFECT, and it is worth saying how. It asserted **51** and
+       * listed *"dropping the processing fee 52"* among the wrong answers — 52 being the
+       * right one. The derivation below it was internally consistent and its PREMISE was
+       * wrong: it subtracted the 1.5% from the base the split divides. Payment processing is
+       * a planner RATE, never a budget line, so the engine never deducts it before a split
+       * and neither does the headline fee on the same card. Written in the same commit as
+       * the defect, it made the defect invisible — the third time in this loop that a test's
+       * stated REASON was the thing to check.
        *
        * SEK 200 a ticket, SEK 10,000 of sponsorship, 1.5% processing (SEK 3 a head),
        * SEK 20,000 of production, and half of what is left to the act:
        *
-       *   adjusted net at N = 10,000 + 200N − 20,000 − 3N = 197N − 10,000
+       *   adjusted net at N = 10,000 + 200N − 20,000 = 200N − 10,000   (no processing)
        *   the act takes       0.5 × that
-       *   covered when        10,000 + 200N ≥ 20,000 + 0.5(197N − 10,000) + 3N
-       *                   →   98.5N ≥ 5,000  →  N = 50.76  →  51
+       *   covered when        10,000 + 200N ≥ 20,000 + 0.5(200N − 10,000) + 3N
+       *                   →   97N ≥ 5,000  →  N = 51.55  →  52
        *
-       * Checked at the boundary: at 50 the adjusted net is −SEK 150, so the act takes nothing
-       * and the night is SEK 150 short; at 51 it is SEK 47, the act takes SEK 23.50, and the
-       * night is SEK 23.50 up.
+       * Checked at the boundary: at 51 the adjusted net is SEK 200, the act takes SEK 100,
+       * and the night is SEK 47 short; at 52 the net is SEK 400, the act takes SEK 200, and
+       * the night is SEK 50 up.
        *
-       * The three wrong bases all answer differently — the gross door 104, dropping the
-       * processing fee 52, dropping the sponsorship 0 — which is what makes this a check.
+       * The wrong bases still answer differently — the gross door 104, and dropping the
+       * sponsorship 0 — which is what makes this a check. The processing term moves it by a
+       * single ticket, which is also a correction to QA7-1's own docstring: it claimed the
+       * base *"cannot move the number"* on the share arm because the adjusted net at
+       * break-even is ~0. The net is ~0 either way, but the base changes the COEFFICIENT
+       * (98.5 against 97 a head here), so the crossing does move — just not far.
        */
       const projection = computeBudgetProjection({
         ticketTiers: [{ unitAmount: major(200), quantity: 300 }],
@@ -351,8 +363,56 @@ describe("budget projection", () => {
         attendanceDependentCosts: [{ plannedMinor: major(30000), splitBasisPoints: 5000 }],
       });
 
-      expect(projection.breakEvenTickets).toBe(51);
+      expect(projection.breakEvenTickets).toBe(52);
       expect(projection.breakEvenReachable).toBe(true);
+    });
+
+    it("reports NO break-even on a 100% split once processing is charged (QA8-3)", () => {
+      /*
+       * RUN 8's OWN SCREEN, to the krona. Two seeded ticket lines plus a tier — SEK 93,000
+       * over 360 tickets — SEK 33,000 of costs, the 1.5% processing default, and 100% of the
+       * adjusted net to the act.
+       *
+       * It printed **BREAK-EVEN TICKETS 130** beside **PROFIT / LOSS −SEK 1,395**, and the
+       * chart caption agreed with the 130. The reason is arithmetic rather than a boundary:
+       * with the variable cost inside the base the split divides,
+       *
+       *     costs(N) = fixed + 1.00×(revenue(N) − fixed − v·N) + v·N  =  revenue(N)
+       *
+       * so `revenue − costs >= 0` is satisfied at the first attendance where the share arm
+       * governs, and the loop returns it. Not a shifted answer — a fabricated one.
+       *
+       * The truth is that there is no break-even at all: an act taking 100% of
+       * revenue-less-fixed-costs leaves the operator paying the processing fee out of
+       * nothing, so the night loses `v·N` at every attendance. `breakEvenReachable` is how
+       * the card says that, and the P&L it sits beside has always agreed.
+       */
+      const projection = computeBudgetProjection({
+        ticketTiers: [
+          { unitAmount: major(65000 / 260), quantity: 260 },
+          { unitAmount: major(18000 / 60), quantity: 60 },
+          { unitAmount: major(250), quantity: 40 },
+        ],
+        averageBarSpend: 0n,
+        capacity: 400,
+        otherRevenue: 0n,
+        paymentProcessing: { percentBasisPoints: 150, flatPerTicket: 0n },
+        // The fee row is one of the ENTERED costs — the sheet's TOTAL COSTS of SEK 94,395 is
+        // 33,000 + 60,000 + 1,395 — and `trulyFixedCosts` is what is left once the moving row
+        // is taken back out. Passing only the 33,000 makes that term negative, which is a
+        // fixture that tests nothing (it cost a first run of this test).
+        costs: [major(33000), major(60000)],
+        attendanceDependentCosts: [{ plannedMinor: major(60000), splitBasisPoints: 10_000 }],
+      });
+
+      expect(projection.ticketsSold).toBe(360);
+      expect(projection.breakEvenReachable).toBe(false);
+      // `0` is "never" here, and `breakEvenReachable` is what separates it from "none
+      // needed" — the sheet has SEK 33,000 to cover, so nothing is already covered.
+      expect(projection.breakEvenTickets).toBe(0);
+      // And the loss the card showed beside the fabricated 130 is still there, which is the
+      // half of the screen that was right all along.
+      expect(projection.profit < 0n).toBe(true);
     });
 
     it("answers beyond capacity when the fee has a GUARANTEE under it", () => {
