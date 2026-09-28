@@ -3,6 +3,7 @@ import { useState } from "react";
 import { formatMoney } from "../lib/format";
 import { toMinorUnits } from "../lib/moneyUnits";
 import type { LineThread } from "./SettlementActualsCard";
+import { negativeAmount } from "./settlementDocument";
 import type { SettlementLineRow } from "./useSettlementLines";
 
 /**
@@ -70,13 +71,16 @@ export function SettlementLinePreview({
                   fontSize: 13,
                   whiteSpace: "nowrap",
                   // A cost is drawn as the subtraction it is, in the same red the
-                  // waterfall's deduction row uses, so the two agree about what a
-                  // negative figure looks like on this screen.
+                  // waterfall's deduction row uses — and now in the same SHAPE, which this
+                  // comment claimed and the code did not do (QA9-14): the line items here
+                  // printed `−SEK 12,000` while the summary rows of the same card printed
+                  // `− SEK 33,000`. `negativeAmount` is the one answer.
                   color: row.kind === "cost" ? "var(--brand-red)" : "var(--text)",
                 }}
               >
-                {row.kind === "cost" ? "−" : ""}
-                {formatMoney(toMinorUnits(row.amount), currency)}
+                {row.kind === "cost"
+                  ? negativeAmount(formatMoney(toMinorUnits(row.amount), currency))
+                  : formatMoney(toMinorUnits(row.amount), currency)}
               </span>
             </div>
           </div>

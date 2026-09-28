@@ -5,6 +5,7 @@ import {
   entitlementGapSentence,
   entitlementRules,
   matchingSettlements,
+  negativeAmount,
   ownFigureLabel,
   payoutAdjustments,
   settlementTotals,
@@ -637,5 +638,30 @@ describe("describeBasis — a contract figure in a converted card", () => {
       base: null,
     } as unknown as Parameters<typeof describeBasis>[0];
     expect(plain(describeBasis(redacted, "SEK", () => "≈ €1"))).toBe("20% of the adjusted net");
+  });
+});
+
+/**
+ * ONE SHAPE FOR A NEGATIVE FIGURE (QA sweep run 9, QA9-14).
+ *
+ * Five call sites drew their own — four `− ${value}` and one `−${value}` — so one card printed
+ * `−SEK 12,000` in its line items and `− SEK 33,000` in its summary rows beneath. QA8-12 had
+ * unified the GLYPH and left the spacing, and the comment beside the odd one out claimed the
+ * two already agreed.
+ */
+describe("negativeAmount", () => {
+  it("uses the MINUS SIGN and a space, not a hyphen", () => {
+    const rendered = negativeAmount("SEK 12,000");
+    expect(rendered).toBe("− SEK 12,000");
+    // U+2212, asserted by codepoint because the two glyphs are a pixel apart on screen and
+    // identical in a diff.
+    expect(rendered.codePointAt(0)).toBe(0x2212);
+    expect(rendered.codePointAt(1)).toBe(0x20);
+    expect(rendered).not.toContain("-");
+  });
+
+  it("does not care what the amount looks like", () => {
+    // It is handed already-formatted money by every caller, including a converted "≈ €1,554".
+    expect(negativeAmount("≈ €1,554")).toBe("− ≈ €1,554");
   });
 });

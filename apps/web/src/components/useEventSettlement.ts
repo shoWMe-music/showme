@@ -995,7 +995,50 @@ export function useEventSettlement(
     return formatAmount(total.toString());
   }, [payable, ownCommissionMinor, withheldTotalMinor, formatAmount]);
 
-  const ownParty = useMemo(() => parties.find((party) => party.isYours) ?? null, [parties]);
+  /**
+   * AND ON THE CARD, NOT ONLY IN THE HEADLINE (QA sweep run 9, QA9-8).
+   *
+   * QA8-4 moved the headline to net + commission and stopped there, so an agent read
+   * **SEK 3,000 · Your payout** over their own card printing **SEK 0** with no rows at all —
+   * the one place on the screen telling them they earned nothing, two cards above a
+   * commission card saying otherwise. That is the same one-line-apart contradiction QA7-28
+   * was filed for, reintroduced by its own fix.
+   *
+   * The card's headline is the ENTITLEMENT and an agent's is genuinely zero — their money is
+   * a representation-scoped settlement with no participant — so the commission belongs where
+   * the cash and the advance already are: under the divider, as the thing that explains the
+   * distance between the entitlement above it and what actually moves. Which is exactly what
+   * that divider is for (QA8-5).
+   *
+   * Decorated here rather than inside `toParty` because `ownParticipantId` is derived FROM
+   * `parties`, so the commission cannot be known while they are being built.
+   */
+  const partiesWithOwnCommission = useMemo(() => {
+    if (ownCommissionMinor === 0n) return parties;
+    return parties.map((party) =>
+      party.isYours
+        ? {
+            ...party,
+            adjustments: [
+              ...party.adjustments,
+              {
+                key: "own-commission",
+                label: "Your commission on this night",
+                value: formatAmount(ownCommissionMinor.toString()),
+                // It is money coming TO the agent: the entitlement above is zero and this is
+                // the whole of what moves.
+                reducesPayout: false,
+              },
+            ],
+          }
+        : party,
+    );
+  }, [parties, ownCommissionMinor, formatAmount]);
+
+  const ownParty = useMemo(
+    () => partiesWithOwnCommission.find((party) => party.isYours) ?? null,
+    [partiesWithOwnCommission],
+  );
   /**
    * The reader's own position, commission included — see `ownFigure` on the interface for
    * why the commission has to be in it (QA8-4).
@@ -1090,7 +1133,7 @@ export function useEventSettlement(
   }, [deals.data]);
 
   return {
-    parties,
+    parties: partiesWithOwnCommission,
     transfers,
     commissions: (settlements.data?.commissions ?? []).map((commission) => ({
       id: commission.id,

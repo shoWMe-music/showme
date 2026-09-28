@@ -149,3 +149,46 @@ a voice **without** gaining business authority, which is the boundary its own do
 where `canPost` is false; with `message.post` on every participant floor there is no participant for
 whom it is false, so the sentence would be unreachable copy. `canPost` stays on the wire and the UI
 still reads it, which is what makes a future custom permission set legible rather than silent.
+
+---
+
+## QA9-8 and QA9-14 — the two residuals of this loop's own fixes
+
+The sweep filed both as new findings rather than regressions, which is the right call: each is a
+place the previous fix stopped one line short.
+
+### QA9-8 — the agent's card said SEK 0 under a headline saying SEK 3,000
+
+QA8-4 moved the headline to net + commission and left the card beneath it printing **SEK 0 with no
+rows at all** — the one place on the screen telling the agent they earned nothing, two cards above a
+commission card saying otherwise. Exactly the one-line-apart contradiction QA7-28 was filed for,
+reintroduced by its own fix.
+
+The card's headline is the ENTITLEMENT and an agent's is genuinely zero, so the commission goes where
+the cash and the advance already are — under the divider, as the thing that explains the distance
+between the entitlement and what moves. Which is what QA8-5 opened that divider for.
+
+Decorated in the hook rather than in `toParty`, because `ownParticipantId` is derived FROM `parties`
+and the commission cannot be known while they are being built.
+
+**Proven as `agent@`:** *"Astra Booking Agency (you) · Agent · **SEK 0** · Your commission on this
+night **SEK 3,000**"* — and the headline above it still reads SEK 3,000, so the column now arrives at
+the figure the headline states.
+
+### QA9-14 — two minus spacings in one card, under a comment claiming they agreed
+
+QA8-12 unified the GLYPH (U+2212 everywhere, the hyphen gone) and left the spacing. Five call sites
+each drew their own: four `− ${value}`, one `−${value}`, so one "Revenue & deductions" card printed
+`−SEK 12,000` in its line items and `− SEK 33,000` in its own summary rows beneath.
+
+**And the comment beside the odd one out claimed the opposite** — *"so the two agree about what a
+negative figure looks like on this screen"*. They did not. Ninth instance this stretch of a comment
+asserting a rule the code does not keep, and this one was written by this loop.
+
+`negativeAmount(value)` is the single answer, with all five call sites pointed at it. Two tests,
+asserting the codepoints (U+2212 then U+0020) because the two glyphs are a pixel apart on screen and
+identical in a diff.
+
+**Proven on the running stack:** all **eight** negatives on that card now read one way — every one
+U+2212, and exactly **one** distinct second codepoint (32). The sweep's own two examples now agree:
+`− SEK 12,000` and `− SEK 33,000`.

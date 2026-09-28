@@ -40,6 +40,7 @@ import { describeActivity } from "../components/eventHistory";
 import { CardTitle, Eyebrow } from "../components/primitives";
 import {
   initialsOf,
+  negativeAmount,
   settlementStatusToDisplay,
   settlementSteps,
 } from "../components/settlementDocument";
@@ -1006,7 +1007,7 @@ function PoolLadderRows({ settlement }: { settlement: EventSettlementData }) {
           key={rung.key}
           label={rung.label}
           caption={rung.caption}
-          value={rung.negative ? `− ${rung.value}` : rung.value}
+          value={rung.negative ? negativeAmount(rung.value) : rung.value}
           mono
           total={rung.total}
           valueColor={rung.negative ? "var(--brand-red)" : undefined}
@@ -1733,7 +1734,7 @@ function VarianceCell({
   return (
     <span style={{ ...style, color: negative ? "var(--brand-red)" : "var(--text)" }}>
       {negative
-        ? `− ${formatMoney(value.slice(1), currency)}`
+        ? negativeAmount(formatMoney(value.slice(1), currency))
         : `+ ${formatMoney(value, currency)}`}
     </span>
   );

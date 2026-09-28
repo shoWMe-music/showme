@@ -139,6 +139,28 @@ export function ownFigureLabel(netTone: "positive" | "negative" | "neutral"): st
   return netTone === "negative" ? "You owe" : "Your payout";
 }
 
+/**
+ * A NEGATIVE FIGURE, WRITTEN ONE WAY (QA sweep run 9, QA9-14).
+ *
+ * Five call sites drew their own: four as `− ${value}` and one as `−${value}`, so a single
+ * "Revenue & deductions" card printed `−SEK 12,000` in its line items and `− SEK 33,000` in
+ * its own summary rows directly beneath. QA8-12 had already unified the GLYPH — U+2212
+ * everywhere, the hyphen gone — and left the spacing, which is the half a reader actually
+ * notices when the two sit in one column.
+ *
+ * Worse than the inconsistency: the comment beside the odd one out claimed *"the two agree
+ * about what a negative figure looks like on this screen"*. They did not. That is the ninth
+ * instance this stretch of a comment asserting a rule the code does not keep, and it was
+ * written by this loop.
+ *
+ * U+2212 MINUS SIGN and a space, not a hyphen and not `-`: a hyphen is a word-joiner at the
+ * same size as a digit, and in a monospace column of money the space is what stops `−SEK`
+ * reading as one token.
+ */
+export function negativeAmount(value: string): string {
+  return `− ${value}`;
+}
+
 /** Up to two initials for an avatar. */
 export function initialsOf(label: string): string {
   return label

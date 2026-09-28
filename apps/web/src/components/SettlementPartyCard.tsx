@@ -1,4 +1,5 @@
 import { Card, Icon, type IconName } from "@showme/design-system";
+import { negativeAmount } from "./settlementDocument";
 import type { SettlementParty } from "./useEventSettlement";
 
 /**
@@ -129,7 +130,7 @@ export function SettlementPartyCard({ party }: { party: SettlementParty }) {
               whiteSpace: "nowrap",
             }}
           >
-            {rule.negative ? `− ${rule.value}` : rule.value}
+            {rule.negative ? negativeAmount(rule.value) : rule.value}
           </span>
         </div>
       ))}
@@ -182,7 +183,7 @@ export function SettlementPartyCard({ party }: { party: SettlementParty }) {
                   whiteSpace: "nowrap",
                 }}
               >
-                {adjustment.reducesPayout ? `− ${adjustment.value}` : adjustment.value}
+                {adjustment.reducesPayout ? negativeAmount(adjustment.value) : adjustment.value}
               </span>
             </div>
           ))}
