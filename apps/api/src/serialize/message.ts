@@ -1,5 +1,5 @@
 import type { schema } from "@showme/db";
-import { type ThreadScope, isOperatorViewer, threadKey } from "../lib/message-threads";
+import { type ThreadScope, threadKey } from "../lib/message-threads";
 
 type MessageRow = typeof schema.eventMessages.$inferSelect;
 
@@ -60,10 +60,6 @@ export function canSeeMessage(message: MessageRow, viewer: MessageViewer): boole
       return true;
   }
 }
-
-// The read-side operator signal lives with the thread rule it serves; re-exported
-// here so the serializer's callers keep one import.
-export { isOperatorViewer };
 
 /** Shape a message row for the wire — timestamps as ISO strings. */
 export function serializeMessage(message: MessageRow): SerializedMessage {

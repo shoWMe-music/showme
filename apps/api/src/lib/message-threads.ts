@@ -1,7 +1,7 @@
 import { type EventRole, liveEventDelegations } from "@showme/auth";
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
-import type { Capability } from "@showme/shared";
+import { operatesTheEvent } from "@showme/shared";
 import { and, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import type { FastifyRequest } from "fastify";
 
@@ -45,8 +45,11 @@ import type { FastifyRequest } from "fastify";
 /** The three thread scopes. Mirrors the `message_visibility` enum on the message. */
 export type ThreadScope = "all" | "operators" | "party";
 
-/** The managing operators — one back office between them (decisions #4). */
-const MANAGING_OPERATOR_ROLES: ReadonlySet<EventRole> = new Set<EventRole>(["host", "co_host"]);
+/*
+ * The managing operators — one back office between them (decisions #4). The set itself is
+ * `operatesTheEvent` in `@showme/shared`: this was the FOURTH copy of host/co_host, and the
+ * divergence it hid is QA10-10 — the roster asked the role while the gate asked `budget.view`.
+ */
 
 /**
  * The roles that GET a thread of their own — the counterparties. Each holds a slice
@@ -100,15 +103,11 @@ export interface EventThread {
   readerParticipantIds: string[];
 }
 
-/**
- * The read-side operator signal. `budget.view` is the ceiling's own definition of a
- * MANAGING operator — decisions #4 makes it un-grantable to any arm's-length party,
- * so nobody but a host/co_host can hold it. One signal, defined once, used for the
- * back office both here and in the serializer.
+/*
+ * `isOperatorViewer(capabilities)` stood here and read `budget.view`. It is gone rather than fixed:
+ * the back office is a ROLE question (`callerOperatesTheEvent` below), and a capability-shaped answer
+ * to it is exactly what QA10-10 was. Nothing else called it.
  */
-export function isOperatorViewer(capabilities: ReadonlySet<Capability>): boolean {
-  return capabilities.has("budget.view");
-}
 
 /** `all` / `operators` are one thread each; a party thread is keyed by participant. */
 export function threadKey(scope: ThreadScope, participantId: string | null): string {
@@ -123,8 +122,38 @@ function findParticipant(graph: EventThreadGraph, id: string | null): Participan
 /** The managing operators on this event — the other side of every booked edge. */
 function managingOperatorIds(graph: EventThreadGraph): string[] {
   return graph.participants
-    .filter((participant) => MANAGING_OPERATOR_ROLES.has(participant.role))
+    .filter((participant) => operatesTheEvent(participant.role))
     .map((participant) => participant.id);
+}
+
+/**
+ * IS THIS CALLER IN THE BACK OFFICE? — asked of their ROLE, not of a capability (QA sweep run 10,
+ * QA10-10).
+ *
+ * This used to be `capabilities.has("budget.view")`, under a docstring that explained why: *"the
+ * ceiling's own definition of a MANAGING operator — decisions #4 makes it un-grantable to any
+ * arm's-length party, so nobody but a host/co_host can hold it."* Every word of that is true and it
+ * runs one way only. `budget.view ⟹ host/co_host` does not give `host/co_host ⟹ budget.view`, and a
+ * co-host on *Standard for the role* holds no permission set at all — `OPERATOR_FLOOR` carries no
+ * budget capability. So the room was **labelled with the co-promoter's own name and then withheld from
+ * them**, and their post was refused with *"Missing capability: budget.view"* — a budget capability
+ * named for a messaging action.
+ *
+ * The room is the co-promoters' back channel, so membership is the question the ROSTER was already
+ * asking. QA9-2 settled the principle when it put `message.post` on every floor: **talking is not
+ * authority.** `story.md`'s crew boundary is about the budget, never about who may speak.
+ *
+ * Derived from the graph that is already loaded, so it costs no query — and it cannot disagree with
+ * `managingOperatorIds` above, because both now ask `operatesTheEvent`.
+ */
+function callerOperatesTheEvent(
+  graph: EventThreadGraph,
+  callerParticipantIds: readonly string[],
+): boolean {
+  const mine = new Set(callerParticipantIds);
+  return graph.participants.some(
+    (participant) => mine.has(participant.id) && operatesTheEvent(participant.role),
+  );
 }
 
 /**
@@ -191,7 +220,7 @@ export function threadReaderParticipantIds(
   // No sponsor stamp means the operator booked them directly — the default for
   // every performer today, since only crew carry a sponsor. Co-operators come in
   // with the host: decisions #4 makes them transparent to each other.
-  if (!sponsor || MANAGING_OPERATOR_ROLES.has(sponsor.role)) {
+  if (!sponsor || operatesTheEvent(sponsor.role)) {
     for (const operatorId of managingOperatorIds(graph)) readers.add(operatorId);
   }
   for (const agentId of agentsStandingFor(graph, party)) readers.add(agentId);
@@ -212,10 +241,10 @@ export function allPartyThreads(graph: EventThreadGraph): EventThread[] {
 }
 
 /**
- * The threads one caller may read. `callerParticipantIds` are the rows they stand
- * behind on this event; `isManagingOperator` is the `budget.view` signal, which the
- * ceiling grants only to host/co_host — the same signal that has always gated the
- * back office.
+ * The threads one caller may read. `callerParticipantIds` are the rows they stand behind on this
+ * event; `isManagingOperator` says whether any of those rows OPERATES it — see
+ * `callerOperatesTheEvent`, which replaced a `budget.view` check that withheld the room from the very
+ * co-promoter it was labelled with (QA10-10).
  *
  * The event room is unconditional: the caller has already passed `event.view`.
  */
@@ -309,7 +338,6 @@ export interface ThreadAccess {
 export async function resolveThreadAccess(
   request: FastifyRequest,
   eventId: string,
-  capabilities: Set<Capability>,
 ): Promise<ThreadAccess> {
   const principal = request.principal;
   if (!principal) throw new Error("principal missing after authentication");
@@ -334,7 +362,7 @@ export async function resolveThreadAccess(
     );
 
   const callerParticipantIds = mine.map((row) => row.id);
-  const isManagingOperator = isOperatorViewer(capabilities);
+  const isManagingOperator = callerOperatesTheEvent(graph, callerParticipantIds);
   const threads = visibleThreads(graph, callerParticipantIds, isManagingOperator);
 
   return {

@@ -118,9 +118,18 @@ function resolvePostTarget(
 ): string | null {
   if (visibility === "all") return null;
   if (visibility === "operators") {
-    // Posting into a room you cannot read is not a feature. The back office is the
-    // managing operators' (decisions #4), and nobody else may write into it.
-    if (!access.isManagingOperator) throw forbidden("Missing capability: budget.view");
+    /*
+     * Posting into a room you cannot read is not a feature. The back office is the managing
+     * operators' (decisions #4), and nobody else may write into it.
+     *
+     * The refusal used to read *"Missing capability: budget.view"* — a budget capability named for a
+     * messaging action, which told the caller nothing true about why (QA10-10). It also could not be
+     * acted on: the reason a co-promoter hit it was not a missing capability at all, it was this gate
+     * asking the wrong question.
+     */
+    if (!access.isManagingOperator) {
+      throw forbidden("The operators' room is for the parties running this event");
+    }
     return null;
   }
 
@@ -157,7 +166,7 @@ export async function messageRoutes(fastify: FastifyInstance): Promise<void> {
       const eventId = request.params.id;
 
       const capabilities = await requireEventCapability(request, eventId, "event.view");
-      const access = await resolveThreadAccess(request, eventId, capabilities);
+      const access = await resolveThreadAccess(request, eventId);
       const canPost = capabilities.has("message.post");
 
       const messages = await database
@@ -219,8 +228,10 @@ export async function messageRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const eventId = request.params.id;
 
-      const capabilities = await requireEventCapability(request, eventId, "event.view");
-      const access = await resolveThreadAccess(request, eventId, capabilities);
+      // The gate still runs; only its RETURN is unused now that the back office is a role
+      // question rather than a capability one (QA10-10).
+      await requireEventCapability(request, eventId, "event.view");
+      const access = await resolveThreadAccess(request, eventId);
       const viewer = viewerFor(access);
 
       const messages = await database
@@ -252,8 +263,10 @@ export async function messageRoutes(fastify: FastifyInstance): Promise<void> {
       const principal = request.principal;
       if (!principal) throw new Error("principal missing after authentication");
 
-      const capabilities = await requireEventCapability(request, eventId, "message.post");
-      const access = await resolveThreadAccess(request, eventId, capabilities);
+      // The gate still runs; only its RETURN is unused now that the back office is a role
+      // question rather than a capability one (QA10-10).
+      await requireEventCapability(request, eventId, "message.post");
+      const access = await resolveThreadAccess(request, eventId);
       const body = request.body;
       const threadParticipantId = resolvePostTarget(
         access,

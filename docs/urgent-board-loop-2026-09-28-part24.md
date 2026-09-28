@@ -249,6 +249,43 @@ is the grant, and the population that gets this list is exactly the population
 person who receives the token by email. What would be new is a *different* user reading it, and the
 match is what prevents that. It is asserted in a test rather than left to the reader.
 
+## 3c. QA10-10 — the plan, before building
+
+**Which file settles it:** `apps/api/src/lib/message-threads.ts`. One flag, `isManagingOperator`,
+drives all four behaviours the sweep saw: whether the *Operators only* thread is listed, whether
+`canPost` is true on it, whether a POST to it is refused, and whether an `operators`-visibility message
+is readable (`canSeeMessage`). So one definition is the whole fix.
+
+**The verdict: the roster is right and the gate is wrong.** They ask different questions —
+
+- the roster, `managingOperatorIds`, asks the ROLE: `MANAGING_OPERATOR_ROLES = {host, co_host}`, which
+  is why the co-promoter is *named* in the room's membership;
+- the gate asks `isOperatorViewer(capabilities)`, i.e. `budget.view`, which a co-host on *Standard for
+  the role* does not hold — `OPERATOR_FLOOR` has no budget capability at all.
+
+`isOperatorViewer`'s own docstring is where the mistake is written down: *"`budget.view` is the
+ceiling's own definition of a MANAGING operator … so nobody but a host/co_host can hold it."* True, and
+one-directional. `budget.view ⟹ host/co_host` does not give `host/co_host ⟹ budget.view`, and the code
+uses it as if it did. **Instance fifteen**, and this one is a rule that holds in one direction being
+relied on in the other.
+
+Which question SHOULD the back office ask? The role. The operators' room is the co-promoters' back
+channel, and QA9-2 already settled the principle when it put `message.post` on every floor: *"talking
+is not authority"*. `story.md`'s crew boundary is about the BUDGET, never about who may speak — so
+reading the room a co-promoter is a member of cannot require the capability that opens the books.
+
+**The scope.** `isManagingOperator` becomes role-derived, from the caller's own participant rows in the
+thread graph that is already loaded — no extra query. `MANAGING_OPERATOR_ROLES` is the **fourth** copy
+of the host/co_host set and becomes `operatesTheEvent` from `@showme/shared` (three were consolidated
+for QA10-2 yesterday; this one was in a file I had not touched). And the refusal stops naming a budget
+capability for a messaging action — *"Missing capability: budget.view"* told the caller nothing true
+about why.
+
+**The decision it hides: none, but it is worth stating what this does NOT widen.** A performer, an
+agent and crew are unaffected: they were never in `MANAGING_OPERATOR_ROLES` and are not operators now.
+The only account whose access changes is a co-host on Standard access — the one the room is already
+labelled with.
+
 ## 4. Full pass
 
 biome **742** · shared **330** · auth **35** · settlement **72** · web **490** · api **1423**

@@ -802,9 +802,73 @@ describe("message threads — over the routes", () => {
       headers: auth("thr-backoffice-perf"),
       payload: { body: "let me in", visibility: "operators" },
     });
-    // Posting into a room you cannot read is not a feature.
+    // Posting into a room you cannot read is not a feature. A performer is not an operator by role
+    // and never was — this is the case the gate was always right about.
     expect(response.statusCode).toBe(403);
-    expect(response.json().error.message).toBe("Missing capability: budget.view");
+    /*
+     * The sentence changed with QA10-10, and the old one is worth recording: it read *"Missing
+     * capability: budget.view"* — a BUDGET capability named for a MESSAGING action. It told the
+     * caller nothing true, and for the co-promoter who also hit it, it named a cause that was not
+     * the cause: the gate was asking a capability question where the room is a role.
+     */
+    expect(response.json().error.message).toBe(
+      "The operators' room is for the parties running this event",
+    );
+  });
+
+  it("lets a co-promoter on Standard access read and write the back office (QA10-10)", async () => {
+    /*
+     * The room was labelled *"Operators only — The Lantern Hall, Northlight Presents"* on the host's
+     * screen and then withheld from Northlight, whose post was refused. The roster asked the ROLE and
+     * the gate asked `budget.view`, which a co-host holding no permission set does not have — and a
+     * co-host holding none is what *Standard for the role* means.
+     *
+     * Both ends are asserted here because either alone would have passed while the pair disagreed:
+     * the thread is listed, `canPost` is true on it, the POST lands, and the message comes back.
+     */
+    const seed = await seedEventWithParticipants("thr-cohost");
+    // A permission set is created and deliberately NOT attached — Standard for the role means the
+    // participant row carries none, so the floor is all they have.
+    const coHost = await seedMemberWithSet("thr-cohost-co", "operator", []);
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: seed.event.id,
+      profileId: coHost.profileId,
+      role: "co_host",
+      // Standard for the role: no permission set, so no `budget.view` anywhere.
+      permissionSetId: null,
+      status: "confirmed",
+    });
+
+    const threads = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/message-threads`,
+      headers: auth("thr-cohost-co"),
+    });
+    expect(threads.statusCode).toBe(200);
+    const operatorsThread = (threads.json().items as { key: string; canPost: boolean }[]).find(
+      (thread) => thread.key === "operators",
+    );
+    expect(operatorsThread, "the operators room is listed for a co-promoter").toBeDefined();
+    expect(operatorsThread?.canPost).toBe(true);
+
+    const posted = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/messages`,
+      headers: auth("thr-cohost-co"),
+      payload: { body: "back office, from the co-promoter", visibility: "operators" },
+    });
+    expect(posted.statusCode).toBe(201);
+
+    // And they can read it back — `canSeeMessage` ran off the same flag.
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/messages?threadKey=operators`,
+      headers: auth("thr-cohost-co"),
+    });
+    expect(read.statusCode).toBe(200);
+    expect((read.json() as { body: string }[]).some((m) => m.body.includes("co-promoter"))).toBe(
+      true,
+    );
   });
 
   it("filters the flat list to one thread on request, and keeps it flat by default", async () => {

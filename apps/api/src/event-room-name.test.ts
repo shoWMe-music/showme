@@ -265,14 +265,12 @@ describe("the venue an operator typed the exact name of (QA10-5)", () => {
      */
     const operator = await seedOperator("vn-dup-a");
     const twin = await seedOperator("vn-dup-b");
-    await harness.db
-      .insert(schema.profileMembers)
-      .values({
-        profileId: twin.profileId,
-        userId: operator.userId,
-        role: "admin",
-        status: "active",
-      });
+    await harness.db.insert(schema.profileMembers).values({
+      profileId: twin.profileId,
+      userId: operator.userId,
+      role: "admin",
+      status: "active",
+    });
     // Both of the caller's profiles now carry the same name.
     await harness.db
       .update(schema.profiles)
