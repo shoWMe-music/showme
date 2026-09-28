@@ -272,6 +272,64 @@ export async function autoAssignAgentOnPerformerJoin(
 }
 
 /**
+ * DOES THIS AGENT REPRESENT ANYBODY WHO IS ACTUALLY ON THIS EVENT? (QA sweep run 7, QA7-7)
+ *
+ * `assignAgentToEvent` above already refuses an agent whose act is not on the bill —
+ * *"you can only delegate what you hold"* — and that is the whole rule. But it is the
+ * rule of the AUTO-ASSIGN path only, and `POST /events/:id/participants {role: "agent"}`
+ * never goes near it. So an operator could add an agent directly to an event none of
+ * their artists is on and get **201** with `status: "invited"`, plus a notification
+ * promising access, over a participation the agent then gets **404** from at every turn:
+ * the event, the accept, the deals. Nothing leaked — `authorize` holds the line — but
+ * what was left behind is a permanent `invited` row nobody can act on and a
+ * notification that lies. The refusal belonged at the write.
+ *
+ * This is the shape `notifyAgentsOfAssignment` records three inches below: *a rule that
+ * lives at one caller is a rule the other callers skip in silence.* Same module, same
+ * question, one row wider — `assignAgentToEvent` asks it of ONE representation, this asks
+ * whether ANY of them lands here.
+ *
+ * `story.md` is the authority for refusing rather than allowing: an agent *"acts through
+ * the performers they represent"*, so where there is nobody to act through there is no
+ * participation to create. The correct path already demonstrates the alternative — add
+ * the ACT and the agent follows automatically, named in the notification.
+ */
+export async function agentRepresentsSomeoneOnEvent(
+  database: Database | Transaction,
+  eventId: string,
+  agentProfileId: string,
+): Promise<boolean> {
+  const now = new Date();
+  const representations = await database
+    // Exactly the two columns `isRepresentationActiveAt` reads, and no more: a row's
+    // `status` alone is not the truth, and nothing else here is.
+    .select({
+      status: schema.representations.status,
+      terminatedEffectiveAt: schema.representations.terminatedEffectiveAt,
+    })
+    .from(schema.representations)
+    .innerJoin(
+      schema.eventParticipants,
+      and(
+        eq(schema.eventParticipants.profileId, schema.representations.performerProfileId),
+        eq(schema.eventParticipants.eventId, eventId),
+      ),
+    )
+    .where(
+      and(
+        eq(schema.representations.agentProfileId, agentProfileId),
+        eq(schema.representations.status, "active"),
+        // A removed participation is not standing on the bill, so it delegates nothing.
+        notInArray(schema.eventParticipants.status, ["removed"]),
+      ),
+    );
+  // `status = 'active'` is the SQL prefilter only: a row can carry an agreed future
+  // termination and still read active, and one whose moment has passed is dead before the
+  // sweep runs (A-19). Same reason, same answer as `autoAssignAgentOnPerformerJoin`.
+  return representations.some((representation) => isRepresentationActiveAt(representation, now));
+}
+
+/**
  * TELL THE AGENT THEIR ACT PUT THEM ON A SHOW — QA sweep run 4, QA4-7.
  *
  * decisions #14 says an agent must be told when their act is invited, and until now

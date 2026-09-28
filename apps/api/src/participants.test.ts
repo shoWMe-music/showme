@@ -631,14 +631,197 @@ describe("participants — the grant_admin entitlement gate (paid plans only)", 
     });
     expect(patched.statusCode).toBe(200);
 
-    const crew = await seedMemberWithSet("ga-plain-agent", "performer", ["event.view"]);
+    /*
+     * The agent here needs somebody on the event to act for (QA7-7), so the fixture
+     * signs them to the performer added above. It used to be a PERFORMER-kind profile
+     * representing nobody, which the write now refuses — an impossible state that this
+     * test only ever passed through on its way to the entitlement question it is really
+     * asking. The subject is unchanged: an agent set is not an admin-grade grant.
+     */
+    const agentProfile = await seedMemberWithSet("ga-plain-agent", "agent", ["event.view"]);
+    await harness.db.insert(schema.representations).values({
+      agentProfileId: agentProfile.profileId,
+      performerProfileId: performer.profileId,
+      region: ["SE"],
+      commissionRate: 1500,
+      proposedBy: "agent",
+      status: "active",
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+    });
+
     const addedAgent = await app.inject({
       method: "POST",
       url: `/api/v1/events/${event.id}/participants`,
       headers: auth("ga-plain-op"),
-      payload: { profileId: crew.profileId, role: "agent", permissionSetId: agentSetId },
+      payload: { profileId: agentProfile.profileId, role: "agent", permissionSetId: agentSetId },
     });
     expect(addedAgent.statusCode).toBe(201);
+  });
+
+  /**
+   * AN AGENT NEEDS SOMEBODY HERE TO ACT FOR (QA sweep run 7, QA7-7).
+   *
+   * Added to an event none of their artists is on, an agent used to get 201 and a
+   * permanent `invited` row, plus a notification promising access, over a participation
+   * that answered 404 to the event, the accept and the deals. The rule already existed on
+   * the auto-assign path (`assignAgentToEvent`: "you can only delegate what you hold")
+   * and this route never went near it.
+   */
+  it("refuses an agent who represents nobody on the event", async () => {
+    const { operator, event } = await seedEventWithHost("agent-stranger");
+    const agentSetId = await seedPermissionSet(
+      operator.profileId,
+      "agent",
+      PRESET_PERMISSION_SETS.agent,
+    );
+    const stranger = await seedMemberWithSet("agent-stranger-a", "agent", ["event.view"]);
+
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("agent-stranger-op"),
+      payload: { profileId: stranger.profileId, role: "agent", permissionSetId: agentSetId },
+    });
+
+    expect(added.statusCode).toBe(400);
+    expect(added.json().error.message).toContain("represents nobody on this event");
+
+    // And nothing was written — the defect was the leftover row as much as the 201.
+    const rows = await harness.db
+      .select({ id: schema.eventParticipants.id })
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, event.id),
+          eq(schema.eventParticipants.profileId, stranger.profileId),
+        ),
+      );
+    expect(rows).toHaveLength(0);
+  });
+
+  it("refuses an agent whose act is on ANOTHER event, not this one", async () => {
+    const { operator, event } = await seedEventWithHost("agent-elsewhere");
+    const other = await seedEventWithHost("agent-elsewhere-other");
+    const agentSetId = await seedPermissionSet(
+      operator.profileId,
+      "agent",
+      PRESET_PERMISSION_SETS.agent,
+    );
+    const agentProfile = await seedMemberWithSet("agent-elsewhere-a", "agent", ["event.view"]);
+    /*
+     * The act must really be STANDING on the other bill for this to test anything.
+     * `seedEventWithHost` seeds the host alone, so without this insert the act is on no
+     * event at all and the case degenerates into the previous test — which is exactly
+     * what a mutation caught: dropping the event from the join survived, because nothing
+     * here had ever put a represented act on a DIFFERENT event.
+     */
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: other.event.id,
+      profileId: other.performer.profileId,
+      role: "performer",
+      permissionSetId: other.performer.permissionSetId,
+      status: "confirmed",
+    });
+    // A real, active representation — of somebody who is standing on a different bill.
+    await harness.db.insert(schema.representations).values({
+      agentProfileId: agentProfile.profileId,
+      performerProfileId: other.performer.profileId,
+      region: ["SE"],
+      commissionRate: 1500,
+      proposedBy: "agent",
+      status: "active",
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+    });
+
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("agent-elsewhere-op"),
+      payload: { profileId: agentProfile.profileId, role: "agent", permissionSetId: agentSetId },
+    });
+
+    expect(added.statusCode).toBe(400);
+  });
+
+  it("refuses an agent whose act has been REMOVED from the event", async () => {
+    // A removed participation is not standing on the bill, so it delegates nothing —
+    // and the agent projected from it would be the same unanswerable row this refuses.
+    const { operator, performer, event } = await seedEventWithHost("agent-removed");
+    const agentSetId = await seedPermissionSet(
+      operator.profileId,
+      "agent",
+      PRESET_PERMISSION_SETS.agent,
+    );
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: performer.profileId,
+      role: "performer",
+      permissionSetId: performer.permissionSetId,
+      status: "removed",
+    });
+    const agentProfile = await seedMemberWithSet("agent-removed-a", "agent", ["event.view"]);
+    await harness.db.insert(schema.representations).values({
+      agentProfileId: agentProfile.profileId,
+      performerProfileId: performer.profileId,
+      region: ["SE"],
+      commissionRate: 1500,
+      proposedBy: "agent",
+      status: "active",
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+    });
+
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("agent-removed-op"),
+      payload: { profileId: agentProfile.profileId, role: "agent", permissionSetId: agentSetId },
+    });
+
+    expect(added.statusCode).toBe(400);
+  });
+
+  it("refuses an agent whose representation has been terminated", async () => {
+    const { operator, performer, event } = await seedEventWithHost("agent-ended");
+    const agentSetId = await seedPermissionSet(
+      operator.profileId,
+      "agent",
+      PRESET_PERMISSION_SETS.agent,
+    );
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("agent-ended-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    const agentProfile = await seedMemberWithSet("agent-ended-a", "agent", ["event.view"]);
+    /*
+     * `status: "active"` with a termination whose moment has PASSED. This is the case
+     * `status` alone gets wrong (A-19), and the reason the check runs the row through
+     * `isRepresentationActiveAt` rather than trusting the column.
+     */
+    await harness.db.insert(schema.representations).values({
+      agentProfileId: agentProfile.profileId,
+      performerProfileId: performer.profileId,
+      region: ["SE"],
+      commissionRate: 1500,
+      proposedBy: "agent",
+      status: "active",
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+      terminatedEffectiveAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    });
+
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("agent-ended-op"),
+      payload: { profileId: agentProfile.profileId, role: "agent", permissionSetId: agentSetId },
+    });
+
+    expect(added.statusCode).toBe(400);
   });
 });
 

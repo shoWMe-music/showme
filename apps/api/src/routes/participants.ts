@@ -12,6 +12,7 @@ import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from "..
 import { writeActivity } from "../lib/activity";
 import {
   type AgentAssignment,
+  agentRepresentsSomeoneOnEvent,
   autoAssignAgentOnPerformerJoin,
   notifyAgentsOfAssignment,
 } from "../lib/agent-assignment";
@@ -342,6 +343,36 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         hostProfileId: event.hostProfileId,
         nextPermissionSetId: request.body.permissionSetId,
       });
+
+      /*
+       * AN AGENT NEEDS SOMEBODY HERE TO ACT FOR (QA sweep run 7, QA7-7).
+       *
+       * `story.md`: an agent *"acts through the performers they represent"*. Added to an
+       * event none of their artists is on, they used to get 201 and `invited`, plus a
+       * notification promising access — over a participation that answers 404 to the
+       * event, to the accept and to the deals. The boundary held; the refusal was simply
+       * at the wrong end, and what it left behind was a row nobody could act on.
+       *
+       * The rule is not new: `assignAgentToEvent` has always refused an agent whose act
+       * is not on the bill. It lived only on the auto-assign path, and this route never
+       * went near it — the failure mode its own module warns about two functions down.
+       *
+       * 400 rather than 403: the caller holds `participants.manage` and is allowed to add
+       * people. It is the BODY that is wrong, and the message says how to fix it — add
+       * the act, and the agent follows on its own.
+       */
+      if (request.body.role === "agent") {
+        const represents = await agentRepresentsSomeoneOnEvent(
+          database,
+          id,
+          request.body.profileId,
+        );
+        if (!represents) {
+          throw badRequest(
+            "This agent represents nobody on this event, so there is nothing for them to act for. Add the performer they represent — their agent is attached automatically.",
+          );
+        }
+      }
 
       // A crew member added directly is SPONSORED by whoever adds them (their own
       // participant), so rider visibility scopes to that sponsor's reach (decisions
