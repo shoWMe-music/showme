@@ -375,7 +375,11 @@ describe("payout accounts (decisions #5)", () => {
         payload,
       });
 
-    expect((await patch({ type: "iban", identifier: "not-an-iban" })).statusCode).toBe(400);
+    const prose = await patch({ type: "iban", identifier: "not-an-iban" });
+    expect(prose.statusCode).toBe(400);
+    // The sentence a person reads, and it has to be English: naming the enum value directly
+    // produced "That does not look like a iban number" in the one field that says where money goes.
+    expect(prose.json().error.message).toContain("does not look like an IBAN");
     expect((await patch({ currency: "XYZ" })).statusCode).toBe(400);
     /*
      * THE HALF-EDIT, which is the case a schema cannot reach: the body carries no `type`, so the

@@ -35,19 +35,31 @@ const payoutMethodEnum = z.enum(["bankgiro", "iban", "swish"]);
  */
 const IDENTIFIER_SHAPES: Record<
   z.infer<typeof payoutMethodEnum>,
-  { readonly pattern: RegExp; readonly looksLike: string }
+  // `noun` because the enum value does not read as English in a sentence: "That does not look like
+  // a iban number" is what naming the method directly produced, in a field whose whole job is to
+  // say where somebody's money goes.
+  { readonly pattern: RegExp; readonly noun: string; readonly looksLike: string }
 > = {
   // Spaces are how people write an IBAN and are stripped before the test, not rejected.
   iban: {
     // 15–34 characters all told, which is the IBAN registry's own range.
     pattern: /^[A-Za-z]{2}\d{2}[A-Za-z0-9]{11,30}$/,
+    noun: "an IBAN",
     looksLike:
       "two letters, two check digits, then the account — e.g. SE45 5000 0000 0583 9825 7466",
   },
   // 7 or 8 digits, and the dash is how they are PRINTED rather than part of the number — a
   // caller who sends `50516905` has sent a bankgiro number and is not wrong.
-  bankgiro: { pattern: /^\d{3,4}-?\d{4}$/, looksLike: "7 or 8 digits — e.g. 5051-6905" },
-  swish: { pattern: /^\+?\d{7,15}$/, looksLike: "the phone number it pays to — e.g. 0701234567" },
+  bankgiro: {
+    pattern: /^\d{3,4}-?\d{4}$/,
+    noun: "a bankgiro number",
+    looksLike: "7 or 8 digits — e.g. 5051-6905",
+  },
+  swish: {
+    pattern: /^\+?\d{7,15}$/,
+    noun: "a Swish number",
+    looksLike: "the phone number it pays to — e.g. 0701234567",
+  },
 };
 
 /** The identifier with the spacing people type it with removed. */
@@ -109,7 +121,7 @@ function identifierProblem(
 ): string | null {
   const shape = IDENTIFIER_SHAPES[type];
   if (shape.pattern.test(normalizedIdentifier(identifier))) return null;
-  return `That does not look like a ${type} number — ${shape.looksLike}.`;
+  return `That does not look like ${shape.noun} — ${shape.looksLike}.`;
 }
 
 /** The rule as a Zod refinement, for a body that carries both halves. */
