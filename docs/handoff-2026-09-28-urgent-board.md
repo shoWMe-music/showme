@@ -60,9 +60,16 @@ missing caller.** Today produced it seven more times, and added two siblings of 
   QA7-26 and QA7-27 — which leaves **QA7-18 and QA7-24** as the only actionable items left
   from run 7.
 
-Suites at `b353810`: **biome 737 clean · api 1380+ · shared 308 · web 467**, `tsc --noEmit`
-clean. e2e was last green at `060cce3` (112) and is **owed another full pass** — six commits
-have landed since, three of them touching settlement screens the suite reads. (Earlier reading, at `fbfdc92`: biome 732 · api 1379 ·
+Suites at `f308a93`, run in one pass: **biome 737 clean · shared 308 · web 467 · api 1388 ·
+e2e 112**, `tsc --noEmit` clean. The API's full run lost the same four files to the
+Testcontainers port-bind flake with **zero failed tests** (four `Timed out after 10000ms
+while waiting for container ports` in the log); each passed when re-run alone.
+
+One coverage observation from that pass, worth keeping rather than acting on: this stretch
+rewrote the settlement card's rows — *"Plus the money you collected"* became *"Less the money
+you collected"*, and two rows moved below a divider — and **no e2e spec noticed**. The suite
+does not read the party card's breakdown. That is not a failure; it is where the next real
+defect on that card will hide. (Earlier reading, at `fbfdc92`: biome 732 · api 1379 ·
 shared 302 · auth 31 · db 25 · web 405 · e2e 112.) The API's full run habitually loses 2–6
 files to a Testcontainers port-bind flake with **zero failed tests**; each was re-run alone and
 passed. Clearing orphaned containers (`docker rm -f` the ones showing `5432/tcp` with no host
