@@ -172,3 +172,32 @@ polls now, and the two negative cases wait the same window before concluding not
 
 **Fixture hygiene:** the compute wrote six settlement rows onto the seeded Album Release; restored
 with `seed:e2e` and verified back to one row and no settlement lines.
+
+---
+
+## 5. QA10-21 — a NOTE about a ruling, answered where the ruling lives
+
+**Which file settles it:** `docs/decisions.md` §25.7.2, and no code.
+
+The sweep filed it as *not a defect*, correctly: the New-event wizard writes its deal as a `draft`
+and `useDealAutoSend` sends it once a five-second undo window closes — deliberate, documented, and
+the product owner's own request. Measured by the sweep at six seconds, start to `sent`.
+
+**Checked rather than assumed:** `useDealAutoSend` has exactly one caller, `NewEventWizard.tsx`. The
+Deals tab's own *New deal* saves a draft and does not send it, so §25.7.2's Delete-draft branch is
+genuinely reachable — it is the WIZARD's path, the common one, that is past the line in six seconds.
+
+So the note belongs against the ruling, not in a code change: §25.7.2 now carries how far its delete
+branch reaches, and that on the common path the remedies are the undo window, the edit (ticketed)
+and `cancelled`. The next person weighing *"cancelled clutters every party's Deals tab forever"*
+should weigh it knowing that `cancelled` is what the wizard's path almost always produces.
+
+**Reversing that — letting a `sent` but unsigned deal be deleted — is Daniel's call and not mine**,
+which is why nothing here moved.
+
+## 6. Next
+
+- The full pass with the stack down in ONE go: biome, shared, auth, settlement, web, the full API
+  suite reconciled against the 1423 baseline plus this stretch's additions, then e2e including
+  `motion.spec.ts`.
+- Then qa-sweep run 11.

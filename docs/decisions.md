@@ -1393,6 +1393,19 @@ mattering rather than at a status name — which is the same place #25.3 drew it
 why the ruling came before the control: the UI must not offer a delete the API will refuse, so the
 front end asks the same two questions the route does, and a deal past either line shows Cancel.
 
+**How far the delete branch actually reaches — added 2026-09-29 (QA sweep run 10, QA10-21).** Not a
+change to the ruling, a measurement of it. A deal created through the **New-event wizard** is past
+the draft line within about six seconds: the wizard writes it as `draft` and `useDealAutoSend` sends
+it once a five-second undo window closes unchallenged — deliberate, documented, and the product
+owner's own request (`86cbaxv2a`). Measured by the sweep: `agreement_status` was `draft` at 18:30:54
+and `sent` at 18:31:00, with nobody touching it. So **Delete draft is reachable in practice only
+from the Deals tab's own "New deal"**, which saves a draft and does not send it, and the ruling's
+motivating case — *"a deal created by mistake and never sent"* — is the rarer path rather than the
+common one. On the common path the remedies are the undo window itself, the edit (ticketed), and
+`cancelled`. Recorded here rather than in a sweep report because it is the ruling's reach, and the
+next person to weigh "cancelled clutters every party's Deals tab forever" should weigh it knowing
+that cancelled is what the wizard's path almost always produces.
+
 #### 25.7.3 A represented act SEES what is offered in its name
 
 **Ruling:** scope `GET /booking-requests?direction=outgoing` by `sender_profile_id` **or**
