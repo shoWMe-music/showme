@@ -1,5 +1,5 @@
 import { schema } from "@showme/db";
-import { messageRecipients } from "@showme/db/notify";
+import { messageRecipients, notifyUsers } from "@showme/db/notify";
 import { publish } from "@showme/db/publish";
 import { and, asc, eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -261,6 +261,16 @@ export async function messageRoutes(fastify: FastifyInstance): Promise<void> {
         body.threadParticipantId,
       );
       const senderParticipantId = await resolveSenderParticipantId(request, eventId);
+      /*
+       * The night's name, for the bell's title only (QA8-7). Read BEFORE the insert so the
+       * notification does not need a second round trip after the commit, and read as its
+       * own narrow select rather than through a loader — nothing else on this route needs
+       * the event row.
+       */
+      const [eventForNotice] = await database
+        .select({ title: schema.events.title })
+        .from(schema.events)
+        .where(eq(schema.events.id, eventId));
 
       const created = await database.transaction(async (tx) => {
         const [message] = await tx
@@ -291,7 +301,14 @@ export async function messageRoutes(fastify: FastifyInstance): Promise<void> {
       // so open clients refetch. Best-effort — a delivery failure must never undo
       // the post above, so it runs after the commit, off the transaction.
       try {
-        await publishMessagePosted(database, eventId, principal.userId, created);
+        await publishMessagePosted(
+          database,
+          eventId,
+          principal.userId,
+          created,
+          eventForNotice ?? { title: null },
+          request.firebaseUser?.name ?? undefined,
+        );
       } catch (error) {
         request.log.error({ error, eventId, messageId: created.id }, "message publish failed");
       }
@@ -315,6 +332,13 @@ async function publishMessagePosted(
   eventId: string,
   actorUserId: string,
   message: { id: string; visibility: string; threadParticipantId: string | null },
+  /**
+   * For the bell's title and the name beside it. Absent on a message posted against an
+   * event whose title could not be read, which is not a reason to skip the notification —
+   * the reader can still be told there is something to read.
+   */
+  event: { title: string | null },
+  actorDisplay: string | undefined,
 ): Promise<void> {
   const recipients = message.threadParticipantId
     ? await partyThreadRecipientUserIds(database, eventId, actorUserId, message.threadParticipantId)
@@ -333,4 +357,34 @@ async function publishMessagePosted(
       link: `/events/${eventId}`,
     });
   }
+
+  /*
+   * AND THE BELL, for everyone who is not looking at this tab right now (QA8-7).
+   *
+   * `messages.ts` was the only interactive event route that never wrote a notification —
+   * it published the frame above and stopped — so a message reached an open screen and
+   * nobody else. `select type, count(*) from notifications` had never held a message row.
+   *
+   * THE SAME `recipients`, deliberately. The list above mirrors the read rule exactly and
+   * its own docstring says why that matters: who receives it IS the privacy boundary. A
+   * second recipient rule for the bell is the one mistake available here, and it would be
+   * the kind that tells somebody a conversation they cannot read is happening.
+   *
+   * NO MESSAGE TEXT. The frame carries ids only by design, and a notification row is
+   * DURABLE where thread access is not: access is resolved at post time, so a preview
+   * stored today can be read after that access is revoked tomorrow. The title names the
+   * night, `actorDisplay` names who spoke, and the link opens the thread — enough to act
+   * on, nothing to leak.
+   *
+   * The `message.` prefix puts it under the new "messages" preference category, so the
+   * bell can be turned off; email is off by default there (`NOTIFICATION_CATEGORIES`),
+   * and no `email` argument is passed, so nothing is sent regardless.
+   */
+  await notifyUsers(database as Parameters<typeof notifyUsers>[0], recipients, actorUserId, {
+    type: "message.posted",
+    title: `New message on "${event.title ?? "your event"}"`,
+    eventId,
+    actorDisplay,
+    link: `/events/${eventId}?tab=messages`,
+  });
 }

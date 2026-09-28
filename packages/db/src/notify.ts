@@ -78,6 +78,26 @@ export const NOTIFICATION_CATEGORIES = [
     emailDefault: false,
   },
   {
+    key: "messages",
+    label: "Messages on your events",
+    description: "Somebody posts in a conversation you are part of.",
+    /*
+     * OFF, and the `events` reasoning applied to a louder case (QA sweep run 8, QA8-7).
+     *
+     * The rule this catalog is built on is at the top of the file: mail the four things
+     * that cost you a date or a payment, and nothing else, because *"mailing it is how a
+     * product teaches people to filter its mail, taking the four that matter down with
+     * it."* A chat line is neither a date nor a payment, and it is the most frequent
+     * event in the app — one active thread would out-mail every category above put
+     * together.
+     *
+     * The bell still rings: `inApp` defaults ON everywhere, which is the point of adding
+     * the category at all. A message used to reach only a screen already open on that
+     * tab.
+     */
+    emailDefault: false,
+  },
+  {
     key: "tasks",
     label: "Tasks and reminders",
     description:
@@ -119,6 +139,7 @@ const CATEGORY_BY_TYPE_PREFIX: Record<string, NotificationCategory> = {
   event: "events",
   invitation: "events",
   task: "tasks",
+  message: "messages",
 };
 
 /**

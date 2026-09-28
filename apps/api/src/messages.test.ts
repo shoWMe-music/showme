@@ -1,6 +1,11 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
-import { messageRecipients } from "@showme/db/notify";
+import {
+  NOTIFICATION_CATEGORY_KEYS,
+  categoryForNotificationType,
+  messageRecipients,
+  notificationChannelDefault,
+} from "@showme/db/notify";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -477,6 +482,103 @@ const threadKeys = async (eventId: string, uid: string) => {
   expect(response.statusCode).toBe(200);
   return (response.json().items as { key: string }[]).map((thread) => thread.key).sort();
 };
+
+/**
+ * A MESSAGE HAS TO RING A BELL, AND ONLY FOR THE THREAD'S READERS (QA sweep run 8, QA8-7).
+ *
+ * `messages.ts` was the only interactive event route that never wrote a notification: it
+ * published the realtime frame and stopped, so a message reached a screen already open on
+ * that tab and nobody else. `select type, count(*) from notifications` had never held a
+ * message row on any seed.
+ *
+ * The recipient set is the privacy boundary, so these assert both halves — that the reader
+ * is told, and that somebody who cannot read the thread is not told a conversation is
+ * happening. The notification carries no message text on purpose: a row is durable and
+ * thread access is not.
+ */
+describe("messages — the bell", () => {
+  async function notificationsFor(userId: string) {
+    return harness.db
+      .select({
+        type: schema.notifications.type,
+        title: schema.notifications.title,
+        body: schema.notifications.body,
+        link: schema.notifications.link,
+      })
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, userId));
+  }
+
+  it("tells a participant about an all-visibility message, and never the sender", async () => {
+    const { event } = await seedEventWithParticipants("bell-all");
+
+    const posted = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/messages`,
+      headers: auth("bell-all-op"),
+      payload: { body: "Doors at 19:00", visibility: "all" },
+    });
+    expect(posted.statusCode).toBe(201);
+
+    const performer = await notificationsFor("bell-all-perf");
+    expect(performer).toHaveLength(1);
+    expect(performer[0]?.type).toBe("message.posted");
+    // The night, not the message — and the link opens the thread rather than the event.
+    expect(performer[0]?.title).toContain(event.title ?? "");
+    expect(performer[0]?.link).toBe(`/events/${event.id}?tab=messages`);
+    expect(performer[0]?.body ?? "").not.toContain("Doors at 19:00");
+
+    // You are never told about your own post.
+    expect(await notificationsFor("bell-all-op")).toHaveLength(0);
+  });
+
+  it("never tells a performer that an operators-only note exists", async () => {
+    const { event } = await seedEventWithParticipants("bell-ops");
+
+    const posted = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/messages`,
+      headers: auth("bell-ops-op"),
+      payload: { body: "Watch the margin on this one", visibility: "operators" },
+    });
+    expect(posted.statusCode).toBe(201);
+
+    // The whole point of `visibility`: a bell is as much of a disclosure as a body.
+    expect(await notificationsFor("bell-ops-perf")).toHaveLength(0);
+  });
+
+  it("keeps one performer's party thread out of another performer's bell", async () => {
+    const seed = await seedThreadedEvent("bell-party");
+
+    const posted = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/messages`,
+      headers: auth("bell-party-op"),
+      payload: {
+        body: "Your load-in moved to 16:00",
+        visibility: "party",
+        threadParticipantId: seed.performerParticipant.id,
+      },
+    });
+    expect(posted.statusCode).toBe(201);
+
+    // The party, and the agent who stands where they stand.
+    expect(await notificationsFor("bell-party-perf")).toHaveLength(1);
+    expect(await notificationsFor("bell-party-agent")).toHaveLength(1);
+    // Not the other act on the same bill.
+    expect(await notificationsFor("bell-party-other")).toHaveLength(0);
+  });
+
+  it("files it under a category a reader can switch off", async () => {
+    // An uncategorised type is delivered unconditionally by design, which for the app's
+    // chattiest event would be a bell with no switch anywhere in Settings.
+    expect(categoryForNotificationType("message.posted")).toBe("messages");
+    expect(NOTIFICATION_CATEGORY_KEYS).toContain("messages");
+    // And it does not mail: a chat line is neither a date nor a payment.
+    expect(notificationChannelDefault("messages", "email")).toBe(false);
+    expect(notificationChannelDefault("messages", "inApp")).toBe(true);
+  });
+});
 
 describe("message threads — over the routes", () => {
   it("lists each account exactly the threads it stands in", async () => {
