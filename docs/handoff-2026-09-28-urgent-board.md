@@ -45,6 +45,13 @@ missing caller.** Today produced it seven more times, and added two siblings of 
   `packages/settlement` with its entry UI (`123qy9rnwud` / `123qy9rp8k3`).
 - **Every actionable finding from QA sweeps 4, 5 and 6** — four majors and eleven
   minors/cosmetics from run 6 alone, including three defects in this loop's own work.
+- **QA7-18 and QA8-1, both tickets finished** — the two that had been sized rather than built.
+  QA7-18: `GET /deals/awaiting-signature` plus a batched `resolveDealAuthorityForEvents`, and the
+  dashboard row it exists for, proven from three seats including the **agent's** (the deal reaches
+  the account that can actually sign it). QA8-1: the composer opens on an existing deal's own
+  figures, and changing the split 100 → 70 moved the planner's fee row from SEK 50,000 to
+  SEK 35,000 — which is **Ran's 2026-09-21 spec finally true**. Its party list is read-only with the
+  reason on screen, because `UpdateDealBody` has no `parties` field.
 - **Sweep run 9's leak and its mute-users major**, plus the two residuals of this loop's own
   fixes. QA9-1 was the serious one and not an arithmetic error: `GET /insights/profiles/:id/revenue`
   had no `budgets.scope` predicate, so a host's all-time figure counted every private book on their
@@ -75,7 +82,7 @@ missing caller.** Today produced it seven more times, and added two siblings of 
   QA7-26 and QA7-27 — which leaves **QA7-18 and QA7-24** as the only actionable items left
   from run 7.
 
-Suites at `192aeb7`, run in one pass: **biome 737 clean · shared 317 · auth 35 · web 474 ·
+Suites at `547f044`, run in one pass: **biome 737 clean · shared 317 · auth 35 · web 474 ·
 api 1405 · e2e 112**, `tsc --noEmit` clean in web, api, shared and auth. Adding `message.post` to
 four floors broke **no** capability assertion anywhere, which is the reassuring half of QA9-2: the
 floors were not load-bearing for anything that tested them. The API's full run lost the same four files to the
@@ -137,24 +144,23 @@ seat** (`123qy9rnge6`), the **agreement PDF** (`86cbcn1f8`), **Print details** a
   refusal after the submit is at least true. A client-side guess at a paywall is how a UI starts
   disagreeing with the thing it is guessing about, so this waits for the API to say.
 
-### 4. Three tickets, sized in `docs/urgent-board-loop-2026-09-28-part19.md`
+### 4. What is left of the sized tickets
 
-All three are the same shape — **a working back end with no front end**, which is run 7's QA7-5 at
-feature scale — so none is a fix and none should be half-built:
+**QA7-18 and QA8-1's edit path are DONE** (`ac8ea16`, `547f044`). What remains:
 
-- **QA8-1, a deal's money is write-once.** `PATCH /deals/:id` accepts `advanceAmount` on a `sent`
-  deal and the planner re-seeds, which is exactly Ran's 2026-09-21 spec; what is missing is every
-  control, and `DELETE /deals/:did` has no caller at all. Two sentences promise otherwise, one of
-  them written by this loop for QA7-9. **Ticket the edit path; leave delete behind a decision** —
-  whether a deal with a computed settlement may be removed or only cancelled.
+- **QA8-1's remaining halves.** `DELETE /deals/:did` still has no caller, and the party list is
+  still write-once — both waiting on §25.6's ninth row, because they are the same question about a
+  signature's durability. The EDIT path shipped.
 - **QA8-2, the representation lifecycle has no screen.** Four routes alive and driven directly,
   `apps/jobs` already sweeping due terminations, and one caller in either front end. One piece is
   not built at all: a proposal writes no notification. **Notification first**, then answer, propose,
   delegate, terminate — the reverse of the order the routes were written in, because it is the
   order in which each becomes usable.
-- **QA7-18, a deal awaiting your signature is not on the dashboard.** Analysis finished in part 16;
-  the one decision is to add a batched `resolveDealAuthorityForEvents` rather than a second copy of
-  the delegation rule.
+- **Run 9's fifteen untouched findings**, including two majors that are both *"a screen routes to an
+  action that does not exist"*: `PATCH /events/:id {status}` has **zero callers** in `apps/web/src`,
+  so the whole event-status ladder is unreachable in the operator's direction (QA9-4); and the
+  invitation bell says *"accept or decline"* and lands on *"Event not found"*, every accept route
+  being keyed to a token only the email carries (QA9-3). Size them before building.
 
 ### 5. Run 7's remaining minors, in order of size
 
