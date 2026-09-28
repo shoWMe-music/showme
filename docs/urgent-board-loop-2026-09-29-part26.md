@@ -225,3 +225,32 @@ count, all green. So the suite is 1440 passing and the flake took nothing with i
 
 e2e is **116**, up from the 112 this repo's own lesson records — the four `motion.spec.ts` tests,
 reduced-motion path included.
+
+---
+
+## 8. Where the BOARD stands, which is the loop's own stopping condition
+
+Run 11 is sweeping, so this is the read-only question worth answering while it does: **is the
+audit's open list actually closed?** `docs/clickup-urgent-audit-2026-09-27.md` §5 — *"Real, open, and
+the file that settles it"* — is the audit's own list of what remained. Twelve tickets. Every one now
+has at least one commit naming it, and the five with only a single commit were checked by subject
+against what the audit said was wrong:
+
+| Ticket | The audit's complaint | The commit |
+|---|---|---|
+| `123qy9rnh3f` | the reopen reason is stored and reaches neither payload nor bell | `6138f36` *a reopened agreement says why, on the deal and in the bell* |
+| `123qy9rnf9d` | two fields, "Artist / performer" and "Performer profile" | `eabe6a1` *the wizard's first field is the event's name, and says so* |
+| `123qy9rnk3m` | auto logout: nothing exists | `33de6db` *sign an unattended screen out after an hour* |
+| `86cbcf6gr` | genres exist on the profile and are not shown on the event | `2632ab7` *the bill says what kind of act is on it* |
+| `123qy9rpdum` | an imported entry shares the `concluded` tint | `2584982` *an imported entry gets a hue of its own* |
+
+The other seven carry two to ten commits each. So the audit's §5 is worked through, and what is left
+of "the board's urgent work" is three things, none of which is a ticket I can close by building:
+
+1. **The three design-blocked tickets** — `86cbcn1q4`, `86cbcn1rr`, `86c9mq7q9` — waiting on
+   `/design-login`, because `claude-design`'s rule is that the prototype is rendered, never read.
+2. **Six open product questions in `decisions.md` §25.6**, plus §25.7.1's follow-up. Only Ran or
+   Daniel can answer them, and one of them (the cross-currency tile) blocks half of QA9-10.
+3. **Whatever run 11 finds.** Runs 9 and 10 between them produced thirty-odd findings against code
+   that had already passed every suite, so a sweep coming back clean is a better stopping signal
+   than a board with no rows left — and no sweep has come back clean yet.
