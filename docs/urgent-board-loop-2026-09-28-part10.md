@@ -240,3 +240,32 @@ way. `on_behalf_of_profile_id` is already on the row, so either answer is a `whe
 ## Suites
 
 biome **732** clean · web **405** · e2e **112** · `tsc --noEmit` clean.
+
+---
+
+## Found while run 7 was driving the app: the OpenAPI spec is behind one route
+
+Checked read-only, because regenerating the client rewrites files the web app imports and would
+hot-reload the page out from under the sweep.
+
+**`QA6-13`'s fix did not reach `packages/api-client/openapi.json`.** The route now accepts
+`planningAssumptions.paymentProcessing` as optional — proven live with a `200` — and the committed
+spec still says:
+
+```
+/api/v1/events/{id}/budgets/{bid}  patch
+  planningAssumptions.required: ["paymentProcessing"]
+```
+
+The QA5-2 enum change DID land (`requestStatus` carries `cancelled` in both the spec and the
+generated model), so this is one missed regeneration rather than a habit.
+
+**Why it is worth more than tidiness.** The spec is the contract the generated client and any
+agent-native caller read (decisions #16.14–15). A caller that trusts it keeps sending a key it does
+not need — which is the trap `QA6-13` was about, one layer further out. The API is permissive, so
+nothing is broken today; what is wrong is the published shape.
+
+**Left for the moment run 7 reports**, as the first act after it: `pnpm --filter @showme/api-client
+sync-spec && generate`, then the suites. Recorded here rather than done now because a Vite reload
+mid-sweep can invalidate a step the agent is in the middle of and produce a finding that is mine,
+not the app's.
