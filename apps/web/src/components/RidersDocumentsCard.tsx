@@ -5,6 +5,7 @@ import { RiderUploadModal } from "./RiderUploadModal";
 import styles from "./eventDetailsFields.module.css";
 import { CardHeader, MonoPill, SectionCard } from "./eventUi";
 import { Eyebrow } from "./primitives";
+import { riderEmptyState } from "./riderEmptyState";
 import { useRiderPreview } from "./useRiderPreview";
 import { useRiderUpload } from "./useRiderUpload";
 
@@ -80,11 +81,7 @@ export function RidersDocumentsCard({ eventId, riders }: RidersDocumentsCardProp
         }
       />
       {riders.length === 0 ? (
-        <div style={riderNoteStyle}>
-          {upload.canSubmit
-            ? "No riders or documents yet."
-            : "Nothing has been submitted for this show yet."}
-        </div>
+        <div style={riderNoteStyle}>{riderEmptyState(upload.seesEveryRider)}</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {riders.map((rider) => (

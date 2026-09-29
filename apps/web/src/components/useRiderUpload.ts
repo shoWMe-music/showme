@@ -88,6 +88,15 @@ export interface RiderUploadView {
    * Role alone cannot answer a question the permission set decides.
    */
   canSubmit: boolean;
+  /**
+   * Does this caller's scoped rider answer cover the WHOLE event?
+   *
+   * `routes/riders.ts::scopedEventRiders` returns every rider to a caller holding `budget.view`,
+   * and a subset to everybody else — so this, and NOT `canSubmit`, is what decides whether an empty
+   * list means the show has no riders (see `riderEmptyState`). They are different questions with
+   * different answers: a performer holds `rider.submit` and no `budget.view`.
+   */
+  seesEveryRider: boolean;
   isUploading: boolean;
   error: string | null;
   upload(input: { file: File; name: string; type: RiderType }): Promise<boolean>;
@@ -190,6 +199,7 @@ export function useRiderUpload(eventId: string): RiderUploadView {
   return {
     ownerProfileId,
     canSubmit: ownerProfileId != null && (event.data?.capabilities ?? []).includes("rider.submit"),
+    seesEveryRider: (event.data?.capabilities ?? []).includes("budget.view"),
     isUploading: mutation.isPending,
     error,
     clearError: () => setError(null),
