@@ -129,3 +129,86 @@ all of them, and the all-rooms-free test below already returns a bare chip. **A 
 is a question, and this time the answer was "that clause is a second way of saying the same
 thing"** — a second thing to keep true. The test for the one-room case stays, because the case is
 worth pinning even though the code no longer has a branch of its own for it.
+
+---
+
+## 4. QA11-16 — a teammate with an account is named by their email
+
+**Which file settles it:** `apps/api/src/routes/groups.ts` — and the comment in `Team.tsx` is the
+finding in one sentence.
+
+**What was measured.** Team lists **"PR / Professional / On shoWMe / professional@e2e.showme.test"**
+for a person Contacts, two menu items away, calls **"Priya Sound"**. The row itself prints *"On
+shoWMe"*, which it can only know from `group_members.user_id`.
+
+**The verdict: the name exists and the payload does not carry it, and the fallback says so
+out loud.** `Team.tsx`'s helper is introduced by
+
+> *"No display-name field exists on a group member — derive a human label from the email local-part
+> rather than surfacing a raw address as the name."*
+
+**True of the payload and false of the data.** `serializeGroup` returns `id · userId · email ·
+roleLabel` and never joins `users`, whose `name` column is right there and is what every other
+screen reads. Instance twenty-seven, and the third this stretch of the same specific shape: a name
+the API HAS and does not serve, with the screen doing its best with what it was given
+(`targetName` on an outgoing offer, `delegateName` on an invitation, and now this).
+
+**The scope.** A left join on `users` in `loadGroupDetail`, `name` on the member, and `Team.tsx`
+preferring it. The email fallback STAYS — a group member invited by address has no account and no
+name, which is the case that helper was written for and is still right for.
+
+---
+
+## 5. QA11-10 — one editing session, six identical bells
+
+**Which file settles it:** `packages/db/src/notify.ts` — and the decision is which notifications may
+collapse, not how to collapse them.
+
+**What was measured.** `operator@` adds a guest and then a ticket tier to the Album Release. The
+co-host's bell receives **six** `event.updated` rows, all reading *"'Marlo Vance — Album Release' was
+updated / The ticket and guest details changed."*, three of them within **92 ms**:
+
+```
+23:50:44.086 · 23:50:20.548 · 23:50:20.504 · 23:50:20.456 · 23:50:14.149 · 23:50:03.707
+```
+
+Every one is an autosave inside one edit. There is no coalescing window anywhere in the app.
+
+**The verdict, and the decision it hides is the whole item: WHICH notices may collapse?** Not all of
+them. "A deal was sent" twice is two facts; "the ticket and guest details changed" twice is one
+statement made twice. The property that separates them is already on the row — **an UNREAD
+notification with the same `type`, the same `eventId` and the same `body` says nothing the reader
+has not already been told.** Two genuinely different facts differ in the body, and once a notice has
+been READ a new one is new news.
+
+So: opt-in at the call site, `coalesceWithin`, and `event.updated` is the caller that takes it. A
+blanket change to every notification in the app is exactly the sort of wide behaviour change that
+should be asked for rather than inherited — the bell is where this product tells people their money
+moved.
+
+**The window is thirty minutes.** Long enough to cover an editing session (the sweep's spanned forty
+seconds, but a planner session is minutes), short enough that a change the next morning is its own
+notice. It bumps the existing row's timestamp rather than inserting, so the feed keeps saying *when
+the details last changed*, which is the useful fact.
+
+### What landed — both, read live
+
+```
+Team          PE · Priya Sound (FOH engineer) · On shoWMe · professional@e2e.showme.test
+              (was "PR · Professional")
+
+Six PATCHes to one event, as operator@, read as the co-host:
+  type          | body                  | count
+  event.updated | The capacity changed. |   1        (was six rows, one per autosave)
+```
+
+Three mutations killed on the coalescing: ignoring the read state, dropping the body from the key,
+and collapsing for callers that never asked. That last one is the decision, so it has the test that
+fails loudest — eight of them — because a mechanism that quietly decided "a deal was sent" twice is
+one fact would be a worse bug than the one it fixes.
+
+**Both of these are the same shape as the two before them:** a name the API has and does not serve
+(`users.name`, one join), and a screen doing its best with what it was given. `Team.tsx`'s fallback
+even said so — *"No display-name field exists on a group member"* — true of the payload, false of
+the data. The email-derived label stays for the member invited by address who has no account, which
+is the case it was written for.

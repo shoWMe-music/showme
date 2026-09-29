@@ -23700,6 +23700,10 @@
                               "type": "string",
                               "nullable": true
                             },
+                            "name": {
+                              "type": "string",
+                              "nullable": true
+                            },
                             "roleLabel": {
                               "type": "string",
                               "nullable": true
@@ -23713,6 +23717,7 @@
                             "id",
                             "userId",
                             "email",
+                            "name",
                             "roleLabel",
                             "defaultPermissionSetId"
                           ],
@@ -23787,6 +23792,10 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "name": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "roleLabel": {
                             "type": "string",
                             "nullable": true
@@ -23800,6 +23809,7 @@
                           "id",
                           "userId",
                           "email",
+                          "name",
                           "roleLabel",
                           "defaultPermissionSetId"
                         ],
@@ -23868,6 +23878,10 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "name": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "roleLabel": {
                             "type": "string",
                             "nullable": true
@@ -23881,6 +23895,7 @@
                           "id",
                           "userId",
                           "email",
+                          "name",
                           "roleLabel",
                           "defaultPermissionSetId"
                         ],
@@ -23965,6 +23980,10 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "name": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "roleLabel": {
                             "type": "string",
                             "nullable": true
@@ -23978,6 +23997,7 @@
                           "id",
                           "userId",
                           "email",
+                          "name",
                           "roleLabel",
                           "defaultPermissionSetId"
                         ],
@@ -24091,6 +24111,10 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "name": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "roleLabel": {
                             "type": "string",
                             "nullable": true
@@ -24104,6 +24128,7 @@
                           "id",
                           "userId",
                           "email",
+                          "name",
                           "roleLabel",
                           "defaultPermissionSetId"
                         ],
@@ -24181,6 +24206,10 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "name": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "roleLabel": {
                             "type": "string",
                             "nullable": true
@@ -24194,6 +24223,7 @@
                           "id",
                           "userId",
                           "email",
+                          "name",
                           "roleLabel",
                           "defaultPermissionSetId"
                         ],
@@ -24280,6 +24310,10 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "name": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "roleLabel": {
                             "type": "string",
                             "nullable": true
@@ -24293,6 +24327,7 @@
                           "id",
                           "userId",
                           "email",
+                          "name",
                           "roleLabel",
                           "defaultPermissionSetId"
                         ],
@@ -24370,6 +24405,10 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "name": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "roleLabel": {
                             "type": "string",
                             "nullable": true
@@ -24383,6 +24422,7 @@
                           "id",
                           "userId",
                           "email",
+                          "name",
                           "roleLabel",
                           "defaultPermissionSetId"
                         ],

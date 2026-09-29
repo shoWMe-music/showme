@@ -1,5 +1,5 @@
 import type { EmailSink, RenderedEmail } from "@showme/shared";
-import { and, eq, inArray, isNotNull, ne } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import type { Database } from "./client";
 import { publish } from "./publish";
 import * as schema from "./schema";
@@ -270,6 +270,21 @@ export interface NotificationInput {
   actorDisplay?: string;
   link?: string;
   metadata?: Record<string, unknown>;
+  /**
+   * COLLAPSE THIS INTO AN UNREAD ONE THE READER ALREADY HAS, within this many milliseconds.
+   *
+   * One Event Details editing session rang a co-host's bell SIX times with identical text,
+   * three of them inside 92 ms, because every autosave is its own request (QA sweep run 11).
+   *
+   * Opt-in, and that is the decision rather than the implementation. Not every repeat is noise:
+   * "a deal was sent" twice is two facts. What makes THIS one noise is on the row — same `type`,
+   * same `eventId`, same `body`, and still UNREAD. Two different facts differ in the body, and
+   * once a notice has been read a new one is new news, so neither case can be swallowed.
+   *
+   * The existing row's `created_at` is bumped rather than a new row inserted, so the feed says
+   * when the details LAST changed, which is the useful half.
+   */
+  coalesceWithin?: number;
 }
 
 /**
@@ -531,19 +546,61 @@ export async function notifyUsers(
   );
   if (inAppRecipients.length === 0) return;
 
-  await database.insert(schema.notifications).values(
-    inAppRecipients.map((userId) => ({
-      userId,
-      type: notification.type,
-      title: notification.title ?? null,
-      body: notification.body ?? null,
-      eventId: notification.eventId ?? null,
-      actorUserId: notification.actorUserId ?? actorUserId ?? null,
-      actorDisplay: notification.actorDisplay ?? null,
-      link: notification.link ?? null,
-      metadata: notification.metadata ?? null,
-    })),
-  );
+  /*
+   * COLLAPSED INTO WHAT THE READER ALREADY HAS, where the caller asked for it — see
+   * `coalesceWithin`. Recipients split into "bump theirs" and "write them one" rather than
+   * looping per user, so an edit on a twelve-party event stays two statements.
+   */
+  let recipientsNeedingARow = inAppRecipients;
+  if (notification.coalesceWithin != null && notification.coalesceWithin > 0) {
+    const since = new Date(Date.now() - notification.coalesceWithin);
+    const existing = await database
+      .select({ id: schema.notifications.id, userId: schema.notifications.userId })
+      .from(schema.notifications)
+      .where(
+        and(
+          inArray(schema.notifications.userId, [...inAppRecipients]),
+          eq(schema.notifications.type, notification.type),
+          isNull(schema.notifications.readAt),
+          gte(schema.notifications.createdAt, since),
+          notification.eventId != null
+            ? eq(schema.notifications.eventId, notification.eventId)
+            : isNull(schema.notifications.eventId),
+          notification.body != null
+            ? eq(schema.notifications.body, notification.body)
+            : isNull(schema.notifications.body),
+        ),
+      );
+    if (existing.length > 0) {
+      await database
+        .update(schema.notifications)
+        .set({ createdAt: new Date() })
+        .where(
+          inArray(
+            schema.notifications.id,
+            existing.map((row) => row.id),
+          ),
+        );
+      const bumped = new Set(existing.map((row) => row.userId));
+      recipientsNeedingARow = inAppRecipients.filter((userId) => !bumped.has(userId));
+    }
+  }
+
+  if (recipientsNeedingARow.length > 0) {
+    await database.insert(schema.notifications).values(
+      recipientsNeedingARow.map((userId) => ({
+        userId,
+        type: notification.type,
+        title: notification.title ?? null,
+        body: notification.body ?? null,
+        eventId: notification.eventId ?? null,
+        actorUserId: notification.actorUserId ?? actorUserId ?? null,
+        actorDisplay: notification.actorDisplay ?? null,
+        link: notification.link ?? null,
+        metadata: notification.metadata ?? null,
+      })),
+    );
+  }
 
   // The same narrowed set the rows were written for. Publishing to somebody who was
   // filtered out would push a frame their client answers by refetching a feed the

@@ -533,3 +533,86 @@ describe("notifyUsers honours the preference", () => {
     expect(await notificationsOf("gate-bad-sink")).toHaveLength(1);
   });
 });
+
+/**
+ * SIX BELLS FOR ONE EDITING SESSION (QA sweep run 11).
+ *
+ * Adding a guest and then a ticket tier to one event rang a co-host's bell six times with the
+ * identical sentence, three of them inside 92 ms, because every field on Event Details autosaves
+ * on its own request. There was no coalescing window anywhere in the app.
+ *
+ * What makes THIS repeat noise rather than news is on the row: same type, same event, same body,
+ * and still unread. Each of those three is asserted as load-bearing below, because a rule that
+ * collapsed on fewer of them would swallow a fact somebody needed.
+ */
+describe("notifyUsers coalesces an identical unread notice", () => {
+  const notice = (over: Record<string, unknown> = {}) => ({
+    type: "event.updated",
+    title: "'Album Release' was updated",
+    body: "The ticket and guest details changed.",
+    // No event row is needed: `notifications.event_id` is nullable, and what this suite is
+    // about is the coalescing key rather than the join. Null on both sides still matches.
+    eventId: undefined,
+    coalesceWithin: 30 * 60 * 1000,
+    ...over,
+  });
+
+  it("writes one row for a burst of identical autosaves", async () => {
+    await seedUser("coalesce-one");
+    for (let save = 0; save < 6; save += 1) {
+      await notifyUsers(harness.db, ["coalesce-one"], null, notice());
+    }
+    expect(await notificationsOf("coalesce-one")).toHaveLength(1);
+  });
+
+  it("writes a second row when the BODY differs — two facts are two notices", async () => {
+    await seedUser("coalesce-body");
+    await notifyUsers(harness.db, ["coalesce-body"], null, notice());
+    await notifyUsers(
+      harness.db,
+      ["coalesce-body"],
+      null,
+      notice({ body: "The schedule changed." }),
+    );
+    expect(await notificationsOf("coalesce-body")).toHaveLength(2);
+  });
+
+  it("writes a second row once the first has been READ — that one is new news", async () => {
+    await seedUser("coalesce-read");
+    await notifyUsers(harness.db, ["coalesce-read"], null, notice());
+    await harness.db
+      .update(schema.notifications)
+      .set({ readAt: new Date() })
+      .where(eq(schema.notifications.userId, "coalesce-read"));
+
+    await notifyUsers(harness.db, ["coalesce-read"], null, notice());
+    expect(await notificationsOf("coalesce-read")).toHaveLength(2);
+  });
+
+  it("does NOT collapse when the caller did not ask — every other notice is unchanged", async () => {
+    // The opt-in is the decision. "A deal was sent" twice is two facts, and nothing about this
+    // mechanism may quietly decide otherwise for callers that never mentioned it.
+    await seedUser("coalesce-optout");
+    await notifyUsers(harness.db, ["coalesce-optout"], null, {
+      type: "deal.sent",
+      title: "Agreement sent",
+      body: "Terms are ready for your review.",
+    });
+    await notifyUsers(harness.db, ["coalesce-optout"], null, {
+      type: "deal.sent",
+      title: "Agreement sent",
+      body: "Terms are ready for your review.",
+    });
+    expect(await notificationsOf("coalesce-optout")).toHaveLength(2);
+  });
+
+  it("collapses per RECIPIENT, so a second reader still gets their first bell", async () => {
+    // The loop is over a set of recipients; bumping one must not consume another's notice.
+    await seedUser("coalesce-first");
+    await seedUser("coalesce-second");
+    await notifyUsers(harness.db, ["coalesce-first"], null, notice());
+    await notifyUsers(harness.db, ["coalesce-first", "coalesce-second"], null, notice());
+    expect(await notificationsOf("coalesce-first")).toHaveLength(1);
+    expect(await notificationsOf("coalesce-second")).toHaveLength(1);
+  });
+});

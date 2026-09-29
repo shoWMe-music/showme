@@ -39,6 +39,16 @@ const GroupMemberResponse = z.object({
   id: z.string(),
   userId: z.string().nullable(),
   email: z.string().nullable(),
+  /**
+   * THE MEMBER'S OWN NAME where they have an account — `users.name`, one join away and what
+   * every other screen already reads.
+   *
+   * Declared here or Fastify strips it, which is how a field can be joined, serialized and
+   * still arrive absent. Null for somebody invited by address who has not signed up: the Team
+   * screen falls back to the email local-part for exactly that case, which is the one its
+   * helper was written for (QA sweep run 11).
+   */
+  name: z.string().nullable(),
   roleLabel: z.string().nullable(),
   defaultPermissionSetId: z.string().nullable(),
 });
@@ -140,7 +150,26 @@ function serializeInHouse(participant: {
 type GroupRow = typeof schema.groups.$inferSelect;
 type GroupMemberRow = typeof schema.groupMembers.$inferSelect;
 
-function serializeGroup(group: GroupRow, members: GroupMemberRow[], profileIds: string[]) {
+function serializeGroup(
+  group: GroupRow,
+  members: (GroupMemberRow & {
+    /**
+     * THE MEMBER'S OWN NAME, where they have an account (QA sweep run 11).
+     *
+     * Team listed a teammate as **"Professional"** — their email local-part — for somebody
+     * Contacts calls "Priya Sound" two menu items away, while the same row printed *"On shoWMe"*,
+     * which it can only know from `group_members.user_id`. `Team.tsx`'s fallback introduces
+     * itself with *"No display-name field exists on a group member"*: true of this payload and
+     * false of the data, because `users.name` is one join away and is what every other screen
+     * reads.
+     *
+     * Null for a member invited by address who has not signed up — which is the case the
+     * email-derived label was written for, and still the right answer there.
+     */
+    name?: string | null;
+  })[],
+  profileIds: string[],
+) {
   return {
     id: group.id,
     name: group.name,
@@ -149,6 +178,7 @@ function serializeGroup(group: GroupRow, members: GroupMemberRow[], profileIds: 
       id: member.id,
       userId: member.userId,
       email: member.email,
+      name: member.name ?? null,
       roleLabel: member.roleLabel,
       defaultPermissionSetId: member.defaultPermissionSetId,
     })),
@@ -170,10 +200,15 @@ async function loadOwnedGroup(request: FastifyRequest, groupId: string): Promise
 
 async function loadGroupDetail(request: FastifyRequest, group: GroupRow) {
   const { database } = request.server;
-  const members = await database
-    .select()
+  // The member's own name comes along in the same query — `users.name` is one join away, and
+  // the screen was deriving a label from the email local-part because the payload never carried
+  // it (QA sweep run 11).
+  const memberRows = await database
+    .select({ member: schema.groupMembers, name: schema.users.name })
     .from(schema.groupMembers)
+    .leftJoin(schema.users, eq(schema.users.id, schema.groupMembers.userId))
     .where(eq(schema.groupMembers.groupId, group.id));
+  const members = memberRows.map((row) => ({ ...row.member, name: row.name }));
   const profiles = await database
     .select({ profileId: schema.groupProfiles.profileId })
     .from(schema.groupProfiles)

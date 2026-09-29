@@ -12,6 +12,8 @@ export type GetApiV1Groups200ItemMembersItem = {
   /** @nullable */
   email: string | null;
   /** @nullable */
+  name: string | null;
+  /** @nullable */
   roleLabel: string | null;
   /** @nullable */
   defaultPermissionSetId: string | null;

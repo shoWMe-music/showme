@@ -12,6 +12,8 @@ export type PatchApiV1GroupsGid200MembersItem = {
   /** @nullable */
   email: string | null;
   /** @nullable */
+  name: string | null;
+  /** @nullable */
   roleLabel: string | null;
   /** @nullable */
   defaultPermissionSetId: string | null;

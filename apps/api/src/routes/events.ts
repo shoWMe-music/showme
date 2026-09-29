@@ -1821,6 +1821,16 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
             actorDisplay: request.firebaseUser?.name ?? undefined,
             link: `/events/${id}`,
             metadata: { fields: notice.fields },
+            /*
+             * THE AUTOSAVE CHANNEL, so identical unread notices collapse (QA sweep run 11).
+             *
+             * Every field on Event Details saves on its own, and one session adding a guest and
+             * a ticket tier rang a co-host's bell SIX times with the same sentence, three of
+             * them inside 92 ms. Thirty minutes covers an editing session; a change the next
+             * morning is its own news. See `coalesceWithin` for why this is opt-in and why an
+             * already-READ notice is never collapsed into.
+             */
+            coalesceWithin: 30 * 60 * 1000,
           });
         } catch (error) {
           request.log.error({ error, eventId: id }, "event-change notification failed");

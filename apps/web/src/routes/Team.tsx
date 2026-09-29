@@ -59,8 +59,15 @@ const ROLE_TITLES: Record<string, string> = {
   crew: "Crew",
 };
 
-/** No display-name field exists on a group member — derive a human label from
- * the email local-part rather than surfacing a raw address as the name. */
+/**
+ * A human label from the email local-part, for a member who has NO NAME to read.
+ *
+ * This used to be introduced with *"no display-name field exists on a group member"*, which was
+ * true of the payload and false of the data: `users.name` was one join away and every other
+ * screen read it, so Team called somebody "Professional" that Contacts called "Priya Sound"
+ * (QA sweep run 11). The payload carries the name now and this is the fallback it always should
+ * have been — a member invited by address who has not signed up has an email and nothing else.
+ */
 function nameFromEmail(email: string | null | undefined): string | null {
   const local = email?.split("@")[0];
   if (!local) return null;
@@ -71,9 +78,9 @@ function nameFromEmail(email: string | null | undefined): string | null {
   return words.length > 0 ? words.join(" ") : null;
 }
 
-/** A group member's on-screen label — their email local-part, else their role. */
+/** A group member's on-screen label — their own name, else their email, else their role. */
 function groupMemberLabel(member: GroupMember): string {
-  return nameFromEmail(member.email) ?? member.roleLabel ?? "Member";
+  return member.name?.trim() || nameFromEmail(member.email) || member.roleLabel || "Member";
 }
 
 function initials(label: string): string {

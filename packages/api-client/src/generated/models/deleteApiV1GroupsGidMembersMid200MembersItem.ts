@@ -12,6 +12,8 @@ export type DeleteApiV1GroupsGidMembersMid200MembersItem = {
   /** @nullable */
   email: string | null;
   /** @nullable */
+  name: string | null;
+  /** @nullable */
   roleLabel: string | null;
   /** @nullable */
   defaultPermissionSetId: string | null;
