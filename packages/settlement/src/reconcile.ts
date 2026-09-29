@@ -1,7 +1,7 @@
 import { allocate } from "@showme/shared";
 import { applyCommissions } from "./commissions";
 import { costBearingOf } from "./cost-bearing";
-import { isOffTheTop, rentalComesOffTheTop } from "./deal-order";
+import { dealBorneBy, isOffTheTop } from "./deal-order";
 import { type EntitlementBases, dealEntitlementDetailed } from "./entitlement";
 import { reachesThePool, revenueSharesOf } from "./revenue-shares";
 import { greedyTransfers } from "./transfers";
@@ -131,10 +131,7 @@ export function reconcile(input: SettlementInput): SettlementResult {
      * answer: the rule is about who shares the event's residual, which the entitlement calculator
      * cannot see.
      */
-    const basis =
-      chargeTo !== undefined && settled.basis.kind === "rental"
-        ? { ...settled.basis, borneByPayer: true }
-        : settled.basis;
+    const basis = chargeTo !== undefined ? { ...settled.basis, borneByPayer: true } : settled.basis;
     const weights = deal.payeeParticipantIds.map((payee) => {
       const share = deal.partyShares?.[payee];
       return share != null ? BigInt(share) : 1n;
@@ -278,17 +275,22 @@ export function reconcile(input: SettlementInput): SettlementResult {
      * deal and the stranger. Two guards for one case is one guard nothing can fail on.
      */
     /*
-     * The rule itself is `rentalComesOffTheTop` in `deal-order.ts`, because the Budget Planner has
-     * to ask the same question to forecast the same fee — and for one hour it did not, which is
-     * QA10-1: the planner quoted the act SEK 70,000 and this function paid SEK 73,500.
+     * The rule itself is `dealBorneBy` in `deal-order.ts`, because the Budget Planner has to ask the
+     * same question to forecast the same fee — and for one hour it did not, which is QA10-1: the
+     * planner quoted the performer SEK 70,000 and this function paid SEK 73,500.
+     *
+     * §25.9.12 dropped this pass's old second condition. It used to ask whether the payer shared the
+     * residual and the payee did not, to leave #24.1's *the show pays for its room* case off the
+     * top; #24.1's author overruled that, so a rental comes off the top only when NOBODY is named.
      */
-    if (rentalComesOffTheTop(deal, operatorParticipantIds)) {
+    const borne = dealBorneBy(deal);
+    if (borne === null) {
       offTheTop += settleDeal(deal, rentalBases);
       continue;
     }
-    // Otherwise the deal names somebody who owes it and the money does not leave the pool side:
-    // it moves between the two parties and the adjusted net never sees it.
-    settleDeal(deal, rentalBases, deal.payerParticipantId);
+    // Otherwise the deal names somebody who owes it: the money moves between the two parties and the
+    // adjusted net never sees it.
+    settleDeal(deal, rentalBases, borne);
   }
 
   /**
@@ -308,7 +310,22 @@ export function reconcile(input: SettlementInput): SettlementResult {
   const adjustedNet = pool - offTheTop;
   const bases: EntitlementBases = { splitBase: adjustedNet, grossRevenue: revenue };
   for (const deal of deals) {
-    if (!isOffTheTop(deal)) settleDeal(deal, bases);
+    if (isOffTheTop(deal)) continue;
+    /*
+     * A NON-RENTAL DEAL'S NAMED PAYER BEARS IT TOO (decisions §25.9.6).
+     *
+     * This pass had no `chargeTo` at all, so the payee was credited and the POOL funded it — the
+     * shortfall landing on the residual and being divided by every operator. Measured three times:
+     * the sharpest is a SEK 4,000 guarantee The Lantern Hall signed to Priya Sound under a 70/30
+     * operator split, where **Northlight bore SEK 1,200 of a contract it is a party to in no role**
+     * and read it on its own dashboard as "In review −SEK 500" on an earlier event.
+     *
+     * Note what does NOT move: on an event with ONE operator the two forms give identical figures,
+     * because the residual that operator receives absorbs exactly what their own line is charged.
+     * The rule only bites where it was ruled to bite — a co-promotion, where somebody who never
+     * signed the agreement was sharing it.
+     */
+    settleDeal(deal, bases, dealBorneBy(deal, { statedSumOnly: true }) ?? undefined);
   }
 
   /**

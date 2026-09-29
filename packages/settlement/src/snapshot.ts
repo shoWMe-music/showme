@@ -88,9 +88,9 @@ export interface SerializedEntitlementLine {
  * revenue, not the adjusted net, and a field still called `pool` would keep
  * telling every future reader that costs had already come off it.
  */
-export type SerializedBasis =
+type SerializedBasisKind =
   | { kind: "guarantee"; guarantee: string }
-  | { kind: "rental"; rental: string; borneByPayer?: boolean }
+  | { kind: "rental"; rental: string }
   | { kind: "door_split"; basisPoints: number; base?: string }
   | {
       kind: "guarantee_vs_door";
@@ -101,6 +101,14 @@ export type SerializedBasis =
       base?: string;
     }
   | { kind: "paper" };
+
+/**
+ * The serialized basis, plus WHO BORE IT — an intersection for the same reason `EntitlementBasis`
+ * is one (decisions §25.9.6): `borneByPayer` sat on the `rental` branch while a rental was the only
+ * deal a payer could bear, and a borne guarantee then had nowhere to say so. One declaration, one
+ * line in the serializer, one line in the route's schema.
+ */
+export type SerializedBasis = SerializedBasisKind & { borneByPayer?: boolean };
 
 /**
  * The gross → adjusted-net waterfall, money as STRING.
@@ -172,15 +180,17 @@ export function poolLadderOf(stored: StoredLadder): SerializedLadder & { legacy:
 }
 
 function serializeBasis(basis: EntitlementBasis): SerializedBasis {
+  // Who bore it rides alongside the kind, never inside one branch of it — see `SerializedBasis`.
+  const borne = basis.borneByPayer ? { borneByPayer: true as const } : {};
+  return { ...serializeBasisKind(basis), ...borne };
+}
+
+function serializeBasisKind(basis: EntitlementBasis): SerializedBasisKind {
   switch (basis.kind) {
     case "guarantee":
       return { kind: "guarantee", guarantee: basis.guarantee.toString() };
     case "rental":
-      return {
-        kind: "rental",
-        rental: basis.rental.toString(),
-        ...(basis.borneByPayer ? { borneByPayer: true } : {}),
-      };
+      return { kind: "rental", rental: basis.rental.toString() };
     case "door_split":
       return {
         kind: "door_split",

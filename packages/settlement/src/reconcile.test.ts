@@ -1598,15 +1598,23 @@ describe("reconcile — a rental with a NAMED PAYER is a transfer, not a pool co
   });
 
   /**
-   * THE BOUNDARY — and the reason the rule tests both ends rather than only the payer.
+   * FLIPPED BY A RULING, NOT BY A DRIFT — decisions §25.9.12, Daniel 2026-09-29.
    *
-   * The classic venue rental names the promoter as payer and the VENUE as payee, and the venue is
-   * not an operator: it does not share the residual. That is #24.1's own case, where the act
-   * shares the room hire, and it must keep working exactly as it did — `settlement.test.ts`'s
-   * end-to-end fixture is that shape, and its assertion ("the rental, taken first") was the only
-   * thing standing between a simpler rule and a silent reversal of an owner decision.
+   * This test used to assert the opposite, and its reason was sound at the time: the classic venue
+   * rental names the promoter as payer and the VENUE as payee, the venue is not an operator, and
+   * #24.1 said the performer shares the room hire. §25.7.1 deliberately preserved that case and
+   * wrote down that overturning it "is not mine to overturn as a side effect."
+   *
+   * #24.1's author has now overturned it directly: *"Apply it broadly."* Whoever signed the room
+   * hire bears it, always. So the rental no longer comes off the top, the adjusted net keeps its
+   * full 105,000, the host carries the 5,000 alone, and the card says "settled between its
+   * parties".
+   *
+   * The assertion is kept rather than deleted because it is still the boundary — it is the one
+   * shape where the old rule and the new one disagree, so it is the only test that can catch a
+   * revert.
    */
-  it("still takes a venue rental off the top, even though it names a payer (#24.1)", () => {
+  it("charges the host for a venue rental it signed, and leaves the pool alone (§25.9.12)", () => {
     const base = night({ rental: "named-payer" });
     const withVenue = reconcile({
       ...base,
@@ -1624,16 +1632,23 @@ describe("reconcile — a rental with a NAMED PAYER is a transfer, not a pool co
       ],
     });
     assertBalanced(withVenue);
-    // Off the top, so the adjusted net shrinks and the act's 70% is of the smaller figure.
-    expect(withVenue.ladder.offTheTop).toBe(sek(5000));
-    expect(withVenue.ladder.adjustedNet).toBe(sek(100000));
+    // NOT off the top any more: the pool never sees it, so the adjusted net keeps its full figure
+    // and the performer's 70% is of the larger number.
+    expect(withVenue.ladder.offTheTop).toBe(0n);
+    expect(withVenue.ladder.adjustedNet).toBe(sek(105000));
     expect(entitlementOf(withVenue, "venue")).toBe(sek(5000));
-    // And the sentence the card prints stays the pool one: no `borneByPayer`.
+    // The host signed it, so the host carries the whole of it on its own line.
+    expect(
+      withVenue.breakdowns
+        .find((party) => party.participantId === "host")
+        ?.lines.find((line) => line.dealId === "room")?.amount,
+    ).toBe(sek(-5000));
+    // And the sentence both ends read is the transfer one.
     expect(
       withVenue.breakdowns
         .find((party) => party.participantId === "venue")
         ?.lines.find((line) => line.dealId === "room")?.basis,
-    ).toEqual({ kind: "rental", rental: sek(5000) });
+    ).toEqual({ kind: "rental", rental: sek(5000), borneByPayer: true });
   });
 
   /**
@@ -1747,5 +1762,115 @@ describe("reconcile — a rental with a NAMED PAYER is a transfer, not a pool co
         ],
       }),
     ).toThrow(/charged to a-stranger, who is not a participant/);
+  });
+});
+
+/**
+ * A NON-RENTAL DEAL'S NAMED PAYER BEARS IT TOO — decisions §25.9.6, Daniel 2026-09-29.
+ *
+ * `reconcile()` read `payerParticipantId` in the rental pass and the advance pass and nowhere else,
+ * so a `guarantee` or `door_split` deal had no branch that charged its payer: the payee was credited
+ * and the POOL funded it, the shortfall landing on the residual and being divided by every operator.
+ *
+ * Measured three times on the running stack, three splits, one shape — the sharpest being a
+ * SEK 4,000 guarantee The Lantern Hall signed to Priya Sound under a 70/30 operator split, where
+ * **Northlight bore SEK 1,200 of a contract it is a party to in no role**.
+ *
+ * This is the LOCK for that ruling: it fails if either pass stops asking `dealBorneBy`.
+ */
+describe("reconcile — a named payer bears a NON-rental deal too (§25.9.6)", () => {
+  const sek = (major: string | number) => majorToMinor(major, "SEK");
+
+  const coPromotion = (payer: string | null): SettlementInput => ({
+    baseCurrency: "SEK",
+    participants: [
+      { participantId: "host", isOperator: true, operatorResidualShare: 7000 },
+      { participantId: "co", isOperator: true, operatorResidualShare: 3000 },
+      { participantId: "crew" },
+    ],
+    deals: [
+      {
+        dealId: "crew-fee",
+        structure: "guarantee",
+        payeeParticipantIds: ["crew"],
+        guaranteeAmount: sek(4000),
+        ...(payer ? { payerParticipantId: payer } : {}),
+      },
+    ],
+    budgetLines: [
+      { kind: "revenue", revenueKind: "ticket", amount: sek(30000), collectedBy: "host" },
+    ],
+  });
+
+  const share = (result: ReturnType<typeof reconcile>, id: string) =>
+    result.breakdowns.find((party) => party.participantId === id)?.entitlement ?? 0n;
+
+  it("charges the whole fee to the operator who signed it, and none of it to the co-host", () => {
+    const signed = reconcile(coPromotion("host"));
+    assertBalanced(signed);
+
+    expect(share(signed, "crew")).toBe(sek(4000));
+    // The residual is the untouched pool, split 70/30 — and the host then carries the whole fee.
+    expect(share(signed, "co")).toBe(sek(9000));
+    expect(share(signed, "host")).toBe(sek(21000) - sek(4000));
+  });
+
+  /*
+   * THE MEASURED DEFECT, as its own assertion. With nobody named, the pool funds the fee and the
+   * shortfall is divided 70/30 — so the co-host bears SEK 1,200 of it. That is the figure the sweep
+   * read on Northlight's own dashboard, and it is what the ruling moved.
+   */
+  it("leaves the co-host bearing a share when the deal names NOBODY", () => {
+    const unsigned = reconcile(coPromotion(null));
+    assertBalanced(unsigned);
+
+    expect(share(unsigned, "co")).toBe(sek(9000) - sek(1200));
+    expect(share(unsigned, "host")).toBe(sek(21000) - sek(2800));
+  });
+
+  /*
+   * AND IT MOVES NOTHING WHERE IT WAS NOT RULED TO. On an event with ONE operator the two forms are
+   * arithmetically identical: the residual that operator receives grows by exactly what their own
+   * line is charged. Worth pinning, because it is the reason this ruling did not disturb every
+   * single-operator settlement in the system — and a future "simplification" that broke it would
+   * otherwise show up only as a changed number on somebody's finalized event.
+   */
+  it("changes no figure at all when there is only one operator", () => {
+    const solo = (payer: string | null): SettlementInput => ({
+      ...coPromotion(payer),
+      participants: [{ participantId: "host", isOperator: true }, { participantId: "crew" }],
+    });
+    const signed = reconcile(solo("host"));
+    const unsigned = reconcile(solo(null));
+    assertBalanced(signed);
+    assertBalanced(unsigned);
+
+    expect(share(signed, "host")).toBe(share(unsigned, "host"));
+    expect(share(signed, "crew")).toBe(share(unsigned, "crew"));
+  });
+
+  /*
+   * THE SENTENCE BOTH ENDS READ. `borneByPayer` used to live on the `rental` branch alone, so a
+   * borne guarantee could not say so at all. It is an intersection now (`EntitlementBasis`), which
+   * is why this asserts it on a `guarantee` rather than a rental.
+   */
+  it("marks a borne guarantee on BOTH parties' lines", () => {
+    const signed = reconcile(coPromotion("host"));
+    const lineFor = (id: string) =>
+      signed.breakdowns
+        .find((party) => party.participantId === id)
+        ?.lines.find((line) => line.dealId === "crew-fee");
+
+    expect(lineFor("crew")?.basis).toEqual({
+      kind: "guarantee",
+      guarantee: sek(4000),
+      borneByPayer: true,
+    });
+    expect(lineFor("host")?.amount).toBe(sek(-4000));
+    expect(lineFor("host")?.basis).toEqual({
+      kind: "guarantee",
+      guarantee: sek(4000),
+      borneByPayer: true,
+    });
   });
 });

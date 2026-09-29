@@ -85,15 +85,9 @@ const TransferParams = z.object({ id: z.string().uuid(), tid: z.string().uuid() 
  * the browser's job, and a string assembled here would be a second money
  * formatter living on the server.
  */
-const BasisResponse = z.discriminatedUnion("kind", [
+const BasisKindResponse = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("guarantee"), guarantee: z.string() }),
-  // `borneByPayer` DECLARED, because Fastify strips a field the schema does not name — which is
-  // how a value can be computed, stored and silently absent from the screen (decisions §25.7.1).
-  z.object({
-    kind: z.literal("rental"),
-    rental: z.string(),
-    borneByPayer: z.boolean().optional(),
-  }),
+  z.object({ kind: z.literal("rental"), rental: z.string() }),
   // `base` and `door` are OPTIONAL because between them they give away the
   // event's takings, and a party row is redacted of them unless the route has
   // checked the caller may read the pool (`redactPool` in
@@ -118,6 +112,22 @@ const BasisResponse = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("paper") }),
 ]);
+
+/*
+ * WHO BORE THE DEAL, declared ONCE beside the kind rather than inside one branch of it.
+ *
+ * `borneByPayer` has to be DECLARED at all because Fastify strips a field the schema does not name
+ * — which is how a value can be computed, stored, and silently absent from the screen (§25.7.1).
+ * It sat on the `rental` branch while a rental was the only deal a payer could bear; §25.9.6 makes
+ * any deal with a named payer borne by them, so a guarantee, a door split and a guarantee-vs-door
+ * can all carry it. Four more copies of one optional boolean is four places for the next kind to be
+ * forgotten in, so it rides alongside the union instead — matching `EntitlementBasis` and
+ * `SerializedBasis`, which are intersections for the same reason.
+ */
+const BasisResponse = z.intersection(
+  BasisKindResponse,
+  z.object({ borneByPayer: z.boolean().optional() }),
+);
 
 /** One deal's contribution to one party's entitlement. */
 const EntitlementLineResponse = z.object({

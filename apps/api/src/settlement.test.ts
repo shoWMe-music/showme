@@ -4656,7 +4656,20 @@ describe("settlement — the 2026-08-26 money rules", () => {
       headers: auth(uid),
     });
 
-  it("settles the rental off the top and pays the disclosed commission", async () => {
+  /*
+   * FLIPPED BY A RULING, NOT A DRIFT — decisions §25.9.12, Daniel 2026-09-29.
+   *
+   * This asserted "the rental, taken first" on a rental the HOST signed from the VENUE — #24.1's
+   * own case, where the performer shared the room. §25.7.1 preserved that deliberately and named
+   * this very assertion as *"the only thing standing between a simpler rule and a silent reversal
+   * of an owner decision."* It did its job: the rule was simplified and this went red rather than
+   * the reversal happening quietly.
+   *
+   * #24.1's author has now made the reversal deliberately. Whoever signed the room hire bears it,
+   * so nothing comes off the top, the adjusted net keeps the whole 1 000 000, and the performer's
+   * 50% is of the larger figure.
+   */
+  it("charges the host for the rental it signed, and pays the disclosed commission", async () => {
     const seed = await seedRentalAndCommission("offtop");
 
     const response = await compute(seed.event.id, seed.operator.userId);
@@ -4667,13 +4680,16 @@ describe("settlement — the 2026-08-26 money rules", () => {
         ?.entitlement;
 
     expect(body.pool).toBe("1000000");
-    expect(body.ladder.offTheTop).toBe("200000");
-    expect(body.ladder.adjustedNet).toBe("800000");
-    expect(entitlementOf(seed.venuePart)).toBe("200000"); // the rental, taken first
-    // 50% of the 800 000 left after the rental = 400 000, less the 10% commission.
-    expect(entitlementOf(seed.bandPart)).toBe("360000");
-    expect(entitlementOf(seed.agencyPart)).toBe("40000"); // 10% of the band's line
-    expect(entitlementOf(seed.hostPart)).toBe("400000"); // residual absorbs the difference
+    // Nothing off the top: the rental names who owes it (§25.9.12).
+    expect(body.ladder.offTheTop).toBe("0");
+    expect(body.ladder.adjustedNet).toBe("1000000");
+    expect(entitlementOf(seed.venuePart)).toBe("200000"); // still paid the rental
+    // 50% of the full 1 000 000 = 500 000, less the 10% commission.
+    expect(entitlementOf(seed.bandPart)).toBe("450000");
+    expect(entitlementOf(seed.agencyPart)).toBe("50000"); // 10% of the band's line
+    // The residual is the untouched pool less the deals; the host then carries the rental it
+    // signed, alone — which is the whole of §25.9.12.
+    expect(entitlementOf(seed.hostPart)).toBe("300000");
     const netSum = body.breakdowns.reduce(
       (total: bigint, row: { net: string }) => total + BigInt(row.net),
       0n,
@@ -4693,7 +4709,7 @@ describe("settlement — the 2026-08-26 money rules", () => {
       .where(eq(schema.settlementTransfers.eventId, seed.event.id));
     const toAgency = transfers.find((row) => row.toParticipant === seed.agencyPart);
     expect(toAgency?.fromParticipant).toBe(seed.hostPart);
-    expect(toAgency?.amount).toBe(40000n); // 10% of the band's 400 000 line
+    expect(toAgency?.amount).toBe(50000n); // 10% of the band's 500 000 line
 
     // decisions.md #14 boundary: a DISCLOSED commission is an event deal party and
     // nothing else. No representation-scoped settlement is created by it — that

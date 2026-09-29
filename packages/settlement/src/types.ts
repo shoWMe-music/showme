@@ -240,21 +240,11 @@ export interface SettlementResult {
  * reads in a given language and currency is the UI's job, and a string baked here
  * would be a second money formatter living in a framework-agnostic module.
  */
-export type EntitlementBasis =
+type EntitlementBasisKind =
   /** A fixed amount, whatever the night did. */
   | { kind: "guarantee"; guarantee: bigint }
-  /** A fixed amount for the room — settled OFF THE TOP (`deal-order.ts`). */
-  /**
-   * A rental, and WHO BORE IT (decisions §25.7.1). `borneByPayer` is true when the deal named a
-   * payer, so the amount moved between two named parties and the pool never saw it; false (or
-   * absent) when nothing said who owed it and it came off the top, the way #24.1 describes.
-   *
-   * On the basis rather than left to each screen to work out, because the sentence the party reads
-   * is different in the two cases and one of the two was being printed for both: *"Rental of SEK
-   * 5,000, settled off the top"* appeared on the payer's card, beside a NEGATIVE figure, on a
-   * rental that was not settled off the top at all.
-   */
-  | { kind: "rental"; rental: bigint; borneByPayer?: boolean }
+  /** A fixed amount for the room — settled off the top when nobody is named (`deal-order.ts`). */
+  | { kind: "rental"; rental: bigint }
   /**
    * A share of the ADJUSTED NET (`PoolLadder.adjustedNet`, 2026-09-15). `base` is
    * the figure the percentage was applied to, carried so the party reading the
@@ -272,6 +262,26 @@ export type EntitlementBasis =
     }
   /** A paper-only agreement: signed, recorded, never computed. */
   | { kind: "paper" };
+
+/**
+ * A deal's basis, plus WHO BORE IT.
+ *
+ * `borneByPayer` is true when the deal named a payer who is a party on the event, so the amount
+ * moved between two named parties and the pool never saw it; false (or absent) when nothing said who
+ * owed it and the pool paid.
+ *
+ * ON THE BASIS RATHER THAN LEFT TO EACH SCREEN TO WORK OUT, because the sentence the party reads is
+ * different in the two cases and one of the two was being printed for both: *"Rental of SEK 5,000,
+ * settled off the top"* appeared on the PAYER's card, beside a negative figure, on a rental that was
+ * not settled off the top at all (decisions §25.7.1).
+ *
+ * AND IT IS AN INTERSECTION, NOT A FIELD ON ONE BRANCH (decisions §25.9.6). It sat on `rental`
+ * alone while a rental was the only deal a payer could bear. §25.9.6 makes any deal with a named
+ * payer borne by them, so a `guarantee` or a `door_split` can carry it too — and writing it into
+ * five branches is five places for the next kind to be forgotten in. One declaration, one
+ * serializer line, one schema line.
+ */
+export type EntitlementBasis = EntitlementBasisKind & { borneByPayer?: boolean };
 
 /**
  * One deal's contribution to one party's entitlement.

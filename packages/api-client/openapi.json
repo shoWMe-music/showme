@@ -7894,92 +7894,101 @@
                                   "type": "string"
                                 },
                                 "basis": {
-                                  "anyOf": [
+                                  "allOf": [
                                     {
-                                      "type": "object",
-                                      "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "enum": ["guarantee"]
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": ["guarantee"]
+                                            },
+                                            "guarantee": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": ["kind", "guarantee"],
+                                          "additionalProperties": false
                                         },
-                                        "guarantee": {
-                                          "type": "string"
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": ["rental"]
+                                            },
+                                            "rental": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": ["kind", "rental"],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": ["door_split"]
+                                            },
+                                            "basisPoints": {
+                                              "type": "number"
+                                            },
+                                            "base": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": ["kind", "basisPoints"],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": ["guarantee_vs_door"]
+                                            },
+                                            "won": {
+                                              "type": "string",
+                                              "enum": ["guarantee", "door"]
+                                            },
+                                            "guarantee": {
+                                              "type": "string"
+                                            },
+                                            "door": {
+                                              "type": "string"
+                                            },
+                                            "basisPoints": {
+                                              "type": "number"
+                                            },
+                                            "base": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": ["kind", "won", "guarantee", "basisPoints"],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "enum": ["paper"]
+                                            }
+                                          },
+                                          "required": ["kind"],
+                                          "additionalProperties": false
                                         }
-                                      },
-                                      "required": ["kind", "guarantee"],
-                                      "additionalProperties": false
+                                      ]
                                     },
                                     {
                                       "type": "object",
                                       "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "enum": ["rental"]
-                                        },
-                                        "rental": {
-                                          "type": "string"
-                                        },
                                         "borneByPayer": {
                                           "type": "boolean"
                                         }
-                                      },
-                                      "required": ["kind", "rental"],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "enum": ["door_split"]
-                                        },
-                                        "basisPoints": {
-                                          "type": "number"
-                                        },
-                                        "base": {
-                                          "type": "string"
-                                        }
-                                      },
-                                      "required": ["kind", "basisPoints"],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "enum": ["guarantee_vs_door"]
-                                        },
-                                        "won": {
-                                          "type": "string",
-                                          "enum": ["guarantee", "door"]
-                                        },
-                                        "guarantee": {
-                                          "type": "string"
-                                        },
-                                        "door": {
-                                          "type": "string"
-                                        },
-                                        "basisPoints": {
-                                          "type": "number"
-                                        },
-                                        "base": {
-                                          "type": "string"
-                                        }
-                                      },
-                                      "required": ["kind", "won", "guarantee", "basisPoints"],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "enum": ["paper"]
-                                        }
-                                      },
-                                      "required": ["kind"],
-                                      "additionalProperties": false
+                                      }
                                     }
                                   ]
                                 },
@@ -8690,92 +8699,106 @@
                                       "type": "string"
                                     },
                                     "basis": {
-                                      "anyOf": [
+                                      "allOf": [
                                         {
-                                          "type": "object",
-                                          "properties": {
-                                            "kind": {
-                                              "type": "string",
-                                              "enum": ["guarantee"]
+                                          "anyOf": [
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "kind": {
+                                                  "type": "string",
+                                                  "enum": ["guarantee"]
+                                                },
+                                                "guarantee": {
+                                                  "type": "string"
+                                                }
+                                              },
+                                              "required": ["kind", "guarantee"],
+                                              "additionalProperties": false
                                             },
-                                            "guarantee": {
-                                              "type": "string"
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "kind": {
+                                                  "type": "string",
+                                                  "enum": ["rental"]
+                                                },
+                                                "rental": {
+                                                  "type": "string"
+                                                }
+                                              },
+                                              "required": ["kind", "rental"],
+                                              "additionalProperties": false
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "kind": {
+                                                  "type": "string",
+                                                  "enum": ["door_split"]
+                                                },
+                                                "basisPoints": {
+                                                  "type": "number"
+                                                },
+                                                "base": {
+                                                  "type": "string"
+                                                }
+                                              },
+                                              "required": ["kind", "basisPoints"],
+                                              "additionalProperties": false
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "kind": {
+                                                  "type": "string",
+                                                  "enum": ["guarantee_vs_door"]
+                                                },
+                                                "won": {
+                                                  "type": "string",
+                                                  "enum": ["guarantee", "door"]
+                                                },
+                                                "guarantee": {
+                                                  "type": "string"
+                                                },
+                                                "door": {
+                                                  "type": "string"
+                                                },
+                                                "basisPoints": {
+                                                  "type": "number"
+                                                },
+                                                "base": {
+                                                  "type": "string"
+                                                }
+                                              },
+                                              "required": [
+                                                "kind",
+                                                "won",
+                                                "guarantee",
+                                                "basisPoints"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "kind": {
+                                                  "type": "string",
+                                                  "enum": ["paper"]
+                                                }
+                                              },
+                                              "required": ["kind"],
+                                              "additionalProperties": false
                                             }
-                                          },
-                                          "required": ["kind", "guarantee"],
-                                          "additionalProperties": false
+                                          ]
                                         },
                                         {
                                           "type": "object",
                                           "properties": {
-                                            "kind": {
-                                              "type": "string",
-                                              "enum": ["rental"]
-                                            },
-                                            "rental": {
-                                              "type": "string"
-                                            },
                                             "borneByPayer": {
                                               "type": "boolean"
                                             }
-                                          },
-                                          "required": ["kind", "rental"],
-                                          "additionalProperties": false
-                                        },
-                                        {
-                                          "type": "object",
-                                          "properties": {
-                                            "kind": {
-                                              "type": "string",
-                                              "enum": ["door_split"]
-                                            },
-                                            "basisPoints": {
-                                              "type": "number"
-                                            },
-                                            "base": {
-                                              "type": "string"
-                                            }
-                                          },
-                                          "required": ["kind", "basisPoints"],
-                                          "additionalProperties": false
-                                        },
-                                        {
-                                          "type": "object",
-                                          "properties": {
-                                            "kind": {
-                                              "type": "string",
-                                              "enum": ["guarantee_vs_door"]
-                                            },
-                                            "won": {
-                                              "type": "string",
-                                              "enum": ["guarantee", "door"]
-                                            },
-                                            "guarantee": {
-                                              "type": "string"
-                                            },
-                                            "door": {
-                                              "type": "string"
-                                            },
-                                            "basisPoints": {
-                                              "type": "number"
-                                            },
-                                            "base": {
-                                              "type": "string"
-                                            }
-                                          },
-                                          "required": ["kind", "won", "guarantee", "basisPoints"],
-                                          "additionalProperties": false
-                                        },
-                                        {
-                                          "type": "object",
-                                          "properties": {
-                                            "kind": {
-                                              "type": "string",
-                                              "enum": ["paper"]
-                                            }
-                                          },
-                                          "required": ["kind"],
-                                          "additionalProperties": false
+                                          }
                                         }
                                       ]
                                     },
@@ -9172,92 +9195,101 @@
                                 "type": "string"
                               },
                               "basis": {
-                                "anyOf": [
+                                "allOf": [
                                   {
-                                    "type": "object",
-                                    "properties": {
-                                      "kind": {
-                                        "type": "string",
-                                        "enum": ["guarantee"]
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": {
+                                            "type": "string",
+                                            "enum": ["guarantee"]
+                                          },
+                                          "guarantee": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": ["kind", "guarantee"],
+                                        "additionalProperties": false
                                       },
-                                      "guarantee": {
-                                        "type": "string"
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": {
+                                            "type": "string",
+                                            "enum": ["rental"]
+                                          },
+                                          "rental": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": ["kind", "rental"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": {
+                                            "type": "string",
+                                            "enum": ["door_split"]
+                                          },
+                                          "basisPoints": {
+                                            "type": "number"
+                                          },
+                                          "base": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": ["kind", "basisPoints"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": {
+                                            "type": "string",
+                                            "enum": ["guarantee_vs_door"]
+                                          },
+                                          "won": {
+                                            "type": "string",
+                                            "enum": ["guarantee", "door"]
+                                          },
+                                          "guarantee": {
+                                            "type": "string"
+                                          },
+                                          "door": {
+                                            "type": "string"
+                                          },
+                                          "basisPoints": {
+                                            "type": "number"
+                                          },
+                                          "base": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": ["kind", "won", "guarantee", "basisPoints"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "kind": {
+                                            "type": "string",
+                                            "enum": ["paper"]
+                                          }
+                                        },
+                                        "required": ["kind"],
+                                        "additionalProperties": false
                                       }
-                                    },
-                                    "required": ["kind", "guarantee"],
-                                    "additionalProperties": false
+                                    ]
                                   },
                                   {
                                     "type": "object",
                                     "properties": {
-                                      "kind": {
-                                        "type": "string",
-                                        "enum": ["rental"]
-                                      },
-                                      "rental": {
-                                        "type": "string"
-                                      },
                                       "borneByPayer": {
                                         "type": "boolean"
                                       }
-                                    },
-                                    "required": ["kind", "rental"],
-                                    "additionalProperties": false
-                                  },
-                                  {
-                                    "type": "object",
-                                    "properties": {
-                                      "kind": {
-                                        "type": "string",
-                                        "enum": ["door_split"]
-                                      },
-                                      "basisPoints": {
-                                        "type": "number"
-                                      },
-                                      "base": {
-                                        "type": "string"
-                                      }
-                                    },
-                                    "required": ["kind", "basisPoints"],
-                                    "additionalProperties": false
-                                  },
-                                  {
-                                    "type": "object",
-                                    "properties": {
-                                      "kind": {
-                                        "type": "string",
-                                        "enum": ["guarantee_vs_door"]
-                                      },
-                                      "won": {
-                                        "type": "string",
-                                        "enum": ["guarantee", "door"]
-                                      },
-                                      "guarantee": {
-                                        "type": "string"
-                                      },
-                                      "door": {
-                                        "type": "string"
-                                      },
-                                      "basisPoints": {
-                                        "type": "number"
-                                      },
-                                      "base": {
-                                        "type": "string"
-                                      }
-                                    },
-                                    "required": ["kind", "won", "guarantee", "basisPoints"],
-                                    "additionalProperties": false
-                                  },
-                                  {
-                                    "type": "object",
-                                    "properties": {
-                                      "kind": {
-                                        "type": "string",
-                                        "enum": ["paper"]
-                                      }
-                                    },
-                                    "required": ["kind"],
-                                    "additionalProperties": false
+                                    }
                                   }
                                 ]
                               },

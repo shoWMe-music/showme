@@ -306,15 +306,6 @@ export function EventDetail() {
     .map((party) => party.id)
     .join(",");
   /*
-   * WHO SHARES THE RESIDUAL — the host and every co-host, for the planner's rental question
-   * (decisions §25.7.1, QA sweep run 10 QA10-1). Joined as a string for the same reason
-   * `performerIdsKey` is: a fresh array each render would never let the seed settle.
-   */
-  const operatorIdsKey = roster
-    .filter((party) => party.role === "host" || party.role === "co_host")
-    .map((party) => party.id)
-    .join(",");
-  /*
    * WHOSE BOOK the planner is showing — the acting profile's own rows (QA10-11). Without it, a room
    * hire the reader is OWED arrived as their "Venue cost" and the private book opened at a loss for
    * money coming in.
@@ -625,7 +616,6 @@ export function EventDetail() {
                which is the same answer as "the event lists no tiers". */
             eventTicketTiers={(event.extras?.ticketTiers ?? []) as EventTicketTier[]}
             performerIdsKey={performerIdsKey}
-            operatorIdsKey={operatorIdsKey}
             ownIdsKey={ownIdsKey}
           />
         )}
@@ -908,7 +898,6 @@ function BudgetTab({
   capacity,
   eventTicketTiers,
   performerIdsKey,
-  operatorIdsKey,
   ownIdsKey,
 }: {
   eventId: string;
@@ -920,7 +909,6 @@ function BudgetTab({
   /** Comma-joined participant ids — see `performerIdsKey` above. */
   performerIdsKey: string;
   /** Comma-joined host + co-host participant ids — who shares the residual (§25.7.1). */
-  operatorIdsKey: string;
   /** Comma-joined participant ids of the ACTING profile — whose book this is (QA10-11). */
   ownIdsKey: string;
 }) {
@@ -932,10 +920,9 @@ function BudgetTab({
       capacity,
       ticketTiers: eventTicketTiers,
       performerParticipantIds: performerIdsKey === "" ? [] : performerIdsKey.split(","),
-      operatorParticipantIds: operatorIdsKey === "" ? [] : operatorIdsKey.split(","),
       ownParticipantIds: ownIdsKey === "" ? [] : ownIdsKey.split(","),
     }),
-    [capacity, eventTicketTiers, performerIdsKey, operatorIdsKey, ownIdsKey],
+    [capacity, eventTicketTiers, performerIdsKey, ownIdsKey],
   );
   const seed = useBudgetSeed(eventId, seedSources);
   /**

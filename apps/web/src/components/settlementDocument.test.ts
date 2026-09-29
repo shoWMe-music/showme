@@ -1124,6 +1124,47 @@ describe("describeBasis — a contract figure in a converted card", () => {
     expect(plain(describeBasis(betweenParties, "SEK", () => "≈ €440"))).toContain("(≈ €440)");
   });
 
+  /*
+   * AND EVERY OTHER KIND SAYS IT TOO (decisions §25.9.6).
+   *
+   * `borneByPayer` was askable only of a `rental` while a rental was the only deal a payer could
+   * bear. §25.9.6 makes any deal with a named payer borne by them, so a guarantee, a door split and
+   * a guarantee-vs-door can all carry it — and this is the lock that says the suffix reaches them
+   * rather than just the branch it was written in.
+   *
+   * The pooled forms are asserted beside each borne one, because a suffix appended unconditionally
+   * would pass every assertion above and be wrong on every ordinary deal in the app.
+   */
+  it("says who bore it on a guarantee, a door split and a guarantee-vs-door", () => {
+    const as = (value: object) => value as unknown as Parameters<typeof describeBasis>[0];
+    const borne = (kind: object) =>
+      plain(describeBasis(as({ ...kind, borneByPayer: true }), "SEK"));
+    const pooled = (kind: object) => plain(describeBasis(as(kind), "SEK"));
+
+    const guarantee = { kind: "guarantee", guarantee: "400000" };
+    expect(pooled(guarantee)).toBe("Guaranteed SEK 4,000");
+    expect(borne(guarantee)).toBe("Guaranteed SEK 4,000, settled between its parties");
+
+    const doorSplit = { kind: "door_split", basisPoints: 7000, base: "10500000" };
+    expect(pooled(doorSplit)).toBe("70% of the adjusted net SEK 105,000");
+    expect(borne(doorSplit)).toBe(
+      "70% of the adjusted net SEK 105,000, settled between its parties",
+    );
+
+    const versus = {
+      kind: "guarantee_vs_door",
+      won: "guarantee",
+      guarantee: "1800000",
+      door: "1000000",
+      basisPoints: 7000,
+      base: "10500000",
+    };
+    expect(borne(versus)).toBe(
+      "The SEK 18,000 guarantee beats the 70% door share, settled between its parties",
+    );
+    expect(pooled(versus)).toBe("The SEK 18,000 guarantee beats the 70% door share");
+  });
+
   it("names only the payout currency when nothing is being converted", () => {
     // Every caller on a card in its own currency, which is the ordinary case.
     expect(plain(describeBasis(basis, "SEK"))).toBe(

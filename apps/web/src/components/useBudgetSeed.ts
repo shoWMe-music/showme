@@ -1,5 +1,5 @@
 import { useGetApiV1EventsIdBudgets, useGetApiV1EventsIdDeals } from "@showme/api-client";
-import { rentalComesOffTheTop } from "@showme/settlement";
+import { dealBorneBy } from "@showme/settlement";
 import { type EntitlementBasis, dealEntitlementDetailed } from "@showme/settlement";
 import {
   allocate,
@@ -784,14 +784,6 @@ export interface BudgetSeedSources {
    * below, so the seed settles.
    */
   ownParticipantIds: string[];
-  /**
-   * The host and any co-hosts, by participant id — who shares the residual (§25.7.1).
-   *
-   * Only the rental question needs it, and only a rental with a named payer makes it matter. Comma-
-   * joined upstream for the same reason `performerParticipantIds` is: a fresh array every render
-   * would never let the seed settle.
-   */
-  operatorParticipantIds: string[];
 }
 
 /** One budget row, only as much of one as the forecast below reads. */
@@ -826,15 +818,6 @@ export function doorForecastFrom(
   deals: Deal[],
   sharedLines: BudgetLineForDoor[],
   ticketTiers: EventTicketTier[],
-  /**
-   * The participants who share the event's residual — its host and any co-hosts.
-   *
-   * Needed only to answer whether a rental comes off the top (§25.7.1), and passed in rather than
-   * derived here because this function takes deals and lines, not the roster. An empty set answers
-   * the question the way the engine answers it for an event with no operators on the bill: a rental
-   * with a named payer settles between its parties.
-   */
-  operatorParticipantIds: ReadonlySet<string> = new Set(),
 ): DoorForecast {
   const ticketLines = sharedLines.filter(
     (line) => line.kind === "revenue" && isTicketLine(line.details),
@@ -936,23 +919,23 @@ export function doorForecastFrom(
    * SEK 73,500 — the exact SEK 3,500 §25.7.1's hand-check names as the act's movement, surfacing
    * only after terms had been agreed against the forecast.
    *
-   * `rentalComesOffTheTop` is the engine's own predicate, imported rather than restated. The
-   * comment above this one already promised that *"the Budget Planner moves with the engine, in the
-   * same commit"*; a shared function is the version of that promise that cannot be forgotten.
+   * `dealBorneBy` is the engine's own predicate, imported rather than restated. The comment above
+   * this one already promised that *"the Budget Planner moves with the engine, in the same commit"*;
+   * a shared function is the version of that promise that cannot be forgotten.
+   *
+   * §25.9.12 SIMPLIFIED IT AND WIDENED WHAT IT EXCLUDES. The rule used to ask whether the payer
+   * shared the residual and the payee did not; it now asks only whether anybody was named. So a
+   * venue rental the promoter signed — #24.1's own case — stops being a pool cost here too, which
+   * is the whole point of the two sides sharing one line.
    */
   const rentals = deals
     .filter((deal) => deal.status !== "cancelled" && isRental(deal))
-    .filter((deal) =>
-      rentalComesOffTheTop(
-        {
+    .filter(
+      (deal) =>
+        dealBorneBy({
           payerParticipantId: (deal.parties ?? []).find((party) => party.roleInDeal === "payer")
             ?.participantId,
-          payeeParticipantIds: (deal.parties ?? [])
-            .filter((party) => party.roleInDeal === "payee")
-            .map((party) => party.participantId),
-        },
-        operatorParticipantIds,
-      ),
+        }) === null,
     )
     .reduce((total, deal) => total + BigInt(deal.guaranteeAmount ?? 0), 0n);
   /*
@@ -1024,12 +1007,7 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
      */
     const sharedLines =
       (budgetsQuery.data ?? []).find((budget) => budget.scope === "shared")?.lines ?? [];
-    const door = doorForecastFrom(
-      deals,
-      sharedLines,
-      sources.ticketTiers,
-      new Set(sources.operatorParticipantIds),
-    );
+    const door = doorForecastFrom(deals, sharedLines, sources.ticketTiers);
 
     return {
       capacity: sources.capacity,

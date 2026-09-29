@@ -509,13 +509,18 @@ describe("the door forecast", () => {
    *
    * The numbers below are the split BASE rather than the fee, which is what this function returns;
    * `packages/settlement/src/reconcile.test.ts` holds the other end of the same night, and the two
-   * now call one predicate (`rentalComesOffTheTop`) so they cannot drift again.
+   * now call one predicate (`dealBorneBy`) so they cannot drift again.
+   *
+   * §25.9.12 SIMPLIFIED THE RULE AND THIS SUITE WITH IT. It used to ask whether the payer shared the
+   * residual and the payee did not, which is why every case below passed a roster of operators. The
+   * question is now only *"did anybody say who owes this?"*, so the roster is gone from the
+   * signature — and with it a prop chain that ran from `EventDetail` through the seed's sources to
+   * here, existing for no other reason.
    */
-  describe("whose rental the pool actually pays (§25.7.1)", () => {
+  describe("whose rental the pool actually pays (§25.7.1, §25.9.12)", () => {
     const HOST = "part-host";
     const CO_HOST = "part-co";
     const VENUE = "part-venue";
-    const operators = new Set([HOST, CO_HOST]);
     const sheet: BudgetLineForDoor[] = [
       { kind: "revenue", amount: "12000000", details: { unitPrice: 400, quantity: 300 } },
       { kind: "cost", amount: "1500000" },
@@ -532,17 +537,20 @@ describe("the door forecast", () => {
       ],
     });
 
-    it("leaves the base alone when a co-operator owes it — a transfer, not a cost of the night", () => {
-      const door = doorForecastFrom([roomHire(CO_HOST, HOST)], sheet, [], operators);
-      // 120 000 − 15 000, and NOT less the room: the act is not a party to that agreement.
+    it("leaves the base alone when a co-host owes it — a transfer, not a cost of the event", () => {
+      const door = doorForecastFrom([roomHire(CO_HOST, HOST)], sheet, []);
+      // 120 000 − 15 000, and NOT less the room: the performer is not a party to that agreement.
       expect(door.splitBase).toBe(10_500_000n);
     });
 
-    it("still takes a VENUE rental off the top, which is #24.1's own case", () => {
-      // The payee is outside the pool, so the show is paying for its room and everyone dividing
-      // the night shares it. The boundary, and the reason the predicate tests both ends.
-      const door = doorForecastFrom([roomHire(HOST, VENUE)], sheet, [], operators);
-      expect(door.splitBase).toBe(10_000_000n);
+    /*
+     * FLIPPED BY A RULING, NOT A DRIFT — §25.9.12, and the engine's own test flipped with it.
+     * This used to assert 10 000 000, because #24.1 said the performer shares a venue rental the
+     * promoter signed. #24.1's author overruled that: whoever signed the room hire bears it.
+     */
+    it("leaves the base alone for a VENUE rental the host signed too (§25.9.12)", () => {
+      const door = doorForecastFrom([roomHire(HOST, VENUE)], sheet, []);
+      expect(door.splitBase).toBe(10_500_000n);
     });
 
     it("takes a rental that names nobody off the top", () => {
@@ -553,13 +561,11 @@ describe("the door forecast", () => {
         status: "confirmed",
         guaranteeAmount: "500000",
       };
-      expect(doorForecastFrom([noPayer], sheet, [], operators).splitBase).toBe(10_000_000n);
+      expect(doorForecastFrom([noPayer], sheet, []).splitBase).toBe(10_000_000n);
     });
 
-    it("charges the act's own four-wall room hire to the act, not to the base", () => {
-      // Payer outside the pool, payee inside it. The shape a surviving mutation found on the
-      // engine side; the same answer has to come out here.
-      const door = doorForecastFrom([roomHire("part-act", HOST)], sheet, [], operators);
+    it("charges the performer's own four-wall room hire to them, not to the base", () => {
+      const door = doorForecastFrom([roomHire("part-act", HOST)], sheet, []);
       expect(door.splitBase).toBe(10_500_000n);
     });
   });

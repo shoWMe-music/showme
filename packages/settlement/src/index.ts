@@ -6,7 +6,7 @@ export {
   type DealEntitlement,
 } from "./entitlement";
 export { costBearingOf, type CostBearing } from "./cost-bearing";
-export { isOffTheTop, rentalComesOffTheTop } from "./deal-order";
+export { dealBorneBy, isOffTheTop } from "./deal-order";
 export { prepaidAmountOf, prepaidUnknowable, type PrepaidTerms } from "./prepaid";
 export {
   applyCommissions,

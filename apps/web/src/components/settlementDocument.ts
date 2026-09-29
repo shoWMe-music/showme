@@ -730,24 +730,35 @@ export function describeBasis(
     const shown = convert(minorUnits);
     return shown === own ? own : `${own} (${shown})`;
   };
+  /*
+   * WHO BORE IT IS A SUFFIX, NOT A BRANCH PER KIND (decisions §25.9.6).
+   *
+   * `borneByPayer` means the deal named who owes it, so the amount moved between two named parties
+   * and never touched the pool. It used to be askable only of a RENTAL, and the rental case carried
+   * its own pair of sentences — but §25.9.6 makes ANY deal with a named payer borne by them, so a
+   * guarantee and a door split need the same distinction, and writing it into four branches is four
+   * chances to print the wrong one.
+   *
+   * It reads correctly from BOTH ends, which is the reason it is phrased about the arrangement
+   * rather than about the reader: the payee sees "Guaranteed SEK 4,000, settled between its
+   * parties" over a positive figure and the payer sees the same words over a negative one. The
+   * sentence it replaced asserted the pool case for both, and on the payer's card it appeared
+   * beside a negative figure — "settled off the top" over money the party was paying.
+   *
+   * It names no counterparty, which is a real loss and a deliberate one: this function has the
+   * basis and the currency, not the roster, and inventing a lookup here would put a second opinion
+   * about who the parties are next to the serializer's.
+   */
+  const borne = (sentence: string) =>
+    basis.borneByPayer ? `${sentence}, settled between its parties` : sentence;
   switch (basis.kind) {
     case "guarantee":
-      return `Guaranteed ${contract(basis.guarantee)}`;
+      return borne(`Guaranteed ${contract(basis.guarantee)}`);
     case "rental":
-      /*
-       * TWO SENTENCES, because there are now two ways a rental settles (decisions §25.7.1).
-       *
-       * `borneByPayer` — the deal named who owes it, so the amount moved between two named parties
-       * and never touched the pool. The old sentence asserted the other case for both, and on the
-       * PAYER's card it appeared beside a negative figure: "settled off the top" over money the
-       * party was paying, on a night whose adjusted net the rental had not touched.
-       *
-       * Neither sentence names the counterparty, which is a real loss and a deliberate one: this
-       * function has the basis and the currency, not the roster, and inventing a lookup for it here
-       * would put a second opinion about who the parties are next to the serializer's.
-       */
+      // A rental nobody was named on is the one case with a sentence of its own: it came off the
+      // top, which is a fact about the waterfall that no other kind can state.
       return basis.borneByPayer
-        ? `Rental of ${contract(basis.rental)}, settled between its parties`
+        ? borne(`Rental of ${contract(basis.rental)}`)
         : `Rental of ${contract(basis.rental)}, settled off the top`;
     case "door_split":
       // The base is redacted for a party who may not read the event's takings
@@ -759,17 +770,21 @@ export function describeBasis(
       // 2026-09-13 and 2026-09-15 this read "of the door" and was true; saying it
       // now would tell a party that no cost had come off the figure they are
       // being paid a share of, when every cost has.
-      return basis.base == null
-        ? `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net`
-        : `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net ${contract(basis.base)}`;
+      return borne(
+        basis.base == null
+          ? `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net`
+          : `${basisPointsToPercent(basis.basisPoints)}% of the adjusted net ${contract(basis.base)}`,
+      );
     case "guarantee_vs_door":
       // "the door share" NAMES THE ARM of the deal, which is the design's own
       // phrasing ("70% door beats €50,000 gtee") and the industry's. It is not a
       // claim about the base — that is the adjusted net, and the `door_split`
       // sentence above says so where the figure itself is being described.
-      return basis.won === "door"
-        ? `The ${basisPointsToPercent(basis.basisPoints)}% door share beats the ${contract(basis.guarantee)} guarantee`
-        : `The ${contract(basis.guarantee)} guarantee beats the ${basisPointsToPercent(basis.basisPoints)}% door share`;
+      return borne(
+        basis.won === "door"
+          ? `The ${basisPointsToPercent(basis.basisPoints)}% door share beats the ${contract(basis.guarantee)} guarantee`
+          : `The ${contract(basis.guarantee)} guarantee beats the ${basisPointsToPercent(basis.basisPoints)}% door share`,
+      );
     default:
       return "A paper agreement: nothing for the settlement to compute";
   }
