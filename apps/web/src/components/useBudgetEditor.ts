@@ -279,6 +279,13 @@ export interface CostDraft {
     /** At least one of those deals is still an offer — see `BudgetSeedDealFigure`. */
     pending: boolean;
     /**
+     * At least one of them has a SIGNATURE on it, so its figures cannot be edited on the deal
+     * either — a different boundary from `pending`, and the one the note under the row needs
+     * (QA sweep run 11). "Some" rather than "every": if any of the deals behind this row is
+     * sealed, "change it there" is not advice that works.
+     */
+    sealed: boolean;
+    /**
      * One entry per deal behind this row, for the readers that need the RULE and not
      * the total: break-even has to re-derive a share of the door at the attendance it
      * is solving for. Per deal rather than combined, because each carries its own
@@ -1004,6 +1011,7 @@ export function useBudgetEditor(
           readFromDeal: {
             dealNames: feesToRead.map((fee) => fee.dealName),
             pending: feesToRead.some((fee) => fee.pending),
+            sealed: feesToRead.some((fee) => fee.sealed),
             scaling: feesToRead
               .filter((fee) => fee.scalesWithDoor != null)
               .map((fee) => ({

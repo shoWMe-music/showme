@@ -669,3 +669,70 @@ describe("stillMovingBecause", () => {
     expect(stillMovingBecause(deal([]))).toContain("Nobody has confirmed");
   });
 });
+
+/**
+ * WHICH DOOR THE NOTE SENDS THE READER TO (QA sweep run 11, QA11-17).
+ *
+ * The planner's derived-fee row said *"the settlement takes this figure from the deal — change it
+ * there"* on a confirmed agreement, and the API answers 409: `movedSignedTerms` refuses, naming
+ * reopen. The note branched on `pending` — `deal.status !== "confirmed"` — and the figures seal at
+ * the FIRST SIGNATURE (`657cb70`), which is a different boundary. So the OTHER branch was wrong
+ * too: an offer nobody had confirmed, with one party signed, was told "change the terms and this
+ * moves with it".
+ */
+describe("the planner knows when a fee is sealed", () => {
+  const signedAt = "2026-09-28T23:57:56.361Z";
+
+  it("is not sealed while nobody has signed — the case editing a sent deal exists for", () => {
+    const fee = performerFeeOf(
+      dealWith({
+        status: "draft",
+        agreementStatus: "sent",
+        guaranteeAmount: "500000",
+        parties: [
+          { participantId: "PERF", roleInDeal: "payee" },
+          { participantId: "OP", roleInDeal: "payer" },
+        ],
+      }),
+      ON_THE_BILL,
+      DOOR,
+    );
+    expect(fee?.sealed).toBe(false);
+    expect(fee?.pending).toBe(true);
+  });
+
+  it("is SEALED on one signature, while the deal is still an offer", () => {
+    // The case `pending` cannot see, and the reason this is a separate flag rather than a
+    // rename: both are true at once and they mean different things.
+    const fee = performerFeeOf(
+      dealWith({
+        status: "draft",
+        agreementStatus: "sent",
+        guaranteeAmount: "500000",
+        parties: [
+          { participantId: "PERF", roleInDeal: "payee", confirmedAt: signedAt },
+          { participantId: "OP", roleInDeal: "payer" },
+        ],
+      }),
+      ON_THE_BILL,
+      DOOR,
+    );
+    expect(fee?.sealed).toBe(true);
+    expect(fee?.pending).toBe(true);
+  });
+
+  it("is sealed on a confirmed agreement — the sweep's own row", () => {
+    const fee = performerFeeOf(
+      dealWith({
+        status: "confirmed",
+        agreementStatus: "confirmed",
+        guaranteeAmount: "500000",
+        parties: [{ participantId: "PERF", roleInDeal: "payee", confirmedAt: signedAt }],
+      }),
+      ON_THE_BILL,
+      DOOR,
+    );
+    expect(fee?.sealed).toBe(true);
+    expect(fee?.pending).toBe(false);
+  });
+});

@@ -72,6 +72,12 @@ export interface CostRow {
     dealNames: string[];
     /** Nobody has signed it yet, so the note says so rather than implying signature. */
     pending?: boolean;
+    /**
+     * Somebody HAS signed it, so the figure cannot be edited on the deal either — a different
+     * boundary from `pending`, and the one that decides which door the note sends a reader to
+     * (QA sweep run 11).
+     */
+    sealed?: boolean;
   };
   /**
    * Set on a DERIVED row — a deduction stated as a share of another row rather
@@ -958,6 +964,7 @@ export function BudgetPlanner({
                   <ReadFromDealNote
                     dealNames={cost.readFromDeal.dealNames}
                     pending={cost.readFromDeal.pending}
+                    sealed={cost.readFromDeal.sealed}
                   />
                 ) : (
                   <>
@@ -1716,7 +1723,11 @@ function formatBasisPoints(basisPoints: number): string {
  * settlement takes this figure from the deal" — true, and read on a draft —
  * would say the night is already spoken for.
  */
-function ReadFromDealNote({ dealNames, pending }: { dealNames: string[]; pending?: boolean }) {
+function ReadFromDealNote({
+  dealNames,
+  pending,
+  sealed,
+}: { dealNames: string[]; pending?: boolean; sealed?: boolean }) {
   const quoted = dealNames.map((name) => `“${name}”`);
   const named =
     quoted.length > 1
@@ -1734,7 +1745,27 @@ function ReadFromDealNote({ dealNames, pending }: { dealNames: string[]; pending
       }}
     >
       <Icon name="link" size={12} />
-      {pending ? (
+      {/*
+        SEALED, NOT `pending` — which door is open is the question this sentence answers, and
+        the two boundaries are different (QA sweep run 11). `pending` is `deal.status !==
+        "confirmed"`; the FIGURES seal at the first signature (`657cb70`). So an offer nobody
+        has confirmed could already be unchangeable, and this note told its reader to "change
+        the terms and this moves with it" while the API answered 409.
+
+        The sealed sentence names the door that IS open, and what it costs — a note saying only
+        "reopen it" would send somebody to a control whose consequence they learn from a modal.
+      */}
+      {sealed ? (
+        <span>
+          Read from {dealNames.length > 1 ? "the deals" : "the deal"} {named}. Nothing is stored on
+          the budget, so the settlement takes{" "}
+          {dealNames.length > 1 ? "these figures" : "this figure"} from the{" "}
+          {dealNames.length > 1 ? "deals" : "deal"} — and{" "}
+          {dealNames.length > 1 ? "they are" : "it is"} signed, so changing{" "}
+          {dealNames.length > 1 ? "them" : "it"} means reopening the agreement for renegotiation,
+          which clears every signature on it.
+        </span>
+      ) : pending ? (
         <span>
           Read from {dealNames.length > 1 ? "the deals" : "the deal"} {named} — still an offer,
           nobody has confirmed it. Nothing is stored on the budget: change the terms and this moves

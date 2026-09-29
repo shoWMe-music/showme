@@ -1,7 +1,12 @@
 import { useGetApiV1EventsIdBudgets, useGetApiV1EventsIdDeals } from "@showme/api-client";
 import { rentalComesOffTheTop } from "@showme/settlement";
 import { type EntitlementBasis, dealEntitlementDetailed } from "@showme/settlement";
-import { allocate, basisPointsToPercent, isTicketRevenueBasis } from "@showme/shared";
+import {
+  allocate,
+  basisPointsToPercent,
+  isTicketRevenueBasis,
+  termsAreSealed,
+} from "@showme/shared";
 import { useMemo } from "react";
 
 /**
@@ -118,6 +123,16 @@ export interface BudgetSeedDealFigure {
    * exists to keep off a money screen.
    */
   pending: boolean;
+  /**
+   * THE FIGURES ARE SEALED — somebody has signed, so this number cannot be edited on the deal
+   * either (QA sweep run 11, and `657cb70` is what made it true).
+   *
+   * A different boundary from `pending`, which is `deal.status !== "confirmed"`. The terms seal
+   * at the FIRST signature, so a deal that is still an offer can already be sealed — and the
+   * note under the row told that reader to "change the terms and this moves with it" while the
+   * API answered 409.
+   */
+  sealed: boolean;
 }
 
 export interface BudgetSeed {
@@ -209,6 +224,12 @@ export interface Deal {
   structure?: string | null;
   /** `draft` | `confirmed` | `cancelled`. Only a confirmed deal is read in. */
   status?: string;
+  /**
+   * `draft` | `sent` | `confirmed` | `signed` — the AGREEMENT's state, which is not the deal's.
+   * Needed for `termsAreSealed`, because a `sent` agreement with one signature already has
+   * figures nobody can change.
+   */
+  agreementStatus?: string | null;
   guaranteeAmount?: string | null;
   /** The deal's share, basis points — 10000 = the whole of what it divides. */
   splitBasisPoints?: number | null;
@@ -364,6 +385,15 @@ export function performerFeeOf(
 ): BudgetSeedDealFigure | null {
   if (deal.status === "cancelled" || isRental(deal)) return null;
   const pending = deal.status !== "confirmed";
+  /*
+   * A DIFFERENT QUESTION FROM `pending`, and the note under the row needs this one: the terms
+   * seal at the FIRST signature (`657cb70`), not when the deal reaches `confirmed`. The parties
+   * are already to hand — `signedCountOf` counts the same `confirmedAt`s two screens along.
+   */
+  const sealed = termsAreSealed(
+    { agreementStatus: deal.agreementStatus ?? "" },
+    deal.parties ?? [],
+  );
 
   const entitled = (deal.parties ?? []).filter((party) =>
     ENTITLED_DEAL_ROLES.has(party.roleInDeal),
@@ -410,6 +440,7 @@ export function performerFeeOf(
           dealName: derivedLabel(deal, settled.basis),
           amount: settled.amount.toString(),
           pending,
+          sealed,
           // Derived from the door, so break-even must be able to re-derive it.
           scalesWithDoor: {
             ...(deal.splitBasisPoints != null ? { splitBasisPoints: deal.splitBasisPoints } : {}),
@@ -433,11 +464,12 @@ export function performerFeeOf(
       dealName: sourceLabel(deal, stated),
       amount: amount.toString(),
       pending,
+      sealed,
     };
   }
 
   if (deal.guaranteeAmount != null && onTheBill.length === entitled.length) {
-    return { dealId: deal.id, dealName: deal.name, amount: deal.guaranteeAmount, pending };
+    return { dealId: deal.id, dealName: deal.name, amount: deal.guaranteeAmount, pending, sealed };
   }
   return null;
 }

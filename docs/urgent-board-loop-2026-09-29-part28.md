@@ -73,3 +73,60 @@ Noticed in passing on the same screen, and correct: a losing night floors both p
 `SEK 0` against a −SEK 80,000 adjusted net, and part 25's residual caption reads
 *"The Lantern Hall's 25% of what is left after every other party is paid −SEK 20,000"* beside
 *"Your 75% … −SEK 60,000"* — the possessive, the share and the sign all right in one line.
+
+---
+
+## 2. QA11-17 — "change it there", pointing at a door this loop shut
+
+**Which files settle it:** `apps/web/src/components/useBudgetSeed.ts` (the fact) and
+`BudgetPlanner.tsx`'s `ReadFromDealNote` (the sentence).
+
+**What was measured.** On any confirmed deal, the planner's derived fee row reads:
+
+> *"Read from the deal 'Marlo Vance · the guarantee beats the 70% door share'. Nothing is stored on
+> the budget, so the settlement takes this figure from the deal — **change it there**."*
+
+The API refuses precisely that: `movedSignedTerms` → 409 *"These terms are frozen … Reopen it for
+renegotiation first"*. The screen sends the operator to a door that is shut.
+
+**The verdict: true when written, and this loop is what falsified it — TWICE OVER.** The unsigned
+branch of the same note is now wrong for a second reason the sweep could not have seen, because
+QA11-1 landed after it ran:
+
+- The note branches on `pending`, which is `deal.status !== "confirmed"`.
+- The figures seal at the **first signature** (`termsAreSealed`, `657cb70`), which is a different
+  boundary entirely.
+
+So a deal that is still an offer with one party signed reads *"still an offer, nobody has confirmed
+it. Nothing is stored on the budget: change the terms and this moves with it"* — and the API answers
+409. **Both branches, one axis wrong.**
+
+**The scope.** The note branches on **sealed** rather than on the deal's status, using the same
+`termsAreSealed` the route and the Deals tab ask; `useBudgetSeed` already has each deal's parties
+and their `confirmedAt` (it counts them for the "2 of 3 signed" line), so the fact costs nothing to
+carry. Sealed gets a sentence that names the door that IS open — reopening, and what reopening
+costs.
+
+**The decision it hides: does the planner tell an operator that reopening tears up signatures?**
+Yes. The Deals tab's own dialog says it, and a note that said only "reopen it" would send somebody
+to a control whose consequence they learn from a modal. One clause, and it is the clause that makes
+the advice actionable rather than a redirect.
+
+### What landed
+
+The note branches on **sealed** now, and reads live as `operator@` on the seeded confirmed deal:
+
+> *"Read from the deal “Album Release — Door Split · 100% of the adjusted net”. Nothing is stored on
+> the budget, so the settlement takes this figure from the deal — **and it is signed, so changing it
+> means reopening the agreement for renegotiation, which clears every signature on it.**"*
+
+`useBudgetSeed` carries `sealed` beside `pending` rather than replacing it, because **both are true
+at once on the case that exposed this** — an offer nobody has confirmed, with one party signed — and
+they mean different things. Three tests, one per state, and two mutations killed: nothing ever
+sealed, and the signatures ignored in favour of the status alone.
+
+**This is the fifth "a fix carries its own next defect" of the stretch, and the first where the
+earlier fix was mine and the later defect was invisible until a sweep read the screen.** `657cb70`
+moved the sealing boundary from "confirmed" to "first signature" and correctly updated the two
+gates; it did not occur to me that a planner NOTE two screens away encoded the old boundary in
+prose. A predicate has callers you can grep for. A sentence does not.
