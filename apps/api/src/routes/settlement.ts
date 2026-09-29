@@ -2688,6 +2688,29 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
               .update(schema.settlements)
               .set({ status: "comments_received", updatedAt: new Date() })
               .where(eq(schema.settlements.id, row.id));
+            /*
+             * THE STATUS MOVE IS ITS OWN NEWS, per settlement (QA sweep run 15's MAJOR).
+             *
+             * This loop moves EVERY party sitting at `pending_review`, not only the commenter's —
+             * so without this row a party's progress rail stands at "Comments received" while the
+             * only evidence of it is a remark that party is not shown. Their own settlement's
+             * status moved and that is theirs to know; the remark itself stays with the thread,
+             * below.
+             *
+             * Written per settlement for the same reason the status route's rows are: `settlement`
+             * is a party-scoped kind, so an id that is not a settlement reaches nobody.
+             */
+            await writeActivity(tx, request, {
+              eventId: id,
+              type: "settlement.comments_received",
+              targetKind: "settlement",
+              targetId: row.id,
+              summary: {
+                participantId: row.participantId,
+                from: row.status,
+                to: "comments_received",
+              },
+            });
           }
         }
         await writeAudit(tx, request, {
@@ -2701,11 +2724,26 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         // The MESSAGE never travels into the feed — a remark is addressed to the
         // parties in the thread, and the timeline reaches a wider room than that.
         // That somebody commented is the fact worth recording.
+        /*
+         * WHOSE REMARK IT IS decides who may read that it happened (QA sweep run 15's MAJOR).
+         *
+         * `targetId` was the COMMENT's id under a party-scoped kind, which is in no viewer's
+         * settlement ids, so the row reached no party at all. The subject is the same one
+         * `GET /settlement/comments` already uses to decide who sees the remark: a party's comment
+         * belongs to that party, and a party-less one is the operator speaking for the event —
+         * "addressed to everyone it is being reviewed by". So the row goes where the remark goes,
+         * and discloses nothing beyond it: the feed carries only THAT somebody commented, never
+         * the message.
+         */
+        const authorSettlementId = asParty
+          ? (partyRows.find((row) => row.participantId === asParty)?.id ?? null)
+          : null;
         await writeActivity(tx, request, {
           eventId: id,
           type: "settlement.commented",
-          targetKind: "settlement",
-          targetId: comment.id,
+          ...(authorSettlementId
+            ? { targetKind: "settlement" as const, targetId: authorSettlementId }
+            : { targetKind: "event" as const, targetId: id }),
           summary: comment.section ? { section: comment.section } : {},
         });
         return comment;
@@ -2940,18 +2978,54 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             before: { status: row.status, fullAccess: row.fullAccess },
             after: { status, fullAccess: fullAccess ?? row.fullAccess },
           });
+          /*
+           * ONE TIMELINE ROW PER SETTLEMENT, TARGETING THE SETTLEMENT (QA sweep run 15's MAJOR).
+           *
+           * This used to be a single row after the loop, `targetKind: "settlement"` with the EVENT
+           * id in `targetId` — and `lib/activity.ts` states the rule the read side enforces:
+           * `settlement` is PARTY-SCOPED, "only the parties to that row — resolved by joining the
+           * viewer's participants to the target". An event id is in no viewer's settlement ids, so
+           * the clause was unsatisfiable and every non-operator saw none of these rows. Measured on
+           * the seeded Album Release: four stages happened and `performer.a`, `performer.b`, `agent`
+           * and `professional` were each served exactly one of them, so the progress rail showed
+           * three unvisited stops under an active Finalized — with the comment they could not see
+           * dated the same day, six inches to its left. Operators were unaffected, because
+           * `activity.ts` lets an operator bypass the kind filter, which is why a browser check in
+           * that one seat passed.
+           *
+           * The correct shape was one line up all along: the audit row beside this writes
+           * `targetId: row.id`.
+           *
+           * The comment this replaces argued for one row because "a timeline that repeated it per
+           * participant would read as three things happening instead of one". Its own neighbour
+           * falsifies it — `settlement.confirmed` writes one row per signature and the seeded event
+           * carries six, rendered as six lines, filed by nobody — and the concern is only ever true
+           * of the OPERATOR's timeline, since the feed is party-scoped and each party sees their own
+           * row exactly once. `from`/`to` travel so those rows are distinguishable by their own
+           * transition, which is more than the single row ever said.
+           *
+           * ONLY ON A REAL STATUS MOVE. A pure grant change keeps its audit row above and gets no
+           * timeline row: #24's "who opened the books, and when" is an audit question, and the
+           * comment on that row says so.
+           */
+          if (after && row.status !== status) {
+            await writeActivity(tx, request, {
+              eventId: id,
+              type: `settlement.${status}`,
+              targetKind: "settlement",
+              targetId: row.id,
+              // No figures — the status is not money. `participantId` is ignored by the detail
+              // renderer's whitelist rather than printed as a raw id, and is here so the row's
+              // subject is recoverable.
+              summary: {
+                participantId: row.participantId,
+                from: row.status,
+                to: status,
+                ...(note ? { note } : {}),
+              },
+            });
+          }
         }
-        // ONE activity row for the event, not one per party. The status is a fact
-        // about the settlement as a whole, and a timeline that repeated it per
-        // participant would read as three things happening instead of one. No
-        // figures travel in the summary — the status is not money.
-        await writeActivity(tx, request, {
-          eventId: id,
-          type: `settlement.${status}`,
-          targetKind: "settlement",
-          targetId: id,
-          summary: note ? { note } : {},
-        });
         return count;
       });
 

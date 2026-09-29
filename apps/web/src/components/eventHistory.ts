@@ -70,6 +70,23 @@ const ACTIVITY_TITLE: Record<string, string> = {
   "settlement.overridden": "Settlement corrected by the operator",
   "settlement.confirmed": "Settlement signed off",
   "settlement.finalized": "Settlement finalized — figures locked",
+  /*
+   * THE FIVE STAGE ROWS A PARTY COULD NOT SEE UNTIL RUN 15.
+   *
+   * All five fell through `humanize` — the API's identifier with a capital letter on it
+   * ("Settlement pending review", "Settlement commented") — and nobody noticed because
+   * `target_kind: "settlement"` carried an id no party could match, so these rows reached operators
+   * only. Now that a performer reads them, they get the reader's word for what happened, which is
+   * run 13's lesson one line down.
+   *
+   * Each says what it means FOR THE READER: their figures went out, came back commented, were
+   * re-issued, or are being disputed — never "the status moved to X".
+   */
+  "settlement.pending_review": "Figures sent out for review",
+  "settlement.comments_received": "Comments came back on these figures",
+  "settlement.revised": "Figures re-issued after review",
+  "settlement.dispute": "These figures were disputed",
+  "settlement.commented": "A remark was added to the review",
   "transfer.state_changed": "Payment status changed",
   "share.created": "External share link created",
   "share.revoked": "External share link revoked",

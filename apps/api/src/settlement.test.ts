@@ -9,6 +9,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
 import { ensureSettlementLines } from "./lib/settlement-lines";
+import { activityRoutes } from "./routes/activity";
 import { dealRoutes } from "./routes/deals";
 import { settlementRoutes } from "./routes/settlement";
 import { buildTestApp, signEveryAgreement } from "./testing";
@@ -30,9 +31,14 @@ beforeAll(async () => {
   // is what moves `deals.status`, and the engine is what reads it. Asserting they
   // agree is the whole point of "deal status at the engine boundary" below, and a
   // hand-set column would only prove the fixture agrees with itself.
+  // `activityRoutes` rides along for the same reason `dealRoutes` does: the question "can the party
+  // whose settlement moved actually READ that it moved" is answered by the feed's own scoping, and a
+  // test that only inspected `activity_log` would have passed over run 15's MAJOR — the rows were
+  // being written, with an id no party could match.
   app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [
     settlementRoutes,
     dealRoutes,
+    activityRoutes,
   ]);
   await app.ready();
 });
@@ -193,6 +199,246 @@ async function seedWorkedExample(prefix: string) {
 
   return { event, operator, venue, band, pPart, vPart, bPart };
 }
+
+/**
+ * CAN THE PARTY WHOSE SETTLEMENT MOVED READ THAT IT MOVED — QA sweep run 15's MAJOR.
+ *
+ * `lib/activity.ts` states the rule: `settlement` is a PARTY-SCOPED kind, visible to "only the
+ * parties to that row — resolved by joining the viewer's participants to the target". The status
+ * route wrote one row for the whole event with the EVENT id in `target_id`, and the comment route
+ * wrote the COMMENT's id — neither is in any viewer's settlement ids, so the clause was
+ * unsatisfiable and every non-operator was served none of these rows. The progress rail, which had
+ * just been put on this feed, then showed a performer three unvisited stops under an active
+ * Finalized.
+ *
+ * Driven through `GET /activity` and not by reading `activity_log`, because the rows WERE being
+ * written all along: a test that inspected the table would have passed over the whole defect. What
+ * broke was who could reach them.
+ */
+describe("settlement — the stage rows reach the party whose settlement moved", () => {
+  const feedFor = (uid: string, eventId: string) =>
+    app.inject({
+      method: "GET",
+      // The Revision history panel's own query.
+      url: `/api/v1/activity?eventId=${eventId}&typePrefix=${encodeURIComponent("settlement.,transfer.")}`,
+      headers: auth(uid),
+    });
+
+  async function typesFor(uid: string, eventId: string) {
+    const response = await feedFor(uid, eventId);
+    expect(response.statusCode).toBe(200);
+    return (response.json().items as { type: string }[]).map((item) => item.type).sort();
+  }
+
+  const setStatus = (eventId: string, uid: string, body: Record<string, unknown>) =>
+    app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/settlement/status`,
+      headers: auth(uid),
+      payload: body,
+    });
+
+  async function computed(prefix: string) {
+    const seed = await seedWorkedExample(prefix);
+    await signEveryAgreement(harness.db, seed.event.id);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+    return seed;
+  }
+
+  it("serves a sent-for-review row to every party, not only to the operator", async () => {
+    const seed = await computed("stagefeed");
+    expect(await typesFor(seed.band.userId, seed.event.id)).toEqual([]);
+
+    expect(
+      (await setStatus(seed.event.id, seed.operator.userId, { status: "pending_review" }))
+        .statusCode,
+    ).toBe(200);
+
+    // The half that was broken: the BAND can see its own settlement went out for review.
+    expect(await typesFor(seed.band.userId, seed.event.id)).toEqual(["settlement.pending_review"]);
+    expect(await typesFor(seed.venue.userId, seed.event.id)).toEqual(["settlement.pending_review"]);
+    // And the operator still sees one per settlement it moved — three here, which is what
+    // `settlement.confirmed` has always done and what makes the rows party-scopable at all.
+    const operatorTypes = await typesFor(seed.operator.userId, seed.event.id);
+    expect(operatorTypes.filter((type) => type === "settlement.pending_review")).toHaveLength(3);
+
+    // Each row carries its own transition, so the operator's three are not three identical lines.
+    const rows = (await feedFor(seed.operator.userId, seed.event.id)).json().items as {
+      type: string;
+      summary: { from?: string; to?: string; participantId?: string };
+    }[];
+    for (const row of rows) {
+      expect(row.summary.from).toBe("open");
+      expect(row.summary.to).toBe("pending_review");
+      expect(row.summary.participantId).toBeTruthy();
+    }
+  });
+
+  /*
+   * THE ID IS A SETTLEMENT ID, asserted directly as well — the read above can only fail once, and
+   * this says WHICH id was wrong when it does. Both halves: it is a settlement of this event, and it
+   * is not the event id that used to sit there.
+   */
+  it("targets the settlement itself, never the event", async () => {
+    const seed = await computed("stagetarget");
+    expect(
+      (await setStatus(seed.event.id, seed.operator.userId, { status: "pending_review" }))
+        .statusCode,
+    ).toBe(200);
+
+    const settlements = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    const settlementIds = new Set(settlements.map((row) => row.id));
+
+    const rows = await harness.db
+      .select()
+      .from(schema.activityLog)
+      .where(
+        and(
+          eq(schema.activityLog.eventId, seed.event.id),
+          eq(schema.activityLog.type, "settlement.pending_review"),
+        ),
+      );
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.targetKind).toBe("settlement");
+      expect(settlementIds.has(row.targetId ?? "")).toBe(true);
+      expect(row.targetId).not.toBe(seed.event.id);
+    }
+  });
+
+  /*
+   * A SEND TO ONE PARTY REACHES ONE PARTY. The single event-level row told everybody — or rather
+   * would have, had it been readable — and per-settlement rows are what make "sent to Marlo for
+   * review" a fact the timeline can actually hold.
+   */
+  it("reaches only the party a partial send moved", async () => {
+    const seed = await computed("stagepartial");
+    expect(
+      (
+        await setStatus(seed.event.id, seed.operator.userId, {
+          status: "pending_review",
+          participantIds: [seed.bPart],
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    expect(await typesFor(seed.band.userId, seed.event.id)).toEqual(["settlement.pending_review"]);
+    expect(await typesFor(seed.venue.userId, seed.event.id)).toEqual([]);
+  });
+
+  /*
+   * A REMARK GOES WHERE THE REMARK GOES — the same rule `GET /settlement/comments` applies.
+   *
+   * The band comments; the venue may not read that remark, so it may not read that it happened
+   * either. But the venue's OWN settlement moved to `comments_received` by the same request (the
+   * path moves every party at `pending_review`), and that is the venue's news — which is why the
+   * status move needs a row of its own rather than borrowing the remark's.
+   */
+  it("scopes a party's remark to that party, and still tells the others their status moved", async () => {
+    const seed = await computed("stagecomment");
+    expect(
+      (await setStatus(seed.event.id, seed.operator.userId, { status: "pending_review" }))
+        .statusCode,
+    ).toBe(200);
+
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/comments`,
+          headers: auth(seed.band.userId),
+          payload: { message: "The door count is short by two." },
+        })
+      ).statusCode,
+    ).toBe(201);
+
+    expect(await typesFor(seed.band.userId, seed.event.id)).toEqual([
+      "settlement.commented",
+      "settlement.comments_received",
+      "settlement.pending_review",
+    ]);
+    // The venue learns its figures came back commented, and NOT that the band is the one who said
+    // something — which is exactly what the comment thread discloses to it.
+    expect(await typesFor(seed.venue.userId, seed.event.id)).toEqual([
+      "settlement.comments_received",
+      "settlement.pending_review",
+    ]);
+  });
+
+  /*
+   * THE OPERATOR SPEAKS FOR THE EVENT, so their remark is event-level and everybody on the bill may
+   * see that it happened — "addressed to everyone it is being reviewed by", which is the thread's
+   * own wording for a party-less comment.
+   */
+  it("makes the operator's own remark event-level, so every party can see it happened", async () => {
+    const seed = await computed("stageopcomment");
+    expect(
+      (await setStatus(seed.event.id, seed.operator.userId, { status: "pending_review" }))
+        .statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/comments`,
+          headers: auth(seed.operator.userId),
+          payload: { message: "Figures as agreed — please check and sign." },
+        })
+      ).statusCode,
+    ).toBe(201);
+
+    expect(await typesFor(seed.venue.userId, seed.event.id)).toContain("settlement.commented");
+    expect(await typesFor(seed.band.userId, seed.event.id)).toContain("settlement.commented");
+  });
+
+  /*
+   * A GRANT CHANGE IS AN AUDIT FACT, NOT A TIMELINE ONE (#24: "who opened the books, and when").
+   * Re-sending to a party already under review, with the books opened, moves no status — so it
+   * writes no second "sent for review" line while the audit row still records both sides of it.
+   */
+  it("writes no stage row when only the full-access grant changed", async () => {
+    const seed = await computed("stagegrant");
+    expect(
+      (await setStatus(seed.event.id, seed.operator.userId, { status: "pending_review" }))
+        .statusCode,
+    ).toBe(200);
+    const before = (await typesFor(seed.band.userId, seed.event.id)).length;
+
+    expect(
+      (
+        await setStatus(seed.event.id, seed.operator.userId, {
+          status: "pending_review",
+          participantIds: [seed.bPart],
+          fullAccess: true,
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    expect(await typesFor(seed.band.userId, seed.event.id)).toHaveLength(before);
+    const audited = await harness.db
+      .select()
+      .from(schema.auditLog)
+      .where(
+        and(
+          eq(schema.auditLog.eventId, seed.event.id),
+          eq(schema.auditLog.action, "settlement.pending_review"),
+        ),
+      );
+    // Three from the send to everybody, one more from the re-send that only opened the books.
+    expect(audited).toHaveLength(4);
+  });
+});
 
 describe("settlement — compute", () => {
   /**
