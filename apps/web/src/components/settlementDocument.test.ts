@@ -8,6 +8,7 @@ import {
   negativeAmount,
   ownFigureLabel,
   payoutAdjustments,
+  payoutsCaption,
   settlementTotals,
   withheldPartyCount,
   withheldPayees,
@@ -846,5 +847,74 @@ describe("withheldPartyCount", () => {
 
   it("answers zero for an empty roster rather than guessing", () => {
     expect(withheldPartyCount([], ["host"])).toBe(0);
+  });
+});
+
+/**
+ * THE PANEL'S ONE SENTENCE, and the two readers it was wrong about (QA sweep run 11).
+ *
+ * `co.host@` with Full settlement access read *"As operator your share is retained; below are the
+ * amounts payable to the other parties"* while collecting SEK 0, holding nothing, owing SEK 12,000
+ * IN, and paying nobody. The predicate was `isYours && net < 0` — a converse error, with the rule
+ * stated correctly in the comment right above it: holding implies a negative net, and a negative
+ * net does not imply holding.
+ *
+ * Fixing that exposed the second: with `retained` false, the same reader got *"What this event pays
+ * out, including your own share"*, and their share is not in the list at all.
+ */
+describe("payoutsCaption", () => {
+  const base = {
+    readerCollected: false,
+    readerOwesOut: false,
+    includesOthers: false,
+    includesYours: false,
+  };
+
+  it("says the share is retained only to the party actually holding the money", () => {
+    expect(
+      payoutsCaption({ ...base, readerCollected: true, readerOwesOut: true, includesOthers: true }),
+    ).toContain("your share is retained");
+  });
+
+  it("does NOT say it to a co-operator who owes money in and collected nothing", () => {
+    // The sweep's exact reader: net −12,000, collected 0, Marlo's 90,000 the only row listed.
+    const caption = payoutsCaption({
+      ...base,
+      readerCollected: false,
+      readerOwesOut: true,
+      includesOthers: true,
+    });
+    expect(caption).not.toContain("retained");
+    // …and not the other wrong one either: their share is not in that list.
+    expect(caption).not.toContain("including your own share");
+    expect(caption).toBe(
+      "What this event pays out to the other parties. Your own settlement is separate.",
+    );
+  });
+
+  it("names both when the list carries the reader's money and somebody else's", () => {
+    // An agent reading their client's payout beside their own commission — the case that put
+    // this branch here.
+    expect(payoutsCaption({ ...base, includesOthers: true, includesYours: true })).toBe(
+      "What this event pays out, including your own share.",
+    );
+  });
+
+  it("calls it the reader's when the list is only theirs", () => {
+    expect(payoutsCaption({ ...base, includesYours: true })).toBe(
+      "What is payable to you on this event.",
+    );
+  });
+
+  it("does not call an operator who FRONTED the costs a retainer of anything", () => {
+    // Collected nothing, paid everything, net negative: out of pocket rather than holding, and
+    // `collected > 0` is what keeps them out of a sentence that would be wrong about them.
+    const caption = payoutsCaption({
+      ...base,
+      readerCollected: false,
+      readerOwesOut: true,
+      includesOthers: true,
+    });
+    expect(caption).not.toContain("retained");
   });
 });

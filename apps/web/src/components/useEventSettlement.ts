@@ -36,6 +36,7 @@ import {
   ladderRows,
   netToneOf,
   payoutAdjustments,
+  payoutsCaption,
   transferStateOf,
   withheldPartyCount,
   withheldPayees,
@@ -387,11 +388,15 @@ export interface EventSettlement {
    */
   hiddenDealCount: number;
   payouts: { key: string; label: string; value: string }[];
-  /** True when a listed payout is somebody else's — the card must not claim it. */
-  payoutsIncludeOthers: boolean;
   totalPayable: string;
-  /** True when the caller is the party whose share is retained rather than paid. */
-  retainsOwnShare: boolean;
+  /**
+   * The Total Payouts panel's one sentence, chosen by `payoutsCaption`.
+   *
+   * It replaces `retainsOwnShare` and `payoutsIncludeOthers`, which the component nested into a
+   * ternary that told a co-operator its share was retained while it held nothing (QA sweep run
+   * 11). Neither flag was read anywhere else, so neither survives as a separate export.
+   */
+  payoutsCaptionText: string;
   /** The caller's own party line, if they are a party at all. */
   ownParty: SettlementParty | null;
   /**
@@ -992,9 +997,34 @@ export function useEventSettlement(
       .filter((commission) => commission.agentParticipantId === ownParticipantId)
       .reduce((running, commission) => running + BigInt(commission.commission), 0n);
   }, [settlements.data, ownParticipantId]);
-  // Whoever is HOLDING the night's money has a negative net — they are the one who
-  // pays everybody else, and their own share is retained rather than transferred.
-  const ownRetains = useMemo(
+  /*
+   * WHO IS HOLDING THE NIGHT'S MONEY — and the comment this replaces stated the rule right and
+   * tested its converse (QA sweep run 11).
+   *
+   * It read: *"Whoever is HOLDING the night's money has a negative net — they are the one who
+   * pays everybody else, and their own share is retained rather than transferred."* True. The
+   * code asked `isYours && netTone === "negative"`, which is the other direction: a co-operator
+   * who collected nothing and simply owes money IN also has a negative net, and read the host's
+   * sentence *"As operator your share is retained"* while holding nothing and paying nobody.
+   *
+   * `collected > 0` is the fact the sentence is about. An operator who FRONTED the costs and
+   * collected nothing is out of pocket rather than retaining anything, and lands in the fallback
+   * rather than on a specific claim that is wrong about them.
+   *
+   * READ OFF `rows`, NOT `parties`. A `SettlementParty` carries `collected` already FORMATTED —
+   * "SEK 0" — and the first draft of this handed that to `BigInt` and took the whole settlement
+   * screen down with *"Cannot convert SEK 0 to a BigInt"*. Caught in the browser, which is the
+   * only place it could have been: every suite was green. `docs/money.md`'s rule, one layer
+   * along — the browser never does arithmetic on formatted text.
+   */
+  const ownHoldsCash = useMemo(
+    () =>
+      rows.some(
+        (row) => row.isYours && row.computed != null && BigInt(row.computed.collected) > 0n,
+      ),
+    [rows],
+  );
+  const ownOwesOut = useMemo(
     () => parties.some((party) => party.isYours && party.netTone === "negative"),
     [parties],
   );
@@ -1232,13 +1262,20 @@ export function useEventSettlement(
         : []),
     ],
     totalPayable,
-    retainsOwnShare: ownRetains,
     /**
-     * Whether anything in that list belongs to somebody else — so the card can stop
-     * calling another party's payout "payable to you". An agent reading their
-     * client's settlement is the case that exposed it.
+     * WHAT THE PANEL SAYS IT IS SHOWING — one sentence, decided in `settlementDocument.ts`.
+     *
+     * It was a nested ternary in the component over `retainsOwnShare` and
+     * `payoutsIncludeOthers`, and it hid two sentences that were untrue of a co-operator at
+     * once. Both flags are folded into the rule rather than exported, because neither was ever
+     * read for anything else.
      */
-    payoutsIncludeOthers: payable.some((party) => !party.isYours) || withheld.length > 0,
+    payoutsCaptionText: payoutsCaption({
+      readerCollected: ownHoldsCash,
+      readerOwesOut: ownOwesOut,
+      includesOthers: payable.some((party) => !party.isYours) || withheld.length > 0,
+      includesYours: payable.some((party) => party.isYours) || ownCommissionMinor > 0n,
+    }),
     // The review conversation is over once the figures freeze — after that the
     // only honest objection is a dispute, which stays available.
     canReview: partyRows.length > 0 && !partyRows.some((row) => FROZEN_STATUSES.has(row.status)),

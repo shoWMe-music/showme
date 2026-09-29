@@ -938,3 +938,46 @@ export function settlementTotals(settlements: SettlementListItem[]): SettlementT
     finalized: format(sum((row) => row.status === "finalized")),
   };
 }
+
+/**
+ * WHAT THE TOTAL PAYOUTS PANEL SAYS IT IS SHOWING — four cases, not three.
+ *
+ * The panel had a nested ternary whose first branch was *"As operator your share is retained;
+ * below are the amounts payable to the other parties"*, fired by `isYours && net < 0`. A
+ * co-operator with Full settlement access read it while collecting SEK 0, holding nothing, owing
+ * SEK 12,000 IN, and paying nobody (QA sweep run 11).
+ *
+ * THE PREDICATE WAS A CONVERSE ERROR, and the comment above it stated the rule correctly:
+ * *"Whoever is HOLDING the night's money has a negative net."* True — and the code tested the
+ * other direction. Holding implies a negative net; a negative net does not imply holding. So
+ * `retained` now asks the fact the sentence is actually about: did this reader take the money.
+ *
+ * The fourth case is the one that falls out of fixing the first. With `retained` false, the
+ * co-operator hit *"What this event pays out, including your own share"* — also untrue, because
+ * their share is not in the list; they are a payer. A list that is entirely other parties' money
+ * needs its own sentence, and this is why the decision is a function: the same nesting hid two
+ * wrong sentences from two different readers.
+ */
+export function payoutsCaption(input: {
+  /** Did this reader collect cash on the night — the fact "retained" is about. */
+  readerCollected: boolean;
+  /** Is this reader's own net negative, so their share is not transferred to them. */
+  readerOwesOut: boolean;
+  /** Does the list contain a payout belonging to somebody else. */
+  includesOthers: boolean;
+  /** Does the list contain anything of the reader's own — a payout or their commission. */
+  includesYours: boolean;
+}): string {
+  if (input.readerCollected && input.readerOwesOut) {
+    return "As operator your share is retained; below are the amounts payable to the other parties.";
+  }
+  if (input.includesOthers && input.includesYours) {
+    // An agent reading their client's settlement beside their own commission — the case that
+    // exposed this branch in the first place.
+    return "What this event pays out, including your own share.";
+  }
+  if (input.includesOthers) {
+    return "What this event pays out to the other parties. Your own settlement is separate.";
+  }
+  return "What is payable to you on this event.";
+}

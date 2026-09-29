@@ -1241,16 +1241,10 @@ function TotalPayouts({ settlement }: { settlement: EventSettlementData }) {
   return (
     <Card padding="lg" style={CARD_COLUMN}>
       <CardTitle
-        subtitle={
-          settlement.retainsOwnShare
-            ? "As operator your share is retained; below are the amounts payable to the other parties."
-            : settlement.payoutsIncludeOthers
-              ? // Somebody else's figure is in this list, so it cannot be called
-                // the reader's. An agent sees their client's payout here beside
-                // their own commission.
-                "What this event pays out, including your own share."
-              : "What is payable to you on this event."
-        }
+        // The sentence, and which one it is, are `payoutsCaption`'s — a nested ternary here
+        // told a co-operator its share was retained while it held nothing, and then told it the
+        // list included its own share when the list was entirely somebody else's.
+        subtitle={settlement.payoutsCaptionText}
       >
         Total Payouts
       </CardTitle>
