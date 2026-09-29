@@ -1131,8 +1131,24 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
         // freeze — a divergence a test could only catch after it had already
         // shipped. One module, two authorization stories.
         const current = await confirmDealIfComplete(tx, deal, fresh, now);
-        const termsFrozen =
-          current.agreementStatus === "confirmed" && deal.agreementStatus !== "confirmed";
+        /*
+         * WHICH SIGNATURE FROZE THE TERMS — and it is the FIRST, not the last.
+         *
+         * This read `current.agreementStatus === "confirmed" && deal.agreementStatus !==
+         * "confirmed"` — the status TRANSITION, which is the last signature. Since part 29 moved
+         * the seal to the first (`termsAreSealed`), Event History printed "Terms frozen at this
+         * confirmation" two signatures after the terms actually stopped moving, and printed
+         * nothing at the moment they did (QA sweep run 12).
+         *
+         * `parties` is the PRE-transaction read and `fresh` the post, so the answer is the SAME
+         * function asked twice: it was not sealed before and it is now. No second copy of the
+         * predicate to drift — and it inherits the observer rule for free, where a hand-rolled
+         * version had already disagreed with `termsAreSealed` about exactly that.
+         *
+         * It also reads false on an idempotent repeat confirm, which stamps nothing and freezes
+         * nothing.
+         */
+        const termsFrozen = !termsAreSealed(deal, parties) && termsAreSealed(current, fresh);
 
         await writeAudit(tx, request, {
           capability: "agreement.confirm",

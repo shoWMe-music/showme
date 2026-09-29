@@ -1052,13 +1052,24 @@ export function dealDeletability(
  *
  * A deal with no signatures at all is untouched by this — which is the whole point of
  * editing a `sent` deal, and what QA8-1 asked for.
+ *
+ * AN OBSERVER'S TIMESTAMP IS NOT A SIGNATURE (found 2026-09-30, closing run 12's MAJOR).
+ * This read every party's `confirmedAt`, observers included — and `POST /deals/:did/confirm`
+ * stamps every line the caller stands behind without filtering them, so an observer who pressed
+ * confirm sealed the figures for everybody while `allSignatoriesConfirmed` correctly ignored the
+ * same row and left the agreement `sent`. Every other place that counts signatures already says
+ * `roleInDeal !== "observer"` — `/deals/awaiting-signature`, `allSignatoriesConfirmed`, the
+ * activity rollup — and this was the one that did not. Observers watch, they do not sign.
  */
+const isSignatoryParty = (party: { roleInDeal?: string | null }): boolean =>
+  party.roleInDeal !== "observer";
+
 export function termsAreSealed(
   deal: { agreementStatus: string },
-  parties: readonly { confirmedAt?: string | Date | null }[],
+  parties: readonly { confirmedAt?: string | Date | null; roleInDeal?: string | null }[],
 ): boolean {
   if (deal.agreementStatus === "confirmed" || deal.agreementStatus === "signed") return true;
-  return parties.some((party) => party.confirmedAt != null);
+  return parties.some((party) => isSignatoryParty(party) && party.confirmedAt != null);
 }
 
 /**
@@ -1070,8 +1081,12 @@ export function termsAreSealed(
  */
 export function sealedTermsReason(
   deal: { agreementStatus: string },
-  parties: readonly { confirmedAt?: string | Date | null }[],
+  parties: readonly { confirmedAt?: string | Date | null; roleInDeal?: string | null }[],
 ): "confirmed" | "partly-signed" | null {
   if (deal.agreementStatus === "confirmed" || deal.agreementStatus === "signed") return "confirmed";
-  return parties.some((party) => party.confirmedAt != null) ? "partly-signed" : null;
+  // Same signatory rule as `termsAreSealed` above, and for the same reason — the two answer one
+  // question and the second only says WHY.
+  return parties.some((party) => isSignatoryParty(party) && party.confirmedAt != null)
+    ? "partly-signed"
+    : null;
 }

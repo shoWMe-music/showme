@@ -96,6 +96,15 @@ export interface DealActions {
    */
   canReviseTerms: boolean;
   /**
+   * The TERMS TEXT can still be written — a different capability from the figures above, and the
+   * one surface that was left deriving the seal for itself (QA sweep run 12's MAJOR).
+   *
+   * `agreementBodyText` is in `SIGNED_TERM_FIELDS`, so the editor cannot succeed on a sealed deal
+   * and there is nothing to weigh against offering it. It lives beside the other four so the seal
+   * is asked once per deal and every control on the card agrees about it.
+   */
+  canEditTerms: boolean;
+  /**
    * DELETE or CANCEL — decisions §25.7.2 (Daniel, 2026-09-28).
    *
    * `canDelete` is `dealDeletability` asked with this night's settlement state, so the control
@@ -209,6 +218,19 @@ export function dealActionsFor(
     // `draft` and `sent` both — a draft's figures are obviously editable, and a SENT one is the
     // case the spec is actually about, where parties are looking at terms nobody has signed.
     canReviseTerms: authority.canManage && !sealed && deal.status !== "cancelled",
+    /*
+     * THE TERMS TEXT, which is a different capability from the figures and was the one surface
+     * left computing `sealed` for itself.
+     *
+     * `EventAgreementTab` derived this from `agreementStatus` under a comment stating the rule
+     * part 29 superseded, so a partly-signed deal offered a Write terms button whose Save
+     * answered 409 (run 12's MAJOR). `agreementBodyText` is in `SIGNED_TERM_FIELDS`, so the
+     * editor can never succeed on a sealed deal — there is nothing to weigh.
+     *
+     * `canCompose` and not `canManage`: writing the words is the composing capability, which is
+     * the one the tab has always asked for here.
+     */
+    canEditTerms: authority.canCompose && !sealed && deal.status !== "cancelled",
     canDelete: authority.canManage && deletability.deletable,
     // Only worth a sentence to somebody who could otherwise have deleted it.
     deleteBlockedReason: authority.canManage ? deletability.reason : null,

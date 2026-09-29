@@ -751,7 +751,20 @@ describe("event history — the consent moments are reconstructable", () => {
     expect((updated?.summary as { fields: string[] }).fields).toEqual(["guaranteeAmount"]);
     expect(JSON.stringify(updated?.summary)).not.toContain("600000");
 
-    // Signature one: how far along the signatures are, and that nothing froze yet.
+    /*
+     * SIGNATURE ONE IS THE FREEZE — and this assertion used to say the opposite.
+     *
+     * It read `termsFrozen: false` here and `true` on signature two, under the comment
+     * "that nothing froze yet". That was the rule until part 29 moved the seal to the FIRST
+     * signature (`termsAreSealed`): a party who has signed has signed the figures as they stand,
+     * so nothing may move after them. The route kept writing the flag on the status TRANSITION,
+     * so Event History announced the freeze two signatures late and said nothing at the moment it
+     * happened (QA sweep run 12).
+     *
+     * A test whose stated REASON has been superseded is the shape that hid an unsignable
+     * agreement once already (`authorize.test.ts`, CLAUDE.md). The rule moved; the assertion
+     * moves with it.
+     */
     const partial = rows.find((row) => row.type === "deal.party_confirmed");
     const partialSummary = partial?.summary as {
       confirmedCount: number;
@@ -760,11 +773,13 @@ describe("event history — the consent moments are reconstructable", () => {
     };
     expect(partialSummary.confirmedCount).toBe(1);
     expect(partialSummary.signatoryCount).toBe(2);
-    expect(partialSummary.termsFrozen).toBe(false);
+    expect(partialSummary.termsFrozen).toBe(true);
 
-    // Signature two: the moment the snapshot was taken.
+    // Signature two completes the agreement and takes the snapshot, but it froze nothing —
+    // the freeze is announced once, on the signature that caused it.
     const full = rows.find((row) => row.type === "deal.confirmed");
-    expect((full?.summary as { termsFrozen: boolean }).termsFrozen).toBe(true);
+    expect((full?.summary as { termsFrozen: boolean }).termsFrozen).toBe(false);
+    expect((full?.summary as { agreementStatus: string }).agreementStatus).toBe("confirmed");
 
     // The division of labour, asserted rather than assumed. The FEED carries what a
     // person can read — a rollup, a name in `actor_display`, and no uuid. The AUDIT

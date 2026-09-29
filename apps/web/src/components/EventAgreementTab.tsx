@@ -220,13 +220,6 @@ export function EventAgreementTab({
             )}
             busy={agreements.busyDealId === deal.id}
             termsText={deal.agreementBodyText}
-            // The terms are live until the last signature and frozen after it —
-            // the same line `agreement_status` already draws for the figures.
-            canEditTerms={
-              agreements.authority.canCompose &&
-              deal.agreementStatus !== "confirmed" &&
-              deal.agreementStatus !== "signed"
-            }
             onEditTerms={() =>
               terms.open({
                 id: deal.id,

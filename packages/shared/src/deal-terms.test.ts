@@ -761,8 +761,36 @@ describe("termsAreSealed", () => {
   });
 
   it("treats a party row with no `confirmedAt` key as unsigned", () => {
-    // An observer's row, and any caller selecting a narrower shape.
+    // Any caller selecting a narrower shape. (The observer case is its own test below — this
+    // comment used to claim it, over a fixture that carried no role either.)
     expect(termsAreSealed(sent, [{}, {}])).toBe(false);
+  });
+
+  it("does NOT seal on an observer's timestamp — observers watch, they do not sign", () => {
+    /*
+     * `POST /deals/:did/confirm` stamps every line the caller stands behind and does not filter
+     * observers, so an observer who pressed confirm sealed the figures for every party — while
+     * `allSignatoriesConfirmed` ignored the same row and correctly left the agreement `sent`. One
+     * stamped row, two predicates, opposite answers. Every other place that counts signatures
+     * already says `roleInDeal !== "observer"`.
+     */
+    const stamped = "2026-09-28T23:57:56.361Z";
+    expect(
+      termsAreSealed(sent, [
+        { confirmedAt: null, roleInDeal: "payer" },
+        { confirmedAt: stamped, roleInDeal: "observer" },
+      ]),
+    ).toBe(false);
+    expect(sealedTermsReason(sent, [{ confirmedAt: stamped, roleInDeal: "observer" }])).toBeNull();
+
+    // THE CONTROL — the same timestamp on every other deal-party role does seal it, so the false
+    // above is the role and not the fixture.
+    for (const roleInDeal of ["payer", "payee", "split_member", "commission"]) {
+      expect(termsAreSealed(sent, [{ confirmedAt: stamped, roleInDeal }]), roleInDeal).toBe(true);
+    }
+    // And a row with no role at all is a signatory — every caller that does not select
+    // `roleInDeal` (a redacted slice, a narrower query) must keep sealing on a real signature.
+    expect(termsAreSealed(sent, [{ confirmedAt: stamped }])).toBe(true);
   });
 
   it("is open on a draft nobody has touched", () => {

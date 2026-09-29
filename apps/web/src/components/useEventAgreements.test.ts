@@ -213,3 +213,122 @@ describe("dealActionsFor — ending an agreement (decisions §25.7.2)", () => {
     expect(actions.canDelete).toBe(true);
   });
 });
+
+/**
+ * THE TERMS EDITOR, AND THE SEAL IT HAS TO AGREE WITH (QA sweep run 12's only MAJOR).
+ *
+ * `agreementBodyText` is in `SIGNED_TERM_FIELDS`, so `PATCH /deals/:did` answers 409 the moment any
+ * party has signed. `EventAgreementTab` derived this from `agreementStatus` — the rule as it stood
+ * BEFORE part 29 moved the seal to the first signature — so for eight days a partly-signed deal
+ * offered a live "Write terms" button, a dialog repeating the superseded rule, and a Save that
+ * failed. The answer now comes from here, where `sealed` is already computed for Reopen and Delete.
+ */
+describe("dealActionsFor — the terms editor tracks the seal, not the status", () => {
+  const unsigned = { confirmedAt: null, roleInDeal: "payer" };
+  const signed = { confirmedAt: "2026-09-29T12:00:00.000Z", roleInDeal: "payee" };
+  const parties = (...rows: object[]) => rows as unknown as Deal["parties"];
+
+  it("offers it on a draft nobody has signed", () => {
+    const actions = dealActionsFor(
+      deal({ agreementStatus: "draft", parties: parties(unsigned, unsigned) }),
+      manager,
+    );
+    expect(actions.canEditTerms).toBe(true);
+  });
+
+  it("offers it on a SENT deal that is still out for signature", () => {
+    // The case the spec is about: parties are looking at terms nobody has committed to.
+    const actions = dealActionsFor(
+      deal({ agreementStatus: "sent", parties: parties(unsigned, unsigned) }),
+      manager,
+    );
+    expect(actions.canEditTerms).toBe(true);
+  });
+
+  it("WITHDRAWS it at the FIRST signature, while the status is still `sent`", () => {
+    // The defect, exactly. Status `sent`, one of two signed — the API refuses, so the screen must.
+    const actions = dealActionsFor(
+      deal({ agreementStatus: "sent", parties: parties(signed, unsigned) }),
+      manager,
+    );
+    expect(actions.canEditTerms).toBe(false);
+    // And the control that IS correct here is offered in its place, which is what turns the 409's
+    // own instruction ("reopen it first") into something the reader can press.
+    expect(actions.canReopen).toBe(true);
+  });
+
+  it("withdraws it on a confirmed deal", () => {
+    const actions = dealActionsFor(
+      deal({ agreementStatus: "confirmed", status: "confirmed", parties: parties(signed, signed) }),
+      manager,
+    );
+    expect(actions.canEditTerms).toBe(false);
+  });
+
+  it("withdraws it on a cancelled deal, which pays nobody and is nobody's to word", () => {
+    const actions = dealActionsFor(
+      deal({ agreementStatus: "sent", status: "cancelled", parties: parties(unsigned, unsigned) }),
+      manager,
+    );
+    expect(actions.canEditTerms).toBe(false);
+  });
+
+  it("asks canCompose, not canManage — writing the words is the composing capability", () => {
+    const composerOnly: AgreementAuthority = {
+      canCompose: true,
+      canManage: false,
+      canConfirm: false,
+    };
+    const managerOnly: AgreementAuthority = {
+      canCompose: false,
+      canManage: true,
+      canConfirm: false,
+    };
+    const unsignedSent = deal({ agreementStatus: "sent", parties: parties(unsigned, unsigned) });
+    expect(dealActionsFor(unsignedSent, composerOnly).canEditTerms).toBe(true);
+    expect(dealActionsFor(unsignedSent, managerOnly).canEditTerms).toBe(false);
+    // The control beside it moves the other way, which is what makes these two capabilities and
+    // not one: revising the FIGURES is the managing act.
+    expect(dealActionsFor(unsignedSent, managerOnly).canReviseTerms).toBe(true);
+    expect(dealActionsFor(unsignedSent, composerOnly).canReviseTerms).toBe(false);
+  });
+
+  it("offers nothing to a bystander", () => {
+    expect(
+      dealActionsFor(deal({ agreementStatus: "sent", parties: parties(unsigned) }), bystander)
+        .canEditTerms,
+    ).toBe(false);
+  });
+
+  it("an OBSERVER's timestamp does not seal the terms", () => {
+    /*
+     * FOUND WHILE WRITING THIS TEST, and the first version of it did not test its own name: it
+     * gave the observer `confirmedAt: null`, so it passed on a `termsAreSealed` that counted
+     * observers. With a real timestamp it failed, which is the defect.
+     *
+     * `POST /deals/:did/confirm` stamps every line the caller stands behind and does not filter
+     * observers, so an observer who pressed confirm sealed the figures for every party while
+     * `allSignatoriesConfirmed` ignored the same row and left the agreement `sent`. Everything
+     * else that counts signatures says `roleInDeal !== "observer"`; `termsAreSealed` now does too.
+     */
+    const observerStamped = { confirmedAt: "2026-09-29T12:00:00.000Z", roleInDeal: "observer" };
+    const actions = dealActionsFor(
+      deal({ agreementStatus: "sent", parties: parties(unsigned, observerStamped) }),
+      manager,
+    );
+    expect(actions.canEditTerms).toBe(true);
+    // Nothing is sealed, so there is nothing to reopen either.
+    expect(actions.canReopen).toBe(false);
+
+    // The control: the same timestamp on a SIGNATORY does seal it.
+    const signatoryStamped = dealActionsFor(
+      deal({
+        agreementStatus: "sent",
+        parties: parties(unsigned, { ...observerStamped, roleInDeal: "payee" }),
+      }),
+      manager,
+    );
+    expect(signatoryStamped.canEditTerms).toBe(false);
+    expect(signatoryStamped.canReopen).toBe(true);
+  });
+});

@@ -1,5 +1,10 @@
 import { Badge, Button, Card, Icon, type Status } from "@showme/design-system";
-import { DEAL_PARTY_ROLE_OPTIONS, basisPointsToPercent, shareBasisPointsOf } from "@showme/shared";
+import {
+  DEAL_PARTY_ROLE_OPTIONS,
+  basisPointsToPercent,
+  shareBasisPointsOf,
+  termsAreSealed,
+} from "@showme/shared";
 import { useId } from "react";
 import { type AgreementField, AgreementView } from "./AgreementView";
 import type { ScheduleEntry } from "./ScheduleList";
@@ -43,7 +48,6 @@ export interface DealAgreementCardProps {
   /** The agreement's terms & conditions as written, or null when none is. */
   termsText: string | null;
   /** Whether this caller may write them — never once the terms are frozen. */
-  canEditTerms: boolean;
   onEditTerms: () => void;
   onSend: (dealId: string) => void;
   onConfirm: (dealId: string) => void;
@@ -95,7 +99,6 @@ export function DealAgreementCard({
   actions,
   busy,
   termsText,
-  canEditTerms,
   onEditTerms,
   onSend,
   onConfirm,
@@ -107,7 +110,20 @@ export function DealAgreementCard({
   expanded,
   onToggleExpanded,
 }: DealAgreementCardProps) {
-  const frozen = agreementStatus === "confirmed" || agreementStatus === "signed";
+  /*
+   * SEALED AT THE FIRST SIGNATURE, NOT THE LAST — and asked, not restated.
+   *
+   * This line used to be `agreementStatus === "confirmed" || "signed"`, which was the rule until
+   * part 29 moved the seal to the first signature at the server. The card then spent eight days
+   * saying "Terms live until every party signs" over a live Write terms button on a deal the API
+   * refuses with a 409 (QA sweep run 12's only MAJOR), and `routes/deals.ts` had a comment
+   * promising this exact surface asked `termsAreSealed` — a comment that states a rule is a test
+   * that never runs.
+   *
+   * Both arguments were already on this component. One function, three readers: here, the terms
+   * editor's `canEditTerms` in `useEventAgreements`, and the route itself.
+   */
+  const frozen = termsAreSealed({ agreementStatus }, parties);
   /*
    * Cancelled OUTRANKS the agreement's own status everywhere it is shown. A withdrawn deal that still
    * reads "awaiting confirmations" is inviting a signature the server now refuses (QA10-9), and it
@@ -338,7 +354,7 @@ export function DealAgreementCard({
 
           <DealTermsBlock
             termsText={termsText}
-            canEdit={canEditTerms}
+            canEdit={actions.canEditTerms}
             frozen={frozen}
             onEdit={onEditTerms}
           />
