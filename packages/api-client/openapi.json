@@ -8770,9 +8770,17 @@
                           "approvedAt": {
                             "type": "string",
                             "nullable": true
+                          },
+                          "signatureExpected": {
+                            "type": "boolean"
                           }
                         },
-                        "required": ["participantId", "approved", "approvedAt"],
+                        "required": [
+                          "participantId",
+                          "approved",
+                          "approvedAt",
+                          "signatureExpected"
+                        ],
                         "additionalProperties": false
                       }
                     },

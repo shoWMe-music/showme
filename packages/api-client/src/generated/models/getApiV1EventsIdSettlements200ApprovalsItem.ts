@@ -10,4 +10,5 @@ export type GetApiV1EventsIdSettlements200ApprovalsItem = {
   approved: boolean;
   /** @nullable */
   approvedAt: string | null;
+  signatureExpected: boolean;
 };

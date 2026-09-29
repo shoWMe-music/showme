@@ -245,6 +245,13 @@ export interface SettlementApprovalRow {
   approved: boolean;
   approvedAt: string | null;
   isYours: boolean;
+  /**
+   * Is the roster waiting on THIS PARTY at all — off their own floor, served by the API. Crew
+   * cannot sign their own settlement (`CREW_FLOOR` has no `settlement.confirm`), so a row badged
+   * "Pending" claimed a signature nobody could give (QA sweep run 12). Not the same question as
+   * `signableSettlementId`, which asks whether the signature is the READER's to give.
+   */
+  signatureExpected: boolean;
   /** The settlement to sign, or null when this signature is not the reader's to give. */
   signableSettlementId: string | null;
 }
@@ -359,6 +366,8 @@ export interface EventSettlement {
   sendInvitation: (participantId: string, email: string, name?: string) => void;
   isInviting: boolean;
   approvedCount: number;
+  /** How many parties a signature is expected FROM — the roster badge's denominator. */
+  expectedApprovalCount: number;
   /** The agreements behind the figures. Empty until the event is reconciled. */
   deals: SettlementDealRow[];
   /**
@@ -1131,6 +1140,13 @@ export function useEventSettlement(
       approved: approval.approved,
       approvedAt: approval.approvedAt,
       isYours: mine.has(approval.participantId),
+      /**
+       * IS THE ROSTER WAITING ON THIS PARTY — the server's own answer, off the party's floor
+       * (QA sweep run 12). Distinct from `signableSettlementId`, which is about the READER: crew
+       * cannot sign their own line, so their row was badged "Pending" for a signature nobody could
+       * give and the counter could never reach its denominator.
+       */
+      signatureExpected: approval.signatureExpected,
       // The settlement id to sign, or null when this line is not the reader's to
       // sign. Carried on the roster row because the roster IS where somebody
       // looks to find out who still owes a signature.
@@ -1207,6 +1223,12 @@ export function useEventSettlement(
     formatMoneyUnit: formatAmountExact ?? formatAmount,
     approvals,
     approvedCount: approvals.filter((approval) => approval.approved).length,
+    /**
+     * The DENOMINATOR — parties a signature is actually expected from, not every party on the
+     * roster. `signatureExpected` already absorbs a party who has signed, so this can never be
+     * smaller than `approvedCount` and the ratio can never read above 1.
+     */
+    expectedApprovalCount: approvals.filter((approval) => approval.signatureExpected).length,
     delivery: (settlements.data?.delivery ?? []).map((row) => ({
       participantId: row.participantId,
       name: nameOf(row.participantId),

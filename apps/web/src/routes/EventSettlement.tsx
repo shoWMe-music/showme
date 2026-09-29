@@ -898,12 +898,19 @@ function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
       >
         <CardTitle>Approval Status</CardTitle>
+        {/*
+          THE DENOMINATOR IS WHO IS BEING WAITED ON, not who is on the roster. It counted every
+          party, crew included — and crew cannot sign their own settlement, so "0/6" could never
+          reach 6/6 (QA sweep run 12). Derived from each party's floor rather than written down,
+          because whether crew sign at all is still an open ruling (decisions §25.6): this reads
+          5/5 today and 6/6 the moment that answer changes, untouched either way.
+        */}
         <Badge
           status={
-            settlement.approvedCount === settlement.approvals.length ? "confirmed" : "pending"
+            settlement.approvedCount === settlement.expectedApprovalCount ? "confirmed" : "pending"
           }
         >
-          {settlement.approvedCount}/{settlement.approvals.length}
+          {settlement.approvedCount}/{settlement.expectedApprovalCount}
         </Badge>
       </div>
       {/*
@@ -941,8 +948,21 @@ function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Badge status={approval.approved ? "confirmed" : "pending"} dot>
-              {approval.approved ? "Signed off" : "Pending"}
+            {/*
+              "Pending" says a signature is outstanding. From a party who cannot give one it is a
+              sentence untrue of its subject, so it says what is actually true of them instead.
+            */}
+            <Badge
+              status={
+                approval.approved ? "confirmed" : approval.signatureExpected ? "pending" : "draft"
+              }
+              dot
+            >
+              {approval.approved
+                ? "Signed off"
+                : approval.signatureExpected
+                  ? "Pending"
+                  : "Not required"}
             </Badge>
             {settlement.authority.canConfirm &&
               approval.signableSettlementId != null &&

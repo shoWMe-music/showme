@@ -449,3 +449,203 @@ describe("the list says whether you MAY sign it", () => {
     expect(coRows[0]?.signableByYou).toBe(true);
   });
 });
+
+describe("the approval roster counts who is being WAITED ON", () => {
+  it("does not expect a signature from crew, and does expect one from an operator", async () => {
+    /*
+     * "Approval Status 0/6" badged all six parties Pending, crew included — and `CREW_FLOOR`
+     * carries no `settlement.confirm`, so the counter could never reach its own denominator and
+     * the word claimed something outstanding from somebody with no control to give it (run 12).
+     *
+     * DERIVED from the party's floor, because whether crew may sign at all is an open ruling
+     * (decisions §25.6). This test pins the derivation, not a number: if `CREW_FLOOR` ever gains
+     * the capability, the assertion below flips with it and that is the correct outcome.
+     */
+    const host = await seedOperator("expect-host", "Host", PRESET_PERMISSION_SETS.operator_full);
+    const coHost = await seedOperator("expect-co", "Co-promoter", []);
+    const crew = await seedCrew("expect-crew", "Priya Sound");
+    const { event } = await seedNightFor(host, coHost, "accepted");
+
+    const [crewPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: crew.profileId,
+        role: "crew",
+        permissionSetId: null,
+        status: "confirmed",
+      })
+      .returning();
+    if (!crewPart) throw new Error("crew participant seed failed");
+
+    const recomputed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+    expect(recomputed.statusCode).toBe(200);
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/settlements`,
+      headers: auth(host.userId),
+    });
+    expect(read.statusCode).toBe(200);
+    const approvals = read.json().approvals as {
+      participantId: string;
+      approved: boolean;
+      signatureExpected: boolean;
+    }[];
+
+    const crewRow = approvals.find((row) => row.participantId === crewPart.id);
+    expect(crewRow, "the crew party is on the roster").toBeDefined();
+    // On the roster — the operator still has to be told who is on the night — and not waited on.
+    expect(crewRow?.signatureExpected).toBe(false);
+    expect(crewRow?.approved).toBe(false);
+
+    // THE CONTROL, and it is what makes the false above the FLOOR rather than the field being
+    // wired to a constant: the operators on the same night are expected to sign.
+    const operatorRows = approvals.filter((row) => row.participantId !== crewPart.id);
+    expect(operatorRows.length).toBeGreaterThan(0);
+    for (const row of operatorRows) {
+      expect(row.signatureExpected, `participant ${row.participantId}`).toBe(true);
+    }
+
+    // And the whole point of the derivation: the counter can be satisfied. Every party the roster
+    // waits on can actually sign, so approved === expected is reachable.
+    expect(approvals.filter((row) => row.signatureExpected).length).toBe(operatorRows.length);
+  });
+
+  it("STILL EXPECTS a delegated act's signature — their agent gives it", async () => {
+    /*
+     * FOUND LIVE, not by a test. The first version of this derivation passed `delegated` into
+     * `baselineCapabilities`, and a delegated performer's floor is `DELEGATED_PERFORMER_FLOOR`,
+     * which carries no `settlement.confirm` — so Marlo Vance's line came back "not required" on the
+     * seeded Album Release. That line absolutely is waiting on a signature: their AGENT gives it,
+     * which is the whole of decisions #14 and §25.7.3 and is what the confirm route implements.
+     *
+     * Delegation moves WHO signs, not WHETHER a signature is expected. The roster's question is
+     * "is this line waiting on somebody"; "can this party sign it themselves" is `signableByYou`,
+     * and that one is about the reader.
+     */
+    const host = await seedOperator("delegexp-host", "Host", PRESET_PERMISSION_SETS.operator_full);
+    const coHost = await seedOperator("delegexp-co", "Co-promoter", []);
+    const { event } = await seedNightFor(host, coHost, "accepted");
+
+    const act = await seedOperator("delegexp-act", "Marlo Vance", PRESET_PERMISSION_SETS.performer);
+    const [actPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: act.profileId,
+        role: "performer",
+        permissionSetId: act.permissionSetId,
+        status: "confirmed",
+        // The flag that hands their business capabilities to an agent (#14).
+        details: { delegatedToAgentProfileId: coHost.profileId },
+      })
+      .returning();
+    if (!actPart) throw new Error("act participant seed failed");
+
+    // The roster is built from settlement ROWS, so the act needs one — recompute now that they
+    // are on the bill.
+    const recomputed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+    expect(recomputed.statusCode).toBe(200);
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/settlements`,
+      headers: auth(host.userId),
+    });
+    expect(read.statusCode).toBe(200);
+    const approvals = read.json().approvals as {
+      participantId: string;
+      signatureExpected: boolean;
+    }[];
+    const actRow = approvals.find((row) => row.participantId === actPart.id);
+    expect(actRow, "the act is on the roster").toBeDefined();
+    // The act's own line, expected — whoever ends up giving it.
+    expect(actRow?.signatureExpected).toBe(true);
+  });
+
+  it("expects a signature from a party who has ALREADY GIVEN ONE, whatever their floor says", async () => {
+    /*
+     * `settlement.confirm` is GRANTABLE to crew (`isGrantable` — it is not a pool capability), so
+     * an operator can hand it to one crew member through a permission set, which the floor cannot
+     * see. Without the "or has already signed" clause that signature would read 6/5 — a ratio above
+     * one, which is worse than the bug this closes.
+     */
+    const host = await seedOperator("granted-host", "Host", PRESET_PERMISSION_SETS.operator_full);
+    const coHost = await seedOperator("granted-co", "Co-promoter", []);
+    const crew = await seedCrew("granted-crew", "Priya Sound");
+    const { event } = await seedNightFor(host, coHost, "accepted");
+
+    // The grant the floor cannot see: a crew permission set carrying the confirm capability.
+    const [set] = await harness.db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: host.profileId,
+        name: "crew, may sign",
+        capabilities: ["event.view", "settlement.view.own", "settlement.confirm"],
+      })
+      .returning();
+    const [crewPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: crew.profileId,
+        role: "crew",
+        permissionSetId: set?.id ?? null,
+        status: "confirmed",
+      })
+      .returning();
+    if (!crewPart) throw new Error("crew participant seed failed");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+
+    const crewSettlements = await app.inject({
+      method: "GET",
+      url: "/api/v1/settlements",
+      headers: auth(crew.userId),
+    });
+    const crewOwn = crewSettlements.json().items as { id: string; signableByYou: boolean }[];
+    expect(crewOwn).toHaveLength(1);
+    // The grant reaches them, which is what makes this case real rather than hypothetical.
+    expect(crewOwn[0]?.signableByYou).toBe(true);
+
+    const signed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlements/${crewOwn[0]?.id}/confirm`,
+      headers: auth(crew.userId),
+    });
+    expect(signed.statusCode).toBe(200);
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/settlements`,
+      headers: auth(host.userId),
+    });
+    const approvals = read.json().approvals as {
+      participantId: string;
+      approved: boolean;
+      signatureExpected: boolean;
+    }[];
+    const crewRow = approvals.find((row) => row.participantId === crewPart.id);
+    expect(crewRow?.approved).toBe(true);
+    // Counted, because the signature is its own proof they could give it.
+    expect(crewRow?.signatureExpected).toBe(true);
+
+    // THE INVARIANT the clause exists for: the ratio can never read above one.
+    const approved = approvals.filter((row) => row.approved).length;
+    const expected = approvals.filter((row) => row.signatureExpected).length;
+    expect(approved).toBeLessThanOrEqual(expected);
+  });
+});

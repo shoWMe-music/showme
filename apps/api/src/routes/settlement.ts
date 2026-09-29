@@ -1,6 +1,8 @@
 import { isDeepStrictEqual } from "node:util";
 import {
+  type EventRole,
   NON_STANDING_PARTICIPANT_STATUSES,
+  baselineCapabilities,
   effectiveEventCapabilitiesForEvents,
   liveEventDelegations,
 } from "@showme/auth";
@@ -186,6 +188,28 @@ const ApprovalResponse = z.object({
   participantId: z.string(),
   approved: z.boolean(),
   approvedAt: z.string().nullable(),
+  /**
+   * IS A SIGNATURE EXPECTED FROM THIS PARTY AT ALL (QA sweep run 12).
+   *
+   * The roster badged all six parties "Pending" and counted 0/6, crew included — and
+   * `CREW_FLOOR` carries no `settlement.confirm`, so that counter could never reach its own
+   * denominator and the word claimed something outstanding from somebody with no control to
+   * provide it.
+   *
+   * DERIVED, because the answer is an open product question (decisions §25.6: may a crew member
+   * sign off their own figures at all). Hard-coding 5 or 6 would pre-empt the ruling; reading the
+   * floor means the counter is right today and still right afterwards without being touched.
+   *
+   * Two clauses, and the second is the one that keeps it safe. "Does this party HOLD
+   * `settlement.confirm`" is not a well-defined question — the band is
+   * `roleFilter(permissionSet.capabilities, profileRole)` and `profileRole` belongs to a MEMBER of
+   * the profile, so a party with three members holding three profile roles has no single answer.
+   * The FLOOR is well defined. But `settlement.confirm` IS grantable to crew (`isGrantable` — it is
+   * not a pool capability), so an operator can hand it to one crew member through a permission set,
+   * which the floor cannot see. Counting an existing signature as its own proof absorbs that case:
+   * without it, such a party signing would read 6/5, which is worse than the bug.
+   */
+  signatureExpected: z.boolean(),
 });
 
 const TransferResponse = z.object({
@@ -1099,20 +1123,30 @@ async function participantIdsOf(
 }
 
 /**
- * Every visible party's sign-off, approved or not — the roster.
+ * Who has signed off, approved or not — the roster.
  *
  * `settlement_approvals` has no unique constraint (idempotency is enforced in the
  * confirm route), so a party can in principle hold more than one row; the roster
  * folds them with "approved once is approved", keeping the earliest timestamp, so
  * a duplicate row can never read as a withdrawn signature.
+ *
+ * ONE OF THE TWO FILTERS MAY BE NULL, and each null has its own caller:
+ *   · `participantIds` null — every party on this EVENT, which is what the settlement read needs,
+ *     because its roster is rendered over the addressable set rather than the visible one
+ *   · `eventId` null — these participants WHEREVER they are, which is the cross-event
+ *     `GET /settlements`
+ * Both null would be every approval on the platform, so it is refused rather than served.
  */
 async function approvalRosterOf(
   database: Database,
   eventId: string | null,
-  participantIds: Set<string>,
+  participantIds: Set<string> | null,
 ): Promise<Map<string, { approved: boolean; approvedAt: Date | null }>> {
   const roster = new Map<string, { approved: boolean; approvedAt: Date | null }>();
-  if (participantIds.size === 0) return roster;
+  if (eventId == null && participantIds == null) {
+    throw new Error("approvalRosterOf needs an event or a participant set to scope by");
+  }
+  if (participantIds != null && participantIds.size === 0) return roster;
   const rows = await database
     .select({
       participantId: schema.settlementApprovals.partyParticipantId,
@@ -1130,7 +1164,9 @@ async function approvalRosterOf(
         // takes a null rather than growing a second copy of itself: "approved
         // once is approved" is a rule, and a rule wants one home.
         ...(eventId == null ? [] : [eq(schema.settlementApprovals.eventId, eventId)]),
-        inArray(schema.settlementApprovals.partyParticipantId, [...participantIds]),
+        ...(participantIds == null
+          ? []
+          : [inArray(schema.settlementApprovals.partyParticipantId, [...participantIds])]),
       ),
     );
   for (const row of rows) {
@@ -1844,7 +1880,67 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         }
       }
 
-      const roster = await approvalRosterOf(database, id, visible);
+      /*
+       * OVER EVERY PARTY ON THE EVENT, for the same reason `participantRoles` below is — and this
+       * one was a real defect, not a new field's teething.
+       *
+       * It read `visible`, while the roster is RENDERED over `addressableSettlements`, which is
+       * deliberately wider: a host who is a party to no deal must still see who owes a signature.
+       * A party outside `visible` therefore had no roster entry and reported `approved: false`
+       * FOREVER — including after they had signed. The operator's own "is everyone signed off yet"
+       * list under-counted exactly the parties it was widened to include, which is
+       * settlement.test.ts's BLOCKER (*"the one party the host could not see was also the one party
+       * they could not SEND the settlement to"*) surviving on the third of that object's three
+       * halves. Found by a test written for the denominator beside it.
+       *
+       * Nothing widens here: the roster already NAMES these parties (that test asserts it), and
+       * whether somebody has signed is not their figures. Addressing is not reading.
+       */
+      const roster = await approvalRosterOf(database, id, null);
+
+      /*
+       * WHOSE SIGNATURE THE ROSTER IS ACTUALLY WAITING ON — the party's own floor, per
+       * `ApprovalResponse.signatureExpected`. One query; the delegations are the ones already read
+       * for `signable` above, so this adds no round trip for them.
+       *
+       * OVER EVERY PARTY ON THE EVENT, not over `visible` — and the first version of this scoped it
+       * to `visible` and was caught by its own test. The roster is built from
+       * `addressableSettlements`, which is deliberately WIDER than the reader's figures: a host
+       * who is a party to no deal still has to be told who is on the night and who owes a
+       * signature. That is settlement.test.ts's own BLOCKER, *"the one party the host could not see
+       * was also the one party they could not SEND the settlement to"* — the same mistake, made
+       * again on the same roster, twelve lines from the comment recording it.
+       */
+      const participantRoles = await database
+        .select({
+          id: schema.eventParticipants.id,
+          role: schema.eventParticipants.role,
+          profileId: schema.eventParticipants.profileId,
+        })
+        .from(schema.eventParticipants)
+        .where(eq(schema.eventParticipants.eventId, id));
+      /*
+       * DELEGATION MOVES WHO SIGNS, NOT WHETHER A SIGNATURE IS EXPECTED — so it is deliberately
+       * NOT asked here, and the first version of this asked it and was wrong.
+       *
+       * Read live on the seeded Album Release: Marlo Vance's line came back `signatureExpected:
+       * false`, because a delegated performer's floor is `DELEGATED_PERFORMER_FLOOR` and carries no
+       * `settlement.confirm`. But that line absolutely is waiting on a signature — their AGENT
+       * gives it, which is the whole of decisions #14 and §25.7.3, and the confirm route implements
+       * exactly that. The roster asks "is this line waiting on somebody", not "can this party sign
+       * it themselves"; the second question is `signableByYou` and it is about the reader.
+       *
+       * So the expectation follows the ROLE alone. An `agent` participation is still not expected:
+       * its floor is `event.view` and its own line is entitled to nothing (#14 — the agent's cut is
+       * a separate representation-scoped settlement).
+       */
+      const floorMaySign = new Map<string, boolean>();
+      for (const row of participantRoles) {
+        floorMaySign.set(
+          row.id,
+          baselineCapabilities(row.role as EventRole).includes("settlement.confirm"),
+        );
+      }
 
       // Reach + invitation state, for the operator's delivery list below. Both are
       // asked only when the caller could act on the answer.
@@ -1973,10 +2069,13 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         approvals: addressableSettlements.map((row) => {
           const participantId = row.participantId as string;
           const signed = roster.get(participantId);
+          const approved = signed?.approved ?? false;
           return {
             participantId,
-            approved: signed?.approved ?? false,
+            approved,
             approvedAt: signed?.approvedAt?.toISOString() ?? null,
+            // Or they have already given one, which proves they could — see the field's own note.
+            signatureExpected: (floorMaySign.get(participantId) ?? false) || approved,
           };
         }),
       };
