@@ -284,3 +284,104 @@ themselves"*, which is `signableByYou` and is about the reader. Two questions, o
 
 Suites: biome 748 files · web 595 · API `settlement-own-read` 9 (was 6) · `settlement` 124 ·
 `settlement-seed` 8 · `settlement-ticket-seed` 14.
+
+---
+
+## 4. [MINOR] The agent's own signature is invisible to the screens that route to it — run 12 §2 line 279
+
+**VERIFIED FIRST, because the sweep said it had reasoned the consequence rather than observed it.**
+It was right, and the probe is worth keeping:
+
+```
+$ api-as.mjs agent GET /settlements
+  pid …b5   open   signableByYou=true    ← the agency's OWN commission line, and nothing else
+
+$ api-as.mjs agent GET /events/<e1>/settlements
+  pid …b2   isYours=false  signableByYou=true   ← MARLO'S line, and the agent may sign it
+  pid …b5   isYours=true   signableByYou=true
+
+$ api-as.mjs performer.a POST /events/<e1>/settlements/<b2's id>/confirm  → 403
+$ api-as.mjs agent        POST /events/<e1>/settlements/<b2's id>/confirm → 200
+```
+
+So the agency is the **only** account that can sign Marlo's line, and the one cross-event list both
+the Settlements screen and the Dashboard's attention card read does not contain it.
+
+**Which file settles it — and the answer is NOT to widen `GET /settlements`.**
+
+That list is *the reader's own money*. It goes out of its way to be: `participantRole === "agent"`
+swaps the participation figure for the commission, because *"an agent's money on a night is their
+commission (#14)"*, and the representation rows are excluded twice over. Putting Marlo's
+`entitlement` and `net` into the agency's money list would make an act's money read as the agency's
+on the screen headed "what am I owed" — and `story.md`'s ceiling on whose figures reach whom is the
+last thing to loosen for a MINOR.
+
+**ONE LIST WAS BEING ASKED TWO QUESTIONS AGAIN** — *"what am I owed"* and *"what signatures do I
+owe"*. The second is not about money at all, and the codebase has already answered exactly this shape
+once: **`GET /deals/awaiting-signature`** exists because *"deals are reachable per event or by id, so
+the screen whose whole job is routing people to the Confirm button could not see one"* (QA7-18). A
+settlement is the same sentence with a different noun.
+
+**The scope.** A sibling route, `GET /settlements/awaiting-signature`, built the way its precedent is:
+standing events → per-event capabilities → the participant lines this caller may sign, delegation
+included, asking the confirm route's own predicate rather than a second copy of it. It carries the
+night and who is waiting, and **no figures** — routing information, not money. The attention card's
+settlement source moves to it; the Settlements screen keeps reading the money list, unchanged.
+
+**The decision it hides: none.** §25.7.3 and #14 already say the agent gives the act's signature, and
+the confirm route already implements it. What was missing was a way to ask "where".
+
+### What landed — the new route on six seats in one probe
+
+```
+$ api-as.mjs <seat> GET /settlements/awaiting-signature
+
+agent         pending_review isYours=false pid..b2  ← MARLO'S line, the one that was invisible
+              pending_review isYours=true  pid..b5  ← the agency's own commission
+operator      pending_review isYours=true  pid..b1
+co.host       pending_review isYours=true  pid..bb
+performer.b   pending_review isYours=true  pid..b3
+professional  (none)   ← crew: no `settlement.confirm`, so nobody is waiting on them
+performer.a   (none)   ← the ACT: their signature is their agent's to give (§25.7.3)
+```
+
+The whole rule, six seats, one command. And on the agency's Dashboard, read live:
+
+```
+You have 3 things that need attention today.
+  Check your figures on Marlo Vance — Album Release          ← its own commission line
+  Sign off Marlo Vance's figures on Marlo Vance — Album Release   ← NEW: was invisible
+  Answer Nordic Synth Showcase · Marlo Vance invited to perform …
+```
+
+`partyName` was added for that sentence: an agency signing on behalf needs to know **which** act
+before it signs. The money list could never have carried it.
+
+### Mutations — six, all killed, and one survived first
+
+| Mutation | Verdict |
+|---|---|
+| the review-status filter dropped (an `open` settlement listed) | KILLED |
+| already-signed lines still listed | KILLED |
+| `settlement.confirm` no longer asked (crew listed) | KILLED (2) |
+| the delegation branch removed (the agency never sees its act) | KILLED (2) |
+| **delegation not matched to the ACT's participation** | KILLED — **survived first** |
+| `isYours` inverted | KILLED (2) |
+
+**The survivor is the one worth the tick.** The branch matches
+`delegation.performerParticipantId === row.participantId`, and with ONE delegated act on the night
+that is indistinguishable from *"any delegation exists here"* — the mutation replacing it with
+`!= null` passed every test. The case it breaks is the one that matters: **two acts on one bill with
+two different agencies**, where the weaker predicate hands agency A its rival's act's settlement line.
+Not a cosmetic slip — an act's figures reaching the wrong agency. Covered now in both directions, so
+the pass is the matching rather than an ordering accident.
+
+### The web card got smaller
+
+Every filter it applied moved server-side, and their assertions moved with them rather than
+vanishing — four API tests now hold the review statuses, the already-signed case, the missing
+capability and the delegated line. What is left in `attentionList.ts` is the **sentence**, which is
+the only thing it decides: six tests, including `possessiveOf` on a name ending in `s` and the unset
+`partyName` of an off-platform party.
+
+Suites: biome 748 files · web 597 · API `settlement-own-read` 14 (was 9) · `settlement` 124.

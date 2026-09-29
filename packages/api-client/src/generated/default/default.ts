@@ -134,6 +134,7 @@ import type {
   GetApiV1Representations200Item,
   GetApiV1RepresentationsIdDelegatableEvents200,
   GetApiV1Settlements200,
+  GetApiV1SettlementsAwaitingSignature200,
   GetApiV1SharesToken200,
   GetApiV1SharesTokenDocument200,
   GetApiV1Tasks200,
@@ -3857,6 +3858,92 @@ export function useGetApiV1Settlements<TData = Awaited<ReturnType<typeof getApiV
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetApiV1SettlementsQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const getApiV1SettlementsAwaitingSignature = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1SettlementsAwaitingSignature200>(
+      {url: `/api/v1/settlements/awaiting-signature`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1SettlementsAwaitingSignatureQueryKey = () => {
+    return [
+    `/api/v1/settlements/awaiting-signature`
+    ] as const;
+    }
+
+    
+export const getGetApiV1SettlementsAwaitingSignatureQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1SettlementsAwaitingSignatureQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>> = ({ signal }) => getApiV1SettlementsAwaitingSignature(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1SettlementsAwaitingSignatureQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>>
+export type GetApiV1SettlementsAwaitingSignatureQueryError = unknown
+
+
+export function useGetApiV1SettlementsAwaitingSignature<TData = Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1SettlementsAwaitingSignature<TData = Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1SettlementsAwaitingSignature<TData = Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1SettlementsAwaitingSignature<TData = Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SettlementsAwaitingSignature>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1SettlementsAwaitingSignatureQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

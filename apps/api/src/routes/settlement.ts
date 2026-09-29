@@ -5,6 +5,7 @@ import {
   baselineCapabilities,
   effectiveEventCapabilitiesForEvents,
   liveEventDelegations,
+  liveEventDelegationsForEvents,
 } from "@showme/auth";
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
@@ -210,6 +211,30 @@ const ApprovalResponse = z.object({
    * without it, such a party signing would read 6/5, which is worse than the bug.
    */
   signatureExpected: z.boolean(),
+});
+
+/**
+ * Settlements waiting on THIS reader's signature, across every night — routing information and
+ * deliberately no figures. See the route for why widening `GET /settlements` was the wrong answer.
+ */
+const AwaitingSignatureSettlementsResponse = z.object({
+  items: z.array(
+    z.object({
+      settlementId: z.string(),
+      participantId: z.string(),
+      eventId: z.string(),
+      eventTitle: z.string(),
+      eventDate: z.string().nullable(),
+      status: z.string(),
+      /** False when the reader is signing for somebody else — an agent for their act (#14). */
+      isYours: z.boolean(),
+      /**
+       * WHOSE LINE IT IS, so a card routing an agency to it can say which of its acts. Null when the
+       * party has no profile name on file (an off-platform party invited by address).
+       */
+      partyName: z.string().nullable(),
+    }),
+  ),
 });
 
 const TransferResponse = z.object({
@@ -1796,6 +1821,152 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           };
         }),
       };
+    },
+  );
+
+  /*
+   * WHICH SETTLEMENTS ARE WAITING ON THIS READER'S SIGNATURE, across every night.
+   *
+   * A SIBLING OF `GET /deals/awaiting-signature`, and for exactly its reason: a settlement is
+   * reachable per event or by id, so the two screens whose job is routing somebody to the Approve
+   * button — the Dashboard's attention card and the Settlements list — had no way to ask where one
+   * was (QA sweep run 12).
+   *
+   * Measured before it was built, because the sweep had reasoned the consequence rather than
+   * observed it: `GET /settlements` as the AGENT returns the agency's own commission line and
+   * nothing else, while `GET /events/<e1>/settlements` returns Marlo Vance's line too with
+   * `signableByYou: true` — and `POST …/confirm` on it answers 200 for the agent and 403 for the act
+   * (decisions #14, §25.7.3: the act hands over the signature, the agent gives it). So the one
+   * account that could sign that line was the one account never told it existed.
+   *
+   * ── WHY NOT WIDEN `GET /settlements` ───────────────────────────────────────────────────────────
+   * That list is the reader's own MONEY and works to stay so: an agent's participation figure is
+   * swapped for their commission (#14) and representation rows are excluded twice over. Marlo's
+   * `entitlement` and `net` in the agency's list would read as the agency's on the screen headed
+   * "what am I owed", which is story.md's ceiling on whose figures reach whom. One list was being
+   * asked two questions — "what am I owed" and "what do I owe a signature on" — and only the first
+   * is about money.
+   *
+   * So THIS route carries no figures at all. It is routing information: which night, whose line,
+   * and how far along the sign-offs are.
+   */
+  app.get(
+    "/settlements/awaiting-signature",
+    { schema: { response: { 200: AwaitingSignatureSettlementsResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      const profileIds = principal.memberships.map((membership) => membership.profileId);
+      if (profileIds.length === 0) return { items: [] };
+
+      // The events the caller stands on at all — the same bound `/deals/awaiting-signature` starts
+      // from, and `removed` is the only status that takes a participation away entirely.
+      const standing = await database
+        .select({ eventId: schema.eventParticipants.eventId })
+        .from(schema.eventParticipants)
+        .where(
+          and(
+            inArray(schema.eventParticipants.profileId, profileIds),
+            ne(schema.eventParticipants.status, "removed"),
+          ),
+        );
+      const reachable = [...new Set(standing.map((row) => row.eventId))];
+      if (reachable.length === 0) return { items: [] };
+
+      const capabilitiesByEvent = await effectiveEventCapabilitiesForEvents(
+        database,
+        principal,
+        reachable,
+      );
+      const delegationsByEvent = await liveEventDelegationsForEvents(
+        database,
+        reachable,
+        new Date(),
+      );
+
+      /*
+       * ONLY THE REVIEW CONVERSATION — the states in which somebody is actually waiting.
+       *
+       * `open` has not been sent to anybody, and `finalized`/`partly_paid`/`paid` are past the
+       * point of signing. `dispute` is excluded for the same reason `revised` is included: a party
+       * who has objected is not being asked to sign the figures they objected to. This is the same
+       * set the attention card already reads (`SETTLEMENT_REVIEW_STATUSES`), asked once here so the
+       * card stops deciding it for itself.
+       */
+      const rows = await database
+        .select({
+          id: schema.settlements.id,
+          status: schema.settlements.status,
+          participantId: schema.settlements.participantId,
+          participantProfileId: schema.eventParticipants.profileId,
+          partyName: schema.profiles.name,
+          eventId: schema.events.id,
+          eventTitle: schema.events.title,
+          eventDate: schema.events.eventDate,
+        })
+        .from(schema.settlements)
+        .innerJoin(
+          schema.eventParticipants,
+          eq(schema.eventParticipants.id, schema.settlements.participantId),
+        )
+        // The party's own name, for a reader signing on somebody else's behalf. A left join because
+        // an off-platform party has a settlement line and no profile.
+        .leftJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
+        .innerJoin(schema.events, eq(schema.events.id, schema.settlements.eventId))
+        .where(
+          and(
+            inArray(schema.settlements.eventId, reachable),
+            isNull(schema.settlements.representationId),
+            inArray(schema.settlements.status, ["pending_review", "revised", "comments_received"]),
+            notInArray(schema.eventParticipants.status, [...NON_STANDING_PARTICIPANT_STATUSES]),
+          ),
+        )
+        .orderBy(asc(schema.events.eventDate));
+      if (rows.length === 0) return { items: [] };
+
+      const signed = await approvalRosterOf(
+        database,
+        null,
+        new Set(rows.map((row) => row.participantId).filter((id): id is string => id != null)),
+      );
+
+      /*
+       * WHOSE SIGNATURE EACH LINE IS — the confirm route's own rule, not a second copy of it: the
+       * caller's own participations, plus the line of any performer whose action capabilities
+       * currently sit with them as agent. The capability is asked per event because a reader can
+       * hold `settlement.confirm` on one night and not another.
+       */
+      const myProfileIds = new Set(profileIds);
+      const items = rows
+        .filter((row) => {
+          if (row.participantId == null) return false;
+          if (signed.get(row.participantId)?.approved) return false;
+          if (!capabilitiesByEvent.get(row.eventId)?.has("settlement.confirm")) return false;
+          if (row.participantProfileId != null && myProfileIds.has(row.participantProfileId)) {
+            return true;
+          }
+          return (delegationsByEvent.get(row.eventId) ?? []).some(
+            (delegation) =>
+              myProfileIds.has(delegation.agentProfileId) &&
+              delegation.performerParticipantId === row.participantId,
+          );
+        })
+        .map((row) => ({
+          settlementId: row.id,
+          participantId: row.participantId as string,
+          eventId: row.eventId,
+          eventTitle: row.eventTitle,
+          eventDate: row.eventDate,
+          status: row.status,
+          // Whose line it is, from the reader's point of view — an agency signing for its act needs
+          // to know which of its acts, and the card says so.
+          isYours: row.participantProfileId != null && myProfileIds.has(row.participantProfileId),
+          partyName: row.partyName ?? null,
+        }));
+
+      return { items };
     },
   );
 

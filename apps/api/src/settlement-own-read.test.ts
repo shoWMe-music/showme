@@ -649,3 +649,270 @@ describe("the approval roster counts who is being WAITED ON", () => {
     expect(approved).toBeLessThanOrEqual(expected);
   });
 });
+
+describe("GET /settlements/awaiting-signature — where a signature is owed", () => {
+  /*
+   * A SIBLING OF `/deals/awaiting-signature`, and for the same reason: a settlement is reachable per
+   * event or by id, so the Dashboard's attention card had no way to ask where one was waiting.
+   *
+   * Measured before it was built (QA sweep run 12): `GET /settlements` as the AGENT returns the
+   * agency's own commission line only, while the event read returns their ACT's line too with
+   * `signableByYou: true` — and confirm answers 200 for the agent, 403 for the act. The one account
+   * able to sign that line was the one account never told it existed. Widening the money list was
+   * the wrong answer: it would put an act's entitlement in the agency's "what am I owed".
+   *
+   * These four cases are the filters that used to live in the web card and now live here.
+   */
+  async function nightSentForReview(prefix: string) {
+    const host = await seedOperator(`${prefix}-host`, "Host", PRESET_PERMISSION_SETS.operator_full);
+    const coHost = await seedOperator(`${prefix}-co`, "Co-promoter", []);
+    const crew = await seedCrew(`${prefix}-crew`, "Priya Sound");
+    const { event } = await seedNightFor(host, coHost, "accepted");
+    const [crewPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: crew.profileId,
+        role: "crew",
+        permissionSetId: null,
+        status: "confirmed",
+      })
+      .returning();
+    if (!crewPart) throw new Error("crew seed failed");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/status`,
+      headers: auth(host.userId),
+      payload: { status: "pending_review" },
+    });
+    expect(sent.statusCode).toBe(200);
+    return { event, host, coHost, crew, crewPart };
+  }
+
+  const owed = async (userId: string) => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/settlements/awaiting-signature",
+      headers: auth(userId),
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json().items as {
+      settlementId: string;
+      participantId: string;
+      eventId: string;
+      status: string;
+      isYours: boolean;
+      partyName: string | null;
+    }[];
+  };
+
+  it("lists the reader's own line, and NOT crew's — who cannot sign", async () => {
+    const night = await nightSentForReview("owed-basic");
+
+    const forCoHost = await owed(night.coHost.userId);
+    expect(forCoHost).toHaveLength(1);
+    expect(forCoHost[0]?.isYours).toBe(true);
+    expect(forCoHost[0]?.status).toBe("pending_review");
+    expect(forCoHost[0]?.partyName).toBe("Co-promoter");
+
+    // `CREW_FLOOR` carries `settlement.view.own` and deliberately not `settlement.confirm`, so
+    // nobody is waiting on them and the card must not say otherwise.
+    expect(await owed(night.crew.userId)).toEqual([]);
+  });
+
+  it("STOPS LISTING once the signature has been given", async () => {
+    const night = await nightSentForReview("owed-signed");
+    const before = await owed(night.coHost.userId);
+    expect(before).toHaveLength(1);
+
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${night.event.id}/settlements/${before[0]?.settlementId}/confirm`,
+      headers: auth(night.coHost.userId),
+    });
+    expect(confirmed.statusCode).toBe(200);
+    expect(await owed(night.coHost.userId)).toEqual([]);
+    // And the HOST's own line is untouched by somebody else signing theirs.
+    expect(await owed(night.host.userId)).toHaveLength(1);
+  });
+
+  it("lists nothing while the settlement is still OPEN — nobody has been asked yet", async () => {
+    const host = await seedOperator("owed-open-host", "Host", PRESET_PERMISSION_SETS.operator_full);
+    const coHost = await seedOperator("owed-open-co", "Co-promoter", []);
+    const { event } = await seedNightFor(host, coHost, "accepted");
+    // Computed but never sent: the figures exist and no signature has been requested.
+    const rows = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, event.id));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(row.status).toBe("open");
+    expect(await owed(host.userId)).toEqual([]);
+  });
+
+  it("lists the DELEGATED ACT's line to their AGENT — the finding this route exists for", async () => {
+    /*
+     * decisions #14 / §25.7.3: the act hands over the signature and the agent gives it. The money
+     * list cannot carry this line — it is the act's entitlement, not the agency's — so this is the
+     * only place the agency can be told a signature is owed.
+     */
+    const host = await seedOperator(
+      "owed-deleg-host",
+      "Host",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const coHost = await seedOperator("owed-deleg-co", "Co-promoter", []);
+    const agency = await seedOperator("owed-deleg-agency", "Astra Booking", [
+      ...PRESET_PERMISSION_SETS.agent,
+    ]);
+    const act = await seedOperator(
+      "owed-deleg-act",
+      "Marlo Vance",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const { event } = await seedNightFor(host, coHost, "accepted");
+
+    const [actPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: act.profileId,
+        role: "performer",
+        permissionSetId: act.permissionSetId,
+        status: "confirmed",
+        details: { delegatedToAgentProfileId: agency.profileId },
+      })
+      .returning();
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: agency.profileId,
+      role: "agent",
+      permissionSetId: agency.permissionSetId,
+      status: "confirmed",
+    });
+    if (!actPart) throw new Error("act seed failed");
+
+    // The representation that moves the authority — active and confirmed by both sides, which is
+    // what `liveEventDelegations` asks for (#14: by BOTH-party consent).
+    await harness.db.insert(schema.representations).values({
+      agentProfileId: agency.profileId,
+      performerProfileId: act.profileId,
+      region: ["SE"],
+      commissionRate: 1000,
+      proposedBy: "agent",
+      status: "active",
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+    });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/status`,
+      headers: auth(host.userId),
+      payload: { status: "pending_review" },
+    });
+
+    const forAgency = await owed(agency.userId);
+    const actLine = forAgency.find((row) => row.participantId === actPart.id);
+    expect(actLine, "the act's line is owed BY THE AGENCY").toBeDefined();
+    expect(actLine?.isYours).toBe(false);
+    expect(actLine?.partyName).toBe("Marlo Vance");
+
+    // THE CONTROL, and the whole point: the ACT is not asked, because it is not theirs to give.
+    expect(await owed(act.userId)).toEqual([]);
+  });
+
+  it("shows an agency ITS OWN act's line and not another agency's", async () => {
+    /*
+     * ASKED FOR BY A SURVIVING MUTATION. The delegation branch matches
+     * `delegation.performerParticipantId === row.participantId`, and with one delegated act on the
+     * night that is indistinguishable from "any delegation exists here" — the mutation replacing it
+     * with `!= null` passed. The case it would break is the one that matters: TWO acts on one bill
+     * with two different agencies, where the weaker predicate hands agency A its rival's act's
+     * settlement line. Not a cosmetic slip — an act's figures reaching the wrong agency.
+     */
+    const host = await seedOperator("owed-two-host", "Host", PRESET_PERMISSION_SETS.operator_full);
+    const coHost = await seedOperator("owed-two-co", "Co-promoter", []);
+    const { event } = await seedNightFor(host, coHost, "accepted");
+
+    const pair = async (tag: string, actName: string) => {
+      const agency = await seedOperator(`owed-two-${tag}-ag`, `${actName} Agency`, [
+        ...PRESET_PERMISSION_SETS.agent,
+      ]);
+      const act = await seedOperator(
+        `owed-two-${tag}-act`,
+        actName,
+        PRESET_PERMISSION_SETS.performer,
+      );
+      const [actPart] = await harness.db
+        .insert(schema.eventParticipants)
+        .values({
+          eventId: event.id,
+          profileId: act.profileId,
+          role: "performer",
+          permissionSetId: act.permissionSetId,
+          status: "confirmed",
+          details: { delegatedToAgentProfileId: agency.profileId },
+        })
+        .returning();
+      await harness.db.insert(schema.eventParticipants).values({
+        eventId: event.id,
+        profileId: agency.profileId,
+        role: "agent",
+        permissionSetId: agency.permissionSetId,
+        status: "confirmed",
+      });
+      await harness.db.insert(schema.representations).values({
+        agentProfileId: agency.profileId,
+        performerProfileId: act.profileId,
+        region: ["SE"],
+        commissionRate: 1000,
+        proposedBy: "agent",
+        status: "active",
+        confirmedByAgent: true,
+        confirmedByPerformer: true,
+      });
+      if (!actPart) throw new Error(`${tag} act seed failed`);
+      return { agency, act, actPart };
+    };
+
+    const first = await pair("a", "Marlo Vance");
+    const second = await pair("b", "Neon Tide");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/status`,
+      headers: auth(host.userId),
+      payload: { status: "pending_review" },
+    });
+
+    const forFirst = await owed(first.agency.userId);
+    const participantIds = forFirst.map((row) => row.participantId);
+    expect(participantIds).toContain(first.actPart.id);
+    // The one that matters: the rival's act is not this agency's to sign, or to be shown.
+    expect(participantIds).not.toContain(second.actPart.id);
+    expect(forFirst.find((row) => row.participantId === first.actPart.id)?.partyName).toBe(
+      "Marlo Vance",
+    );
+
+    // And symmetrically, so the pass above is the matching and not an ordering accident.
+    const forSecond = await owed(second.agency.userId);
+    expect(forSecond.map((row) => row.participantId)).toContain(second.actPart.id);
+    expect(forSecond.map((row) => row.participantId)).not.toContain(first.actPart.id);
+  });
+});

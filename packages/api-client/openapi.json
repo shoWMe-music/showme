@@ -8391,6 +8391,71 @@
         }
       }
     },
+    "/api/v1/settlements/awaiting-signature": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "settlementId": {
+                            "type": "string"
+                          },
+                          "participantId": {
+                            "type": "string"
+                          },
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "eventTitle": {
+                            "type": "string"
+                          },
+                          "eventDate": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "isYours": {
+                            "type": "boolean"
+                          },
+                          "partyName": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": [
+                          "settlementId",
+                          "participantId",
+                          "eventId",
+                          "eventTitle",
+                          "eventDate",
+                          "status",
+                          "isYours",
+                          "partyName"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["items"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/events/{id}/settlements": {
       "get": {
         "parameters": [

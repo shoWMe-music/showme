@@ -4,6 +4,7 @@ import {
   useGetApiV1Events,
   useGetApiV1InsightsProfilesIdSummary,
   useGetApiV1Settlements,
+  useGetApiV1SettlementsAwaitingSignature,
   useGetApiV1Tasks,
 } from "@showme/api-client";
 import { Badge, Button, EmptyState, Icon, type IconName } from "@showme/design-system";
@@ -177,6 +178,12 @@ export function Dashboard() {
    */
   const awaitingSignature = useGetApiV1DealsAwaitingSignature();
   /**
+   * The settlements this reader owes a SIGNATURE on — a different question from the money list
+   * below, and the reason an agency never saw the one line it was the only account able to sign
+   * (QA sweep run 12). Its sibling `/deals/awaiting-signature` exists for exactly this reason.
+   */
+  const awaitingSettlementSignature = useGetApiV1SettlementsAwaitingSignature();
+  /**
    * BOTH INVITATION INBOXES, through the hook the Requests screen uses.
    *
    * Two objects with two answers — a participation answered in place, and an
@@ -225,7 +232,7 @@ export function Dashboard() {
     dealsAwaitingSignature: awaitingSignature.data?.items ?? [],
     eventInvitations: invitations.invitations,
     addressedInvitations: invitations.addressed,
-    settlements: settlementRows,
+    settlements: awaitingSettlementSignature.data?.items ?? [],
   });
   const attentionShown = attentionList.shown;
   const sentence = attentionSentence(attentionList.items.length, attentionList.hidden);

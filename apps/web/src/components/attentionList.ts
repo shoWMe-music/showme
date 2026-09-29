@@ -14,7 +14,7 @@
  * three of its five sources wrong without anything being able to say so.
  */
 
-import { formatDay } from "../lib/format";
+import { formatDay, possessiveOf } from "../lib/format";
 import { apiStatusToDisplay } from "../lib/status";
 
 export type AttentionKind = "event" | "request" | "deal" | "invitation" | "settlement";
@@ -47,17 +47,6 @@ export type AttentionTarget =
 
 /** Events still waiting on an operator decision — the prototype's "needs a decision" set. */
 export const NEEDS_DECISION: ReadonlySet<string> = new Set(["pending", "suggested", "on_hold"]);
-
-/**
- * A settlement is waiting on the reader while the figures are still under
- * discussion. `finalized`, `partly_paid` and `paid` are past the conversation;
- * `open` has not entered it — nobody has sent anything out yet.
- */
-export const SETTLEMENT_REVIEW_STATUSES: ReadonlySet<string> = new Set([
-  "pending_review",
-  "revised",
-  "comments_received",
-]);
 
 export type AttentionSources = {
   events: readonly { id: string; title: string; status: string; eventDate: string | null }[];
@@ -105,13 +94,24 @@ export type AttentionSources = {
     role: string | null;
     hostName: string | null;
   }[];
-  /** `GET /settlements` — the reader's own line on every night. */
+  /**
+   * `GET /settlements/awaiting-signature` — the lines this reader owes a signature on, across every
+   * night, and NOT the money list.
+   *
+   * It used to read `GET /settlements`, which is the reader's own MONEY: an agent's participation
+   * figure is swapped for their commission there and representation rows are excluded, so the one
+   * line an agency is the only account able to sign — their act's — was absent, and this card could
+   * not offer it (QA sweep run 12). Two different questions, and only one of them is about money.
+   */
   settlements: readonly {
-    id: string;
+    settlementId: string;
+    eventId: string;
+    eventTitle: string;
+    eventDate: string | null;
     status: string;
-    approvedByYou: boolean;
-    signableByYou: boolean;
-    event: { id: string; title: string; eventDate: string | null };
+    /** False when the reader signs on somebody else's behalf — an agent for their act (#14). */
+    isYours: boolean;
+    partyName: string | null;
   }[];
 };
 
@@ -281,38 +281,34 @@ export function buildAttentionList(sources: AttentionSources, limit = 5): Attent
   }
 
   /*
-   * FIGURES SENT OUT AND NOT YET SIGNED.
+   * FIGURES SENT OUT AND NOT YET SIGNED — asked of the route whose whole job that is.
    *
-   * `approvedByYou` and not the status, because sending a settlement for review
-   * moves EVERY party's row — the operator who pressed the button included. On the
-   * status alone this card would have told that operator to go and review its own
-   * figures, which is the card's rule exactly inverted.
+   * Every filter this loop used to apply now lives server-side, which is the point: the review
+   * statuses, whether the reader has already signed, whether they may sign at all, and — the one
+   * this card could not see — whether the line is theirs or their ACT's. All four were being asked
+   * of the money list, which does not carry the last one.
    *
-   * The sender's own unsigned line DOES belong here: a settlement cannot finalize
-   * until its lines are signed, so the rest of the night is waiting on it too.
-   * What must never happen is asking again for a signature already given.
-   *
-   * `signableByYou` is the other half, and it was found in the browser rather than
-   * reasoned out: a CREW member's figures arrive at `pending_review` and their
-   * settlement screen has no sign-off control at all, because `CREW_FLOOR` carries
-   * `settlement.view.own` and deliberately not `settlement.confirm`. Without this
-   * line the card told them to *"sign off when they match your books"* and sent them
-   * to a screen where they cannot — the dead affordance QA6-1 forbids.
+   * The history is worth keeping because each clause was its own defect. The status alone would
+   * have told the SENDING operator to review its own figures, since sending moves every party's
+   * row. `signableByYou` was found in the browser, not reasoned out: a crew member's figures arrive
+   * at `pending_review` and their screen has no sign-off control, because `CREW_FLOOR` carries
+   * `settlement.view.own` and deliberately not `settlement.confirm` — the card told them to "sign
+   * off when they match your books" and sent them somewhere they could not.
    */
   for (const settlement of sources.settlements) {
-    if (!SETTLEMENT_REVIEW_STATUSES.has(settlement.status)) continue;
-    if (!settlement.signableByYou) continue;
-    if (settlement.approvedByYou) continue;
     items.push({
-      id: `settlement-${settlement.id}`,
+      id: `settlement-${settlement.settlementId}`,
       kind: "settlement",
-      date: settlement.event.eventDate,
-      title: `Check your figures on ${settlement.event.title}`,
+      date: settlement.eventDate,
+      title: settlement.isYours
+        ? `Check your figures on ${settlement.eventTitle}`
+        : // An agency signs for its act, and needs to know WHICH act before it signs.
+          `Sign off ${possessiveOf(settlement.partyName ?? "their act")} figures on ${settlement.eventTitle}`,
       detail: `${
         settlement.status === "revised" ? "Settlement re-issued" : "Settlement sent for review"
-      } · sign off when they match your books · ${formatDay(settlement.event.eventDate)}`,
+      } · sign off when they match your books · ${formatDay(settlement.eventDate)}`,
       action: "Open",
-      target: { to: "eventSettlement", eventId: settlement.event.id },
+      target: { to: "eventSettlement", eventId: settlement.eventId },
     });
   }
 

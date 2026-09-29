@@ -24,11 +24,13 @@ const invitation = (over: Partial<AttentionSources["eventInvitations"][number]> 
 });
 
 const settlement = (over: Partial<AttentionSources["settlements"][number]> = {}) => ({
-  id: "s1",
+  settlementId: "s1",
+  eventId: "e1",
+  eventTitle: "Spring Warmup",
+  eventDate: "2026-10-04",
   status: "pending_review",
-  approvedByYou: false,
-  signableByYou: true,
-  event: { id: "e1", title: "Spring Warmup", eventDate: "2026-10-04" },
+  isYours: true,
+  partyName: "Northlight Presents",
   ...over,
 });
 
@@ -183,44 +185,47 @@ describe("the invitation inboxes — both of them", () => {
 });
 
 describe("a settlement waiting on your signature", () => {
-  it("takes the review statuses and leaves the ones outside the conversation", () => {
-    for (const status of ["pending_review", "revised", "comments_received"]) {
-      expect(
-        buildAttentionList({ ...empty, settlements: [settlement({ status })] }).items,
-        `in: ${status}`,
-      ).toHaveLength(1);
-    }
-    for (const status of ["open", "finalized", "partly_paid", "paid", "dispute"]) {
-      expect(
-        buildAttentionList({ ...empty, settlements: [settlement({ status })] }).items,
-        `out: ${status}`,
-      ).toEqual([]);
-    }
-  });
-
-  it("LEAVES one the reader cannot sign — the crew case, found in the browser", () => {
-    // `CREW_FLOOR` carries `settlement.view.own` and deliberately not
-    // `settlement.confirm`, so a crew member's figures go to `pending_review` and
-    // their settlement screen has no control on it. Measured as `professional@`:
-    // POST …/confirm answered 403 "Missing capability: settlement.confirm" while
-    // this card was telling them to sign off.
+  /*
+   * THE FILTERING MOVED TO THE SERVER, and its assertions moved with it — they are in
+   * `apps/api/src/settlement-own-read.test.ts` against `GET /settlements/awaiting-signature`: the
+   * review statuses, a signature already given, a reader who holds no `settlement.confirm`, and the
+   * delegated line an agent signs. This card now renders what that route returns, so what is left
+   * to decide here is the SENTENCE.
+   */
+  it("says whose figures they are when the reader is signing for somebody else", () => {
+    // An agency signs for its act (#14) and needs to know which act before it does. The global
+    // money list never carried that line at all, which is the defect this route exists for.
     const list = buildAttentionList({
       ...empty,
-      settlements: [settlement({ signableByYou: false })],
+      settlements: [settlement({ isYours: false, partyName: "Marlo Vance" })],
     });
-    expect(list.items).toEqual([]);
+    expect(list.items[0]?.title).toBe("Sign off Marlo Vance's figures on Spring Warmup");
   });
 
-  it("STOPS ASKING once the reader has signed", () => {
-    // The whole reason `approvedByYou` had to be served: `pending_review` moves for
-    // every party when figures go out, the sender included, so the status alone
-    // would ask the operator to review its own figures — and would keep asking
-    // everyone who had already answered.
+  it("says `your figures` on the reader's own line", () => {
+    // THE CONTROL: the other branch, so the sentence above is `isYours` and not the party name.
+    expect(buildAttentionList({ ...empty, settlements: [settlement()] }).items[0]?.title).toBe(
+      "Check your figures on Spring Warmup",
+    );
+  });
+
+  it("possessives a name ending in s without doubling it", () => {
+    // `possessiveOf` is case-insensitive on the trailing s — a lesson this codebase paid for once.
+    expect(
+      buildAttentionList({
+        ...empty,
+        settlements: [settlement({ isYours: false, partyName: "NORTHLIGHT PRESENTS" })],
+      }).items[0]?.title,
+    ).toBe("Sign off NORTHLIGHT PRESENTS' figures on Spring Warmup");
+  });
+
+  it("still names the night when the party has no profile name — the UNSET case", () => {
+    // An off-platform party has a settlement line and no profile, so the join comes back null.
     const list = buildAttentionList({
       ...empty,
-      settlements: [settlement({ approvedByYou: true })],
+      settlements: [settlement({ isYours: false, partyName: null })],
     });
-    expect(list.items).toEqual([]);
+    expect(list.items[0]?.title).toBe("Sign off their act's figures on Spring Warmup");
   });
 
   it("says which of the two it is", () => {
@@ -231,6 +236,13 @@ describe("a settlement waiting on your signature", () => {
       buildAttentionList({ ...empty, settlements: [settlement({ status: "revised" })] }).items[0]
         ?.detail,
     ).toContain("Settlement re-issued");
+  });
+
+  it("goes to that night's settlement", () => {
+    expect(buildAttentionList({ ...empty, settlements: [settlement()] }).items[0]?.target).toEqual({
+      to: "eventSettlement",
+      eventId: "e1",
+    });
   });
 });
 
@@ -251,7 +263,7 @@ describe("the rank and the cut", () => {
       },
     ],
     eventInvitations: [invitation({ eventDate: "2026-10-31" })],
-    settlements: [settlement({ event: { id: "e3", title: "Soonest", eventDate: "2026-09-30" } })],
+    settlements: [settlement({ eventId: "e3", eventTitle: "Soonest", eventDate: "2026-09-30" })],
   };
 
   it("ranks the soonest night first, whatever KIND of answer it is", () => {
