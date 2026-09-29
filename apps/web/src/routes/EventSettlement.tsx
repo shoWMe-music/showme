@@ -36,7 +36,11 @@ import { SettlementStepper } from "../components/SettlementStepper";
 import { SettlementViewingAs } from "../components/SettlementViewingAs";
 import { UnsignedAgreementsNotice } from "../components/UnsignedAgreementsNotice";
 import { type SettlementLine, WhoOwesWhomBoard } from "../components/WhoOwesWhomBoard";
-import { describeActivity } from "../components/eventHistory";
+import {
+  describeActivity,
+  foldRepeatedActivity,
+  repeatedActivityLabel,
+} from "../components/eventHistory";
 import { CardTitle, Eyebrow } from "../components/primitives";
 import {
   SETTLEMENT_STAGE_ACTIVITY_TYPES,
@@ -793,15 +797,26 @@ function SettlementTab({
                 Flag a dispute
               </Button>
             )}
-          {settlement.status === "dispute" && (
-            <Badge status="pending" dot>
-              Disputed — a party has objected to these figures
-            </Badge>
-          )}
-          {settlement.isFinalized && (
+          {/*
+            ONE PILL, NEVER TWO THAT CONTRADICT EACH OTHER (QA sweep run 16's first MAJOR).
+            `dispute` is deliberately allowed on frozen figures and is implemented by overwriting
+            `status`, so a finalized settlement rendered "Disputed — a party has objected" and
+            "Finalized — figures and rates locked" SIDE BY SIDE. Both facts are true; a reader cannot
+            hold them as two separate claims about the same night. Finalized is the stronger one and
+            keeps its own pill, with the objection said inside it — which is also the order they
+            happened in.
+          */}
+          {settlement.isFinalized ? (
             <Badge status="confirmed" dot>
               Finalized — figures and rates locked
+              {settlement.status === "dispute" ? ", with an objection on record" : ""}
             </Badge>
+          ) : (
+            settlement.status === "dispute" && (
+              <Badge status="pending" dot>
+                Disputed — a party has objected to these figures
+              </Badge>
+            )
           )}
         </div>
         {/*
@@ -1266,9 +1281,20 @@ function SettlementThread({
  * of being wrong. `SETTLEMENT_STAGE_ACTIVITY_TYPES` is the list the rule needs, exported beside it.
  */
 function SettlementRail({ eventId, status }: { eventId: string; status: string }) {
+  /*
+   * `distinctTypes` — ASK FOR THE SET, NOT FOR A PAGE (QA sweep run 16's second MAJOR).
+   *
+   * This read the feed's newest page and asked which stage types were in it. Once the status route
+   * began writing one row per settlement — correct, and what fixed run 15's MAJOR for the parties —
+   * a six-party event put 21 stage rows against a page of 20, and the OPERATOR's rail unlit a stop it
+   * had itself visited. No limit fixes that: the count is 4 stage types × the parties, plus every
+   * remark. The question is "has this ever happened", so the route answers it directly with one row
+   * per type and the reply is bounded by the vocabulary instead of by the bill.
+   */
   const activity = useGetApiV1Activity({
     eventId,
     typePrefix: SETTLEMENT_STAGE_ACTIVITY_TYPES.join(","),
+    distinctTypes: true,
   });
   const types = (activity.data?.items ?? []).map((row) => row.type);
   return <SettlementStepper steps={settlementSteps(status, types)} />;
@@ -1302,7 +1328,9 @@ function RevisionHistory({ eventId }: { eventId: string }) {
         </span>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {entries.map((entry) => {
+          {/* One press of a button is one line, however many settlements it moved —
+              `foldRepeatedActivity` (QA sweep run 16). */}
+          {foldRepeatedActivity(entries).map(({ entry, repeated }) => {
             const described = describeActivity(entry.type, entry.summary);
             return (
               <div key={entry.id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -1318,7 +1346,19 @@ function RevisionHistory({ eventId }: { eventId: string }) {
                   }}
                 />
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, color: "var(--text)" }}>{described.title}</div>
+                  <div style={{ fontSize: 13.5, color: "var(--text)" }}>
+                    {described.title}
+                    {/* The count only where there IS one, so an ordinary single act reads as itself —
+                        and the NOUN comes from the type (`repeatedActivityLabel`), because "N parties"
+                        is true of a status move and false of N remarks by one person, which is what
+                        the first version of this said in the browser. */}
+                    {repeatedActivityLabel(entry.type, repeated) && (
+                      <span className="muted" style={{ fontSize: 11.5 }}>
+                        {" · "}
+                        {repeatedActivityLabel(entry.type, repeated)}
+                      </span>
+                    )}
+                  </div>
                   <div className="muted" style={{ fontSize: 11.5 }}>
                     {formatDay(entry.createdAt)}
                   </div>

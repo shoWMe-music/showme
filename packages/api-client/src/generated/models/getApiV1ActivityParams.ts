@@ -18,4 +18,5 @@ eventId?: string;
  * @maxLength 400
  */
 typePrefix?: string;
+distinctTypes?: boolean;
 };

@@ -83,17 +83,23 @@ async function addParticipant(
 
 const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 
-function feedFor(uid: string, eventId?: string, typePrefix?: string) {
+function feedFor(uid: string, eventId?: string, typePrefix?: string, distinctTypes?: boolean) {
   const query = new URLSearchParams();
   if (eventId) query.set("eventId", eventId);
   if (typePrefix != null) query.set("typePrefix", typePrefix);
+  if (distinctTypes) query.set("distinctTypes", "true");
   const suffix = query.size > 0 ? `?${query.toString()}` : "";
   return app.inject({ method: "GET", url: `/api/v1/activity${suffix}`, headers: auth(uid) });
 }
 
 /** The activity types one user can see, sorted — the whole assertion in one line. */
-async function visibleTypes(uid: string, eventId?: string, typePrefix?: string) {
-  const response = await feedFor(uid, eventId, typePrefix);
+async function visibleTypes(
+  uid: string,
+  eventId?: string,
+  typePrefix?: string,
+  distinctTypes?: boolean,
+) {
+  const response = await feedFor(uid, eventId, typePrefix, distinctTypes);
   expect(response.statusCode).toBe(200);
   return (response.json().items as Array<{ type: string }>).map((item) => item.type).sort();
 }
@@ -202,6 +208,122 @@ describe("activity feed — target-scoped visibility", () => {
  * a filter accidentally replacing the visibility WHERE instead of being ANDed onto it would pass
  * every assertion about what comes back and leak everything about what should not.
  */
+/**
+ * WHICH TYPES EXIST AT ALL — QA sweep run 16's second MAJOR.
+ *
+ * The settlement progress rail asks "has this stage ever happened", which is a question about SET
+ * MEMBERSHIP, and it was answered by reading the feed's newest page. Once the status route began
+ * writing one row per settlement (correctly), a six-party event put 21 stage rows against a page of
+ * 20 and the operator's rail unlit a stop it had itself visited. No `limit` fixes it: the count is
+ * 4 stage types × the parties, plus every remark.
+ */
+describe("activity feed — distinctTypes answers a set, not a page", () => {
+  async function seedManyOfOneType(prefix: string, howMany: number) {
+    const { db } = harness;
+    const operator = await createProfile(`${prefix}-op`, "operator");
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: operator.id,
+        title: "Busy Night",
+        baseCurrency: "SEK",
+        createdBy: `${prefix}-op`,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    await addParticipant(event.id, operator.id, "host", PRESET_PERMISSION_SETS.operator_full);
+
+    // The OLDEST row is the one a paged read loses, so it goes in first and is the thing asserted.
+    await db.insert(schema.activityLog).values({
+      eventId: event.id,
+      type: "settlement.pending_review",
+      targetKind: "event",
+      targetId: event.id,
+      actorUserId: `${prefix}-op`,
+      summary: {},
+    });
+    for (let index = 0; index < howMany; index++) {
+      await db.insert(schema.activityLog).values({
+        eventId: event.id,
+        type: "settlement.commented",
+        targetKind: "event",
+        targetId: event.id,
+        actorUserId: `${prefix}-op`,
+        summary: {},
+      });
+    }
+    return { event, uid: `${prefix}-op` };
+  }
+
+  it("keeps the oldest type a paged read would have lost", async () => {
+    // 30 of one type past a page of 20, with the row under test underneath all of them.
+    const { event, uid } = await seedManyOfOneType("distinct", 30);
+
+    // The paged read is the defect, asserted first so the fix is measured against it rather than
+    // against a belief: the oldest row is genuinely gone.
+    const paged = await visibleTypes(uid, event.id, "settlement.");
+    expect(paged).not.toContain("settlement.pending_review");
+    expect(paged.filter((type) => type === "settlement.commented")).toHaveLength(20);
+
+    // …and the set read has it, in one row per type.
+    const asSet = await visibleTypes(uid, event.id, "settlement.", true);
+    expect(asSet).toEqual(["settlement.commented", "settlement.pending_review"]);
+  });
+
+  it("returns no cursor, because a set has no next page", async () => {
+    const { event, uid } = await seedManyOfOneType("distinctcursor", 25);
+    const response = await feedFor(uid, event.id, "settlement.", true);
+    expect(response.statusCode).toBe(200);
+    expect(response.json().nextCursor).toBeNull();
+  });
+
+  /*
+   * IT NARROWS LIKE EVERY OTHER CLAUSE. A caller who may not read a family must not be handed it
+   * collapsed — the same assertion `typePrefix` carries, because a dedupe that ran before the
+   * visibility WHERE would leak exactly one row of everything.
+   */
+  it("cannot be used to reach a family the viewer may not read", async () => {
+    const { db } = harness;
+    const operator = await createProfile("distinctscope-op", "operator");
+    const performer = await createProfile("distinctscope-perf", "performer");
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: operator.id,
+        title: "Scoped Night",
+        baseCurrency: "SEK",
+        createdBy: "distinctscope-op",
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    const hostParticipant = await addParticipant(
+      event.id,
+      operator.id,
+      "host",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    await addParticipant(event.id, performer.id, "performer", PRESET_PERMISSION_SETS.performer);
+    const [settlement] = await db
+      .insert(schema.settlements)
+      .values({ eventId: event.id, participantId: hostParticipant, status: "open" })
+      .returning();
+    if (!settlement) throw new Error("settlement seed failed");
+    await db.insert(schema.activityLog).values({
+      eventId: event.id,
+      type: "settlement.revised",
+      targetKind: "settlement",
+      targetId: settlement.id,
+      actorUserId: "distinctscope-op",
+      summary: {},
+    });
+
+    expect(await visibleTypes("distinctscope-op", event.id, "settlement.", true)).toEqual([
+      "settlement.revised",
+    ]);
+    expect(await visibleTypes("distinctscope-perf", event.id, "settlement.", true)).toEqual([]);
+  });
+});
+
 describe("activity feed — the type filter narrows and never widens", () => {
   // One set of accounts PER TEST — `createProfile` inserts a `users` row keyed by the id, so a
   // shared prefix makes the second caller fail on `users_pkey` rather than on anything it asserts.

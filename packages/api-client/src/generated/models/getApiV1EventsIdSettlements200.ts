@@ -12,6 +12,7 @@ import type { GetApiV1EventsIdSettlements200ApprovalsItem } from './getApiV1Even
 import type { GetApiV1EventsIdSettlements200DeliveryItem } from './getApiV1EventsIdSettlements200DeliveryItem';
 
 export type GetApiV1EventsIdSettlements200 = {
+  wasFinalized: boolean;
   settlements: GetApiV1EventsIdSettlements200SettlementsItem[];
   transfers: GetApiV1EventsIdSettlements200TransfersItem[];
   commissions: GetApiV1EventsIdSettlements200CommissionsItem[];

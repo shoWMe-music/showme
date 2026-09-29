@@ -1324,7 +1324,21 @@ export function useEventSettlement(
     unsignedAgreementsNotice,
     eventId,
     isComputed: partyRows.some((row) => row.computed != null),
-    isFinalized: partyRows.some((row) => FROZEN_STATUSES.has(row.status)),
+    /*
+     * FINALIZED IS A FACT THE STATUS STOPS RECORDING (QA sweep run 16's first MAJOR).
+     *
+     * This read "any party row in a frozen status", and `dispute` is deliberately allowed on frozen
+     * figures and overwrites that very column — so a settlement finalized minutes earlier went
+     * `isFinalized: false`, taking the "Finalized — figures and rates locked" pill with it, and the
+     * DISPUTING party's screen then denied the night had ever been finalized at all.
+     *
+     * `wasFinalized` is the server's durable answer (a `settlement_snapshots` row for the event). The
+     * status read stays as the OR: a party whose own row is frozen is looking at frozen figures
+     * whether or not a snapshot has been written yet.
+     */
+    isFinalized:
+      settlements.data?.wasFinalized === true ||
+      partyRows.some((row) => FROZEN_STATUSES.has(row.status)),
     status: partyRows[0]?.status ?? "open",
     payouts: payouts.rows,
     totalPayable,

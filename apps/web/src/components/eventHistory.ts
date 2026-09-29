@@ -256,6 +256,60 @@ function activityDetailLines(record: Record<string, unknown>): string[] {
  * it is given and adds no visibility logic of its own, which is why there is exactly
  * one place (the API's WHERE clause) where "who may see this" is decided.
  */
+/**
+ * ONE BUTTON PRESS, ONE LINE — QA sweep run 16's second MAJOR, second half.
+ *
+ * The settlement status route writes one activity row per settlement it moves, which is what makes
+ * those rows readable by the party each one belongs to. The OPERATOR sees all of them, so one press of
+ * "Send for review" on a six-party bill printed *"Figures sent out for review"* six times, and four
+ * actions printed twenty-one near-identical lines. `5fd1826`'s own message claimed `from`/`to` would
+ * tell them apart; one press gives all six rows the SAME transition and the detail renderer prints
+ * neither, so on screen they were six copies of one sentence.
+ *
+ * Folded on the RENDERED TITLE, not on the type or the summary: two rows the reader cannot tell apart
+ * are one line, and two that would read differently stay apart — the rule is defined in terms of what
+ * is actually on the screen, which is the only place the duplication existed.
+ *
+ * CONSECUTIVE ONLY. Two separate review rounds are two things that happened and stay two lines; a
+ * fold across the whole list would merge a Tuesday with a Thursday and lose the story the panel is
+ * for.
+ */
+export function foldRepeatedActivity<T extends { type: string; summary?: unknown }>(
+  entries: readonly T[],
+): { entry: T; repeated: number }[] {
+  const folded: { entry: T; repeated: number }[] = [];
+  for (const entry of entries) {
+    const last = folded[folded.length - 1];
+    const title = describeActivity(entry.type, entry.summary).title;
+    if (last && describeActivity(last.entry.type, last.entry.summary).title === title) {
+      last.repeated += 1;
+      continue;
+    }
+    folded.push({ entry, repeated: 1 });
+  }
+  return folded;
+}
+
+/**
+ * WHAT A FOLDED COUNT IS COUNTING — and the browser caught me getting it wrong.
+ *
+ * The first version of the fold printed *"· N parties"* for every folded line, which is true of the
+ * per-settlement status rows (one press of Send for review moves N settlements) and **false** of
+ * remarks: ten comments by one person read as *"A remark was added to the review · 10 parties"*.
+ *
+ * So the noun comes from the type. The default is a bare multiplier rather than a guessed noun,
+ * because a type added later would otherwise inherit a claim nobody checked — an absent noun is
+ * honest, a wrong one is not.
+ */
+export function repeatedActivityLabel(type: string, repeated: number): string | null {
+  if (repeated <= 1) return null;
+  if (type === "settlement.commented") return `${repeated} remarks`;
+  if (type.startsWith("transfer.")) return `${repeated} payments`;
+  // The settlement status moves: one act, one row per settlement it moved.
+  if (type.startsWith("settlement.")) return `${repeated} parties`;
+  return `\u00d7${repeated}`;
+}
+
 export function describeActivity(
   type: string,
   summary: unknown,

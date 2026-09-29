@@ -639,6 +639,45 @@ describe("settlementSteps — a tick is a claim that something happened", () => 
     ]);
   });
 
+  /*
+   * QA sweep run 16's first MAJOR: a dispute is allowed on frozen figures and overwrites `status`, so
+   * `STAGE_OF.dispute = 2` turned Revised and Finalized into unvisited FUTURE stops on a settlement
+   * finalized minutes earlier. Inferring a past stage from the current status is the mistake stages
+   * 1–3 were fixed on; this is it at stage 4.
+   */
+  it("keeps Finalized ticked when a dispute has moved the status off it", () => {
+    expect(
+      rail("dispute", [
+        "settlement.pending_review",
+        "settlement.commented",
+        "settlement.revised",
+        "settlement.finalized",
+      ]),
+    ).toEqual([
+      "✓ Open",
+      "✓ Pending review",
+      "✓ Comments received",
+      "✓ Revised",
+      "● Finalized",
+      "· Partly paid",
+      "· Paid",
+    ]);
+  });
+
+  /*
+   * AND IT IS AN OR, NOT A REPLACEMENT. A settlement finalized before that writer existed has no
+   * `settlement.finalized` row — the seeded Spring Warmup is one — and must not be un-ticked by
+   * asking for one. Understating a finalization is worse than the positional read it would replace.
+   */
+  it("still ticks Finalized from the status alone, with no history at all", () => {
+    expect(rail("finalized", [])[4]).toBe("● Finalized");
+    expect(rail("paid", [])[4]).toBe("✓ Finalized");
+  });
+
+  it("does not invent Finalized on a settlement that never reached it", () => {
+    expect(rail("pending_review", ["settlement.pending_review"])[4]).toBe("· Finalized");
+  });
+
   it("puts an unknown status at the start rather than inventing a stop", () => {
     expect(rail("something_new")[0]).toBe("● Open");
   });

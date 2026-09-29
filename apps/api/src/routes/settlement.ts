@@ -393,6 +393,16 @@ const EventSettlementResponse = SettlementResponse.extend({
 });
 
 const SettlementsResponse = z.object({
+  /**
+   * WAS THIS NIGHT EVER FINALIZED — served because `status` stops recording it (QA sweep run 16).
+   *
+   * `dispute` is allowed on frozen figures and overwrites the status column, so the screen's own
+   * `isFinalized` (any party row in a frozen status) went FALSE on a settlement finalized minutes
+   * earlier — and the disputing party's screen then denied it had ever been finalized at all. The
+   * durable record is a `settlement_snapshots` row for the event; the screen should not have to infer
+   * a fact the server already holds (`eventHasBeenFinalized`).
+   */
+  wasFinalized: z.boolean(),
   settlements: z.array(EventSettlementResponse),
   transfers: z.array(TransferResponse),
   // Private agent↔performer commissions (decisions #14) — empty for the operator.
@@ -556,6 +566,35 @@ const LOCKED_SETTLEMENT_STATUSES: ReadonlySet<string> = new Set([
   "partly_paid",
   "paid",
 ]);
+
+/**
+ * HAS THIS NIGHT EVER BEEN FINALIZED — a fact no later status move can erase (QA sweep run 16's
+ * first MAJOR).
+ *
+ * `LOCKED_SETTLEMENT_STATUSES` reads the CURRENT status, and `dispute` is deliberately allowed on
+ * frozen figures (*"precisely when a party most needs to say the number is wrong"*) and is implemented
+ * by overwriting that very column. So a settlement finalized ninety seconds earlier came back
+ * unlocked: `signableByYou` returned, and `POST …/settlements/:sid/confirm` answered **200** — a
+ * signature recorded against figures the app had just promised were immutable, walking around both of
+ * this week's locks at once.
+ *
+ * `settlement_snapshots` is the durable record and the report's own evidence that the money was never
+ * at risk: it still held `"status":"finalized"` for all seven rows. One row per event per finalize, so
+ * its existence is the whole question — and it is EVENT-scoped, which is right, because finalize
+ * freezes the night rather than one party's line.
+ *
+ * This does NOT decide whether `dispute` should overwrite the status at all. That is §25.6's open
+ * objection row, which proposes carrying the objection in `settlement_approvals` instead. Whichever
+ * way that goes, a settlement that has been finalized has been finalized.
+ */
+async function eventHasBeenFinalized(database: Database | Transaction, eventId: string) {
+  const [snapshot] = await database
+    .select({ id: schema.settlementSnapshots.id })
+    .from(schema.settlementSnapshots)
+    .where(eq(schema.settlementSnapshots.eventId, eventId))
+    .limit(1);
+  return snapshot != null;
+}
 
 /**
  * A payee's basis points out of a deal party's `share` jsonb.
@@ -1918,6 +1957,25 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         ...new Set(rows.map((row) => row.eventId as string)),
       ]);
 
+      /*
+       * …AND WHICH OF THOSE NIGHTS WAS EVER FINALIZED (QA sweep run 16's first MAJOR).
+       *
+       * One query for the whole list rather than `eventHasBeenFinalized` per row: the same reason the
+       * capability resolver above is batched. `status` stops recording this the moment a dispute
+       * overwrites it, and this list is where the Dashboard reads Approve from.
+       */
+      const eventIds = [...new Set(rows.map((row) => row.eventId as string))];
+      const finalizedEventIds = new Set(
+        eventIds.length === 0
+          ? []
+          : (
+              await database
+                .selectDistinct({ eventId: schema.settlementSnapshots.eventId })
+                .from(schema.settlementSnapshots)
+                .where(inArray(schema.settlementSnapshots.eventId, eventIds))
+            ).map((row) => row.eventId),
+      );
+
       return {
         items: rows.map((row) => {
           const computed = (row.computed as SerializedBreakdown | null) ?? null;
@@ -1939,6 +1997,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             signableByYou:
               row.participantId != null &&
               !LOCKED_SETTLEMENT_STATUSES.has(row.status) &&
+              !finalizedEventIds.has(row.eventId as string) &&
               maySignOwnSettlement(
                 capabilitiesByEvent.get(row.eventId as string) ?? new Set(),
                 row.participantRole,
@@ -2265,6 +2324,9 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
        */
       // The line's own role, for `signableByYou` below — the same rows `maySign` reads, so no query.
       const roleByParticipant = new Map(participantRoles.map((row) => [row.id, row.role]));
+      // …and whether this night was ever finalized, which `status` stops recording the moment a
+      // dispute overwrites it (`eventHasBeenFinalized`, QA sweep run 16).
+      const wasFinalized = await eventHasBeenFinalized(database, id);
       const maySign = new Map<string, boolean>();
       for (const row of participantRoles) {
         const role = row.role as EventRole;
@@ -2355,6 +2417,8 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         : visibleSettlements;
 
       return {
+        // See `eventHasBeenFinalized`: a dispute erases this from `status`, so it is served as itself.
+        wasFinalized,
         settlements: visibleSettlements.map((row) => ({
           // Same gate as `ladder` below, for the same figure: `basis.base` IS
           // `ladder.doorBase`, and `door / basisPoints` recovers it. Withholding
@@ -2386,6 +2450,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           signableByYou:
             signable.has(row.participantId as string) &&
             !LOCKED_SETTLEMENT_STATUSES.has(row.status) &&
+            !wasFinalized &&
             maySignOwnSettlement(capabilities, roleByParticipant.get(row.participantId as string)),
         })),
         transfers: transferRows
@@ -3832,7 +3897,12 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
        * What they need is that there is nothing left to agree to, and that a signature given before
        * the freeze still counts.
        */
-      if (LOCKED_SETTLEMENT_STATUSES.has(settlement.status)) {
+      if (
+        LOCKED_SETTLEMENT_STATUSES.has(settlement.status) ||
+        // …OR it was finalized and something moved the status off it afterwards. See
+        // `eventHasBeenFinalized`: a dispute rewound the only column this used to read.
+        (await eventHasBeenFinalized(database, id))
+      ) {
         throw conflict(
           "These figures are already final, so there is nothing left to sign. Signatures given before they were finalized still stand.",
         );

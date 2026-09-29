@@ -225,6 +225,151 @@ async function seedWorkedExample(prefix: string) {
  * Both halves, because a flag that always answered `false` would close the defect and take the whole
  * review step with it.
  */
+/**
+ * A DISPUTE DOES NOT UN-FINALIZE — QA sweep run 16's first MAJOR.
+ *
+ * Disputing frozen figures is deliberate and old: *"precisely when a party most needs to say the
+ * number is wrong, and flagging it changes no money."* It is implemented by overwriting
+ * `settlements.status`, which is the only column `LOCKED_SETTLEMENT_STATUSES` reads — so one press
+ * walked around both of this week's locks and the confirm route answered **200** on figures the app
+ * had just promised were immutable.
+ *
+ * The durable record is a `settlement_snapshots` row for the event, which is also the report's own
+ * evidence that the money was never at risk. This asserts the consent half only: whether `dispute`
+ * should overwrite the status at all is §25.6's open objection row.
+ */
+describe("settlement — a dispute cannot re-open a finalized night to signatures", () => {
+  async function finalized(prefix: string) {
+    const seed = await seedWorkedExample(prefix);
+    await signEveryAgreement(harness.db, seed.event.id);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+    return seed;
+  }
+
+  const ownRow = async (eventId: string, uid: string) => {
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/settlements`,
+      headers: auth(uid),
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      wasFinalized: boolean;
+      settlements: { id: string; status: string; signableByYou: boolean }[];
+    };
+    return body;
+  };
+
+  it("keeps the lock and the signature withdrawn after a party disputes", async () => {
+    const seed = await finalized("disputelock");
+
+    // The band raises a dispute on its own row — allowed, and it moves that row's status.
+    const disputed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.band.userId),
+      payload: { status: "dispute" },
+    });
+    expect(disputed.statusCode).toBe(200);
+
+    const body = await ownRow(seed.event.id, seed.band.userId);
+    const mine = body.settlements[0];
+    // The status really did move — this is not a test of the dispute being refused.
+    expect(mine?.status).toBe("dispute");
+    // …and the night is still finalized, which is the fact `status` stopped recording.
+    expect(body.wasFinalized).toBe(true);
+    expect(mine?.signableByYou).toBe(false);
+
+    // The route agrees, which is the half that touches consent.
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlements/${mine?.id}/confirm`,
+      headers: auth(seed.band.userId),
+      payload: {},
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.message).toContain("already final");
+  });
+
+  /*
+   * AND THE LOCK IS NOT NEW-FOUND STRICTNESS. A settlement that was never finalized is still
+   * signable after a dispute — the same "assert what must survive" that caught this shape twice
+   * already this stretch.
+   */
+  it("still offers the signature on a disputed settlement that was never finalized", async () => {
+    const seed = await seedWorkedExample("disputeopen");
+    await signEveryAgreement(harness.db, seed.event.id);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/status`,
+          headers: auth(seed.band.userId),
+          payload: { status: "dispute" },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const body = await ownRow(seed.event.id, seed.band.userId);
+    expect(body.wasFinalized).toBe(false);
+    expect(body.settlements[0]?.status).toBe("dispute");
+    expect(body.settlements[0]?.signableByYou).toBe(true);
+  });
+
+  // The LIST read is where the Dashboard's attention card gets Approve from, and it had to gain the
+  // same durable gate separately — one surface fixed is none fixed, ten times over in this stretch.
+  it("withdraws it on the settlements list too", async () => {
+    const seed = await finalized("disputelist");
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/status`,
+          headers: auth(seed.band.userId),
+          payload: { status: "dispute" },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/settlements",
+      headers: auth(seed.band.userId),
+    });
+    expect(response.statusCode).toBe(200);
+    const row = (
+      response.json().items as { event?: { id?: string }; signableByYou: boolean }[]
+    ).find((item) => item.event?.id === seed.event.id);
+    expect(row?.signableByYou).toBe(false);
+  });
+});
+
 describe("settlement — a locked settlement is not offered a signature", () => {
   async function reviewable(prefix: string) {
     const seed = await seedWorkedExample(prefix);

@@ -58,6 +58,25 @@ const ActivityFeedResponse = z.object({
 const ActivityQuery = PaginationQuery.extend({
   eventId: z.string().uuid().optional(),
   typePrefix: z.string().min(1).max(400).optional(),
+  /**
+   * WHICH TYPES EXIST AT ALL — the newest row per `type`, and nothing else (QA sweep run 16's
+   * second MAJOR).
+   *
+   * A caller asking *"has this ever happened"* is asking about SET MEMBERSHIP, and answering it from
+   * the newest page of a list degrades as the event gets busier. The settlement progress rail asked
+   * exactly that and read a page of 20: once the status route began writing one row per settlement
+   * (correctly — a party-scoped kind needs a party-scoped subject), a six-party event produced 21
+   * stage rows on the first review pass and the OPERATOR's rail unlit a stop it had itself visited.
+   * No `limit` fixes it: the row count is 4 stage types × the number of parties, plus every remark.
+   *
+   * So the question gets its own answer rather than a wider list. `DISTINCT ON (type)` is the whole
+   * of it — at most one row per type, so the reply is bounded by the type vocabulary instead of by
+   * the bill. Paging is meaningless here and `nextCursor` comes back null.
+   *
+   * It NARROWS like every other clause: the visibility WHERE below is untouched, so a type this
+   * caller may not read is absent rather than collapsed.
+   */
+  distinctTypes: z.coerce.boolean().optional(),
 });
 
 interface Cursor {
@@ -90,7 +109,7 @@ export async function activityRoutes(fastify: FastifyInstance): Promise<void> {
         const principal = request.principal;
         if (!principal) throw new Error("principal missing after authentication");
         const { database } = request.server;
-        const { cursor, limit, eventId, typePrefix } = request.query;
+        const { cursor, limit, eventId, typePrefix, distinctTypes } = request.query;
 
         const viewerProfileIds = principal.memberships.map((membership) => membership.profileId);
         if (viewerProfileIds.length === 0) return { items: [], nextCursor: null };
@@ -250,13 +269,29 @@ export async function activityRoutes(fastify: FastifyInstance): Promise<void> {
           );
         }
 
+        const newestFirst = sql`date_trunc('milliseconds', ${schema.activityLog.createdAt}) desc, ${schema.activityLog.id} desc`;
+
+        if (distinctTypes) {
+          // `DISTINCT ON` needs `type` leading the ORDER BY; the rest keeps "newest of that type".
+          const rows = await database
+            .selectDistinctOn([schema.activityLog.type])
+            .from(schema.activityLog)
+            .where(and(...conditions))
+            .orderBy(schema.activityLog.type, newestFirst);
+          // Sorted for the reader after the fact: Postgres had to order by `type` to dedupe, and a
+          // caller reading a timeline wants it newest first like every other answer from this route.
+          const items = [...rows].sort(
+            (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
+          );
+          // One row per type is the whole answer — there is no next page of a set.
+          return { items: items.map(serializeActivity), nextCursor: null };
+        }
+
         const rows = await database
           .select()
           .from(schema.activityLog)
           .where(and(...conditions))
-          .orderBy(
-            sql`date_trunc('milliseconds', ${schema.activityLog.createdAt}) desc, ${schema.activityLog.id} desc`,
-          )
+          .orderBy(newestFirst)
           .limit(limit + 1);
 
         const { items, nextCursor } = paginate(rows, limit, (row) => ({

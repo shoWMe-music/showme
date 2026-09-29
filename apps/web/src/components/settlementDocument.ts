@@ -121,7 +121,28 @@ const EVIDENCE_FOR_STAGE: Record<number, readonly string[]> = {
  * Derived from the evidence table above, so the two cannot drift: a stage that gains a new
  * evidence type gains it in the request at the same moment.
  */
-export const SETTLEMENT_STAGE_ACTIVITY_TYPES = Object.values(EVIDENCE_FOR_STAGE).flat();
+/**
+ * FINALIZATION IS A FACT THE HISTORY KEEPS, even after the status moves off it (QA sweep run 16's
+ * first MAJOR).
+ *
+ * `dispute` is deliberately allowed on frozen figures — *"precisely when a party most needs to say
+ * the number is wrong"* — and it is implemented by overwriting `settlements.status`. So a settlement
+ * finalized ninety seconds earlier came back reading `STAGE_OF.dispute = 2`, and the rail turned
+ * **Revised and Finalized into unvisited future stops.** Inferring a past stage from the CURRENT
+ * status is the same mistake stages 1–3 were fixed on; this is it at stage 4.
+ *
+ * So a `settlement.finalized` row means the rail has reached at least there, whatever `status` says
+ * now. An OR rather than a replacement, because a settlement finalized before this writer existed
+ * has no such row and must not be un-ticked by asking for one — understating a finalization is worse
+ * than the positional read it would replace.
+ */
+const FINALIZED_STAGE = 4;
+const FINALIZED_EVIDENCE = "settlement.finalized";
+
+export const SETTLEMENT_STAGE_ACTIVITY_TYPES = [
+  ...Object.values(EVIDENCE_FOR_STAGE).flat(),
+  FINALIZED_EVIDENCE,
+];
 
 /**
  * POSITION IS NOT HISTORY (QA sweep run 14).
@@ -147,9 +168,14 @@ export function settlementSteps(
   status: string,
   historyTypes: readonly string[] = [],
 ): SettlementStep[] {
-  // An unknown status sits at the start rather than inventing a stop for itself.
-  const reached = STAGE_OF[status] ?? 0;
   const seen = new Set(historyTypes);
+  // An unknown status sits at the start rather than inventing a stop for itself — and a settlement
+  // the history says was finalized has been there, whichever status it carries now (see
+  // `FINALIZED_EVIDENCE`).
+  const reached = Math.max(
+    STAGE_OF[status] ?? 0,
+    seen.has(FINALIZED_EVIDENCE) ? FINALIZED_STAGE : 0,
+  );
   return STAGE_LABELS.map((label, index) => {
     if (index === reached) return { label, state: "active" as const };
     if (index > reached) return { label, state: "pending" as const };

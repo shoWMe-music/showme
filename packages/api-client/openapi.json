@@ -8493,6 +8493,9 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "wasFinalized": {
+                      "type": "boolean"
+                    },
                     "settlements": {
                       "type": "array",
                       "items": {
@@ -8909,6 +8912,7 @@
                     }
                   },
                   "required": [
+                    "wasFinalized",
                     "settlements",
                     "transfers",
                     "commissions",
@@ -23740,6 +23744,14 @@
             },
             "in": "query",
             "name": "typePrefix",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "boolean"
+            },
+            "in": "query",
+            "name": "distinctTypes",
             "required": false
           }
         ],
