@@ -429,3 +429,32 @@ produces routes whose search is unmodelled, and mixing them with typed ones tips
 The proper fix exports typed route objects and reads `route.useSearch()`, inverting the import
 direction `router.tsx` is built on — a router refactor, not a cosmetic fix, so it is not bought inside
 one.
+
+### The five NOTEs — one recorded onto an open row, four deliberately not acted on
+
+**The payer question's sharper form** is now on §25.6's payer row rather than in a sweep report only.
+Run 14's version had the pool absorbing a fee its named payer escaped; run 15's has **a co-promoter
+carrying half of a contract it is not a party to** — The Lantern Hall's SEK 1,000 guarantee to Priya
+Sound comes out `Priya +100,000 · Lantern −50,000 · Northlight −50,000`, and Northlight's own
+Dashboard reads *"In review −SEK 500"*. That figure is what any ruling should be checked against.
+
+The other four are unbuilt or already decided, each honestly labelled where it is, and **none is a
+defect to fix**:
+
+- **"Make Offer" leaves nothing the sender can read** — the route's own docstring says exactly this:
+  *"a MESSAGE on the request … There is no threaded reply model for booking requests … inventing one
+  is a schema + product decision, not something to smuggle into a button."* The terms reach
+  `audit_log` and nowhere a user can see, and there is no Outgoing tab that could show them. A thread
+  is a feature, not a fix, and the route said so before anybody pressed the button.
+- **Audience stores RSVPs and cannot show them** — `routes/Audience.tsx` states it in as many words:
+  *"There is no operator audience/RSVP read endpoint yet … NO mock contacts."* Unbuilt and saying so
+  is the correct state; the other half of that brief item (Contacts import/export) run 15 verified
+  works, CSV and all.
+- **Back skips the tabs inside an event workspace** — this is the decision `EventDetail.tsx` already
+  records: `replace: true` so *"the workspace still behaves as one screen rather than pushing a
+  history entry per tab"*, and its stated benefit is precisely that *"Back still leaves the
+  workspace"*. Run 15 calls it defensible; it is also already argued in the file. Not re-litigated.
+- **`apps/marketing` is not running on :5173** — an environment fact about the dev stack, and the
+  source of every console error seen all run. Nothing in the app is wrong. Worth knowing for the next
+  sweep: `pnpm dev` does not start it, so seeded avatar URLs and the *"— public profile"* links
+  refuse to connect.
