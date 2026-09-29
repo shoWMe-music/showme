@@ -22,6 +22,7 @@ import {
   Toggle,
   useToast,
 } from "@showme/design-system";
+import { humanizeEnumValue } from "@showme/shared";
 import { useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
@@ -690,15 +691,16 @@ function PlanCard({ profileId }: { profileId: string }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <Eyebrow>Plan</Eyebrow>
         <Badge status={status === "active" ? "confirmed" : "pending"} dot>
-          {titleCase(status)}
+          {humanizeEnumValue(status)}
         </Badge>
       </div>
       <span style={{ fontFamily: "var(--font-display)", fontSize: 26, color: "var(--text)" }}>
-        {titleCase(tier)}
+        {humanizeEnumValue(tier)}
       </span>
       <div style={{ display: "flex", flexDirection: "column" }}>
         <KeyValueRow label="Seats" value={String(seats)} mono />
-        <KeyValueRow label="Source" value={source} />
+        {/* Through the same rule as the two above: `manual` is a column value, not a word. */}
+        <KeyValueRow label="Source" value={humanizeEnumValue(source)} />
         {/* The number now MEANS something: it moves down on every invitation
             sent off-platform and back up when that person answers. Labelled for
             what it counts rather than as an abstract "credit balance", because
@@ -767,8 +769,4 @@ function PayoutCard({ profileId }: { profileId: string }) {
       )}
     </PanelCard>
   );
-}
-
-function titleCase(value: string): string {
-  return value.replace(/^\w/, (character) => character.toUpperCase());
 }

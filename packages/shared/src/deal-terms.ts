@@ -285,8 +285,23 @@ export interface StoredDealTerms {
  */
 export function dealDraftFrom(deal: StoredDealTerms, fallbackCurrency: string): DealDraft {
   const currency = deal.currency ?? fallbackCurrency;
-  const major = (minorUnits: string | null): string =>
-    minorUnits == null ? "" : minorToDecimalString({ amount: BigInt(minorUnits), currency });
+  /*
+   * AS SOMEBODY WOULD HAVE TYPED IT — which is what this function's test has been called since it
+   * was written, while asserting `"3000.00"` (QA sweep run 11).
+   *
+   * `minorToDecimalString` always emits the full fraction, so a SEK 20,000 guarantee arrived in
+   * the Edit-figures input as `20000.00` while the New-deal dialog beside it takes and echoes
+   * `20000`. Both are exact; only one is what a person wrote. A zero fraction is dropped and a
+   * real one is kept — `20000.50` is still `20000.50`, because that is also what they typed.
+   *
+   * Here rather than in `minorToDecimalString`: everything else that calls it is PRINTING a
+   * figure, where the trailing zeros are the point. This is seeding an input.
+   */
+  const major = (minorUnits: string | null): string => {
+    if (minorUnits == null) return "";
+    const decimal = minorToDecimalString({ amount: BigInt(minorUnits), currency });
+    return decimal.replace(/\.0+$/, "");
+  };
 
   const parties: DealPartyDraft[] = deal.parties.map((party, index) => {
     const share = shareBasisPointsOf(party.share);

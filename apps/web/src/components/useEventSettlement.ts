@@ -1282,7 +1282,10 @@ export function useEventSettlement(
     sendForReview: (options) =>
       moveTo(
         "pending_review",
-        options?.participantIds?.length === 1 ? "Sent for review." : "Sent for review.",
+        // One toast either way. This was a ternary with two identical arms (found while closing
+        // QA sweep run 11's cosmetics) — whatever distinction it meant to draw was never written,
+        // and a conditional that cannot branch is a comment pretending to be code.
+        "Sent for review.",
         options?.participantIds,
         options?.fullAccess,
       ),

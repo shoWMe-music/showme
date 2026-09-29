@@ -130,3 +130,75 @@ earlier fix was mine and the later defect was invisible until a sweep read the s
 moved the sealing boundary from "confirmed" to "first signature" and correctly updated the two
 gates; it did not occur to me that a planner NOTE two screens away encoded the old boundary in
 prose. A predicate has callers you can grep for. A sentence does not.
+
+---
+
+## 3. Run 11's cosmetics — one cluster, because three of them are the same mistake
+
+**Which files settle them:** `EventDetailsTab.tsx`, `Settings.tsx`, `packages/shared/src/deal-terms.ts`.
+
+### The three, and what they share
+
+| Row | Actual | The shape |
+|---|---|---|
+| Guest List | *"**1** tickets"* | A count with no plural rule |
+| Settings → Billing | *"Active **Free_operator** · Source **manual**"* | A hand-rolled `titleCase` where `humanizeEnumValue` exists |
+| Edit figures | `20000.00` where the New-deal dialog takes `20000` | A draft pre-filled to the minor unit |
+
+The middle one is the familiar gate — *"nothing hand-rolls what the design system has"*.
+`Settings.tsx` has a local `titleCase` that capitalises and does **not** replace underscores, which
+is precisely `humanizeEnumValue`'s first half and nothing else; `source` went through neither. Same
+dedup as QA10-13's `Requests.tsx`.
+
+### The third one has a test whose NAME is the argument for changing it
+
+`dealDraftFrom` pre-fills the editor from stored minor units via `minorToDecimalString`, which always
+emits the full fraction — so a SEK 20,000 guarantee arrives as `20000.00`. The sweep called SEK a
+currency with no decimals; it is not, and `20000.00` is exact. What makes it wrong is the screen
+beside it: the New-deal dialog takes `20000`, so one dialog echoes what you typed and the other adds
+two zeros.
+
+And the test that pins it is titled **"brings the money back in MAJOR units, as somebody would have
+typed it"** — asserting `"3000.00"`. Nobody types `3000.00` for a round amount. **The name is a
+claim about the code and the assertion contradicts it**, which is the trap this loop has now hit
+four times from the other direction. A zero fraction is trimmed; a real one is not, and the test
+says both.
+
+**The decision it hides: does trimming lose precision anywhere?** No — it is the DRAFT's pre-fill
+only, the string a human is about to edit, and it round-trips through the same parser either way.
+`minorToDecimalString` is untouched, because everything else that calls it is printing a figure
+rather than seeding an input.
+
+### And a dead ternary found on the way
+
+`useEventSettlement.ts:1285` reads
+`options?.participantIds?.length === 1 ? "Sent for review." : "Sent for review."` — **both arms
+identical**. Whatever distinction was intended is not there, and a conditional that cannot branch is
+a comment pretending to be code.
+
+**Not in this cluster, and said rather than implied:** the narrow-width empty grid cells need a
+layout change and a width I cannot reach (Chrome clamps at ~500px here, per the sweep's own §5), and
+the 640-tickets-in-a-400-room row needs a new notice rather than a corrected one. Both stay open.
+
+### What landed — all four read live in one `operator@` session
+
+```
+Settings → Billing   PLAN Active · Free operator · Source Manual      (was Free_operator / manual)
+Guest List           1 ticket                                          (was "1 tickets"; empty reads "0 tickets")
+Edit figures         20000                                             (was 20000.00)
+```
+
+The Guest List gave both branches on one screen: `0 tickets` before the guest was added and
+`1 ticket` after, which is the positive-and-negative control this loop keeps asking for. `titleCase`
+is deleted — it was `humanizeEnumValue`'s first half and nothing else, and `Source` went through
+neither.
+
+**Not fixed, and worth writing down rather than quietly doing:** there are **38** hand-rolled
+`n === 1 ? … : …` pluralisations across `apps/web/src`. A `pluralise` helper is justified by the
+review gate's own test (three or more real call sites), but converting thirty-eight strings inside a
+cosmetic fix is a large mechanical diff over COPY, where a regression is invisible to every suite.
+Left as a named follow-up rather than half-done.
+
+**And the dead ternary is gone.** `useEventSettlement.ts` had
+`length === 1 ? "Sent for review." : "Sent for review."`. Whatever distinction it meant is not in
+the code, and both arms produced the same toast.

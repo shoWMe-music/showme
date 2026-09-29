@@ -527,7 +527,9 @@ function GuestListCard({
         icon={<Icon name="users" size={17} />}
         iconColor="#EE5746"
         title="Guest List"
-        action={<MonoPill>{total} tickets</MonoPill>}
+        // "1 tickets" (QA sweep run 11). The Event Schedule two cards down already counts
+        // its items with a plural rule; this pill did not.
+        action={<MonoPill>{`${total} ${total === 1 ? "ticket" : "tickets"}`}</MonoPill>}
       />
       {/* The limits are settings for the list below, not a separate object, so a
           tinted box of their own overstated them — and on a white card in light

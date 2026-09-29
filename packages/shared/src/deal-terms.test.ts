@@ -467,11 +467,36 @@ describe("reading a stored deal back into a draft", () => {
   };
 
   it("brings the money back in MAJOR units, as somebody would have typed it", () => {
+    /*
+     * The assertion used to read `"3000.00"`, which is not what anybody types for a round
+     * amount — the NAME of this test was the argument for changing it (QA sweep run 11). The
+     * Edit-figures dialog pre-filled `20000.00` where the New-deal dialog beside it echoes
+     * `20000`, and both come through here.
+     */
     const draft = dealDraftFrom(storedGuarantee, "EUR");
-    expect(draft.guaranteeAmount).toBe("3000.00");
-    expect(draft.advanceAmount).toBe("500.00");
+    expect(draft.guaranteeAmount).toBe("3000");
+    expect(draft.advanceAmount).toBe("500");
     expect(draft.name).toBe("Headline fee");
     expect(draft.currency).toBe("EUR");
+  });
+
+  it("keeps a fraction that is real — only the zeros go", () => {
+    // The half that makes the trim safe: a stored 3 000.50 is still what somebody typed, and an
+    // input pre-filled "3000" would have lost fifty cents on the next save.
+    const draft = dealDraftFrom(
+      { ...storedGuarantee, guaranteeAmount: "300050", advanceAmount: "50005" },
+      "EUR",
+    );
+    expect(draft.guaranteeAmount).toBe("3000.50");
+    expect(draft.advanceAmount).toBe("500.05");
+  });
+
+  it("leaves a zero-decimal currency alone — there is no fraction to trim", () => {
+    // JPY has exponent 0, so `minorToDecimalString` emits no point at all and the regex has
+    // nothing to match. Asserted because a trim written against a "." that is always there
+    // would be the kind that works until somebody books Tokyo.
+    const draft = dealDraftFrom({ ...storedGuarantee, currency: "JPY" }, "JPY");
+    expect(draft.guaranteeAmount).toBe("300000");
   });
 
   it("reads the exponent rather than dividing by a hundred", () => {
@@ -560,8 +585,8 @@ describe("reading a stored deal back into a draft", () => {
       ["300", "70"],
       ["900", "80"],
     ]);
-    expect(draft.bonusThreshold).toBe("10000.00");
-    expect(draft.bonusAmount).toBe("2500.00");
+    expect(draft.bonusThreshold).toBe("10000");
+    expect(draft.bonusAmount).toBe("2500");
 
     const payload = createDealPayload(draft);
     expect(payload.terms).toEqual({
