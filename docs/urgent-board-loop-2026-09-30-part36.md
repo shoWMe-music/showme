@@ -157,3 +157,51 @@ party's.
 `npx biome check .` 756 clean · auth **41** · web **630** · API settlement pair + activity **154** ·
 `tsc --noEmit` clean on api, web and auth.
 
+---
+
+## 2. The full pass, stack down, one go
+
+Every run 13 finding and both buildable §25.8 rulings are in, so this is the reconciliation before
+qa-sweep run 14. Dev stack taken down first (both ports, `scripts/stack.mjs`, browser page parked on
+`about:blank`) so the M1 is not running Vite, tsx, Playwright and Testcontainers at once.
+
+| Check | Result |
+| --- | --- |
+| `npx biome check .` | **756 files, clean** |
+| `@showme/shared` | 23 files, **349** |
+| `@showme/auth` | 1 file, **41** |
+| `@showme/settlement` | 4 files, **82** |
+| `@showme/db` | 2 files, **25** |
+| `@showme/web` | 43 files, **630** |
+| `tsc --noEmit` — web, api, auth | clean |
+| **`@showme/api`** | **65 files, 1475 passed** |
+
+The API number is the one that had to be reconciled, and it lands exactly on the target: **1475 /
+65 files, and `grep` for `skipped|todo` in the log returns nothing** — so no file was lost to the
+Testcontainers port-bind flake that has faked a green run ten times this stretch. 65 `✓ src/` lines,
+one per file, counted independently of the summary.
+
+Package totals across the workspace: **2,602 unit tests** (349 + 41 + 82 + 25 + 630 + 1475).
+
+### e2e — the last gate
+
+`pnpm test:e2e`, one pass with everything else down: **116 passed (48.6s)**, `[e2e:done] passed`, no
+failures and no flakes.
+
+`tests/motion.spec.ts` ran, checked rather than assumed — all four of its specs, the
+`prefers-reduced-motion` one included:
+
+```
+✓ 90 motion — the deal card's fold › animates open, then hands the height back to auto
+✓ 91 motion — the deal card's fold › animates closed, and leaves no floor behind
+✓ 92 motion — under prefers-reduced-motion › opens instantly, with the same resting state
+✓ 93 motion — a dialog leaves nothing behind › the wizard rises, and rests with no transform
+```
+
+The suite removed the docker postgres on its way out (`[e2e:cleanup] removed docker postgres`), so
+the seed is **pristine** again: every probe row this stretch left behind — nine cancelled deals, the
+two probe deals, the QA13 event, the date-prose task, the extra booking request, and the two
+settlement signatures on e1 — is gone, with no manual FK sweep. That is the state run 14 wants.
+
+**The pass is clean end to end.** Nothing to fix, so nothing to commit but this record.
+
