@@ -205,3 +205,37 @@ settlement signatures on e1 — is gone, with no manual FK sweep. That is the st
 
 **The pass is clean end to end.** Nothing to fix, so nothing to commit but this record.
 
+---
+
+## 3. qa-sweep run 14 — launched
+
+Stack brought back up (`pnpm dev`, api 401 / web 200, orphaned containers pruned, only
+`showme-e2e-postgres` left). **Seed confirmed pristine before handing over:**
+
+```
+events  deals  settlements  approvals  tasks  requests
+     5      2            3          0      6         6
+```
+
+— against the 11 deals, 6 events and 2 approvals this stretch had accumulated. The QA13 event, both
+probe deals, the date-prose task and the extra booking request are all gone.
+
+The agent is briefed as run 13 was, plus:
+
+- **do not boot or tear down the stack**, and do not run `test:e2e` / `seed:e2e` — everything is
+  already green and the seed is deliberately fresh;
+- the eleven things to re-check by name — author reachability, the cancelled-deal grant, the bell's
+  row, the Dashboard capability gate, the roster denominator not moving, the terms forecast, the
+  riders empty state, the four cosmetics, **§25.8.1's four money surfaces (told to create a
+  mixed-currency state and to set it back)**, **§25.8.2 (crew sign their own line, and are refused
+  another party's)**, and the **178-sentence copy sweep**, flagged as the highest-risk area in the
+  build and worth reading for mangled prose;
+- the out-of-scope list plus both new §25.6 rows, with the objection gap named explicitly as a
+  recorded consequence of §25.8.2 rather than a new defect;
+- the two reporting rules: **check a thing exists before reporting it missing** (run 13's `T(` example
+  did not reproduce though its diagnosis was right), and **check what a line is load-bearing for
+  before proposing its removal**, citing run 13's regex suggestion as the worked example that would
+  have defeated the module it was trying to fix.
+
+**If run 14 comes back clean, that is the loop's stopping condition.**
+
