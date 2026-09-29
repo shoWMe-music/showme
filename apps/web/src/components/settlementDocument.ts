@@ -1,7 +1,13 @@
 import type { getApiV1EventsIdSettlements, getApiV1Settlements } from "@showme/api-client";
 import type { Status } from "@showme/design-system";
 import { basisPointsToPercent } from "@showme/shared";
-import { formatAmount, formatDay, formatMoney, possessiveOf } from "../lib/format";
+import {
+  formatAmount,
+  formatDay,
+  formatMoney,
+  oneCurrencyOrNull,
+  possessiveOf,
+} from "../lib/format";
 import type { SettlementStep } from "./SettlementStepper";
 import type { TransferState } from "./WhoOwesWhomBoard";
 
@@ -846,6 +852,15 @@ export type SettlementListItem = Awaited<ReturnType<typeof getApiV1Settlements>>
 
 /** The four headline figures, already formatted. */
 export interface SettlementTotals {
+  /**
+   * WHY THE FIGURES ARE DASHES, when they are — decisions §25.8.1, Daniel's ruling.
+   *
+   * Null whenever the four above are real. A sentence when the rows span more than one currency,
+   * because a tile that prints `—` without saying why reads as "no money" rather than as "not one
+   * number". It names the currencies it found, since the reader's next question is which show is the
+   * odd one out.
+   */
+  mixedCurrencyNote: string | null;
   /** Money that has actually moved — `paid`, and nothing else. */
   paid: string;
   /** Under review right now: sent for review, commented on, or revised. */
@@ -924,9 +939,21 @@ export function settlementTotals(settlements: SettlementListItem[]): SettlementT
     settlements
       .filter((row) => row.entitlement != null && predicate(row))
       .reduce((total, row) => total + BigInt(row.entitlement as string), 0n);
-  const currency = settlements[0]?.currency ?? null;
+  /*
+   * ONE CURRENCY OR NONE (decisions §25.8.1). This read `settlements[0]?.currency` — the FIRST
+   * row's — and labelled a sum of every row with it, so a Swedish operator with one Oslo show read a
+   * SEK+NOK total under "SEK" with the minor units added as though they were the same unit.
+   *
+   * Refusing is the ruling, and the alternative waits on infrastructure rather than on a decision: a
+   * single converted tile with `≈` needs `exchange_rate_cache` to be filled, and the key is bought
+   * while the table is empty in production, so converting today would light "no live rate" on every
+   * tile.
+   */
+  const currencies = [...new Set(settlements.map((row) => row.currency).filter(Boolean))];
+  const currency = oneCurrencyOrNull(currencies);
+  const mixed = currency === null && currencies.length > 1;
   const format = (amount: bigint) =>
-    settlements.length === 0
+    settlements.length === 0 || mixed
       ? "—"
       : currency
         ? formatMoney(amount.toString(), currency)
@@ -936,6 +963,9 @@ export function settlementTotals(settlements: SettlementListItem[]): SettlementT
     inReview: format(sum((row) => IN_REVIEW_STATUSES.has(row.status))),
     outstanding: format(sum((row) => row.status !== "paid")),
     finalized: format(sum((row) => row.status === "finalized")),
+    mixedCurrencyNote: mixed
+      ? `These settlements are in ${currencies.sort().join(" and ")}, so they do not add up to one figure. Open a night to see its own money.`
+      : null,
   };
 }
 

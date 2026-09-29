@@ -29,7 +29,7 @@ import {
 } from "../components/invoiceDocument";
 import { ErrorState, LoadingState } from "../components/states";
 import { errorMessage } from "../lib/errors";
-import { formatAmount, formatMoney } from "../lib/format";
+import { formatAmount, formatMoney, oneCurrencyOrNull } from "../lib/format";
 
 type Invoice = Awaited<ReturnType<typeof getApiV1ProfilesIdInvoices>>[number];
 type Direction = "issued" | "received";
@@ -89,11 +89,18 @@ export function Invoices() {
      * `formatAmount` exists for precisely this and says so in its own comment —
      * showing a number under the wrong symbol is worse than showing it under none.
      */
-    let currency: string | null = null;
+    /*
+     * ONE CURRENCY OR NONE (decisions §25.8.1). This loop used to do
+     * `if (invoice.currency) currency = invoice.currency`, which keeps the LAST row's and labels a
+     * sum of every row with it — the same defect `settlementTotals` had from the FIRST row, in the
+     * opposite spelling. A ledger with one Oslo invoice read its whole total under the wrong symbol.
+     */
+    const currency = oneCurrencyOrNull(invoices.map((invoice) => invoice.currency));
+    const mixed =
+      currency === null && new Set(invoices.map((row) => row.currency).filter(Boolean)).size > 1;
     for (const invoice of invoices) {
       const amount = Number(invoice.total ?? 0);
       if (!Number.isFinite(amount)) continue;
-      if (invoice.currency) currency = invoice.currency;
       // A draft is in neither total: see `countsAsMoneyOwed` (QA7-13). The row still
       // shows in the table below — it is money that has not started moving, not money
       // that does not exist.
@@ -102,7 +109,7 @@ export function Invoices() {
       if (moving && invoice.direction === "issued") receivable += amount;
       if (isInvoiceOverdue(invoice)) overdue += amount;
     }
-    return { payable, overdue, receivable, currency };
+    return { payable, overdue, receivable, currency, mixed };
   }, [invoices]);
   /**
    * THE LEDGER'S OWN CURRENCY — AND ONLY ON AN EMPTY LEDGER, THE READER'S (QA7-19).
@@ -123,11 +130,19 @@ export function Invoices() {
    * EUR, which is the guess that produced that defect. Nothing known, no symbol.
    */
   const money = (amount: number) => {
+    // A ledger spanning currencies has no one figure to show, so it shows none and says why below
+    // (decisions §25.8.1). Adding minor units across currencies is not a labelling problem.
+    if (kpis.mixed) return "—";
     const reader =
       invoices.length === 0 ? (currencyForCountry(homeCountry) ?? accountCurrency) : null;
     const denomination = kpis.currency ?? reader;
     return denomination ? formatMoney(amount, denomination) : formatAmount(amount);
   };
+
+  /** Said under the tiles when they are dashes, because a dash alone reads as "nothing owed". */
+  const mixedCurrencyNote = kpis.mixed
+    ? `These invoices are in ${[...new Set(invoices.map((row) => row.currency).filter(Boolean))].sort().join(" and ")}, so they do not add up to one figure. Open one to see its own amount.`
+    : null;
 
   return (
     <>
@@ -182,6 +197,12 @@ export function Invoices() {
               },
             ]}
           />
+
+          {mixedCurrencyNote && (
+            <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5 }}>
+              {mixedCurrencyNote}
+            </p>
+          )}
 
           <SegmentedToggle<Tab>
             aria-label="Invoice view"

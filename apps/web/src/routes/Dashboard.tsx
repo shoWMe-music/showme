@@ -562,6 +562,16 @@ export function Dashboard() {
           from `settlementTotals`. */}
       <div>
         <Eyebrow>Settlements</Eyebrow>
+        {/*
+          THE SAME REFUSAL AS THE SETTLEMENTS SCREEN, on the same figures (decisions §25.8.1). Four
+          dashes with no sentence read as "no money", which is the denial this band was built to
+          stop — a placeholder is honest, a denial is not, and "not one number" is neither.
+        */}
+        {settlementFigures.mixedCurrencyNote && (
+          <p className="muted" style={{ margin: "0 0 10px", fontSize: 12.5, lineHeight: 1.5 }}>
+            {settlementFigures.mixedCurrencyNote}
+          </p>
+        )}
         <div className={styles.kpiGrid}>
           <KpiTile
             dot="#6FC97A"

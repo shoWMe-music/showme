@@ -283,3 +283,38 @@ export function possessiveOf(name: string): string {
   // to pin the lowercase-only behaviour as though it were deliberate.
   return /s$/i.test(name) ? `${name}'` : `${name}'s`;
 }
+
+/**
+ * THE ONE CURRENCY A SUM MAY BE LABELLED WITH, or `null` when there is not one.
+ *
+ * decisions §25.8.1, Daniel's ruling: *whenever the rows a tile sums are not all one currency, print
+ * `—` and a note saying why.* A total is a single number, and a single number can only honestly
+ * carry a symbol when every figure inside it already does.
+ *
+ * Three surfaces guessed instead, each differently, and each guess was wrong in the same direction:
+ * `settlementTotals` took `settlements[0].currency` (the FIRST row), `/invoices` kept the LAST row's
+ * in a loop, and `/projections` fell back through the first event's base currency to a hardcoded
+ * `"EUR"`. So a Swedish operator with one Oslo show read a SEK+NOK total labelled SEK, with the minor
+ * units added together as though they were the same unit.
+ *
+ * `formatAmount` above was written for precisely this and says so — *"showing a number under the
+ * wrong symbol is worse than showing it under none"* — and all three callers did the thing it tells
+ * them not to. This is the question they needed to ask first.
+ *
+ * `null` covers three different absences on purpose, because every one of them means the same thing
+ * to a caller: there is no symbol this sum may wear. Nothing to sum, nothing carrying a currency,
+ * and more than one currency. The caller distinguishes them by what it already knows (an empty list
+ * is an empty list), not by asking this.
+ */
+export function oneCurrencyOrNull(codes: readonly (string | null | undefined)[]): string | null {
+  let seen: string | null = null;
+  for (const code of codes) {
+    if (!code) continue;
+    if (seen === null) {
+      seen = code;
+      continue;
+    }
+    if (seen !== code) return null;
+  }
+  return seen;
+}

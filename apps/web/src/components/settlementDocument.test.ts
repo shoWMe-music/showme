@@ -312,14 +312,14 @@ describe("settlementTotals", () => {
   // Intl puts a NARROW NO-BREAK SPACE between symbol and figure; the assertions read
   // better with a plain one than with an escape in every expected string.
   const plain = (text: string) => text.replace(/\u00a0|\u202f/g, " ");
-  const item = (status: string, entitlement: string) => ({
-    id: status,
+  const item = (status: string, entitlement: string, currency = "SEK") => ({
+    id: `${status}-${currency}`,
     version: 1,
     participantId: null,
     net: entitlement,
     status,
     entitlement,
-    currency: "SEK",
+    currency,
     approvedByYou: false,
     signableByYou: true,
     event: { id: status, status: "concluded", title: status, eventDate: null },
@@ -332,6 +332,56 @@ describe("settlementTotals", () => {
     // Outstanding is everything not paid — the finalized money included, because it
     // has not moved.
     expect(plain(totals.outstanding)).toBe("SEK 22,290");
+  });
+
+  it("refuses to name a figure when the rows span CURRENCIES, and says why", () => {
+    /*
+     * decisions §25.8.1, Daniel's ruling: whenever the rows a tile sums are not all one currency,
+     * print `—` and a note saying why.
+     *
+     * This read `settlements[0]?.currency` and labelled a sum of every row with the FIRST one, so a
+     * Swedish operator with one Oslo show read a SEK+NOK total under "SEK" — the minor units added
+     * together as though they were the same unit. Not a labelling slip: 2,070,000 öre plus 159,000
+     * øre is not a quantity of anything.
+     */
+    const totals = settlementTotals([
+      item("finalized", "2070000", "SEK"),
+      item("paid", "159000", "NOK"),
+    ]);
+    expect(totals.paid).toBe("—");
+    expect(totals.inReview).toBe("—");
+    expect(totals.outstanding).toBe("—");
+    expect(totals.finalized).toBe("—");
+    // The note names both, because the reader's next question is which show is the odd one out.
+    expect(totals.mixedCurrencyNote).toContain("NOK and SEK");
+    expect(totals.mixedCurrencyNote).toContain("do not add up to one figure");
+  });
+
+  it("puts the odd currency LAST as well as first, so neither end can be lucky", () => {
+    // The three surfaces this ruling closed picked the first row, the last row, and a hardcoded
+    // default. An assertion that only tries one order cannot tell a fix from a coincidence.
+    for (const rows of [
+      [item("paid", "100", "NOK"), item("paid", "100", "SEK"), item("paid", "100", "SEK")],
+      [item("paid", "100", "SEK"), item("paid", "100", "SEK"), item("paid", "100", "NOK")],
+    ]) {
+      expect(settlementTotals(rows).paid, JSON.stringify(rows.map((r) => r.currency))).toBe("—");
+    }
+  });
+
+  it("still names ONE currency when every row agrees — THE CONTROL", () => {
+    // So the dashes above are the mix and not the tiles having stopped working.
+    const totals = settlementTotals([item("paid", "100000", "NOK"), item("paid", "50000", "NOK")]);
+    expect(plain(totals.paid)).toContain("1,500");
+    expect(totals.paid).not.toBe("—");
+    expect(totals.mixedCurrencyNote).toBeNull();
+  });
+
+  it("says nothing about a mix when the ledger is EMPTY — the UNSET case", () => {
+    // An empty ledger already shows dashes, and it has no currencies to disagree about. A note
+    // there would explain a refusal that never happened.
+    const totals = settlementTotals([]);
+    expect(totals.paid).toBe("—");
+    expect(totals.mixedCurrencyNote).toBeNull();
   });
 
   it("does not call an untouched settlement a review", () => {

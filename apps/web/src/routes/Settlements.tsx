@@ -241,9 +241,14 @@ export function Settlements() {
             cheaper than four disjoint buckets, and truer: these are four questions about
             the same money, not four slices of it.
           */}
+          {/*
+            WHEN THE ROWS SPAN CURRENCIES THIS SENTENCE IS THE WRONG ONE (decisions §25.8.1). The
+            four tiles are dashes then, and explaining how four dashes overlap says nothing. The
+            note says why there is no figure — a dash on its own reads as "no money".
+          */}
           <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5 }}>
-            These count the same money four ways rather than splitting it: Outstanding is everything
-            not yet paid, so anything Finalized or In review is inside it too.
+            {totals.mixedCurrencyNote ??
+              "These count the same money four ways rather than splitting it: Outstanding is everything not yet paid, so anything Finalized or In review is inside it too."}
           </p>
 
           <div

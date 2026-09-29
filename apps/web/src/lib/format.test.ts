@@ -18,6 +18,7 @@ import {
   formatMoneyExact,
   formatMonthYear,
   formatTime,
+  oneCurrencyOrNull,
   parseDayLocal,
   possessiveOf,
   relativeTime,
@@ -295,5 +296,37 @@ describe("possessiveOf", () => {
      */
     expect(possessiveOf("NORTHLIGHT PRESENTS")).toBe("NORTHLIGHT PRESENTS'");
     expect(possessiveOf("THE LANTERN HALL")).toBe("THE LANTERN HALL's");
+  });
+});
+
+describe("the one currency a sum may be labelled with", () => {
+  it("names it when every row agrees", () => {
+    expect(oneCurrencyOrNull(["SEK", "SEK", "SEK"])).toBe("SEK");
+    expect(oneCurrencyOrNull(["EUR"])).toBe("EUR");
+  });
+
+  it("names NOTHING when the rows disagree — the ruling this exists for", () => {
+    /*
+     * decisions §25.8.1. A Swedish operator with one Oslo show read a SEK+NOK total labelled SEK,
+     * the minor units added as though they were the same unit. Asserted in both orders, because the
+     * three callers this replaces picked the first row, the last row and a hardcoded default — so
+     * "it happens to be right when the odd one is last" is not good enough.
+     */
+    expect(oneCurrencyOrNull(["SEK", "NOK"])).toBeNull();
+    expect(oneCurrencyOrNull(["NOK", "SEK"])).toBeNull();
+    expect(oneCurrencyOrNull(["SEK", "SEK", "NOK", "SEK"])).toBeNull();
+  });
+
+  it("ignores rows carrying no currency, and does not let them hide a mix", () => {
+    // A row with no currency is not a second currency — but it must not mask one either.
+    expect(oneCurrencyOrNull(["SEK", null, "SEK"])).toBe("SEK");
+    expect(oneCurrencyOrNull([null, "SEK", undefined])).toBe("SEK");
+    expect(oneCurrencyOrNull(["SEK", null, "NOK"])).toBeNull();
+    expect(oneCurrencyOrNull([null, "SEK", "NOK"])).toBeNull();
+  });
+
+  it("names nothing for an empty set or a set with no currency at all — the UNSET cases", () => {
+    expect(oneCurrencyOrNull([])).toBeNull();
+    expect(oneCurrencyOrNull([null, undefined, ""])).toBeNull();
   });
 });

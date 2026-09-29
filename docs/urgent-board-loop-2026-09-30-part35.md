@@ -123,3 +123,99 @@ Browser, co-host dashboard: renders, and the only two em dashes left on the page
 `"Marlo Vance — Album Release"` — the event-title separator, which is the typography the sweep
 deliberately keeps.
 
+---
+
+## 2. decisions §25.8.1 — a money tile that cannot name one currency prints nothing
+
+**Daniel's ruling:** *refuse now, convert when the FX cache is real.* Whenever the rows a tile sums
+are not all one currency, print `—` and a note saying why. Move to a single converted tile with `≈`
+once `exchange_rate_cache` is actually being filled.
+
+### Which files settle it — three, in three different spellings
+
+The §25.6 row named the shape on the dashboard, `/invoices` and `/projections`. Measured, each one
+has it differently, and only the first was written down:
+
+| Surface | How it picks the label | What it can say |
+| --- | --- | --- |
+| `settlementDocument.ts::settlementTotals` | `settlements[0]?.currency` — the **first** row | a SEK+NOK sum labelled SEK |
+| `routes/Invoices.tsx` | `if (invoice.currency) currency = invoice.currency` in a loop — the **last** row | the same, labelled by whichever invoice happens to be last |
+| `routes/Projections.tsx` | `revenue.data?.currency ?? eventItems[0]?.baseCurrency ?? "EUR"` | **worse** — a hardcoded `"EUR"` can label a total with no EUR in it at all |
+
+All three already know the right answer is available: `formatAmount` exists for exactly this and its
+own comment says so — *"showing a number under the wrong symbol is worse than showing it under
+none, so callers must use this instead of letting `formatMoney` fall back to a default currency."*
+Three callers did the thing it tells them not to.
+
+### Scope
+
+One decision, in `apps/web/src/lib/format.ts` beside the formatters it governs, because "which
+currency may label this sum" is the same question `formatAmount` was written to answer:
+
+```ts
+oneCurrencyOrNull(codes: readonly (string | null | undefined)[]): string | null
+```
+
+`null` for an empty set, for a set with no currency on it, and — the case this is for — for a set
+that carries more than one. The three callers then print `—` and say why rather than guessing, and
+`Projections` loses its `"EUR"`.
+
+Not a conversion, and not `useDisplayCurrency`: the ruling is explicit that the converted tile waits
+on the cache being filled, because the key is bought while `exchange_rate_cache` is empty in
+production and converting today would light "no live rate" on every tile.
+
+### Built
+
+`oneCurrencyOrNull` in `apps/web/src/lib/format.ts`, beside the formatters it governs, and three
+callers rewritten to ask it. `null` covers three absences deliberately — nothing to sum, nothing
+carrying a currency, more than one currency — because every one of them means the same thing to a
+caller: **there is no symbol this sum may wear.**
+
+Each surface then makes the same three-way choice: one currency → `formatMoney`; none at all →
+`formatAmount` (the figure with no symbol, which is what that function exists for — a dash there
+would deny a number the screen does have); a **mix** → `—` plus a note naming the currencies, because
+a dash on its own reads as *"no money"* rather than as *"not one number"*.
+
+`/projections` also stops labelling each ROW with the screen-wide guess: a row carries its own
+`baseCurrency`, which is the one thing an aggregate can never say. Falling back to `formatAmount`
+rather than to the aggregate, because borrowing a neighbour's symbol is the defect one line up.
+
+### I got Projections wrong first, and the browser said so
+
+The first version kept `revenue.data?.currency` as the first choice, on the reasoning that the
+profile's revenue endpoint is *a statement rather than a guess*. It is — **about the all-time realized
+figure further down.** The tiles sum the EVENTS IN VIEW. With one Oslo night in scope the ledger still
+answered SEK and the tiles still printed a SEK+NOK sum, so the ruling was implemented on every
+surface except the one that prompted it.
+
+`tsc` was clean, 630 web tests passed, and the mutation run on `oneCurrencyOrNull` was 4/4 — none of
+it could see this, because the defect was in *which value I passed*, not in the function. The browser
+showed `SEK 276,000` where the note should have been. **One field answering two questions**, again,
+and this time in a fix written for that exact class.
+
+### Proved on the running stack — all four surfaces
+
+Made genuinely mixed rather than argued about: `Spring Warmup` flipped to `NOK` (so
+`GET /settlements` answers `{SEK: 1, NOK: 1}`) and one invoice flipped to `NOK`. Both reverted after.
+
+| Surface | Tiles | Note |
+| --- | --- | --- |
+| Dashboard settlements band | `Paid — · In review — · Outstanding — · Finalized —` | *"These settlements are in NOK and SEK…"* |
+| `/settlements` | same four | same note, **replacing** the four-ways-of-counting sentence, which explains nothing about four dashes |
+| `/projections` | all four `—` | *"The events in this view are in NOK and SEK…"* |
+| `/invoices` | all three `—` | *"These invoices are in NOK and SEK…"* |
+
+And the rows below every one of them keep their **own** real figures — `SEK 23,100` beside
+`NOK 20,700` on the dashboard, `NOK 78,000` for Spring Warmup on Projections. The refusal is on the
+aggregate, never on the facts.
+
+### Mutations — eight, all killed
+
+`oneCurrencyOrNull` 4/4, including returning the FIRST currency seen and returning the LAST — the two
+spellings the callers actually had. `settlementTotals` 4/4, including reporting a mix on an empty
+ledger, which would explain a refusal that never happened.
+
+### Suites
+
+`npx biome check .` 756 clean · web **630** (from 622) · `tsc --noEmit` clean.
+

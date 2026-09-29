@@ -24,7 +24,7 @@ import {
   forecastsNothing,
   projectFromBudgets,
 } from "../lib/eventProjection";
-import { formatMoney } from "../lib/format";
+import { formatAmount, formatMoney, oneCurrencyOrNull } from "../lib/format";
 import { isDestinationForKind } from "../shell/navigation";
 type BudgetList = Awaited<ReturnType<typeof getApiV1EventsIdBudgets>>;
 
@@ -136,7 +136,47 @@ function ProjectionsScreen() {
   });
   const budgetsPending = eventItems.length > 0 && budgetQueries.some((query) => query.isPending);
 
-  const currency = revenue.data?.currency ?? eventItems[0]?.baseCurrency ?? "EUR";
+  /*
+   * ONE CURRENCY OR NONE (decisions §25.8.1, Daniel's ruling). This read
+   * `revenue.data?.currency ?? eventItems[0]?.baseCurrency ?? "EUR"` — the first event's, and then a
+   * hardcoded EUR, which is the worst of the three spellings this ruling closed: it can label a
+   * total with a currency not a single show on the screen is in. `formatAmount`'s own comment names
+   * that fallback as the thing callers must not do.
+   *
+   * AND NOT `revenue.data.currency` EITHER, which the first version of this fix reached for first.
+   * That field is the profile's LEDGER currency. It is authoritative about the all-time realized
+   * figure further down and it is not about these tiles, which sum the EVENTS in view — so with one
+   * Oslo night in scope the ledger still answered SEK and the tiles still printed a SEK+NOK sum. The
+   * ruling was implemented on every surface except the one that prompted it. One field, two
+   * questions; it now labels only the figure it is actually about.
+   */
+  const eventCurrencies = [
+    ...new Set(eventItems.map((event) => event.baseCurrency).filter(Boolean)),
+  ];
+  const currency = oneCurrencyOrNull(eventCurrencies);
+  const mixedCurrencyNote =
+    currency === null && eventCurrencies.length > 1
+      ? `The events in this view are in ${eventCurrencies.sort().join(" and ")}, so they do not add up to one figure. Narrow the scope to one currency, or open a night to see its own money.`
+      : null;
+  /*
+   * Three cases, the same three `settlementTotals` has. A MIX refuses, because minor units from two
+   * currencies are not a quantity of anything. NO currency at all keeps the figure and drops the
+   * symbol, which is what `formatAmount` is for — a dash there would deny a number the screen has.
+   */
+  const money = (amountMinor: number) =>
+    currency !== null
+      ? formatMoney(amountMinor, currency)
+      : eventCurrencies.length > 1
+        ? dash
+        : formatAmount(amountMinor);
+  /*
+   * A ROW keeps its OWN currency, which is the point the aggregate cannot make. The table used to
+   * label every row with the screen-wide guess, so on a mixed list the Oslo night's figure was
+   * printed in SEK. Falling back to `formatAmount` and not to the aggregate: an event with no base
+   * currency has no symbol, and borrowing one from its neighbours is the defect one row up.
+   */
+  const rowMoney = (amountMinor: string | number, baseCurrency: string | null | undefined) =>
+    baseCurrency ? formatMoney(amountMinor, baseCurrency) : formatAmount(amountMinor);
 
   const now = Date.now();
   const projections = eventItems
@@ -177,13 +217,13 @@ function ProjectionsScreen() {
       label: "Projected Revenue",
       // The figure is summed over the budgeted events, so the caption counts those
       // — not the scope match, which is what made an empty card read as a bug.
-      value: hasProjection ? formatMoney(totalRevenueMinor, currency) : dash,
+      value: hasProjection ? money(totalRevenueMinor) : dash,
       hint: budgetsPending ? "Loading budgets…" : coverageHint(coverage),
       tone: "green" as const,
     },
     {
       label: "Projected Costs",
-      value: hasProjection ? formatMoney(totalCostMinor, currency) : dash,
+      value: hasProjection ? money(totalCostMinor) : dash,
       hint: "All-in",
       tone: "red" as const,
     },
@@ -200,7 +240,7 @@ function ProjectionsScreen() {
        * right; the word over it was not.
        */
       label: "Revenue − costs",
-      value: hasProjection ? formatMoney(totalBeforeDealsMinor, currency) : dash,
+      value: hasProjection ? money(totalBeforeDealsMinor) : dash,
       hint:
         overallMargin === null
           ? "Before the deals pay out"
@@ -209,7 +249,7 @@ function ProjectionsScreen() {
     },
     {
       label: "Avg per Event",
-      value: avgBeforeDealsMinor === null ? dash : formatMoney(avgBeforeDealsMinor, currency),
+      value: avgBeforeDealsMinor === null ? dash : money(avgBeforeDealsMinor),
       hint: "Per show, before deals",
       tone: "neutral" as const,
     },
@@ -239,7 +279,7 @@ function ProjectionsScreen() {
       render: (row) =>
         row.hasBudget ? (
           <span style={{ fontFamily: "var(--font-mono)" }}>
-            {formatMoney(row.revenueMinor, currency)}
+            {rowMoney(row.revenueMinor, row.event.baseCurrency)}
           </span>
         ) : (
           <span style={{ color: "var(--dim)" }}>{dash}</span>
@@ -258,7 +298,7 @@ function ProjectionsScreen() {
               color: row.beforeDealsMinor < 0 ? NEGATIVE : POSITIVE,
             }}
           >
-            {formatMoney(row.beforeDealsMinor, currency)}
+            {rowMoney(row.beforeDealsMinor, row.event.baseCurrency)}
           </span>
         ) : (
           <span style={{ color: "var(--dim)" }}>{dash}</span>
@@ -307,7 +347,7 @@ function ProjectionsScreen() {
       <div style={{ color: "var(--muted)", fontSize: 12.5 }}>
         All time, as host — ignoring the filter above: budgeted revenue{" "}
         <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>
-          {formatMoney(revenue.data.totalRevenue, currency)}
+          {rowMoney(revenue.data.totalRevenue, revenue.data.currency)}
         </span>{" "}
         across {summary.data.eventsHosted} {pluralEvents(summary.data.eventsHosted)} you hosted.
       </div>
@@ -361,6 +401,17 @@ function ProjectionsScreen() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <KpiRow items={kpiItems} />
+          {/*
+            WHY THE TILES ARE DASHES (decisions §25.8.1). Without it four dashes read as "no
+            pipeline", which is the denial this screen is otherwise careful about — the coverage
+            hint under each tile exists for exactly that reason. The rows below keep their own
+            currencies and stay readable.
+          */}
+          {mixedCurrencyNote && (
+            <p className="muted" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5 }}>
+              {mixedCurrencyNote}
+            </p>
+          )}
           {/*
             WHY THIS SCREEN AND THE PLANNER DIFFER, said once and plainly. Without it a reader has
             two numbers for one night and no way to tell which is theirs.
@@ -450,7 +501,7 @@ function ProjectionsScreen() {
                           fontSize: 14,
                         }}
                       >
-                        {row.hasBudget ? formatMoney(row.revenueMinor, currency) : dash}
+                        {row.hasBudget ? rowMoney(row.revenueMinor, row.event.baseCurrency) : dash}
                       </span>
                     </div>
                     <div
