@@ -1,7 +1,7 @@
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
@@ -914,5 +914,123 @@ describe("GET /settlements/awaiting-signature — where a signature is owed", ()
     const forSecond = await owed(second.agency.userId);
     expect(forSecond.map((row) => row.participantId)).toContain(second.actPart.id);
     expect(forSecond.map((row) => row.participantId)).not.toContain(first.actPart.id);
+  });
+});
+
+describe("a CANCELLED deal discloses nothing", () => {
+  it("stops an observer's grant the moment the agreement is withdrawn", async () => {
+    /*
+     * QA sweep run 13's MAJOR. `partiesVisibleTo` joined `deal_parties → deals` filtering on
+     * `deals.eventId` and nothing else, while every other reader of `deals` on this path excludes
+     * cancelled (`reconcileEvent`, `hiddenCount`, `useBudgetSeed`). So a crew member whose only
+     * qualifying rows were `observer` on two CANCELLED deals was served another party's whole
+     * settlement — SEK 30,800, earned under a deal she was not a party to in any role.
+     *
+     * §25.7.2 calls cancelling "the NORMAL ending for an agreement", so these grants accumulated
+     * over an event's life and never expired.
+     */
+    const host = await seedOperator("cxl-host", "Host", PRESET_PERMISSION_SETS.operator_full);
+    const coHost = await seedOperator("cxl-co", "Co-promoter", []);
+    const crew = await seedCrew("cxl-crew", "Priya Sound");
+    const { event } = await seedNightFor(host, coHost, "accepted");
+
+    const [crewPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: crew.profileId,
+        role: "crew",
+        permissionSetId: null,
+        status: "confirmed",
+      })
+      .returning();
+    if (!crewPart) throw new Error("crew seed failed");
+    /*
+     * THE COUNTERPARTY MUST BE A NON-OPERATOR, and my first version used the co-host — which proved
+     * nothing, because `partiesVisibleTo` strips every participant who OPERATES the event however
+     * the deal is pointed (QA10-2). The control passed vacuously for a reason that had nothing to do
+     * with `cancelled`. The sweep's own case is a performer: crew observing a Lantern Hall ↔ Neon
+     * Tide deal was served Neon Tide's figures.
+     */
+    const act = await seedOperator("cxl-act", "Neon Tide", PRESET_PERMISSION_SETS.performer);
+    const [actPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: act.profileId,
+        role: "performer",
+        permissionSetId: act.permissionSetId,
+        status: "confirmed",
+      })
+      .returning();
+    if (!actPart) throw new Error("act participant seed failed");
+
+    /*
+     * A deal the crew member merely OBSERVES — #4's read-only way to share one. Inserted directly
+     * because this test app registers only `settlementRoutes`; the subject is `partiesVisibleTo`,
+     * not the deals routes.
+     */
+    const [observed] = await harness.db
+      .insert(schema.deals)
+      .values({
+        eventId: event.id,
+        type: "fee",
+        structure: "guarantee",
+        name: "A guarantee the engineer watches",
+        currency: "SEK",
+        guaranteeAmount: 500000n,
+        createdBy: host.userId,
+      })
+      .returning();
+    if (!observed) throw new Error("observed deal seed failed");
+    await harness.db.insert(schema.dealParties).values([
+      { dealId: observed.id, participantId: actPart.id, roleInDeal: "payee" },
+      { dealId: observed.id, participantId: crewPart.id, roleInDeal: "observer" },
+    ]);
+    // Every agreement on the night has to be signed before the settlement will open.
+    await signEveryAgreement(harness.db, event.id);
+    const recomputed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+    expect(recomputed.statusCode).toBe(200);
+
+    const disclosedTo = async (userId: string) => {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/settlements`,
+        headers: auth(userId),
+      });
+      expect(response.statusCode).toBe(200);
+      return (response.json().settlements as { participantId: string }[]).map(
+        (row) => row.participantId,
+      );
+    };
+
+    /*
+     * THE CONTROL FIRST, and it is what makes the assertion below about `cancelled` rather than
+     * about observers: while the deal is LIVE, observing it does disclose the counterparty — that is
+     * A-07's deliberate rule and it must not move.
+     */
+    const whileLive = await disclosedTo(crew.userId);
+    expect(whileLive).toContain(actPart.id);
+
+    /*
+     * Withdraw it. No recompute: `partiesVisibleTo` reads the LIVE `deals` row on every request, so
+     * the grant has to fall away on the next read rather than at the next reconciliation — which is
+     * the half that made these accumulate.
+     */
+    await harness.db
+      .update(schema.deals)
+      .set({ status: "cancelled" })
+      .where(eq(schema.deals.id, observed.id));
+
+    // The agreement is withdrawn, so the grant it carried is withdrawn with it.
+    const afterCancel = await disclosedTo(crew.userId);
+    expect(afterCancel).not.toContain(actPart.id);
+    // Their OWN row is untouched — this narrows what somebody else's membership discloses, never
+    // what a party may read about their own money.
+    expect(afterCancel).toContain(crewPart.id);
   });
 });

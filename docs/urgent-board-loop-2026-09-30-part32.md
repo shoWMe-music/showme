@@ -307,3 +307,75 @@ surviving mutation meaning "redundant" rather than "untested"**, and the reasoni
 where the line used to be.
 
 Suites: biome 748 files · API `deals` **85** (was 83) · `shares` 49 · `settlement` 124.
+
+---
+
+## 6. [MAJOR] A cancelled deal still opens the other parties' settlement figures — run 13 §2
+
+**Which file settles it:** `apps/api/src/routes/settlement.ts` — `partiesVisibleTo`, whose join filters
+on `deals.eventId` **and nothing else**.
+
+**What was measured.** `professional@` (Priya Sound, crew, permission set `{event.view,
+schedule.view}`) is served **Neon Tide's whole settlement**:
+
+> "Neon Tide · Performer · **70% of the adjusted net — Neon Tide's 40% of the deal's SEK 77,000** ·
+> **SEK 30,800**"
+
+Her only qualifying `deal_parties` rows on the event are **observer rows on two CANCELLED deals**.
+
+**The report is right that there are two defects in one query, and they are not the same kind of
+thing. I am fixing one and putting the other to Daniel.**
+
+### (a) No status filter — fixed here
+
+Every other reader of `deals` on this path excludes `cancelled`: `reconcileEvent`'s
+`ne(schema.deals.status, "cancelled")`, `hiddenCount`'s `paying()` (part 30 §2a), and
+`useBudgetSeed`'s rentals filter. This one does not. §25.7.2 calls cancelling **"the NORMAL ending
+for an agreement"**, so these grants accumulate over an event's life and **never expire** — a deal
+withdrawn in March still opens a counterparty's figures in December.
+
+**This closes the case the sweep actually reproduced**: with the clause, Priya's two observer rows
+stop qualifying and she is disclosed nothing at all. One clause, and it makes this query agree with
+the four that already said it.
+
+### (b) Participant granularity where the grant is per-DEAL — NOT fixed; a §25.6 row
+
+The deeper half. `partiesVisibleTo` returns **participant ids**, and the route then serves those
+participants' whole settlement rows — so observing a SEK 5,000 guarantee discloses a **SEK 30,800**
+entitlement earned under `d1`, a different agreement the observer is not party to in any role.
+
+**Why I am not fixing it on my own judgement.** The role rule is decisions #4's and is right:
+`observer` is *"#4's explicit read-only way to share a deal — they can see it because they are now a
+party"*. What is wrong is that *seeing the deal* has been implemented as *seeing that participant's
+entire settlement*. Narrowing it reverses part of what A-07 and QA10-2 built deliberately, and
+`settlement.test.ts` pins that a payer sees the payee's line. **It is the "whose figures reach whom"
+class, which is exactly what §25.6 is for.**
+
+**And the data supports the narrow answer**, which is worth recording so the question is cheap to
+answer: `SerializedEntitlementLine` carries **`dealId`** on every line, so a disclosed row can be
+scoped to the lines the shared deals produced, with the scalar aggregates (`entitlement`, `net`,
+`collected`, `paid`) withheld rather than partly computed. Recommendation written into §25.6.
+
+**The scope of what lands now.** One `ne(status, 'cancelled')` clause, a test with a live-deal control
+beside the cancelled case, and the §25.6 row for (b).
+
+### What landed, and my control proved nothing until the test said so
+
+The clause, and a test whose **control comes first**: while the deal is live, observing it **does**
+disclose the counterparty — A-07's deliberate rule, which must not move — and then cancelling the
+agreement withdraws the grant it carried, on the next read rather than at the next reconciliation.
+
+**My first control used the CO-HOST as the counterparty and passed vacuously.** `partiesVisibleTo`
+strips every participant who **operates** the event however the deal is pointed (QA10-2), so the
+co-host was never going to be disclosed and the "while live" assertion was standing on a gap the
+scoping already closes. The sweep's own case is a **performer** — crew observing a Lantern Hall ↔ Neon
+Tide deal was served Neon Tide's figures — and with a performer as the payee the control fails on the
+unfixed code and passes on the fixed one, which is what a control is for.
+
+**Third instance of "a test you labelled THE CONTROL can be standing on a gap the scoping already
+closes"**, and the second where the gap was a rule I had read minutes earlier.
+
+Mutations — three, all killed: the clause removed (the defect), the clause inverted (only cancelled
+deals disclose), and the clause filtering `draft` instead.
+
+Suites: biome 748 files · API `settlement-own-read` **15** (was 14) · `settlement` 124.

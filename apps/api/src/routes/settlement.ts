@@ -1270,6 +1270,20 @@ async function partiesVisibleTo(
     .where(
       and(
         eq(schema.deals.eventId, eventId),
+        /*
+         * A CANCELLED DEAL DISCLOSES NOTHING (QA sweep run 13's MAJOR).
+         *
+         * It pays nobody, and every other reader of `deals` on this path already says so:
+         * `reconcileEvent`'s own `ne(status, "cancelled")`, `hiddenCount`'s `paying()`, and
+         * `useBudgetSeed`'s rentals filter. This query was the one that did not — so a grant earned
+         * by observing an agreement survived the agreement being withdrawn, and §25.7.2 calls
+         * cancelling *"the NORMAL ending for an agreement"*, which means these accumulated over an
+         * event's life and never expired.
+         *
+         * Measured: a crew member whose only qualifying rows were `observer` on two CANCELLED deals
+         * was served another party's SEK 30,800 entitlement.
+         */
+        ne(schema.deals.status, "cancelled"),
         inArray(mine.participantId, [...myParticipantIds]),
         inArray(mine.roleInDeal, [...DEAL_ROLES_THAT_SEE_THE_DEAL]),
       ),
