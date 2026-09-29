@@ -657,3 +657,42 @@ mutation reports `1 failed | 86 skipped` with nothing passing, and the "assert t
 guard read that as the `Tests 58 skipped (58)` failure it was written for. The guard now asks whether
 any test EXECUTED (passed + failed > 0) and requires green only of the BASELINE — which still catches
 the original case, where zero executed.
+
+## The full pass, after run 14 closed completely
+
+```
+biome check .                       757 files, no fixes
+@showme/shared                      23 files · 349 tests
+@showme/auth                         1 file  ·  41 tests
+@showme/settlement                   4 files ·  82 tests
+@showme/db                           2 files ·  25 tests
+@showme/web (unit)                  43 files · 649 tests   (up from 630 at ca08a8e)
+@showme/api (full)                  65 files · 1497 tests · 0 skipped, 0 todo
+pnpm test:e2e                       118 passed              (up from 112; motion ×4 green)
+```
+
+`✓ src/` lines counted (65) against `Test Files 65`, and the log grepped for `skipped|todo` — zero
+hits, so the API suite really executed rather than reporting a green shape over a container that
+never bound. Both new Playwright specs ran and passed.
+
+**Run 14 is closed in full**: six MAJORs, nine MINOR/COSMETICs and all three NOTEs. Nothing from it
+is outstanding, and nothing in it was left as a question for Daniel except the two rows already
+recorded (`aada9ba`, `c8f1446`).
+
+## Is a run 15 warranted — yes, and why
+
+The stopping condition is a CLEAN SWEEP, not a green suite, and the two are different claims. This
+file has now recorded seventeen times that **a fix carries its own next defect**, and three of run
+14's six MAJORs were regressions introduced earlier in the same session — every one of them right in
+a unit test and wrong at the surface. What landed since run 14 walked the app is broad:
+
+- the Total Payouts panel's rows AND its total, rebuilt in one pure function;
+- four sentences rewritten, one of them on two surfaces;
+- a new query parameter on `GET /activity`, with two screens moved onto it;
+- a **column default changed by migration**, with a backfill;
+- a **second caller** added to the hold-queue repack, from the events PATCH;
+- a **screen routed for the first time**, plus a new API route the app had never called;
+- a notification's title, body and actor all changed.
+
+A migration, a new route, a rerouted screen and a shared rule gaining a second caller are exactly
+the shapes that have produced surface defects here while every suite stayed green. Run 15 it is.
