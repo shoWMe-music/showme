@@ -488,3 +488,8 @@ rule in a fourth place — is decided against on its own terms.
 **The decision this does NOT take** is unchanged and still Daniel's: *should a tier on Event Details
 write a budget line the moment it is typed?* That would make all three callers agree at the source
 and is a product call, not a refactor.
+
+---
+
+**Run 17's fold-back continues in `part41.md`** — 1 MAJOR, 6 MINOR, 3 COSMETIC, 3 NOTE. Not clean, so
+the loop continues.
