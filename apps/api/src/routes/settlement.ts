@@ -1,5 +1,9 @@
 import { isDeepStrictEqual } from "node:util";
-import { NON_STANDING_PARTICIPANT_STATUSES, liveEventDelegations } from "@showme/auth";
+import {
+  NON_STANDING_PARTICIPANT_STATUSES,
+  effectiveEventCapabilitiesForEvents,
+  liveEventDelegations,
+} from "@showme/auth";
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import {
@@ -230,6 +234,25 @@ const MySettlementsResponse = z.object({
       status: z.string(),
       version: z.number(),
       participantId: z.string().nullable(),
+      /**
+       * HAS THIS READER SIGNED THEIR OWN LINE, and MAY THEY — the pair the Dashboard's
+       * attention card needs, and the same pair the event-scoped read already serves.
+       *
+       * `approvedByYou` cannot be inferred from `status`, because `pending_review`
+       * moves for EVERY party when a settlement is sent out — the operator who
+       * pressed the button included. Reading the status alone would put "review your
+       * figures" on the sender's own card.
+       *
+       * `signableByYou` is the capability, resolved per event. Without it the card
+       * told a CREW member to *"sign off when they match your books"* over a screen
+       * with no such control: `CREW_FLOOR` carries `settlement.view.own` and
+       * deliberately not `settlement.confirm`, so crew are shown their figures and
+       * cannot sign them. Whether that boundary is right is a question for the owner
+       * (decisions §25.6) — what is certainly wrong is a card routing anyone to a
+       * button they do not have (QA6-1).
+       */
+      approvedByYou: z.boolean(),
+      signableByYou: z.boolean(),
       /** The viewer's own figures; null until the event has been computed. */
       entitlement: z.string().nullable(),
       net: z.string().nullable(),
@@ -1085,7 +1108,7 @@ async function participantIdsOf(
  */
 async function approvalRosterOf(
   database: Database,
-  eventId: string,
+  eventId: string | null,
   participantIds: Set<string>,
 ): Promise<Map<string, { approved: boolean; approvedAt: Date | null }>> {
   const roster = new Map<string, { approved: boolean; approvedAt: Date | null }>();
@@ -1099,7 +1122,14 @@ async function approvalRosterOf(
     .from(schema.settlementApprovals)
     .where(
       and(
-        eq(schema.settlementApprovals.eventId, eventId),
+        // NULL EVENT MEANS "WHEREVER THESE PARTICIPANTS ARE" — the cross-event
+        // read `GET /settlements` makes, where the rows already span nights. A
+        // participant id is a uuid and belongs to exactly one event, so dropping
+        // the filter narrows nothing; it is an index hint on the event-scoped
+        // read, not part of the access rule. The fold below is the reason this
+        // takes a null rather than growing a second copy of itself: "approved
+        // once is approved" is a rule, and a rule wants one home.
+        ...(eventId == null ? [] : [eq(schema.settlementApprovals.eventId, eventId)]),
         inArray(schema.settlementApprovals.partyParticipantId, [...participantIds]),
       ),
     );
@@ -1675,6 +1705,30 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         );
       }
 
+      /*
+       * THE READER'S OWN SIGNATURE, across every night at once.
+       *
+       * Same fold as the event-scoped roster — "approved once is approved" —
+       * through the same function, so the list and the settlement document cannot
+       * disagree about whether a line has been signed. Every row above is this
+       * reader's own by construction, so the participant ids ARE the question.
+       */
+      const signedByMe = await approvalRosterOf(
+        database,
+        null,
+        new Set(rows.map((row) => row.participantId).filter((id): id is string => id != null)),
+      );
+
+      /*
+       * AND WHETHER THEY MAY SIGN IT — one round trip for every night in the list,
+       * through the batch resolver the activity feed already uses for exactly this
+       * shape of question. The row is the caller's own by construction, so ownership
+       * is settled and the capability is all that is left.
+       */
+      const capabilitiesByEvent = await effectiveEventCapabilitiesForEvents(database, principal, [
+        ...new Set(rows.map((row) => row.eventId as string)),
+      ]);
+
       return {
         items: rows.map((row) => {
           const computed = (row.computed as SerializedBreakdown | null) ?? null;
@@ -1688,6 +1742,11 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             status: row.status,
             version: row.version,
             participantId: row.participantId,
+            approvedByYou:
+              row.participantId != null && (signedByMe.get(row.participantId)?.approved ?? false),
+            signableByYou:
+              row.participantId != null &&
+              (capabilitiesByEvent.get(row.eventId as string)?.has("settlement.confirm") ?? false),
             // The viewer's own figures — this row is theirs by construction above.
             entitlement: ownFigure ?? computed?.entitlement ?? null,
             net: ownFigure ?? computed?.net ?? null,

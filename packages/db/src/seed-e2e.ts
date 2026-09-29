@@ -61,8 +61,7 @@ function assertSignedDealsAreFullySigned(
     );
     if (unsigned.length > 0) {
       throw new Error(
-        `Seed error: deal "${deal.name ?? deal.id}" is ${deal.agreementStatus} with ${unsigned.length} unsigned signatory line(s). ` +
-          "A confirmed agreement is one every signatory has stamped — give the line a confirmedAt, or write the deal as `sent`.",
+        `Seed error: deal "${deal.name ?? deal.id}" is ${deal.agreementStatus} with ${unsigned.length} unsigned signatory line(s). A confirmed agreement is one every signatory has stamped — give the line a confirmedAt, or write the deal as "sent".`,
       );
     }
   }

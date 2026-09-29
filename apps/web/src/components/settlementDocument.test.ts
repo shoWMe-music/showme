@@ -320,6 +320,8 @@ describe("settlementTotals", () => {
     status,
     entitlement,
     currency: "SEK",
+    approvedByYou: false,
+    signableByYou: true,
     event: { id: status, status: "concluded", title: status, eventDate: null },
   });
 

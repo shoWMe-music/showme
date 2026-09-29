@@ -11,10 +11,16 @@ import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { type AccountKind, useAuth } from "../auth/AuthProvider";
 import { TaskPriorityBadge } from "../components/TaskPriorityBadge";
+import {
+  type AttentionKind,
+  type AttentionTarget,
+  attentionSentence,
+  buildAttentionList,
+} from "../components/attentionList";
 import { settlementStatusToDisplay, settlementTotals } from "../components/settlementDocument";
 import { ErrorState, LoadingState } from "../components/states";
+import { useEventInvitations } from "../hooks/useEventInvitations";
 import { formatAmount, formatDay, formatMoney } from "../lib/format";
-import { apiStatusToDisplay } from "../lib/status";
 import styles from "./Dashboard.module.css";
 
 type TaskItem = {
@@ -24,9 +30,6 @@ type TaskItem = {
   completed: boolean;
   priority: string | null;
 };
-
-/** Events still waiting on an operator decision — the prototype's "needs a decision" set. */
-const NEEDS_DECISION = new Set(["pending", "suggested", "on_hold"]);
 
 /**
  * Who to greet, which is not always the first word of the name.
@@ -67,16 +70,18 @@ function tint(hex: string, alpha = 0.14): string {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
-/** One actionable row on the "needs attention" card. */
-interface AttentionItem {
-  id: string;
-  icon: IconName;
-  color: string;
-  title: string;
-  detail: string;
-  action: string;
-  onAction: () => void;
-}
+/**
+ * HOW EACH KIND LOOKS. The only thing about an attention row that belongs on this
+ * side of the line — `components/attentionList` decides what is on the card and in
+ * what order, because those are product rules and this file cannot test them.
+ */
+const ATTENTION_LOOK: Record<AttentionKind, { icon: IconName; color: string }> = {
+  event: { icon: "calendar", color: "#F4A046" },
+  request: { icon: "inbox", color: "#6FA8E0" },
+  deal: { icon: "file", color: "#C8A24A" },
+  invitation: { icon: "mail", color: "#7FB77E" },
+  settlement: { icon: "receipt", color: "#B07FC8" },
+};
 
 /** A KPI tile matching the prototype: dotted sentence-case label + oversized display value. */
 function KpiTile({
@@ -171,6 +176,16 @@ export function Dashboard() {
    * reader can actually act on, which is what QA6-1 made non-negotiable.
    */
   const awaitingSignature = useGetApiV1DealsAwaitingSignature();
+  /**
+   * BOTH INVITATION INBOXES, through the hook the Requests screen uses.
+   *
+   * Two objects with two answers — a participation answered in place, and an
+   * emailed `invitations` row redeemed on its own page — and the hook already
+   * narrows each to the rows somebody is still waiting on. Reading the two routes
+   * again here would be a second opinion about "unanswered", which is how two
+   * screens come to disagree about the same invitation.
+   */
+  const invitations = useEventInvitations();
 
   const greetingName = displayNameForGreeting(user?.displayName, session?.kind, session?.email);
 
@@ -188,75 +203,52 @@ export function Dashboard() {
 
   const openEvent = (id: string) => navigate({ to: "/events/$eventId", params: { eventId: id } });
 
-  // --- "Needs attention" — assembled from the data we actually have: events
-  // awaiting a decision, unanswered booking requests, and open tasks. ---
-  const attention: AttentionItem[] = [];
-  for (const event of eventList) {
-    if (!NEEDS_DECISION.has(event.status)) continue;
-    attention.push({
-      id: `event-${event.id}`,
-      icon: "calendar",
-      color: "#F4A046",
-      title: `Confirm ${event.title}`,
-      // THE EVENT'S OWN STATUS, not a word for the whole bucket. `NEEDS_DECISION`
-      // covers more than one status, so "Pending event" was printed over `on_hold`
-      // shows while the EVENTS tile on the same screen counted Pending as 0 and On
-      // hold as 2 — one dashboard disagreeing with itself about two named events.
-      detail: `${apiStatusToDisplay(event.status).label} · ${formatDay(event.eventDate)} · needs a decision`,
-      action: "Review",
-      onAction: () => openEvent(event.id),
-    });
-  }
-  for (const request of requestList) {
-    if (request.status !== "pending") continue;
-    const requester = request.artistName ?? request.contactName ?? "New request";
-    attention.push({
-      id: `request-${request.id}`,
-      icon: "inbox",
-      color: "#6FA8E0",
-      title: `Reply to ${requester}`,
-      detail: `Booking request · ${formatDay(request.wantedDate)}`,
-      action: "Review",
-      onAction: () => navigate({ to: "/requests" }),
-    });
-  }
-  /*
-   * A DEAL WAITING FOR YOUR SIGNATURE IS THE PUREST CASE OF THE RULE BELOW (QA7-18).
-   *
-   * Every other party is waiting on this reader, the event's Deals tab offers **Confirm your
-   * line**, and this card — the one that exists to route them there — used to say "You're all
-   * caught up". The count comes from the server and is the same pair the Budget Planner's own
-   * sentence uses, so the two screens cannot disagree about one deal.
-   */
-  for (const deal of awaitingSignature.data?.items ?? []) {
-    const signed =
-      deal.signatoryCount > 0 ? `${deal.signedCount} of ${deal.signatoryCount} signed` : "unsigned";
-    attention.push({
-      id: `deal-${deal.dealId}`,
-      icon: "file",
-      color: "#C8A24A",
-      title: `Sign your line on ${deal.eventTitle}`,
-      detail: `${deal.dealName ?? "Agreement"} · ${signed} · ${formatDay(deal.eventDate)}`,
-      action: "Open",
-      onAction: () =>
-        navigate({
-          to: "/events/$eventId",
-          params: { eventId: deal.eventId },
-          search: { tab: "deals" },
-        }),
-    });
-  }
+  // Every settlement the caller is a party to — the same call the Settlements
+  // screen makes, so the band, that screen and the attention card always agree.
+  const settlementRows = settlementList.data?.items ?? [];
 
   /*
-   * TASKS ARE NO LONGER FOLDED IN HERE. They have a section of their own below
-   * (`123qy9rnk27`), and listing the same five jobs twice on one screen is noise
-   * on the half of the screen that is meant to be a short list.
+   * "NEEDS ATTENTION" — the membership rule, the rank and the count all live in
+   * `components/attentionList`. What is left here is reading the sources and
+   * turning a target into a navigation.
    *
-   * What is left in "Needs attention" is what somebody ELSE is waiting on: an
-   * event awaiting a decision, a booking request nobody has answered. A task is
-   * your own work, which is a different kind of urgency and now reads as one.
+   * It used to be ninety lines of this function, and three of its judgements were
+   * wrong in a way nothing could have caught: the count printed the number SHOWN
+   * as though it were the total, the order was whichever query resolved first, and
+   * three of the five things somebody can be waiting on were not read at all —
+   * a co-promoter holding an unanswered invitation and a settlement sent for
+   * review both read "You're all caught up".
    */
-  const attentionShown = attention.slice(0, 5);
+  const attentionList = buildAttentionList({
+    events: eventList,
+    requests: requestList,
+    dealsAwaitingSignature: awaitingSignature.data?.items ?? [],
+    eventInvitations: invitations.invitations,
+    addressedInvitations: invitations.addressed,
+    settlements: settlementRows,
+  });
+  const attentionShown = attentionList.shown;
+  const sentence = attentionSentence(attentionList.items.length, attentionList.hidden);
+
+  const goTo = (target: AttentionTarget) => {
+    switch (target.to) {
+      case "event":
+        return openEvent(target.eventId);
+      case "eventDeals":
+        return navigate({
+          to: "/events/$eventId",
+          params: { eventId: target.eventId },
+          search: { tab: "deals" },
+        });
+      case "eventSettlement":
+        return navigate({
+          to: "/events/$eventId/settlement",
+          params: { eventId: target.eventId },
+        });
+      case "requests":
+        return navigate({ to: "/requests" });
+    }
+  };
 
   // --- Event stat band (from the insights summary, falling back to the list). ---
   //
@@ -273,9 +265,6 @@ export function Dashboard() {
   // nothing the aggregate is answering a different question, and the list is the
   // honest source. An operator that genuinely hosts zero events falls back to a list
   // that is also empty, so the fallback costs nothing there.
-  // Every settlement the caller is a party to — the same call the Settlements
-  // screen makes, so the band and that screen always agree.
-  const settlementRows = settlementList.data?.items ?? [];
   const settlementFigures = settlementTotals(settlementRows);
   // Most recent first. `eventDate` is nullable on the wire, and an undated event
   // sorts last rather than being dropped — it is still the caller's money.
@@ -319,16 +308,13 @@ export function Dashboard() {
           </span>
         </h2>
         <p style={{ color: "var(--muted)", margin: 0, fontSize: 15 }}>
-          {attentionShown.length === 0 ? (
-            <>You're all caught up — nothing needs your attention today.</>
+          {sentence.caughtUp ? (
+            sentence.text
           ) : (
             <>
-              You have{" "}
-              <b style={{ color: "var(--text)" }}>
-                {attentionShown.length} {attentionShown.length === 1 ? "thing" : "things"}
-              </b>{" "}
-              {/* The verb agrees too: the noun was already conditional and this was not (QA10-16). */}
-              {attentionShown.length === 1 ? "that needs" : "that need"} attention today.
+              {sentence.before}
+              <b style={{ color: "var(--text)" }}>{sentence.count}</b>
+              {sentence.after}
             </>
           )}
         </p>
@@ -339,7 +325,10 @@ export function Dashboard() {
         <EmptyState
           icon={<Icon name="check" />}
           title="Nothing needs attention"
-          description="Pending events, new booking requests and open tasks surface here."
+          // WHAT THIS CARD ACTUALLY READS. It promised "open tasks" for as long as
+          // tasks had their own section below, and would now have been wrong twice
+          // over — the two invitation inboxes and an unsigned settlement are on it.
+          description="Events awaiting a decision, unanswered booking requests and invitations, agreements and settlements waiting on your signature."
         />
       ) : (
         <div className={styles.attentionCard}>
@@ -347,7 +336,7 @@ export function Dashboard() {
             <button
               type="button"
               key={item.id}
-              onClick={item.onAction}
+              onClick={() => goTo(item.target)}
               className={styles.attentionRow}
               style={{
                 width: "100%",
@@ -369,11 +358,11 @@ export function Dashboard() {
                   borderRadius: 11,
                   display: "grid",
                   placeItems: "center",
-                  background: tint(item.color),
-                  color: item.color,
+                  background: tint(ATTENTION_LOOK[item.kind].color),
+                  color: ATTENTION_LOOK[item.kind].color,
                 }}
               >
-                <Icon name={item.icon} size={18} />
+                <Icon name={ATTENTION_LOOK[item.kind].icon} size={18} />
               </span>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span
@@ -394,10 +383,10 @@ export function Dashboard() {
                 style={{
                   fontFamily: "var(--font-mono)",
                   fontSize: 11,
-                  color: item.color,
+                  color: ATTENTION_LOOK[item.kind].color,
                   padding: "4px 10px",
                   borderRadius: 999,
-                  background: tint(item.color),
+                  background: tint(ATTENTION_LOOK[item.kind].color),
                   whiteSpace: "nowrap",
                 }}
               >
@@ -408,6 +397,24 @@ export function Dashboard() {
               </span>
             </button>
           ))}
+          {/*
+            WHAT DID NOT FIT. A sentence, not a link: there is no screen that lists
+            all of this, and a "Show all" pointing nowhere would be worse than
+            saying plainly that the card is showing the closest few. The greeting
+            above counts every one of them.
+          */}
+          {attentionList.hidden > 0 && (
+            <p
+              style={{
+                margin: 0,
+                padding: "12px 16px",
+                color: "var(--dim)",
+                fontSize: 13,
+              }}
+            >
+              and {attentionList.hidden} more, further out
+            </p>
+          )}
         </div>
       )}
 

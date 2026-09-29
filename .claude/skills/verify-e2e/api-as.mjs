@@ -37,6 +37,18 @@ const EMAILS = {
   // existed in the seed, so any probe naming it died on INVALID_EMAIL.
   coHost: "co.host@e2e.showme.test",
 };
+
+/*
+ * THE SAME SEATS UNDER THE NAMES EVERYTHING ELSE CALLS THEM — their email's local
+ * part. Every doc, every QA report and the seed itself say `professional@` and
+ * `co.host@`; the camelCase keys above are this file's own spelling, and a probe
+ * typed from a report died on INVALID_EMAIL for no better reason than that. Aliases
+ * rather than renames, so the existing keys and every script using them keep working.
+ */
+for (const email of Object.values({ ...EMAILS })) {
+  const localPart = email.split("@")[0];
+  if (!(localPart in EMAILS)) EMAILS[localPart] = email;
+}
 const PASSWORD = "Test123!pass";
 
 const tokenCache = new Map();

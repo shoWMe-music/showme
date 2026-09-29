@@ -8328,6 +8328,12 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "approvedByYou": {
+                            "type": "boolean"
+                          },
+                          "signableByYou": {
+                            "type": "boolean"
+                          },
                           "entitlement": {
                             "type": "string",
                             "nullable": true
@@ -8365,6 +8371,8 @@
                           "status",
                           "version",
                           "participantId",
+                          "approvedByYou",
+                          "signableByYou",
                           "entitlement",
                           "net",
                           "currency",

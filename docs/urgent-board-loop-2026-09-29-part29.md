@@ -212,3 +212,185 @@ one fact would be a worse bug than the one it fixes.
 even said so — *"No display-name field exists on a group member"* — true of the payload, false of
 the data. The email-derived label stays for the member invited by address who has no account, which
 is the case it was written for.
+
+---
+
+## 6. QA11-? (run 11 §2, line 221) — the attention card, and the sources it never reads
+
+**Which file settles it:** `apps/web/src/routes/Dashboard.tsx` — but only the CAP lives there. The
+real content is a question about **which sources belong on the card at all**, and the card states its
+own rule twenty lines above the bug:
+
+> *"What is left in 'Needs attention' is what somebody ELSE is waiting on: an event awaiting a
+> decision, a booking request nobody has answered. A task is your own work, which is a different
+> kind of urgency."*
+
+That sentence is the test every candidate source has to pass. It is also why tasks were removed from
+this card in an earlier commit, so it is a rule the file has already been willing to act on.
+
+### The four things the sweep reported, judged one at a time
+
+| # | The sweep's claim | Verdict |
+|---|---|---|
+| 1 | The count is capped at five and says five when there are six | **Real.** `attentionShown.length` is the *shown* count, printed as though it were the total |
+| 2 | The order is unstable between the first paint and later ones | **Real.** `attention` is in ARRIVAL order — events, then requests, then deals — so which item survives `slice(0, 5)` depends on which query resolved |
+| 3 | It never reads pending invitations or settlements sent for review | **Real, and the biggest half** — three seats out of six read *"You're all caught up"* while holding something somebody was waiting on |
+| 4 | It never reads date-change requests | **NOT A DEFECT — the feature does not exist.** Measured: no route, no enum member, no column, no screen |
+
+On row 4, the evidence rather than the assertion:
+
+```
+$ grep -rn "reschedul|date-change" apps/web/src apps/api/src packages/db/src
+apps/api/src/calendar.test.ts:141   "Meet promoter (rescheduled)"      ← a calendar-note title
+packages/db/src/schema/content.ts:77  "a DST rule change or reschedule"  ← a comment
+packages/db/src/schema/events.ts:37   "reschedule-safe"                  ← a comment
+```
+
+`bookingRequestStatus` is `pending | accepted | declined | flagged | archived | expired` — there is
+no `countered`, and `inbound.ts:1921` says so in as many words (*"no `countered` status, no message
+table on the request, and inventing one is a…"*). **A report can name a real symptom over the wrong
+line — this is the fifth instance, and the first where the named source was imaginary.** Adding a
+source for it would have meant building a feature to satisfy a QA row.
+
+### The sources that DO pass the rule — and there are three, not two
+
+The sweep named two inboxes as one. They are different tables and different routes:
+
+1. **`GET /me/event-invitations`** — an `event_participants` row at `invited`, for
+   `INVITABLE_ROLES` = performer · support · crew_lead · crew. Filter: `requestStatus === "pending"`
+   **and** `answerableByYou` — the second half is §25.7.3's ruling, *the act SEES, the actions stay
+   with the agent*, so a delegated act must not be told to answer something it cannot answer.
+2. **`GET /me/invitations`** — an `invitations` row addressed to the caller's verified email. This is
+   the route that covers **co_host**, which `INVITABLE_ROLES` deliberately excludes, and is therefore
+   the one that answers the sweep's `co.host@` bullet. Carries the token, which is the only page with
+   Accept and Decline on it.
+3. **`GET /settlements`** where the status is in the review conversation and **the reader has not
+   signed their own line**. All three pass: somebody sent figures and is waiting for an answer.
+
+**The decision source 3 hides, and it is the one that could go wrong quietly.** `pending_review`
+moves for EVERY party by default (`settlement.ts:2330` — `participantIds` is optional and a fan-out
+is right for sending), *including the operator who pressed the button*. So a naive
+`status === "pending_review"` would put "review your figures" on the sender's own card — the card
+telling you that you are waiting on yourself, which is precisely the rule inverted. The honest
+predicate is the one the event-scoped read already serves: **`approvedByYou`**. It is not on
+`MySettlementsResponse` yet, so this item is an API change as well as a web one.
+
+Keeping the operator's own UNSIGNED line on the card is correct and deliberate: a settlement cannot
+finalize until its lines are signed, so everyone on the night is waiting on that signature too. What
+must not happen is re-asking for a signature already given.
+
+### The scope
+
+- `apps/api/src/routes/settlement.ts` — `approvedByYou` on `MySettlementsResponse`, folded with the
+  same *"approved once is approved"* rule as the event-scoped roster. `approvalRosterOf` takes a
+  nullable `eventId` rather than growing a second copy of that fold — **a rule written twice is
+  asking for one home**, and this stretch has already paid for that lesson once.
+- `apps/web/src/components/attentionList.ts` — **new, and the point of the change.** The assembly
+  moves out of the component: five typed inputs in, a ranked list and the TRUE total out. Ninety
+  lines of product rules currently live inside a render function where nothing can test them, and
+  every judgement above is a line in there.
+- `apps/web/src/routes/Dashboard.tsx` — read the three sources, call the module, print the true
+  total, show five, and say *"and N more"* below them. **No "show all" link**, because there is no
+  screen that lists all of it and a dead affordance is worse than an honest sentence.
+- **The rank:** soonest night first, undated last, tiebreak on the item id so the order is total and
+  the cut is deterministic. Not category order — the night that is closest is the answer that is
+  most overdue, and a rank that depends on which query resolved is the bug being fixed.
+- **One more thing on the way:** the empty state still reads *"Pending events, new booking requests
+  and open tasks surface here."* Tasks were removed from this card deliberately and the sentence was
+  not. **A sentence untrue of its reader, instance eight** — and it is about to be untrue twice over.
+
+### What landed, and the defect the fix carried
+
+Read live as `operator@`:
+
+```
+BEFORE  "You have 5 things that need attention today."     (six qualified)
+AFTER   "You have 6 things that need attention today. The 5 closest are below."
+        Check your figures on Marlo Vance — Album Release · 16 Oct 2026   ← NEW SOURCE
+        Reply to The Midnight Echo · Booking request · 6 Nov 2026
+        Reply to Marlo Vance · Booking request · 21 Nov 2026
+        Confirm Nordic Synth Showcase · On hold · 5 Dec 2026
+        Check your figures on Nordic Synth Showcase · 5 Dec 2026
+        and 1 more, further out
+```
+
+Ascending by date with no exceptions, and the 5 Dec tie broken on the id, so the cut is the same on
+every paint. The on-hold event still carries **its own** status word rather than the bucket's.
+
+Read live as `professional@`, the seat the sweep measured saying *"You're all caught up"*:
+
+```
+"You have 1 thing that needs attention today."
+  Answer Nordic Synth Showcase · Invited on crew by The Lantern Hall · 5 Dec 2026   → /requests
+```
+
+### A FIX CARRIES ITS OWN NEXT DEFECT — the sixth this stretch, and again only the browser said so
+
+The first version of that seat read **two** things: the invitation, and *"Check your figures on Marlo
+Vance — Album Release · sign off when they match your books"*. Following it:
+
+```
+$ api-as.mjs professional POST /events/…e1/settlements/<sid>/confirm
+403 { "code": "forbidden", "message": "Missing capability: settlement.confirm" }
+```
+
+`CREW_FLOOR` carries `settlement.view.own` and **deliberately not** `settlement.confirm`. So a crew
+member is sent the *"Check your figures and sign off"* email by `POST …/settlement/status`, is served
+their own figures, opens a settlement screen with no sign-off control, and is refused by the route.
+The card had just become the fourth surface asking for a signature the third one forbids — the dead
+affordance QA6-1 exists to forbid, reintroduced by a fix for a card that was too quiet.
+
+The fix is not to widen the floor. `GET /settlements` now serves **`signableByYou`** beside
+`approvedByYou` — the same pair the event-scoped read has always served, resolved through
+`effectiveEventCapabilitiesForEvents`, one round trip for every night in the list — and the card
+reads it. Whether crew *should* be able to sign is a product call, and it is now **§25.6's seventh
+open row**, with the note that the asking and the ability have to agree whichever way it goes.
+
+**The lesson under the lesson: I reasoned out three sources from the card's stated rule and got all
+three right, and still shipped a defect, because "somebody is waiting on you" is not the same
+question as "can you answer".** Membership and capability are two filters and the rule only names
+one. That is what the browser was for.
+
+### Mutations — five, all killed
+
+| Mutation | Verdict |
+|---|---|
+| `approvedByYou: true` always | KILLED (3 tests) |
+| the roster read as ANY signature this reader has given | KILLED — **and it SURVIVED first** |
+| `signableByYou: true` always | KILLED |
+| `signableByYou` asks `settlement.view.own` instead | KILLED |
+| the cross-event approvals read narrowed back to one event | KILLED (2 tests) |
+
+The second row is the item worth keeping. `GET /settlements` is reader-scoped, so on a **one-night**
+fixture *"did I approve THIS row"* and *"have I approved ANYTHING"* are the same sentence and the
+mutation passed — with a test I had written and commented as **"THE CONTROL"**. The control was
+standing on a gap the scoping already closes. The case that makes the field mean anything needs one
+reader holding **two** settlements: sign one, and the other must stay unsigned. `seedNightFor` was
+split out of `seedCoPromotedNight` to make that seedable, and the mutation died.
+
+**A TEST THAT PASSES BECAUSE THE CASE NEVER VARIES IS NOT COVERING THE LINE** — and a comment calling
+it a control does not make it one.
+
+### What moved
+
+- `apps/api/src/routes/settlement.ts` — `approvedByYou` + `signableByYou` on `MySettlementsResponse`;
+  `approvalRosterOf` takes a nullable `eventId` so the fold has one home.
+- `apps/web/src/components/attentionList.ts` (new, 280 lines) + `.test.ts` (**20 tests**) — the whole
+  membership rule, the rank, the cut and the sentence, out of the render function.
+- `apps/web/src/routes/Dashboard.tsx` — **90 lines of product judgement deleted** from the component
+  body; what is left is reading sources and turning a target into a navigation. `NEEDS_DECISION` and
+  the local `AttentionItem` went with it — one home each.
+- `.claude/skills/verify-e2e/api-as.mjs` — the six seats are now addressable by their **email local
+  part** (`professional`, `co.host`) as well as the camelCase keys. Every doc and QA report names
+  them the first way, and a probe typed from one died on `INVALID_EMAIL` twice today.
+- `packages/db/src/seed-e2e.ts` — a `lint/style/useTemplate` error that `biome check .` had been
+  carrying and no per-file `--write` ever saw. **Run the whole check, not the part you touched.**
+- `docs/decisions.md` §25.6 — the crew sign-off row, and the counts above the table corrected.
+
+### Not a defect, with the evidence
+
+The sweep's fourth bullet — *"date-change requests waiting on your answer"* — names a feature that
+does not exist. No route, no column, no enum member, no screen; `bookingRequestStatus` has no
+`countered` and `inbound.ts:1921` says inventing one is out of scope. Adding a source for it would
+have meant building a feature to satisfy a QA row. **Fifth instance of a report naming a real symptom
+over the wrong line, and the first where the named source was imaginary.**
