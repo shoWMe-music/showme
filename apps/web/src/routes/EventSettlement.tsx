@@ -39,6 +39,7 @@ import { type SettlementLine, WhoOwesWhomBoard } from "../components/WhoOwesWhom
 import { describeActivity } from "../components/eventHistory";
 import { CardTitle, Eyebrow } from "../components/primitives";
 import {
+  SETTLEMENT_STAGE_ACTIVITY_TYPES,
   initialsOf,
   negativeAmount,
   settlementStatusToDisplay,
@@ -680,7 +681,7 @@ function SettlementTab({
           else in it. Seven stops need the room — the stepper grows its connectors
           to fill whatever it is given. */}
       <Card padding="lg">
-        <SettlementStepper steps={settlementSteps(settlement.status)} />
+        <SettlementRail eventId={eventId} status={settlement.status} />
       </Card>
 
       {/* Then whose eyes you are reading through, then what you can do about it —
@@ -1235,11 +1236,38 @@ function SettlementThread({
  * Filtered to the settlement's own acts: the event feed carries budget edits and
  * invitations too, and this panel answers "what happened to these figures".
  */
+/**
+ * The progress rail, over the history that says which stops were really visited.
+ *
+ * The rail used to infer its ticks from position and claimed two stages the Revision History three
+ * cards down said had not happened (QA sweep run 14). It now reads the same table that panel
+ * reads — but ASKED BY TYPE, because a page of twenty mixed rows loses the oldest settlement
+ * transition behind transfers, deals and tasks, and an unlit stop that did happen is a second way
+ * of being wrong. `SETTLEMENT_STAGE_ACTIVITY_TYPES` is the list the rule needs, exported beside it.
+ */
+function SettlementRail({ eventId, status }: { eventId: string; status: string }) {
+  const activity = useGetApiV1Activity({
+    eventId,
+    typePrefix: SETTLEMENT_STAGE_ACTIVITY_TYPES.join(","),
+  });
+  const types = (activity.data?.items ?? []).map((row) => row.type);
+  return <SettlementStepper steps={settlementSteps(status, types)} />;
+}
+
 function RevisionHistory({ eventId }: { eventId: string }) {
-  const activity = useGetApiV1Activity({ eventId });
-  const entries = (activity.data?.items ?? []).filter(
-    (row) => row.type.startsWith("settlement.") || row.type.startsWith("transfer."),
-  );
+  /*
+   * ASKED FOR BY TYPE, not filtered out of a mixed page (QA sweep run 14).
+   *
+   * This took the feed's first twenty rows and kept the settlement ones. On the seeded Album
+   * Release those twenty hold four transfers, three cancelled deals, a task, a share and a rider —
+   * so "what happened to these figures" was answered from whatever survived the crowd, and
+   * `settlement.pending_review` did not. The filter belongs in the query, where the limit applies
+   * to the rows the panel is actually about.
+   */
+  // The two FAMILIES this panel is about, as prefixes — so a settlement or transfer type added
+  // later arrives here without anybody remembering to add it.
+  const activity = useGetApiV1Activity({ eventId, typePrefix: "settlement.,transfer." });
+  const entries = activity.data?.items ?? [];
 
   return (
     <Card padding="lg" style={{ ...CARD_COLUMN, gap: 10 }}>

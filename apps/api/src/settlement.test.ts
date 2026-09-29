@@ -5682,6 +5682,14 @@ describe("settlement — the door: an unsigned agreement holds it shut", () => {
     expect(message).toContain("waiting on 2 of 2 signatures");
     // The venue's rental IS signed, so it is not on the list.
     expect(message).not.toContain("Venue rental");
+    // COMPUTE'S OWN DOOR, named. Nothing is open yet, so this is the true sentence — and
+    // the assertion is here as the other half of the finalize one below, which is the
+    // same rule refusing a different action (QA sweep run 14).
+    // "Cannot be RUN", not "cannot open": compute is also the recompute, and a recompute of a
+    // settlement open for a week is not an opening. It is the word on the button, too.
+    expect(message).toContain("This settlement cannot be run");
+    expect(message).toContain("then run the settlement again");
+    expect(message).not.toContain("finalized");
 
     // A REFUSAL WRITES NOTHING. `ensureSettlementLines` seals the settlement's copy
     // of the budget away from the planner the first time it runs; leaving that
@@ -5893,7 +5901,20 @@ describe("settlement — the door: an unsigned agreement holds it shut", () => {
       headers: auth(seed.operator.userId),
     });
     expect(refused.statusCode).toBe(409);
-    expect(refused.json().error.message).toContain("Band guarantee");
+    const refusal = refused.json().error.message as string;
+    expect(refusal).toContain("Band guarantee");
+    /*
+     * AND IT SAYS WHICH DOOR (QA sweep run 14).
+     *
+     * `reconcileEvent` is shared by both, so this said "This settlement cannot open" to an
+     * operator whose settlement had been open since the compute two assertions above. Both
+     * halves asserted, because one sentence for both doors passes a test that only checks
+     * the door it was written for.
+     */
+    expect(refusal).toContain("These figures cannot be finalized");
+    expect(refusal).toContain("then finalize again");
+    expect(refusal).not.toContain("cannot be run");
+    expect(refusal).not.toContain("run the settlement again");
 
     const rows = await harness.db
       .select()

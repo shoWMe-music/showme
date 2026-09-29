@@ -271,3 +271,193 @@ Also noted while reading: `TotalPayouts`' docstring says the total is *"a sum of
 not arithmetic on money — see `settlementTotalPayable` in the hook"*. There is no
 `settlementTotalPayable`, and the sum is `BigInt` over minor units, which is the opposite of what the
 sentence claims. Corrected in passing.
+
+### Group B proved on the running stack
+
+Run 14's own probe had to be rebuilt — e1 is sealed and the state it was measured in is gone. The
+reconstruction, on `QA14 Draft Fee Night`: Priya Sound added as crew, her SEK 2,500 fee held as a deal
+whose **payer is the co-host**, and the night's takings split so the greedy allocator has to use both
+operators to pay her:
+
+```
+revenue: 25,670 collected by the host · 4,530 collected by Northlight  (SEK 302,000 pool)
+transfers: host → Neon Tide 211,400 · host → Priya 1,250 · Northlight → Priya 1,250
+the host's visible settlements: itself and Neon Tide — Priya's is withheld (no shared deal)
+```
+
+Which is the finding exactly: Priya's payout is SEK 2,500 and the host pays half of it.
+
+| | before | after |
+|---|---|---|
+| host, Total Payouts | `Priya Sound payout — SEK 1,250` | `Paid by you to Priya Sound — SEK 1,250` |
+| agent, Total Payouts | `Marlo Vance payout 30,000` · `Your commission 3,000` · **Total 33,000** | `Marlo Vance payout 30,000` · `Your commission, paid out of the payouts above 3,000` · **Total 30,000** |
+
+Screenshots: `docs/screenshots/qa-2026-10-01-run14/b1-paid-by-you-to-priya.png`,
+`b2-agent-total-payable-no-double-count.png`.
+
+Two things learned in the rebuilding, worth keeping:
+
+- **Deleting a budget line does not remove the settlement's copy of it.** The DELETE answers
+  `{"deleted": true}` and the settlement carries on reading its own sealed line (0025). The cost had to
+  be deleted a second time through `/settlement/lines`. Nothing is wrong here — but "I removed it and
+  recomputed" is not the same statement as "the engine no longer sees it".
+- **`payee_participant_id` on a cost line is a DEDUCTION, not a payout** (`cost-bearing.ts`: *"that
+  party's entitlement drops by the whole amount"*). My first attempt paid the crew member by naming her
+  the payee of a cost and gave her −SEK 2,500. A crew member is paid by a DEAL. Worth knowing before
+  reading a settlement that looks upside down.
+
+## Group C — four copy findings, four different kinds of untrue
+
+### C1 — the notification names nobody · `apps/api/src/routes/participants.ts:1036`
+
+**Verdict: the row is missing the one fact it exists to carry.** `notifyProfileMembers` is handed
+`body: note || undefined` and no `actorDisplay`, so with no note — the common case, the note is
+optional — the bell shows *"Invitation accepted — Nordic Synth Showcase"* over a blank line. On a
+six-party bill the operator cannot tell which invitation was answered.
+
+The collaborator-invitation path already answers this (`invitations.ts:1288`): the TITLE names the
+person (`"<who> accepted"`), the body says what it means, and `actorDisplay` carries the *"by …"* line.
+Following it rather than inventing a shape.
+
+**Scope, and the distinction the precedent makes available.** Two different people are involved and
+they are not always the same: the **profile whose invitation it was**, and the **user who pressed the
+button** — which for a represented act is the agent (#14). So the title names the participant and
+`actorDisplay` names the actor, and a delegated accept reads *"Marlo Vance accepted — …"* / *"by Astra
+Booking"*. `resolvePendingParticipation` does not currently select a name; the participant list it
+already runs gets `display_name` and a join to `profiles.name`, so this costs no extra query.
+
+### C2 — the third copy of a rule that moved · `DealAgreementCard.tsx:347`
+
+**Verdict: drift, not a decision.** Part 29 moved the seal to the **first** signature. The terms
+editor's hint says it correctly (*"They freeze when the first party signs"*, `lib/errors.ts:83`) and so
+does the 409. This card's `draftLabel` still says *"Terms live until every party signs"* — and the
+commit that fixed the other two quotes this very sentence twice in its own comments as the thing that
+went wrong. A rule written three times disagreed with itself, which is the shape this file keeps
+finding.
+
+Scope: one string, taking the editor's words so the product has one voice about it.
+
+### C3 — one sentence answering two questions · `useEventSettlement.ts:1225` and `deal-confirmation.ts:383`
+
+**Verdict: the sentence is right at one of its two call sites.** *"The settlement cannot open until
+every agreement is signed"* is exactly true in `NothingSettledYet`, where nothing has been computed.
+It is false beside a disabled **Finalize** on a settlement that is open and in review — which is where
+run 14 read it. The rest of the sentence is good and stays: it names the deal, prints no UUID, and
+offers a button.
+
+**Both surfaces, because a ruling implemented on one of two is implemented nowhere.** The server has
+the same sentence and the same two doors: `assertEveryAgreementSigned` sits inside `reconcileEvent`,
+deliberately shared by compute and finalize, so the 409 says *"cannot open"* when what was refused was
+a freeze. Each gains the action it is about, and the tail changes with it (*"then run the settlement
+again"* → *"then finalize again"*).
+
+This is the "one field answering two questions" shape for the seventh time, and the answer is the same
+as ever: not a wider sentence, a second route through it.
+
+### C4 — the rail ticks stops the settlement never visited · `settlementDocument.ts:98`
+
+**Verdict: `settlementSteps` infers history from position, and position is not history.** Every index
+below the current stage is marked `done`, so a settlement finalized straight out of review reads
+`✓ Open · ✓ Pending review · ✓ Comments received · ✓ Revised · ● Finalized` over a Comments tab saying
+*"No comments yet"* and a revision history saying *"Nothing has happened to these figures yet."*
+
+Three of the seven stops are things something actually WRITES, and the event feed records each:
+`settlement.pending_review`, `settlement.commented` (the comment path sets `comments_received`
+silently, so the evidence is the remark), and `settlement.revised`. So the rail reads the same feed the
+Revision History panel two cards below it already reads — which is the real argument for this fix: the
+two can no longer disagree, and they did.
+
+A stop with no evidence renders `pending`, which the stepper already draws as a dim numbered dot. No
+new visual state, and an unvisited stop behind the marker reads like an unvisited stop on a transit
+map. `open`, `finalized`, `partly_paid` and `paid` stay positional: the first is where a settlement is
+born and the last three are derived from the transfers, so reaching one IS the evidence.
+
+**The one degradation, stated:** the feed is party-scoped and paginated, so a reader served fewer
+entries may see an unlit stop for something that did happen. That is the safe direction — it can
+understate, never claim — and the Revision History beside it already has exactly this property, so the
+two stay consistent with each other.
+
+### No decision for Daniel in any of the four
+C1 follows a shipped precedent, C2 and C3 make a sentence true of its reader, C4 makes a rail agree
+with the history under it. Nothing here chooses a product rule.
+
+### Group C built — and two more surfaces found in the building
+
+**C1.** The title names the party whose invitation it was, the body never blank, `actorDisplay` the
+person who pressed it. Proved live on a **delegated** accept, which is the case that argues for two
+fields rather than one:
+
+```
+before:  Invitation accepted — QA14 Draft Fee Night   body=''      actor=''
+after:   Marlo Vance accepted — QA14 Draft Fee Night  body='They are on the bill.'  actor='Astra Booking'
+```
+
+Five mutations, four killed. The fifth **survived and should have**: I had written
+`pending.displayName ?? pending.profileName`, and nothing can reach the first term — the only writer
+of `event_participants.display_name` is `stub-purge.ts`, which sets it and NULLs `profile_id` in the
+same statement, so a row carrying one has no profile and can never resolve here. Deleted rather than
+given a fixture: a branch nothing can reach is not a safeguard.
+
+**C2.** `"Terms live until the first party signs"`, in the terms editor's own words. Live on
+*Sent · 0 of 2 signed*.
+
+**C3.** Both doors, at the server and on the screen, and both went one step further than the finding
+asked. Compute's half says *"cannot be **run**"*, not *"cannot open"*: compute is also the
+**recompute**, and a recompute of a settlement open for a week is not an opening either. The web
+half names **both** disabled buttons, because the panel greys out Recalculate *and* Finalize:
+
+```
+POST …/settlement/compute   →  This settlement cannot be run until every agreement … then run the settlement again.
+POST …/settlement/finalize  →  These figures cannot be finalized until every agreement … then finalize again.
+screen (open, in review)    →  These figures cannot be recomputed or finalized until every agreement is signed.
+```
+
+Three server mutations and two web mutations killed, each asserting what must **survive** as well as
+what must change — one sentence for both doors passes a test written for either door alone.
+
+**C4.** The rail asks the history instead of inferring it from position. Six mutations killed. And
+the first version of the fix was itself wrong, which the browser caught:
+
+> I read the same unfiltered feed the Revision History panel reads, and the rail came back with
+> **Pending review unlit on the seeded Album Release — a stage that provably happened.** The feed is
+> capped at twenty rows and that page holds four transfers, three cancelled deals, a task, a share
+> and a rider; `settlement.pending_review` is off the end of it. I had written the truncation into
+> the docstring as an acceptable degradation. It is not acceptable when the API can be asked the
+> question, and **the Revision History panel had exactly the same defect all along** — it was
+> answering *"what happened to these figures"* from whatever survived the crowd.
+
+So `GET /activity` gained `typePrefix`, and both panels ask for what they are about. A **prefix**,
+not an exact type, so a caller can name a family (`settlement.`) and not carry a list that goes
+stale; comma-separated rather than a repeated parameter, because this repo has no array query
+parameter anywhere and how one is spelled is decided in three places that can disagree — Fastify's
+parser (a lone value arrives as a string, not a one-element array), axios's serializer, and the
+OpenAPI schema orval reads. One string needs no agreement. `%`, `_` and `\` are escaped, so a prefix
+cannot become a wildcard.
+
+Four mutations on the filter, all killed — including **the filter replacing the visibility WHERE
+instead of being ANDed onto it**, which would pass every assertion about what comes back while
+leaking everything that should not.
+
+After it, on e1, the rail and the history agree for the first time:
+
+```
+✓ Open  ✓ Pending review  3 Comments received  4 Revised  ✓ Finalized  ✓ Partly paid  ● Paid
+Revision history: … Settlement finalized … Settlement signed off ×6 … Settlement pending review
+```
+
+Screenshots: `c2-terms-live-until-first-signature.png`, `c4-rail-and-history-agree.png`.
+
+### Two things that cost time and are not about the code
+
+- **A test of mine failed on a false premise about its own fixture, for the third time this session.**
+  I hung the scoping test's settlement on the PERFORMER's participant and then asserted the performer
+  could not read it. They are a party to their own settlement; of course they can. The fixture has to
+  encode the situation the assertion is about.
+- **`tsc -b apps/api` emits JavaScript into `apps/api/src`.** 182 untracked `.js` files appeared
+  beside their sources. The repo's own script is `pnpm --filter @showme/api run typecheck`
+  (`tsc --noEmit`) — use that.
+- **Docker's port allocator wedged**, and Testcontainers reported it as *"Timed out waiting for
+  container ports to be bound"* — first on the reaper, then on Postgres itself, with
+  `NetworkSettings.Ports` empty against a `HostPort: "0"` request. Not load, not the suite:
+  restarting Docker Desktop fixed it and nothing else did (`TESTCONTAINERS_RYUK_DISABLED` moved the
+  failure rather than removing it). Worth recognising, because it looks exactly like a flaky test.

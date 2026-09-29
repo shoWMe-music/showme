@@ -13,4 +13,9 @@ cursor?: string;
  */
 limit?: number;
 eventId?: string;
+/**
+ * @minLength 1
+ * @maxLength 400
+ */
+typePrefix?: string;
 };

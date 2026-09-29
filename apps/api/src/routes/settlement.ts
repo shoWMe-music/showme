@@ -789,7 +789,16 @@ async function reconcileEvent(
    * their mind and pressed Recalculate gets the forecast they asked for, and an
    * operator who has begun typing is already sealed.
    */
-  { seedFromBudget = true }: { seedFromBudget?: boolean } = {},
+  /**
+   * WHICH DOOR THIS IS, for the refusal below. Compute and finalize share this whole
+   * function on purpose (see `assertEveryAgreementSigned` below), and a shared refusal
+   * that named only one of them told an operator pressing Finalize that the settlement
+   * could not open — an hour after it had (QA sweep run 14).
+   */
+  {
+    seedFromBudget = true,
+    blocked = "open",
+  }: { seedFromBudget?: boolean; blocked?: "open" | "finalize" } = {},
 ): Promise<ReconciledEvent> {
   // THE DEALS COME FIRST, AHEAD OF EVERY WRITE THIS FUNCTION MAKES.
   //
@@ -833,7 +842,7 @@ async function reconcileEvent(
   // read does: compute and finalize are two doors into one piece of arithmetic,
   // and a rule enforced at one call site is enforced nowhere. The rows checked
   // are literally the rows the engine is about to settle.
-  assertEveryAgreementSigned(dealRows, partyRows);
+  assertEveryAgreementSigned(dealRows, partyRows, blocked);
 
   // Take the settlement's copy of the budget if it does not have one yet. A
   // no-op on every run after the first — the copy is sealed, and re-pulling
@@ -3911,7 +3920,9 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             // freeze anything that no longer matches what is stored. So either the
             // snapshot reproduces arithmetically, or the operator is told to
             // recompute and re-confirm — never a silent rewrite (decisions #8).
-            const { result, baseCurrency, rates } = await reconcileEvent(tx, id);
+            const { result, baseCurrency, rates } = await reconcileEvent(tx, id, {
+              blocked: "finalize",
+            });
 
             const freshByParticipant = new Map(
               result.breakdowns.map((breakdown) => [

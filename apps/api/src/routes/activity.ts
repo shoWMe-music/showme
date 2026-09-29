@@ -1,7 +1,7 @@
 import { effectiveEventCapabilitiesForEvents } from "@showme/auth";
 import { schema } from "@showme/db";
 import type { Capability } from "@showme/shared";
-import { type SQL, and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { type SQL, and, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -33,8 +33,32 @@ const ActivityFeedResponse = z.object({
   nextCursor: z.string().nullable(),
 });
 
-/** Optional per-event scope for an event's own history tab. */
-const ActivityQuery = PaginationQuery.extend({ eventId: z.string().uuid().optional() });
+/**
+ * Optional per-event scope for an event's own history tab, and an optional TYPE filter.
+ *
+ * `typePrefix` exists because a reader asking *"what happened to these figures"* was being
+ * answered from a page of twenty MIXED rows and filtering client-side (QA sweep run 14). On the
+ * seeded Album Release those twenty hold four transfer rows, three cancelled deals, a task, a
+ * share and a rider, and `settlement.pending_review` — which did happen — falls off the end of
+ * them. Both the Revision History panel and the progress rail above it were reading a truncated
+ * story, and the rail was drawing conclusions from the gap.
+ *
+ * A PREFIX rather than an exact type, so a caller can ask for a whole family (`settlement.`) and
+ * not carry a list that goes stale the next time a type is added. An exact type is just a prefix
+ * that matches one thing.
+ *
+ * COMMA-SEPARATED, not a repeated parameter. This repo has no array query parameter anywhere else,
+ * and how one is spelled on the wire is decided in three places that can disagree — Fastify's
+ * querystring parser (a lone value arrives as a string, not a one-element array), axios's
+ * serializer (`name[]=`), and the OpenAPI schema orval reads. One string needs no agreement.
+ *
+ * It narrows, never widens: the visibility WHERE below is unchanged and this is ANDed onto it, so
+ * a row nobody may read stays unreadable however it is asked for.
+ */
+const ActivityQuery = PaginationQuery.extend({
+  eventId: z.string().uuid().optional(),
+  typePrefix: z.string().min(1).max(400).optional(),
+});
 
 interface Cursor {
   createdAt: string;
@@ -66,7 +90,7 @@ export async function activityRoutes(fastify: FastifyInstance): Promise<void> {
         const principal = request.principal;
         if (!principal) throw new Error("principal missing after authentication");
         const { database } = request.server;
-        const { cursor, limit, eventId } = request.query;
+        const { cursor, limit, eventId, typePrefix } = request.query;
 
         const viewerProfileIds = principal.memberships.map((membership) => membership.profileId);
         if (viewerProfileIds.length === 0) return { items: [], nextCursor: null };
@@ -205,6 +229,20 @@ export async function activityRoutes(fastify: FastifyInstance): Promise<void> {
         if (visible.length === 0) return { items: [], nextCursor: null };
 
         const conditions = [inArray(schema.activityLog.eventId, reachableEvents), or(...visible)];
+        // ANDed onto the visibility rule above, never instead of it. `%`, `_` and `\` are escaped,
+        // so a prefix cannot become a wildcard: a caller asking for "settlement.%" gets nothing
+        // rather than everything.
+        const prefixes = (typePrefix ?? "")
+          .split(",")
+          .map((prefix) => prefix.trim())
+          .filter((prefix) => prefix.length > 0)
+          .slice(0, 20)
+          .map((prefix) => prefix.replace(/([\\%_])/g, "\\$1"));
+        if (prefixes.length > 0) {
+          conditions.push(
+            or(...prefixes.map((prefix) => like(schema.activityLog.type, `${prefix}%`))),
+          );
+        }
         if (cursor) {
           const decoded = decodeCursor<Cursor>(cursor);
           conditions.push(

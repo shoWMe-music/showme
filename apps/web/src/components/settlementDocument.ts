@@ -95,13 +95,101 @@ const STAGE_LABELS = [
   "Paid",
 ] as const;
 
-export function settlementSteps(status: string): SettlementStep[] {
+/**
+ * THE EVIDENCE THAT A MIDDLE STOP WAS REALLY VISITED — the event feed's own types.
+ *
+ * `open` is where a settlement is BORN and `finalized`/`partly_paid`/`paid` are derived from the
+ * freeze and the transfers, so reaching one of those IS the evidence and they stay positional.
+ * The three in between are things something writes, and each leaves a row:
+ * `POST /settlement/status` writes `settlement.${status}`, and `comments_received` is set
+ * silently by the comment path, so the evidence for it is the remark itself.
+ */
+const EVIDENCE_FOR_STAGE: Record<number, readonly string[]> = {
+  1: ["settlement.pending_review"],
+  2: ["settlement.comments_received", "settlement.commented"],
+  3: ["settlement.revised"],
+};
+
+/**
+ * The activity types the rail needs, for the request that fetches them.
+ *
+ * ASKED FOR BY TYPE, not filtered out of a mixed page. The first version of this read the
+ * unfiltered feed the Revision History panel reads and lost `settlement.pending_review` behind
+ * twenty other rows on the seeded Album Release — unlighting a stop that provably happened. A rail
+ * that can understate is not good enough when the API can simply be asked the question.
+ *
+ * Derived from the evidence table above, so the two cannot drift: a stage that gains a new
+ * evidence type gains it in the request at the same moment.
+ */
+export const SETTLEMENT_STAGE_ACTIVITY_TYPES = Object.values(EVIDENCE_FOR_STAGE).flat();
+
+/**
+ * POSITION IS NOT HISTORY (QA sweep run 14).
+ *
+ * Every stop below the current one was marked `done`, so a settlement finalized straight out of
+ * review read `✓ Open · ✓ Pending review · ✓ Comments received · ✓ Revised · ● Finalized` over a
+ * Comments tab saying "No comments yet" and a revision history saying "Nothing has happened to
+ * these figures yet". Two ticks over two things that never occurred.
+ *
+ * So the middle stops are asked. `historyTypes` is the activity feed — the same table the Revision
+ * History panel further down the same screen reads, so the rail and the history under it can no
+ * longer disagree, which is the whole point. A stop with no evidence renders `pending`: the stepper
+ * draws that as a dim numbered dot, which is how an unvisited stop reads on a transit map.
+ *
+ * The caller must fetch by type (`SETTLEMENT_STAGE_ACTIVITY_TYPES`, passed as the feed's
+ * `typePrefix`) rather than filtering a page of mixed rows — see that constant for the measurement
+ * that made it necessary.
+ *
+ * The feed is still party-scoped, so a reader who may not see a stage's row sees the stop unlit.
+ * That is the safe direction: it can understate, never claim something happened.
+ */
+export function settlementSteps(
+  status: string,
+  historyTypes: readonly string[] = [],
+): SettlementStep[] {
   // An unknown status sits at the start rather than inventing a stop for itself.
   const reached = STAGE_OF[status] ?? 0;
-  return STAGE_LABELS.map((label, index) => ({
-    label,
-    state: index < reached ? "done" : index === reached ? "active" : "pending",
-  }));
+  const seen = new Set(historyTypes);
+  return STAGE_LABELS.map((label, index) => {
+    if (index === reached) return { label, state: "active" as const };
+    if (index > reached) return { label, state: "pending" as const };
+    const evidence = EVIDENCE_FOR_STAGE[index];
+    const visited = evidence == null || evidence.some((type) => seen.has(type));
+    return { label, state: visited ? ("done" as const) : ("pending" as const) };
+  });
+}
+
+/**
+ * WHY THE SETTLEMENT WILL NOT MOVE, IN THE WORDS OF THE ACTION THAT WAS REFUSED.
+ *
+ * One sentence served two call sites and was true at one of them (QA sweep run 14). *"The
+ * settlement cannot open until every agreement is signed"* is exactly right in the empty state,
+ * where nothing has been computed; beside a disabled **Finalize** on a settlement that has been
+ * open and in review for an hour it is false, and that is where the sweep read it.
+ *
+ * The computed branch names BOTH refused actions, because both buttons are disabled beside it:
+ * Recalculate and Finalize. "Cannot open" was wrong about each of them for the same reason —
+ * a settlement that has been open for a week is not being opened by either one.
+ *
+ * Here rather than in the hook for the same reason `payoutsCaption` is: a sentence that has been
+ * untrue of its reader needs a test per branch, and a ternary inside a `useMemo` cannot have one.
+ * The server's `assertEveryAgreementSigned` splits the same rule the same way — compute and
+ * finalize share `reconcileEvent`, so it takes the door it was called through.
+ *
+ * The rest of the sentence is deliberately unchanged: it NAMES each agreement rather than counting
+ * them, because chasing the signature is the only move the message exists to enable, and the
+ * component that renders it offers the button.
+ */
+export function unsignedAgreementsSentence(input: {
+  /** Each outstanding agreement, already quoted and joined. */
+  names: string;
+  /** Has the settlement actually been run — the fact that decides which refusal is true. */
+  alreadyComputed: boolean;
+}): string {
+  const opening = input.alreadyComputed
+    ? "These figures cannot be recomputed or finalized until every agreement is signed"
+    : "The settlement cannot be run until every agreement is signed";
+  return `${opening}. Still waiting on ${input.names}. Send each to its parties and have them confirm it, or cancel one whose booking is off.`;
 }
 
 /** `settlement_transfers.state` → the board's three payment states. */

@@ -354,10 +354,23 @@ export function isAgreementSigned(deal: Pick<DealRow, "agreementStatus">): boole
  * is the same trade `unsettlableLine` already makes with settlement-line labels,
  * and for the same reason: the person running the night's reconciliation is the
  * person who has to go and chase the signature.
+ *
+ * **AND IT NAMES THE ACTION IT REFUSED** (QA sweep run 14). This threw *"This settlement cannot
+ * open"* from inside `reconcileEvent`, which is deliberately shared by compute AND finalize — so
+ * pressing Finalize on a settlement that had been open and in review for an hour was told it
+ * could not open. The sentence was true at one of its two call sites, which is the same shape as
+ * a ruling implemented on one of two surfaces. The door says which door it is.
+ *
+ * Compute's half says *"cannot be RUN"* rather than *"cannot open"* for the same reason one step
+ * on: compute is also the RECOMPUTE, and a recompute of a settlement that has been open for a
+ * week is not an opening either. "Run" is true of both and is the word on the button the operator
+ * just pressed.
  */
 export function assertEveryAgreementSigned(
   deals: readonly DealRow[],
   parties: readonly DealPartyRow[],
+  /** Which door was tried — the settlement opening, or its figures freezing. */
+  blocked: "open" | "finalize" = "open",
 ): void {
   const waiting = deals
     .filter((deal) => !isAgreementSigned(deal))
@@ -379,7 +392,12 @@ export function assertEveryAgreementSigned(
     });
 
   if (waiting.length === 0) return;
+  const refusal =
+    blocked === "finalize"
+      ? "These figures cannot be finalized until every agreement on the event is signed"
+      : "This settlement cannot be run until every agreement on the event is signed";
+  const retry = blocked === "finalize" ? "finalize again" : "run the settlement again";
   throw conflict(
-    `This settlement cannot open until every agreement on the event is signed: ${waiting.join("; ")}. Send each agreement and have its parties confirm it, or cancel one that is no longer happening, then run the settlement again.`,
+    `${refusal}: ${waiting.join("; ")}. Send each agreement and have its parties confirm it, or cancel one that is no longer happening, then ${retry}.`,
   );
 }

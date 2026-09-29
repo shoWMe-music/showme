@@ -908,7 +908,13 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
   async function resolvePendingParticipation(
     request: FastifyRequest,
     eventId: string,
-  ): Promise<{ id: string; profileId: string | null; agentParticipantId: string | null }> {
+  ): Promise<{
+    id: string;
+    profileId: string | null;
+    /** Who the invitation was addressed to, for the notification that answers it. */
+    name: string | null;
+    agentParticipantId: string | null;
+  }> {
     const principal = request.principal;
     if (!principal) throw new Error("principal missing after authentication");
     const myProfileIds = new Set(principal.memberships.map((one) => one.profileId));
@@ -922,8 +928,22 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         profileId: schema.eventParticipants.profileId,
         role: schema.eventParticipants.role,
         status: schema.eventParticipants.status,
+        /*
+         * WHOSE INVITATION THIS IS, for the notification that answers it (QA sweep run 14).
+         *
+         * The PROFILE's name, and not `event_participants.display_name` beside it: the only
+         * writer of that column is `stub-purge.ts`, which sets it and NULLs `profile_id` in the
+         * same statement, so a row carrying one has no profile and can never be resolved here
+         * (`myProfileIds` cannot match null). A fallback to it read well and a mutation deleting
+         * it survived, because nothing can reach it — which is the definition of not a safeguard.
+         *
+         * Joined here rather than re-queried after the answer: this list is already the read
+         * that finds the row.
+         */
+        profileName: schema.profiles.name,
       })
       .from(schema.eventParticipants)
+      .leftJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
       .where(
         and(
           eq(schema.eventParticipants.eventId, eventId),
@@ -947,6 +967,7 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
     return {
       id: pending.id,
       profileId: pending.profileId,
+      name: pending.profileName ?? null,
       // The agent's own row moves with the answer — a projection cannot be
       // further along, or further behind, than the act it projects.
       agentParticipantId: answerable.get(pending.id)?.agentParticipantId ?? null,
@@ -1032,14 +1053,39 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
     // the person has already given. Same pattern as the invite itself.
     if (event?.hostProfileId) {
       try {
+        /*
+         * WHOSE INVITATION, AND WHO PRESSED IT (QA sweep run 14).
+         *
+         * This read "Invitation accepted — Nordic Synth Showcase" over a blank second line,
+         * because the body was `note || undefined` and the note is optional, and no
+         * `actorDisplay` was passed at all. On a six-party bill the operator could not tell
+         * which invitation had been answered — the one fact the row exists to carry.
+         *
+         * `invitations.ts` already answers this for a collaborator invite and this follows it:
+         * the TITLE names the person, the body says what it means, and `actorDisplay` carries
+         * the "by …" line every other row in the bell has.
+         *
+         * The two are DIFFERENT PEOPLE and that is the point of separating them: the title is
+         * the profile whose invitation it was, the actor is whoever pressed the button — which
+         * for a represented act is the agent (#14). A delegated accept therefore reads
+         * "Marlo Vance accepted" / "by Astra Booking", which is exactly what the operator needs
+         * to know and what one combined field could not say.
+         */
+        const who = participation.name ?? "A party";
         await notifyProfileMembers(database, event.hostProfileId, principal.userId, {
           type: `event.invitation_${answer}`,
-          title:
-            answer === "accepted"
-              ? `Invitation accepted${event.title ? ` — ${event.title}` : ""}`
-              : `Invitation declined${event.title ? ` — ${event.title}` : ""}`,
-          body: note || undefined,
+          title: `${who} ${answer === "accepted" ? "accepted" : "declined"}${
+            event.title ? ` — ${event.title}` : ""
+          }`,
+          // The note when there is one; otherwise what the answer means for the bill, so the
+          // second line is never blank.
+          body:
+            note ||
+            (answer === "accepted"
+              ? "They are on the bill."
+              : "They are not taking part. The slot is open again."),
           eventId,
+          actorDisplay: request.firebaseUser?.name ?? undefined,
           link: `/events/${eventId}`,
           metadata: { participantId: participation.id, ...(note ? { note } : {}) },
         });

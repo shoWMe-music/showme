@@ -39,6 +39,7 @@ import {
   payoutRows,
   payoutsCaption,
   transferStateOf,
+  unsignedAgreementsSentence,
   withheldPartyCount,
   withheldPayees,
 } from "./settlementDocument";
@@ -1209,6 +1210,10 @@ export function useEventSettlement(
    * signed. Kept literally parallel so a reader can check the two against each
    * other; the server is the enforcement and this is only the affordance.
    */
+  // Whether the settlement has actually been run — the fact that decides which of the
+  // two refusals below is the true one. Same expression as `isComputed` on the returned
+  // object, which is where a reader will look for it.
+  const alreadyComputed = partyRows.some((row) => row.computed != null);
   const unsignedAgreementsNotice = useMemo(() => {
     const waiting = (deals.data?.deals ?? []).filter(
       (deal) =>
@@ -1222,8 +1227,10 @@ export function useEventSettlement(
     // through the Deals tab for it, and chasing the signature is the only move
     // this message exists to enable.
     const names = waiting.map((deal) => `“${deal.name}”`).join(", ");
-    return `The settlement cannot open until every agreement is signed. Still waiting on ${names}. Send each to its parties and have them confirm it, or cancel one whose booking is off.`;
-  }, [deals.data]);
+    // WHICH ACTION WAS REFUSED decides which sentence is true — `unsignedAgreementsSentence`,
+    // pure and tested per branch, for the reason `payoutsCaption` is (QA sweep run 14).
+    return unsignedAgreementsSentence({ names, alreadyComputed });
+  }, [deals.data, alreadyComputed]);
 
   return {
     parties: partiesWithOwnCommission,

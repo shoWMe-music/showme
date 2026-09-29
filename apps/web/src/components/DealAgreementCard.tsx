@@ -335,16 +335,28 @@ export function DealAgreementCard({
                   : `Terms frozen — ${signed} of ${signatories.length} parties signed`
                 : "Terms frozen by the parties"
             }
-            // Terms are live until every party signs, but "Draft" is only true before
-            // they were sent — after that they are out for confirmation, not a draft.
+            /*
+             * THE THIRD COPY OF THE RULE PART 29 MOVED (QA sweep run 14).
+             *
+             * This said "Terms live until every party signs" — the rule before part 29 moved the
+             * seal to the FIRST signature. The editor's hint says it correctly ("They freeze when
+             * the first party signs", `lib/errors.ts`) and so does the 409; this was the survivor,
+             * giving the operator a deadline that is not the real one. It takes the editor's words
+             * rather than a third phrasing, because a rule written three times disagreed with
+             * itself once already.
+             *
+             * Reached only while nothing is sealed yet (`frozen` picks `confirmationLabel`
+             * otherwise), and "Draft" is only true before it was sent — after that the terms are
+             * out for confirmation, not a draft.
+             */
             draftLabel={
               cancelled
-                ? // Not "live until every party signs": there is nothing left to sign, which is the
-                  // whole of what cancelling means (decisions §25.7.2).
+                ? // There is nothing left to sign, which is the whole of what cancelling means
+                  // (decisions §25.7.2).
                   "Cancelled — these terms pay nobody"
                 : agreementStatus === "draft"
                   ? "Draft — editable"
-                  : "Terms live until every party signs"
+                  : "Terms live until the first party signs"
             }
             summary={summary}
             dealStructure={dealStructure}

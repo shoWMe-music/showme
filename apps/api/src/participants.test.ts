@@ -1469,6 +1469,103 @@ describe("participants — a co-promoter added directly is on the bill, not in a
 });
 
 describe("participants — an invitation must be answered", () => {
+  /**
+   * THE BELL SAYS WHOSE INVITATION IT WAS (QA sweep run 14).
+   *
+   * These rows read "Invitation accepted — Roster Night" over a BLANK second line, because the
+   * body was `note || undefined` and the note is optional. On a six-party bill the operator could
+   * not tell which invitation had been answered — the one fact the row exists to carry. In
+   * Postgres: `body = ''`, `actor_display = ''`.
+   *
+   * Both fields asserted, and both DIRECTIONS of the answer, because a title that named the
+   * person only on the accept path would pass a test written for the accept path.
+   */
+  it("names the party who answered and the person who pressed it", async () => {
+    const { performer, event } = await seedEventWithHost("notifyname");
+    const { db } = harness;
+
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${event.id}/participants`,
+          headers: auth("notifyname-op"),
+          payload: { profileId: performer.profileId, role: "performer" },
+        })
+      ).statusCode,
+    ).toBe(201);
+
+    // NO NOTE — the common case, and the one that used to leave the row half empty.
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${event.id}/participation/accept`,
+          headers: auth("notifyname-perf"),
+          payload: {},
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const [accepted] = await db
+      .select()
+      .from(schema.notifications)
+      .where(
+        and(
+          eq(schema.notifications.userId, "notifyname-op"),
+          eq(schema.notifications.type, "event.invitation_accepted"),
+        ),
+      );
+    expect(accepted?.title).toBe("notifyname-perf accepted — Roster Night");
+    // The second line is never blank now, note or no note.
+    expect(accepted?.body).toBe("They are on the bill.");
+    // And the "by …" line every other row in the bell carries. It is the ACTOR, which on a
+    // delegated accept is the agent rather than the act — two different people, which is why
+    // the title and this are separate fields.
+    expect(accepted?.actorDisplay).toBe("notifyname-perf");
+  });
+
+  it("names the party who declined, and carries their note when they leave one", async () => {
+    const { performer, event } = await seedEventWithHost("notifyno");
+    const { db } = harness;
+
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${event.id}/participants`,
+          headers: auth("notifyno-op"),
+          payload: { profileId: performer.profileId, role: "performer" },
+        })
+      ).statusCode,
+    ).toBe(201);
+
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${event.id}/participation/decline`,
+          headers: auth("notifyno-perf"),
+          payload: { note: "Already booked that night." },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const [declined] = await db
+      .select()
+      .from(schema.notifications)
+      .where(
+        and(
+          eq(schema.notifications.userId, "notifyno-op"),
+          eq(schema.notifications.type, "event.invitation_declined"),
+        ),
+      );
+    expect(declined?.title).toBe("notifyno-perf declined — Roster Night");
+    // The note WINS over the standing sentence — it is the person's own words.
+    expect(declined?.body).toBe("Already booked that night.");
+    expect(declined?.actorDisplay).toBe("notifyno-perf");
+  });
+
   it("gives an invited participant NOTHING until they answer, then everything", async () => {
     const { operator, performer, event } = await seedEventWithHost("gate");
 
@@ -1560,10 +1657,18 @@ describe("participants — an invitation must be answered", () => {
 
     // Ran asked for the reason to be capturable — it reaches the activity feed,
     // which is where the operator finds out WHY rather than merely that.
+    // Scoped to THIS event. Unscoped it matched the first `participant.declined` row in the
+    // whole database, so a second decline test anywhere in this file decided its answer — which
+    // is exactly what happened when one was added.
     const [activity] = await db
       .select()
       .from(schema.activityLog)
-      .where(eq(schema.activityLog.type, "participant.declined"));
+      .where(
+        and(
+          eq(schema.activityLog.type, "participant.declined"),
+          eq(schema.activityLog.eventId, event.id),
+        ),
+      );
     expect((activity?.summary as { note?: string } | null)?.note).toBe("Already booked that night");
   });
 

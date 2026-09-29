@@ -23683,6 +23683,16 @@
             "in": "query",
             "name": "eventId",
             "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 400
+            },
+            "in": "query",
+            "name": "typePrefix",
+            "required": false
           }
         ],
         "responses": {

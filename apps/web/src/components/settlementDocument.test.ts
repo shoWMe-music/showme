@@ -10,7 +10,9 @@ import {
   payoutAdjustments,
   payoutRows,
   payoutsCaption,
+  settlementSteps,
   settlementTotals,
+  unsignedAgreementsSentence,
   withheldPartyCount,
   withheldPayees,
 } from "./settlementDocument";
@@ -518,6 +520,144 @@ describe("withheldPayees", () => {
  * are asked in the order they explain the gap, and the last one says the difference
  * and stops.
  */
+describe("unsignedAgreementsSentence — the refusal names the door it came from", () => {
+  const NAMES = "“Band guarantee”";
+
+  it("says the settlement cannot be run before anything has been computed", () => {
+    const sentence = unsignedAgreementsSentence({ names: NAMES, alreadyComputed: false });
+    expect(sentence).toContain("The settlement cannot be run until every agreement is signed");
+    expect(sentence).not.toContain("finalized");
+  });
+
+  /*
+   * RUN 14: this sentence appeared beside a disabled Finalize on a settlement that had been open
+   * and in review for an hour. Both halves asserted — one sentence for both doors passes a test
+   * that only checks the door it was written for.
+   */
+  /*
+   * Both disabled buttons named, not one. The panel greys out Recalculate AND Finalize, and
+   * "cannot open" was untrue of each of them once the settlement was open.
+   */
+  it("names both refused actions once the settlement is open", () => {
+    const sentence = unsignedAgreementsSentence({ names: NAMES, alreadyComputed: true });
+    expect(sentence).toContain(
+      "These figures cannot be recomputed or finalized until every agreement is signed",
+    );
+    expect(sentence).not.toContain("cannot open");
+    expect(sentence).not.toContain("cannot be run");
+  });
+
+  it("names each agreement rather than counting them, either way", () => {
+    for (const alreadyComputed of [true, false]) {
+      const sentence = unsignedAgreementsSentence({
+        names: "“Band guarantee”, “Support fee”",
+        alreadyComputed,
+      });
+      expect(sentence).toContain("“Band guarantee”, “Support fee”");
+      expect(sentence).toContain("cancel one whose booking is off");
+      expect(sentence).not.toMatch(/\b2 agreements?\b/);
+    }
+  });
+});
+
+describe("settlementSteps — a tick is a claim that something happened", () => {
+  const rail = (status: string, history: string[] = []) =>
+    settlementSteps(status, history).map(
+      (step) =>
+        `${step.state === "done" ? "✓" : step.state === "active" ? "●" : "·"} ${step.label}`,
+    );
+
+  it("marks the stop it is on active and everything ahead of it pending", () => {
+    expect(rail("open")).toEqual([
+      "● Open",
+      "· Pending review",
+      "· Comments received",
+      "· Revised",
+      "· Finalized",
+      "· Partly paid",
+      "· Paid",
+    ]);
+  });
+
+  /*
+   * RUN 14: a settlement finalized straight out of review read "✓ Comments received ✓ Revised"
+   * over a Comments tab saying "No comments yet" and a history saying nothing had happened.
+   */
+  it("does not tick a middle stop the history has no record of", () => {
+    expect(rail("finalized", ["settlement.pending_review"])).toEqual([
+      "✓ Open",
+      "✓ Pending review",
+      "· Comments received",
+      "· Revised",
+      "● Finalized",
+      "· Partly paid",
+      "· Paid",
+    ]);
+  });
+
+  it("ticks a middle stop the history does record", () => {
+    expect(
+      rail("finalized", [
+        "settlement.pending_review",
+        "settlement.commented",
+        "settlement.revised",
+      ]),
+    ).toEqual([
+      "✓ Open",
+      "✓ Pending review",
+      "✓ Comments received",
+      "✓ Revised",
+      "● Finalized",
+      "· Partly paid",
+      "· Paid",
+    ]);
+  });
+
+  // The comment path sets `comments_received` SILENTLY, so the remark is the evidence — and the
+  // status route's own `settlement.comments_received` counts too, for a settlement moved there
+  // by hand.
+  it("accepts either record of comments having been received", () => {
+    expect(rail("revised", ["settlement.commented"])[2]).toBe("✓ Comments received");
+    expect(rail("revised", ["settlement.comments_received"])[2]).toBe("✓ Comments received");
+    expect(rail("revised", [])[2]).toBe("· Comments received");
+  });
+
+  /*
+   * THE POSITIONAL STOPS STAY POSITIONAL. `open` is where a settlement is born and the last
+   * three fall out of the freeze and the transfers, so arriving IS the evidence — a rail that
+   * asked the feed for those would unlight a stop that provably happened.
+   */
+  it("keeps Open and the derived stops ticked with no history at all", () => {
+    expect(rail("paid", [])).toEqual([
+      "✓ Open",
+      "· Pending review",
+      "· Comments received",
+      "· Revised",
+      "✓ Finalized",
+      "✓ Partly paid",
+      "● Paid",
+    ]);
+  });
+
+  it("puts an unknown status at the start rather than inventing a stop", () => {
+    expect(rail("something_new")[0]).toBe("● Open");
+  });
+
+  // A dispute is a flag ON a stage, not a stage — it shares `comments_received`'s position, and
+  // the stop it stands at is not claimed as visited on its behalf.
+  it("stands a dispute where it is without ticking the stop it shares", () => {
+    expect(rail("dispute", ["settlement.pending_review"])).toEqual([
+      "✓ Open",
+      "✓ Pending review",
+      "● Comments received",
+      "· Revised",
+      "· Finalized",
+      "· Partly paid",
+      "· Paid",
+    ]);
+  });
+});
+
 describe("payoutRows — the rows and the figure under them", () => {
   const HOST = "host-participant";
   const ACT = "act-participant";

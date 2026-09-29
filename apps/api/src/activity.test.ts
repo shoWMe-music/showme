@@ -83,14 +83,17 @@ async function addParticipant(
 
 const auth = (uid: string) => ({ authorization: `Bearer ${uid}` });
 
-function feedFor(uid: string, eventId?: string) {
-  const query = eventId ? `?eventId=${eventId}` : "";
-  return app.inject({ method: "GET", url: `/api/v1/activity${query}`, headers: auth(uid) });
+function feedFor(uid: string, eventId?: string, typePrefix?: string) {
+  const query = new URLSearchParams();
+  if (eventId) query.set("eventId", eventId);
+  if (typePrefix != null) query.set("typePrefix", typePrefix);
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return app.inject({ method: "GET", url: `/api/v1/activity${suffix}`, headers: auth(uid) });
 }
 
 /** The activity types one user can see, sorted — the whole assertion in one line. */
-async function visibleTypes(uid: string, eventId?: string) {
-  const response = await feedFor(uid, eventId);
+async function visibleTypes(uid: string, eventId?: string, typePrefix?: string) {
+  const response = await feedFor(uid, eventId, typePrefix);
   expect(response.statusCode).toBe(200);
   return (response.json().items as Array<{ type: string }>).map((item) => item.type).sort();
 }
@@ -182,6 +185,133 @@ describe("activity feed — target-scoped visibility", () => {
     const response = await feedFor("act-lonely");
     expect(response.statusCode).toBe(200);
     expect(response.json().items).toEqual([]);
+  });
+});
+
+/**
+ * ASKING THE FEED FOR ONE FAMILY OF ROWS (QA sweep run 14).
+ *
+ * The Revision History panel and the settlement's progress rail both wanted "what happened to
+ * these figures" and both took a page of twenty MIXED rows and filtered client-side. On the
+ * seeded Album Release those twenty are mostly transfers, cancelled deals, a task, a share and a
+ * rider, and the oldest settlement transition falls off the end — so the panel told the operator
+ * less than had happened and the rail drew a conclusion from the gap.
+ *
+ * A PREFIX rather than an exact type, so a caller can ask for a family and not carry a list that
+ * goes stale. The filter must NARROW and never widen, which is the half a naive test would miss:
+ * a filter accidentally replacing the visibility WHERE instead of being ANDed onto it would pass
+ * every assertion about what comes back and leak everything about what should not.
+ */
+describe("activity feed — the type filter narrows and never widens", () => {
+  // One set of accounts PER TEST — `createProfile` inserts a `users` row keyed by the id, so a
+  // shared prefix makes the second caller fail on `users_pkey` rather than on anything it asserts.
+  async function seedStory(prefix: string) {
+    const { db } = harness;
+    const operator = await createProfile(`${prefix}-op`, "operator");
+    const performer = await createProfile(`${prefix}-perf`, "performer");
+    const [event] = await db
+      .insert(schema.events)
+      .values({
+        hostProfileId: operator.id,
+        title: "Filter Night",
+        baseCurrency: "SEK",
+        createdBy: `${prefix}-op`,
+      })
+      .returning();
+    if (!event) throw new Error("event seed failed");
+    const hostParticipant = await addParticipant(
+      event.id,
+      operator.id,
+      "host",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    await addParticipant(event.id, performer.id, "performer", PRESET_PERMISSION_SETS.performer);
+
+    /*
+     * The settlement is the OPERATOR'S OWN LINE, deliberately. Hung on the performer's
+     * participant it is a settlement the performer is a party to — so they read its activity by
+     * right and the scoping assertion below passes for the wrong reason, then fails. A fixture
+     * has to encode the situation the assertion is about, and the situation here is "a family of
+     * rows this viewer may not read".
+     */
+    const [settlement] = await db
+      .insert(schema.settlements)
+      .values({ eventId: event.id, participantId: hostParticipant, status: "open" })
+      .returning();
+    if (!settlement) throw new Error("settlement seed failed");
+
+    // One row per family, written straight to the log: the filter is what is under test, not
+    // the routes that write these.
+    for (const [type, targetKind, targetId] of [
+      ["event.created", "event", event.id],
+      ["event.updated", "event", event.id],
+      ["task.created", "task", event.id],
+      ["settlement.pending_review", "settlement", settlement.id],
+      ["settlement.finalized", "settlement", settlement.id],
+      ["transfer.state_changed", "event", event.id],
+    ] as const) {
+      await db.insert(schema.activityLog).values({
+        eventId: event.id,
+        type,
+        targetKind,
+        targetId,
+        actorUserId: `${prefix}-op`,
+        summary: {},
+      });
+    }
+    return { event, performer, operatorUid: `${prefix}-op`, performerUid: `${prefix}-perf` };
+  }
+
+  it("returns only the families asked for, and everything when nothing is asked", async () => {
+    const { event, operatorUid } = await seedStory("tfilter-all");
+    expect(await visibleTypes(operatorUid, event.id)).toEqual([
+      "event.created",
+      "event.updated",
+      "settlement.finalized",
+      "settlement.pending_review",
+      "task.created",
+      "transfer.state_changed",
+    ]);
+    // The Revision History panel's own request — two families, one string.
+    expect(await visibleTypes(operatorUid, event.id, "settlement.,transfer.")).toEqual([
+      "settlement.finalized",
+      "settlement.pending_review",
+      "transfer.state_changed",
+    ]);
+    // The rail's — exact types, which are just prefixes that match one thing each.
+    expect(await visibleTypes(operatorUid, event.id, "settlement.pending_review")).toEqual([
+      "settlement.pending_review",
+    ]);
+  });
+
+  /*
+   * THE HALF THAT MATTERS: a filter is not an authority. The performer holds no
+   * `settlement.view` over somebody else's line — asking for the family by name must not be a
+   * way in. This is the assertion that fails if the clause is ever built as a replacement for
+   * the visibility WHERE rather than an addition to it.
+   */
+  it("cannot be used to reach a family the viewer may not read", async () => {
+    const { event, performerUid } = await seedStory("tfilter-scope");
+    // Unfiltered: the performer sees the event-level story and none of the settlement.
+    const unfiltered = await visibleTypes(performerUid, event.id);
+    expect(unfiltered).not.toContain("settlement.finalized");
+    // ...and asking for it by name changes nothing.
+    expect(await visibleTypes(performerUid, event.id, "settlement.")).toEqual([]);
+  });
+
+  it("treats a wildcard character as a literal, so a prefix cannot match everything", async () => {
+    const { event, operatorUid } = await seedStory("tfilter-wild");
+    expect(await visibleTypes(operatorUid, event.id, "settlement.%")).toEqual([]);
+    // `_` is LIKE's single-character wildcard and is escaped too — this would otherwise match
+    // "settlement.pending_review".
+    expect(await visibleTypes(operatorUid, event.id, "settlement._ending_review")).toEqual([]);
+  });
+
+  it("ignores blank entries rather than matching every row with an empty prefix", async () => {
+    const { event, operatorUid } = await seedStory("tfilter-blank");
+    expect(await visibleTypes(operatorUid, event.id, " , ,settlement.finalized")).toEqual([
+      "settlement.finalized",
+    ]);
   });
 });
 
