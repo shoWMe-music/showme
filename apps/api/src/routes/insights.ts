@@ -14,7 +14,22 @@ const SummaryResponse = z.object({
 
 const RevenueResponse = z.object({
   totalRevenue: z.string(),
+  /**
+   * The one currency this sum may be labelled with, or NULL when there is not one.
+   *
+   * decisions §25.8.1: *whenever the rows a tile sums are not all one currency, print `—` and a note
+   * saying why.* This used to answer the FIRST hosted event's `base_currency` off a `limit(1)` with
+   * no `ORDER BY` — so a host with one Oslo night read a SEK+NOK total labelled SEK, and the label
+   * was also nondeterministic between identical requests (QA sweep run 14).
+   */
   currency: z.string().nullable(),
+  /**
+   * Is `currency` null because the sum spans MORE THAN ONE, rather than because there is nothing to
+   * label? The two need different sentences: a mix has to say so, and an empty ledger has nothing to
+   * explain. `currency: null` alone cannot tell them apart, which is why this is a second field and
+   * not an overloaded one.
+   */
+  mixedCurrency: z.boolean(),
 });
 
 const ANY_ROLE = ["owner", "admin", "editor", "viewer", "crew"] as const;
@@ -101,15 +116,36 @@ export async function insightRoutes(fastify: FastifyInstance): Promise<void> {
           ),
         );
 
-      const [event] = await database
-        .select({ currency: schema.events.baseCurrency })
-        .from(schema.events)
-        .where(eq(schema.events.hostProfileId, id))
-        .limit(1);
+      /*
+       * THE CURRENCIES OF THE ROWS THAT WERE ACTUALLY SUMMED — not of the profile's events.
+       *
+       * This was `select base_currency from events where host = id limit(1)`, with no `ORDER BY`: the
+       * first hosted event's currency, labelling a sum of every hosted event's revenue. A host with
+       * one Oslo night read a SEK+NOK total under "SEK", and two identical requests could disagree
+       * (QA sweep run 14).
+       *
+       * The predicate is the SUM's, repeated deliberately. Asking `events` alone would let a hosted
+       * night with no shared budget — which contributes nothing — report a mix that is not in the
+       * figure, and refusing to name a currency the sum really is in would be the opposite defect.
+       */
+      const currencies = await database
+        .selectDistinct({ currency: schema.events.baseCurrency })
+        .from(schema.budgetLines)
+        .innerJoin(schema.budgets, eq(schema.budgets.id, schema.budgetLines.budgetId))
+        .innerJoin(schema.events, eq(schema.events.id, schema.budgets.eventId))
+        .where(
+          and(
+            eq(schema.events.hostProfileId, id),
+            eq(schema.budgetLines.kind, "revenue"),
+            eq(schema.budgets.scope, "shared"),
+          ),
+        );
+      const named = currencies.map((row) => row.currency).filter((code): code is string => !!code);
 
       return {
         totalRevenue: totals?.totalRevenue ?? "0",
-        currency: event?.currency ?? null,
+        currency: named.length === 1 ? (named[0] as string) : null,
+        mixedCurrency: named.length > 1,
       };
     },
   );

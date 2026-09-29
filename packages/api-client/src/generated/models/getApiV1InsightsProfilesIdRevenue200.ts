@@ -9,4 +9,5 @@ export type GetApiV1InsightsProfilesIdRevenue200 = {
   totalRevenue: string;
   /** @nullable */
   currency: string | null;
+  mixedCurrency: boolean;
 };

@@ -124,7 +124,85 @@ describe("INSIGHTS — /insights/profiles/:id/revenue", () => {
       headers: auth(operator.ownerUserId),
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ totalRevenue: "150000", currency: "SEK" });
+    expect(response.json()).toMatchObject({
+      totalRevenue: "150000",
+      currency: "SEK",
+      mixedCurrency: false,
+    });
+  });
+
+  it("names NO currency when the summed nights span more than one, and says it is a mix", async () => {
+    /*
+     * QA sweep run 14, and decisions §25.8.1: *whenever the rows a tile sums are not all one
+     * currency, print `—` and a note saying why.*
+     *
+     * This answered `select base_currency from events where host = id limit(1)` — the FIRST hosted
+     * event's, with no `ORDER BY` — and labelled a sum of every hosted event with it. So a host with
+     * one Oslo night read a SEK+NOK total under "SEK", and two identical requests could disagree
+     * about which currency that was. Both halves are asserted below: the label is refused, and the
+     * TOTAL still adds up, because the figure is real and only the symbol was a lie.
+     */
+    const operator = await seedOperator();
+    const sek = await seedEvent(operator.profileId, operator.ownerUserId, "confirmed", "SEK");
+    const nok = await seedEvent(operator.profileId, operator.ownerUserId, "confirmed", "NOK");
+    for (const [eventId, amount] of [
+      [sek, 100000n],
+      [nok, 50000n],
+    ] as const) {
+      const [budget] = await harness.db
+        .insert(schema.budgets)
+        .values({ eventId, scope: "shared" })
+        .returning();
+      if (!budget) throw new Error("budget seed failed");
+      await harness.db
+        .insert(schema.budgetLines)
+        .values({ budgetId: budget.id, kind: "revenue", label: "Door", amount, currency: "SEK" });
+    }
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/insights/profiles/${operator.profileId}/revenue`,
+      headers: auth(operator.ownerUserId),
+    });
+    expect(response.json()).toMatchObject({
+      totalRevenue: "150000",
+      currency: null,
+      mixedCurrency: true,
+    });
+  });
+
+  it("does not report a mix from a night that contributes NOTHING to the sum", async () => {
+    /*
+     * The predicate has to be the SUM's, not the profile's events. A hosted night with no shared
+     * budget adds nothing to the figure, so letting its currency into the set would refuse a label
+     * the total genuinely deserves — the opposite defect, and the one an easier query would cause.
+     */
+    const operator = await seedOperator();
+    const sek = await seedEvent(operator.profileId, operator.ownerUserId, "confirmed", "SEK");
+    await seedEvent(operator.profileId, operator.ownerUserId, "confirmed", "NOK");
+    const [budget] = await harness.db
+      .insert(schema.budgets)
+      .values({ eventId: sek, scope: "shared" })
+      .returning();
+    if (!budget) throw new Error("budget seed failed");
+    await harness.db.insert(schema.budgetLines).values({
+      budgetId: budget.id,
+      kind: "revenue",
+      label: "Door",
+      amount: 100000n,
+      currency: "SEK",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/insights/profiles/${operator.profileId}/revenue`,
+      headers: auth(operator.ownerUserId),
+    });
+    expect(response.json()).toMatchObject({
+      totalRevenue: "100000",
+      currency: "SEK",
+      mixedCurrency: false,
+    });
   });
 
   /**

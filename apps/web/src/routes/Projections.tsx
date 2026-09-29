@@ -241,8 +241,14 @@ function ProjectionsScreen() {
        */
       label: "Revenue − costs",
       value: hasProjection ? money(totalBeforeDealsMinor) : dash,
+      /*
+       * AND THE MARGIN GOES WITH THE FIGURE. This kept "68% of revenue, before deals" under a tile
+       * that had just refused to name a number (QA sweep run 14) — a ratio of two sums that span
+       * currencies, which is not a percentage of anything. `currency === null` is the same condition
+       * the tile itself refuses on, asked once.
+       */
       hint:
-        overallMargin === null
+        overallMargin === null || currency === null
           ? "Before the deals pay out"
           : `${Math.round(overallMargin * 100)}% of revenue, before deals`,
       tone: (totalBeforeDealsMinor < 0 ? "red" : "green") as "red" | "green",
@@ -345,11 +351,33 @@ function ProjectionsScreen() {
   const realizedNote =
     revenue.data && summary.data && summary.data.eventsHosted > 0 ? (
       <div style={{ color: "var(--muted)", fontSize: 12.5 }}>
-        All time, as host — ignoring the filter above: budgeted revenue{" "}
-        <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>
-          {rowMoney(revenue.data.totalRevenue, revenue.data.currency)}
-        </span>{" "}
-        across {summary.data.eventsHosted} {pluralEvents(summary.data.eventsHosted)} you hosted.
+        {/*
+          AND IT REFUSES A FIGURE IT CANNOT NAME (decisions §25.8.1, QA sweep run 14).
+ 
+          The tiles above were taught to refuse a mixed-currency sum and this line one row below them
+          was not: it printed "budgeted revenue SEK 216,000" over 55,000 + 83,000 SEK + 78,000 NOK,
+          labelled off the first hosted event's `base_currency` — from a `limit(1)` with no ORDER BY,
+          so nondeterministic as well as wrong. The ruling implemented on the tiles and not on the
+          sentence beneath them.
+ 
+          `mixedCurrency` and not `currency == null`, because the two mean different things to a
+          reader: a mix has to be said out loud, and an empty ledger has nothing to explain.
+        */}
+        All time, as host — ignoring the filter above:{" "}
+        {revenue.data.mixedCurrency ? (
+          <>
+            your hosted nights are budgeted in more than one currency, so there is no single
+            all-time figure to show.
+          </>
+        ) : (
+          <>
+            budgeted revenue{" "}
+            <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>
+              {rowMoney(revenue.data.totalRevenue, revenue.data.currency)}
+            </span>{" "}
+            across {summary.data.eventsHosted} {pluralEvents(summary.data.eventsHosted)} you hosted.
+          </>
+        )}
       </div>
     ) : null;
 

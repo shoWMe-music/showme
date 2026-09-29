@@ -23513,9 +23513,12 @@
                     "currency": {
                       "type": "string",
                       "nullable": true
+                    },
+                    "mixedCurrency": {
+                      "type": "boolean"
                     }
                   },
-                  "required": ["totalRevenue", "currency"],
+                  "required": ["totalRevenue", "currency", "mixedCurrency"],
                   "additionalProperties": false
                 }
               }

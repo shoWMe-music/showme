@@ -123,3 +123,73 @@ and belongs to somebody else.
 
 `npx biome check .` 756 clean · API `settlement` + `settlement-own-read` **142** · `tsc` clean.
 
+---
+
+## 3. Run 14 MAJOR — the all-time line printed a mixed-currency sum under one currency
+
+**Mine, from `951a2a3`.** §25.8.1 landed on the four tiles and **not on the sentence one row below
+them**, which read *"budgeted revenue SEK 216,000"* over 55,000 + 83,000 SEK + **78,000 NOK**.
+Seventh instance of a ruling implemented on one of its two surfaces.
+
+### The API was the wrong half to trust, and it was worse than mislabelled
+
+`GET /insights/profiles/:id/revenue` sums `budget_lines` across every hosted shared ledger and then:
+
+```ts
+const [event] = await database
+  .select({ currency: schema.events.baseCurrency })
+  .from(schema.events)
+  .where(eq(schema.events.hostProfileId, id))
+  .limit(1);
+```
+
+The first hosted event's currency, **with no `ORDER BY`** — so the label was nondeterministic between
+identical requests as well as wrong. My web-side fix pointed `rowMoney` at `revenue.data.currency`
+believing it authoritative; it never was.
+
+**The currencies now come from the rows that were actually SUMMED**, with the sum's own predicate
+repeated deliberately: asking `events` alone would let a hosted night with **no shared budget** —
+contributing nothing to the figure — refuse a label the total genuinely deserves, which is the
+opposite defect and the one an easier query causes. A test covers exactly that.
+
+`mixedCurrency` is a second field rather than an overloaded `currency: null`, because the two states
+need different sentences: a mix has to be said out loud, an empty ledger has nothing to explain.
+Client regenerated (`sync-spec` + `generate`).
+
+### The web half, both parts
+
+The line now says *"your hosted nights are budgeted in more than one currency, so there is no single
+all-time figure to show."* And the **margin caption** stops surviving its own tile's refusal — it kept
+*"68% of revenue, before deals"* under a dash, which is a ratio of two sums that span currencies and
+so a percentage of nothing. It falls back to *"Before the deals pay out"* on the same condition the
+tile refuses on.
+
+### Mutations — four, all killed
+
+Back to the first hosted event's currency · asking the profile's EVENTS instead of the summed rows ·
+never reporting a mix · naming the first of several anyway.
+
+**And the runner itself had a bug worth recording.** M2's first anchor matched **twice** — the sum
+query shares that join chain — and the assertion caught it. But the aborted run had already left M1's
+mutation in place, and re-running the script **re-took its backup from the mutated file**, so the
+"restore" restored the defect and the baseline came back red. Repaired by hand, the poisoned backup
+deleted, and the runner now **refuses to start if its backup already exists**: a mutation runner that
+re-backs-up unconditionally will preserve whatever an aborted run left behind.
+
+### Proved on the running stack
+
+| Probe | Result |
+| --- | --- |
+| all SEK (control) | `{"totalRevenue":"51600000","currency":"SEK","mixedCurrency":false}` |
+| one night flipped to NOK | `{"totalRevenue":"51600000","currency":null,"mixedCurrency":true}` |
+
+The figure survives, only the symbol is refused. In the browser, with the mix in place: the all-time
+line reads the new sentence, `Revenue − costs —` carries *"Before the deals pay out"*, and a regex for
+`budgeted revenue (SEK|NOK|EUR)` matches nothing. **Currency reverted and verified** — all events SEK,
+and the route answers `SEK / mixedCurrency: false` again.
+
+### Suites
+
+`npx biome check .` 756 clean · web **630** · API `insights` + `settlement` + `settlement-own-read`
+**150** · `tsc` clean on api and web.
+
