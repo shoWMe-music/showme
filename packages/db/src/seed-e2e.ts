@@ -28,6 +28,47 @@ import {
 } from "./seed-capabilities";
 
 /**
+ * A SEED MUST NOT WRITE A STATE THE APP CANNOT PRODUCE (QA sweep run 11, QA11-4).
+ *
+ * `agreement_status: "confirmed"` MEANS every non-observer signatory has stamped —
+ * `confirmDealIfComplete` only reaches it that way, and `lib/deal-confirmation.ts` asserts as
+ * much in prose: *"on those, every signatory line already carries a `confirmed_at`."* Both
+ * seeded deals were written `confirmed`/`signed` with the PAYER's line — the operator's own —
+ * carrying nothing, so the Dashboard listed them under *"Sign your line on…"* for ever while
+ * the Deals tab offered nothing to sign with, and `POST /confirm`, which the route believes is
+ * a no-op on a finished deal, actually stamped something.
+ *
+ * Checked here rather than in a test because the seed is the thing that can drift: a test
+ * mirroring these rows would only assert that the mirror agrees with itself, which is how the
+ * original went unnoticed. A throw during seeding is unmissable and costs nothing.
+ *
+ * `signed` is included on purpose. It means countersigned off-platform, so one could argue its
+ * party rows need no stamp — but this seed is not recording an off-platform countersignature,
+ * it is recording a concluded night, and the ambiguity is exactly what let the hole in.
+ */
+function assertSignedDealsAreFullySigned(
+  deals: readonly { id?: string; name?: string | null; agreementStatus?: string | null }[],
+  parties: readonly { dealId: string; roleInDeal?: string | null; confirmedAt?: Date | null }[],
+): void {
+  for (const deal of deals) {
+    if (deal.agreementStatus !== "confirmed" && deal.agreementStatus !== "signed") continue;
+    const unsigned = parties.filter(
+      (party) =>
+        deal.id != null &&
+        party.dealId === deal.id &&
+        party.roleInDeal !== "observer" &&
+        party.confirmedAt == null,
+    );
+    if (unsigned.length > 0) {
+      throw new Error(
+        `Seed error: deal "${deal.name ?? deal.id}" is ${deal.agreementStatus} with ${unsigned.length} unsigned signatory line(s). ` +
+          "A confirmed agreement is one every signatory has stamped — give the line a confirmedAt, or write the deal as `sent`.",
+      );
+    }
+  }
+}
+
+/**
  * Where the marketing site is served from, for the seeded pictures below.
  *
  * The public site owns the fixture artwork (`apps/marketing/public/seed/`), so a
@@ -1169,96 +1210,122 @@ async function main() {
     // The split deal used to carry none — only the two party weights — so it sized to
     // 0% of the pool and paid both performers nothing (A-01's leftover, filed under
     // A-13). A party's `share` divides a deal; it never sizes one.
+    const dealRows: (typeof schema.deals.$inferInsert)[] = [
+      {
+        id: DEAL_IDS.albumSplit,
+        eventId: EVENT_IDS.albumRelease,
+        type: "split",
+        structure: REFERENCE_DOOR_SPLIT_TERMS.structure,
+        currency: SEK,
+        name: "Album Release — Door Split",
+        payerParticipantId: PART.albumHost,
+        paymentTiming: "at_settlement",
+        // The two split members take the whole pool between them; the 60/40 below
+        // divides it. Without this column the deal takes nothing out of the pool.
+        splitBasisPoints: REFERENCE_DOOR_SPLIT_TERMS.splitBasisPoints, // 100.00% OF THE POOL
+        agreementStatus: "confirmed",
+        status: "confirmed",
+        createdBy: operatorUserId,
+      },
+      {
+        id: DEAL_IDS.springGuaranteeVsDoor,
+        eventId: EVENT_IDS.springWarmup,
+        type: "performance",
+        structure: "guarantee_vs_door",
+        currency: SEK,
+        name: "Marlo Vance — Guarantee vs Door",
+        payerParticipantId: PART.springHost,
+        paymentTiming: "at_settlement",
+        // The signed terms live in reference-settlement.ts, which is also what
+        // derives the settlement below — one statement of the deal, not two.
+        guaranteeAmount: REFERENCE_GUARANTEE_VS_DOOR_TERMS.guaranteeAmount, // 18 000.00 SEK floor
+        splitBasisPoints: REFERENCE_GUARANTEE_VS_DOOR_TERMS.splitBasisPoints, // 70.00% OF THE POOL
+        agreementStatus: "signed",
+        status: "confirmed",
+        createdBy: operatorUserId,
+      },
+    ];
+
+    const dealPartyRows: (typeof schema.dealParties.$inferInsert)[] = [
+      /*
+       * Album Release split — payer (operator) + two split members.
+       *
+       * THE PAYER SIGNS TOO, and leaving it out wrote a state the engine cannot produce
+       * (QA sweep run 11, QA11-4). `agreement_status: "confirmed"` MEANS every non-observer
+       * signatory has stamped — `confirmDealIfComplete` only gets there that way, and
+       * `lib/deal-confirmation.ts` asserts it in as many words. This row carried no
+       * `confirmedAt` while the deal called itself confirmed, so the Dashboard listed it
+       * under *"Sign your line on…"* for ever and the Deals tab offered nothing to sign
+       * with, and `POST /confirm` — which the route believes is a no-op on a confirmed
+       * deal — actually stamped something.
+       */
+      {
+        dealId: DEAL_IDS.albumSplit,
+        participantId: PART.albumHost,
+        roleInDeal: "payer",
+        confirmedAt: new Date(),
+        confirmedBy: operatorUserId,
+      },
+      {
+        dealId: DEAL_IDS.albumSplit,
+        participantId: PART.albumPerformerA,
+        roleInDeal: "split_member",
+        confirmedAt: new Date(),
+        confirmedBy: agentUserId, // the AGENT confirms on performerA's behalf (delegated)
+        // 60.00% of the deal — 30 000.00 SEK at the reference 50 000.00 pool.
+        share: {
+          illustrativeAmount: REFERENCE_DOOR_SPLIT_SHARES.headlinerAmount.toString(),
+          splitBasisPoints: REFERENCE_DOOR_SPLIT_SHARES.headlinerBasisPoints,
+          currency: SEK,
+        },
+      },
+      {
+        dealId: DEAL_IDS.albumSplit,
+        participantId: PART.albumPerformerB,
+        roleInDeal: "split_member",
+        confirmedAt: new Date(),
+        confirmedBy: performerBUserId, // performerB is self-managed
+        // 40.00% of the deal — 20 000.00 SEK at the reference 50 000.00 pool.
+        share: {
+          illustrativeAmount: REFERENCE_DOOR_SPLIT_SHARES.supportAmount.toString(),
+          splitBasisPoints: REFERENCE_DOOR_SPLIT_SHARES.supportBasisPoints,
+          currency: SEK,
+        },
+      },
+      // Spring Warmup — payer (operator) + payee (performerA). The payer signs here too, and
+      // for the same reason: `signed` is a countersigned agreement, not a half-signed one.
+      {
+        dealId: DEAL_IDS.springGuaranteeVsDoor,
+        participantId: PART.springHost,
+        roleInDeal: "payer",
+        confirmedAt: new Date(),
+        confirmedBy: operatorUserId,
+      },
+      {
+        dealId: DEAL_IDS.springGuaranteeVsDoor,
+        participantId: PART.springPerformerA,
+        roleInDeal: "payee",
+        confirmedAt: new Date(),
+        confirmedBy: performerAUserId,
+        share: {
+          illustrativeAmount: REFERENCE_GUARANTEE_VS_DOOR_TERMS.guaranteeAmount.toString(),
+          splitBasisPoints: REFERENCE_GUARANTEE_VS_DOOR_TERMS.splitBasisPoints,
+          currency: SEK,
+        },
+      },
+    ];
+
+    assertSignedDealsAreFullySigned(dealRows, dealPartyRows);
+
     const deals = await database
       .insert(schema.deals)
-      .values([
-        {
-          id: DEAL_IDS.albumSplit,
-          eventId: EVENT_IDS.albumRelease,
-          type: "split",
-          structure: REFERENCE_DOOR_SPLIT_TERMS.structure,
-          currency: SEK,
-          name: "Album Release — Door Split",
-          payerParticipantId: PART.albumHost,
-          paymentTiming: "at_settlement",
-          // The two split members take the whole pool between them; the 60/40 below
-          // divides it. Without this column the deal takes nothing out of the pool.
-          splitBasisPoints: REFERENCE_DOOR_SPLIT_TERMS.splitBasisPoints, // 100.00% OF THE POOL
-          agreementStatus: "confirmed",
-          status: "confirmed",
-          createdBy: operatorUserId,
-        },
-        {
-          id: DEAL_IDS.springGuaranteeVsDoor,
-          eventId: EVENT_IDS.springWarmup,
-          type: "performance",
-          structure: "guarantee_vs_door",
-          currency: SEK,
-          name: "Marlo Vance — Guarantee vs Door",
-          payerParticipantId: PART.springHost,
-          paymentTiming: "at_settlement",
-          // The signed terms live in reference-settlement.ts, which is also what
-          // derives the settlement below — one statement of the deal, not two.
-          guaranteeAmount: REFERENCE_GUARANTEE_VS_DOOR_TERMS.guaranteeAmount, // 18 000.00 SEK floor
-          splitBasisPoints: REFERENCE_GUARANTEE_VS_DOOR_TERMS.splitBasisPoints, // 70.00% OF THE POOL
-          agreementStatus: "signed",
-          status: "confirmed",
-          createdBy: operatorUserId,
-        },
-      ])
+      .values(dealRows)
       .returning({ id: schema.deals.id });
     record("deals", deals);
 
     const dealParties = await database
       .insert(schema.dealParties)
-      .values([
-        // Album Release split — payer (operator) + two split members.
-        { dealId: DEAL_IDS.albumSplit, participantId: PART.albumHost, roleInDeal: "payer" },
-        {
-          dealId: DEAL_IDS.albumSplit,
-          participantId: PART.albumPerformerA,
-          roleInDeal: "split_member",
-          confirmedAt: new Date(),
-          confirmedBy: agentUserId, // the AGENT confirms on performerA's behalf (delegated)
-          // 60.00% of the deal — 30 000.00 SEK at the reference 50 000.00 pool.
-          share: {
-            illustrativeAmount: REFERENCE_DOOR_SPLIT_SHARES.headlinerAmount.toString(),
-            splitBasisPoints: REFERENCE_DOOR_SPLIT_SHARES.headlinerBasisPoints,
-            currency: SEK,
-          },
-        },
-        {
-          dealId: DEAL_IDS.albumSplit,
-          participantId: PART.albumPerformerB,
-          roleInDeal: "split_member",
-          confirmedAt: new Date(),
-          confirmedBy: performerBUserId, // performerB is self-managed
-          // 40.00% of the deal — 20 000.00 SEK at the reference 50 000.00 pool.
-          share: {
-            illustrativeAmount: REFERENCE_DOOR_SPLIT_SHARES.supportAmount.toString(),
-            splitBasisPoints: REFERENCE_DOOR_SPLIT_SHARES.supportBasisPoints,
-            currency: SEK,
-          },
-        },
-        // Spring Warmup — payer (operator) + payee (performerA).
-        {
-          dealId: DEAL_IDS.springGuaranteeVsDoor,
-          participantId: PART.springHost,
-          roleInDeal: "payer",
-        },
-        {
-          dealId: DEAL_IDS.springGuaranteeVsDoor,
-          participantId: PART.springPerformerA,
-          roleInDeal: "payee",
-          confirmedAt: new Date(),
-          confirmedBy: performerAUserId,
-          share: {
-            illustrativeAmount: REFERENCE_GUARANTEE_VS_DOOR_TERMS.guaranteeAmount.toString(),
-            splitBasisPoints: REFERENCE_GUARANTEE_VS_DOOR_TERMS.splitBasisPoints,
-            currency: SEK,
-          },
-        },
-      ])
+      .values(dealPartyRows)
       .returning({ id: schema.dealParties.id });
     record("deal_parties", dealParties);
 

@@ -178,3 +178,75 @@ Defensible — the host can derive it from a pool they may read — but it is a 
 disclosure rules on this screen have gone wrong twice (QA5-1, QA10-2). A count is not a figure, the
 route already publishes the roster on the ground that *"addressing somebody is not reading their
 money"*, and it closes the finding without touching #4.
+
+---
+
+## 3. QA11-4 — the plan, before building
+
+**Which files settle it:** `packages/db/src/seed-e2e.ts` and `apps/api/src/routes/deals.ts` — the
+fixture and the filter. Not `dealActionsFor`, which is right as it stands.
+
+**What was measured.** The Dashboard card *"Sign your line on Spring Warmup — Marlo Vance —
+Guarantee vs Door · 1 of 2 signed"* → **Open** → a Deals tab whose only controls are Reopen, Cancel
+agreement and Share & Export. Same on the Album Release. `Dashboard.tsx` states in its own words what
+is supposed to happen: *"the event's Deals tab offers **Confirm your line**, and this card — the one
+that exists to route them there — used to say 'You're all caught up'."*
+
+**The verdict, and it is TWO defects wearing one symptom.**
+
+1. **The seed authored a state the engine cannot produce.** Both seeded deals are written
+   `agreement_status: confirmed` / `signed` while the **payer's** row — the operator's own line —
+   carries no `confirmedAt` at all; every other party's does. `confirmDealIfComplete` only reaches
+   `confirmed` when every non-observer signatory has stamped, and `deal-confirmation.ts:48-50`
+   asserts exactly that: *"`confirmed` and `signed` pass: on those, every signatory line already
+   carries a `confirmed_at`."* **An assertion carrying a reason, and the reason is untrue of the
+   shipped fixture** — which is how the sweep's `POST /confirm` answered 200 and actually stamped
+   something, on a deal the route believes is finished. The seed is what is wrong here: these two
+   are a settled night and a concluded one, so they should be fully signed.
+
+2. **The two screens disagree about what "awaiting signature" means, and the disagreement survives a
+   fixed seed.** `GET /deals/awaiting-signature` excludes `draft` and `cancelled`, so it lists a
+   `confirmed` or `signed` deal that still has an unsigned line; `dealActionsFor` requires
+   `agreementStatus === "sent"` exactly, so the tab offers nothing. **This is reachable without a bad
+   fixture:** `signed` means *"the same agreement once it has been countersigned off-platform"*, a
+   state whose party rows may legitimately carry no `confirmedAt` — so the dead end would come back
+   on the first off-platform countersignature. The list is the half that is wrong: nobody is waiting
+   on your signature for an agreement that is already an agreement.
+
+**The scope.** The seed's two payer rows gain the signature they should always have had; the route's
+filter becomes `agreementStatus = 'sent'`, matching the card's own promise and `dealActionsFor`
+exactly. A seed change reaches every fixture, so the **full** API suite runs behind it rather than
+`deals.test.ts` alone.
+
+**The decision it hides: should the seed keep a deal that IS waiting on the operator?** It would be a
+useful fixture — nothing else exercises Confirm from the operator's seat — but the honest shape for
+it is a deal at `sent` with the payer unsigned, not a `confirmed` one with a hole in it. Adding a
+third seeded deal is a fixture feature and a separate change; **what is not acceptable is keeping an
+impossible state to stand in for a missing one.**
+
+### QA11-4 — what landed, and run 11's MAJORs are closed
+
+Both halves, plus a guard so the first one cannot come back:
+
+- **The seed's two payer rows now carry the signature they always should have.** Read back:
+  `Marlo Vance — Guarantee vs Door | signed | 0 unsigned` and
+  `Album Release — Door Split | confirmed | 0 unsigned`.
+- **`GET /deals/awaiting-signature` lists only `sent` deals**, which is what `dealActionsFor`
+  requires and what the Dashboard card promises. The load-bearing case is not the fixture but
+  `signed` — countersigned off-platform, party rows legitimately blank — which would have rebuilt
+  the dead end on the first one of those.
+- **`assertSignedDealsAreFullySigned` runs inside the seed**, before the insert, and throws:
+  `Seed error: deal "Album Release — Door Split" is confirmed with 1 unsigned signatory line(s).`
+  Proven by removing the signature again and watching the seed refuse. **In the seed rather than in
+  a test on purpose** — a test mirroring these rows would only assert that the mirror agrees with
+  itself, which is exactly how the original went unnoticed.
+
+Live, as `operator@`: `GET /deals/awaiting-signature` → `{"items": []}`, and the Dashboard reads
+**"You have 4 things that need attention today"** — the two cards that led nowhere are gone and all
+four that remain route somewhere real.
+
+**The full API suite behind the seed change: 65 files, 1451 passed, zero failures and zero
+port-bind flakes** — the first entirely clean full run this session.
+
+> **qa-sweep run 11's five MAJORs are closed.** QA11-1 `657cb70` · QA11-5 `3994c01` ·
+> QA11-3 `2ec770d` · QA11-2 `14deb99` · QA11-4 here.

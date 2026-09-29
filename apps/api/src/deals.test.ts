@@ -548,6 +548,36 @@ describe("deals — what is waiting for my signature", () => {
     expect((await awaiting(deal.aUid)).json().items).toHaveLength(1);
   });
 
+  /**
+   * AN AGREEMENT THAT IS ALREADY AN AGREEMENT IS NOT WAITING ON YOU (QA sweep run 11, QA11-4).
+   *
+   * The filter excluded `draft` and `cancelled`, which is not the same as including only `sent`:
+   * a `confirmed` or `signed` deal with an unsigned line was listed, and the Deals tab it routes
+   * to offers nothing — `dealActionsFor` requires `sent` exactly. The Dashboard promised *"the
+   * event's Deals tab offers Confirm your line"* and dead-ended on both seeded deals.
+   *
+   * `signed` is the load-bearing case rather than the seed's: it means the agreement was
+   * countersigned OFF-PLATFORM, so its party rows may legitimately carry no `confirmedAt` at
+   * all, and the dead end would have come back on the first one of those whatever the fixture
+   * said.
+   */
+  it("says nothing about an agreement already CONFIRMED or SIGNED, unsigned line or not", async () => {
+    const deal = await seedSplitDeal("await-done");
+    // Listed while it is genuinely open — the positive control, on the same deal.
+    expect((await awaiting(deal.aUid)).json().items).toHaveLength(1);
+
+    for (const agreementStatus of ["confirmed", "signed"] as const) {
+      await harness.db
+        .update(schema.deals)
+        .set({ agreementStatus })
+        .where(eq(schema.deals.id, deal.dealId));
+      // `a` has still not signed — the exact shape the seed shipped and the one an
+      // off-platform countersignature produces.
+      expect((await awaiting(deal.aUid)).json().items, agreementStatus).toHaveLength(0);
+      expect((await awaiting(deal.bUid)).json().items, agreementStatus).toHaveLength(0);
+    }
+  });
+
   it("gives an AGENT their act's line and NO other deal on the same bill", async () => {
     /*
      * Two halves of #14 in one reading, on a fixture that carries both deals.

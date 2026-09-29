@@ -699,9 +699,21 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       );
 
       /*
-       * `cancelled` is not a deal anybody signs, and `draft` is the reader's own unfinished
-       * work rather than somebody waiting — the same distinction that moved tasks off the
-       * attention card. Both are excluded in SQL rather than filtered after.
+       * ONLY `sent` — the one state in which somebody is actually waiting on this reader.
+       *
+       * `cancelled` is not a deal anybody signs and `draft` is the reader's own unfinished work
+       * rather than somebody waiting, which is the distinction that moved tasks off the
+       * attention card. But excluding those two was not the same as including only the right
+       * one: a `confirmed` or `signed` deal with an unsigned line was listed, and the Deals tab
+       * it routes to offers nothing — `dealActionsFor` requires `sent` exactly. The Dashboard
+       * card promised *"the event's Deals tab offers Confirm your line"* and dead-ended on both
+       * seeded deals (QA sweep run 11, QA11-4).
+       *
+       * The seed was half of that and is fixed; this is the half that would come back without
+       * it. `signed` is *"the same agreement once it has been countersigned off-platform"* — a
+       * state whose party rows may legitimately carry no `confirmedAt` — so the first
+       * off-platform countersignature would have rebuilt the dead end. Nobody is waiting on
+       * your signature for an agreement that is already an agreement.
        */
       const deals = await database
         .select({
@@ -716,7 +728,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
         .where(
           and(
             inArray(schema.deals.eventId, reachable),
-            ne(schema.deals.agreementStatus, "draft"),
+            eq(schema.deals.agreementStatus, "sent"),
             ne(schema.deals.status, "cancelled"),
           ),
         );
