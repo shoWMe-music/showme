@@ -990,6 +990,74 @@ describe("deals — a signed agreement's terms are frozen", () => {
     expect(accepted.json().splitBasisPoints).toBe(8000);
   });
 
+  /**
+   * THE FIRST SIGNATURE SEALS THE FIGURES, NOT THE LAST (QA sweep run 11).
+   *
+   * The block above tested the completed agreement and left the window between the first
+   * signature and the last wide open, because `agreementIsFrozen` is
+   * `agreement_status === "confirmed"` and the status only gets there when everybody has
+   * stamped. The sweep walked through it: the operator signed a SEK 60,000 guarantee, the
+   * act's agent edited it to **SEK 90,000** and signed, and the agreement froze carrying
+   * the new figure beside the operator's original `confirmedAt` — a document nobody with
+   * that signature on it ever agreed to, and `routes/settlement.ts` pays the live row.
+   */
+  it("refuses to move the figures once ONE party has signed, and says whose signature it is", async () => {
+    const deal = await seedSplitDeal("dfz-partial");
+    // The ACT signs first, and the agreement is still `sent` — this is the state the old
+    // gate read as open. The operator does the editing because `deal.edit` is what the
+    // performer preset does not carry; the sweep's editor was an agent, which does.
+    expect((await confirm(deal.dealId, deal.aUid)).statusCode).toBe(200);
+
+    const moved = await patchDeal(deal.dealId, deal.opUid, { guaranteeAmount: "9000000" });
+    expect(moved.statusCode).toBe(409);
+    // The refusal describes the state it is refusing: "on a confirmed agreement" would be
+    // untrue of a deal that is still `sent`.
+    expect(moved.json().error.message).toContain("already signed");
+    expect(moved.json().error.message).toContain("reopen");
+
+    const [row] = await harness.db
+      .select()
+      .from(schema.deals)
+      .where(eq(schema.deals.id, deal.dealId));
+    expect(row?.guaranteeAmount).toBeNull();
+    expect(row?.agreementStatus).toBe("sent");
+  });
+
+  it("refuses the FIRST signatory's own edit too — whoever moved it, somebody has signed", async () => {
+    // Direction matters: a payer raising its own rental against an act that has signed is
+    // the same wrong as the sweep's agent raising its own fee, and the operator is the
+    // party with `deal.edit` on most nights.
+    const deal = await seedSplitDeal("dfz-self");
+    expect((await confirm(deal.dealId, deal.opUid)).statusCode).toBe(200);
+
+    const moved = await patchDeal(deal.dealId, deal.opUid, { splitBasisPoints: 9000 });
+    expect(moved.statusCode).toBe(409);
+  });
+
+  it("takes the edit once a partly-signed agreement has been reopened", async () => {
+    // The door out is the same one, and reopen tears the single signature up.
+    const deal = await seedSplitDeal("dfz-partial-reopen");
+    await confirm(deal.dealId, deal.opUid);
+    expect((await patchDeal(deal.dealId, deal.opUid, { splitBasisPoints: 9000 })).statusCode).toBe(
+      409,
+    );
+
+    expect((await reopen(deal.dealId, deal.opUid, "the act renegotiated")).statusCode).toBe(200);
+    const accepted = await patchDeal(deal.dealId, deal.opUid, { splitBasisPoints: 9000 });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json().splitBasisPoints).toBe(9000);
+  });
+
+  it("still refuses to reopen an agreement NOBODY has signed", async () => {
+    // Widening reopen to the partly-signed case must not turn it into un-sending: there is
+    // nothing to tear up on a deal with no signatures, and moving it back to draft is a
+    // different act with a different name.
+    const deal = await seedSplitDeal("dfz-unsigned-reopen");
+    const refused = await reopen(deal.dealId, deal.opUid, "changed my mind");
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.message).toContain("signed");
+  });
+
   /** An unsigned agreement is still being negotiated — nothing is frozen there. */
   it("leaves a sent-but-unsigned agreement entirely editable", async () => {
     const deal = await seedSplitDeal("dfz6");

@@ -15,8 +15,10 @@ import {
   emptyDealDraft,
   percentToBasisPoints,
   readTermsTemplateText,
+  sealedTermsReason,
   shareBasisPointsOf,
   structureForKind,
+  termsAreSealed,
   termsTemplatePayload,
 } from "./deal-terms";
 
@@ -690,5 +692,55 @@ describe("dealDeletability", () => {
   it("speaks in general terms about an unnamed agreement", () => {
     const verdict = dealDeletability({ agreementStatus: "sent" }, { hasSettlement: false });
     expect(verdict.reason).toContain("This agreement");
+  });
+});
+
+/**
+ * THE FIRST SIGNATURE SEALS THE FIGURES (QA sweep run 11).
+ *
+ * The rule was written down in three places — the route's own comment, the hook's docstring,
+ * and commit `547f044`'s title (*"while nobody has signed"*) — and the predicate under all of
+ * them asked `agreement_status === "confirmed"`, which is every signatory stamped. Measured:
+ * the operator signed SEK 60,000, the act's agent edited it to SEK 90,000 and signed, and the
+ * agreement froze carrying the new figure beside the operator's original signature.
+ */
+describe("termsAreSealed", () => {
+  const sent = { agreementStatus: "sent" };
+
+  it("is open while nobody has signed — which is what editing a sent deal is FOR", () => {
+    expect(termsAreSealed(sent, [{ confirmedAt: null }, { confirmedAt: null }])).toBe(false);
+    expect(sealedTermsReason(sent, [{ confirmedAt: null }])).toBeNull();
+  });
+
+  it("seals on ONE signature, with the agreement still `sent`", () => {
+    const parties = [{ confirmedAt: "2026-09-28T23:57:56.361Z" }, { confirmedAt: null }];
+    expect(termsAreSealed(sent, parties)).toBe(true);
+    // And the reason says which state it is, because "on a confirmed agreement" would be
+    // untrue of this deal.
+    expect(sealedTermsReason(sent, parties)).toBe("partly-signed");
+  });
+
+  it("seals a confirmed agreement whatever the party rows say", () => {
+    // The status is the stronger claim: `signed` is the same agreement countersigned
+    // off-platform, where the party rows may carry nothing at all.
+    expect(termsAreSealed({ agreementStatus: "confirmed" }, [])).toBe(true);
+    expect(termsAreSealed({ agreementStatus: "signed" }, [{ confirmedAt: null }])).toBe(true);
+    expect(sealedTermsReason({ agreementStatus: "confirmed" }, [])).toBe("confirmed");
+  });
+
+  it("reads a Date as a signature, not only a string", () => {
+    // The API hands it a `timestamptz` column and the web hands it JSON. Both are signatures.
+    expect(termsAreSealed(sent, [{ confirmedAt: new Date("2026-09-28T23:57:56.361Z") }])).toBe(
+      true,
+    );
+  });
+
+  it("treats a party row with no `confirmedAt` key as unsigned", () => {
+    // An observer's row, and any caller selecting a narrower shape.
+    expect(termsAreSealed(sent, [{}, {}])).toBe(false);
+  });
+
+  it("is open on a draft nobody has touched", () => {
+    expect(termsAreSealed({ agreementStatus: "draft" }, [{ confirmedAt: null }])).toBe(false);
   });
 });

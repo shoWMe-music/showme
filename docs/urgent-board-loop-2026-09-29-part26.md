@@ -254,3 +254,104 @@ of "the board's urgent work" is three things, none of which is a ticket I can cl
 3. **Whatever run 11 finds.** Runs 9 and 10 between them produced thirty-odd findings against code
    that had already passed every suite, so a sweep coming back clean is a better stopping signal
    than a board with no rows left — and no sweep has come back clean yet.
+
+---
+
+## 9. qa-sweep run 11 — it did NOT come back clean
+
+`docs/qa-sweep-2026-09-29-run11.md`: **5 MAJOR · 12 MINOR · 4 COSMETIC · 5 NOTE.** Eight of the nine
+things this part and part 25 landed were re-verified and pass, with instrumentation on the one that
+needed it (QA10-8: figures refreshed with no reload, a patched `createOscillator` counted **0** tones,
+**0** `/notifications` fetches in the burst). The ninth is partial and is mine: `possessiveOf` is
+right but private to `settlementDocument.ts`, so two captions still read *"Northlight Presents's"*.
+
+The five MAJORs, in the order they will be taken:
+
+| # | The shape of it |
+|---|---|
+| QA11-1 | A deal's figures can be rewritten **after one party has signed**, and their signature is kept |
+| QA11-5 | The **Issue** button bypasses the amount guard QA9-12 put on the sibling route |
+| QA11-2 | The host's settlement omits the co-operator and still reads as a complete document |
+| QA11-3 | A co-operator can be served a settlement, counted in the roster, and can never approve it |
+| QA11-4 | *"Sign your line on…"* dead-ends, on both seeded deals |
+
+## 10. QA11-1 — the plan, before building
+
+**Which file settles it:** `packages/shared/src/deal-terms.ts` — a new shared predicate — then
+`apps/api/src/routes/deals.ts:879` and `apps/web/src/components/useEventAgreements.ts:184`.
+
+**What was measured.** The operator signed a SEK 60,000 guarantee at 23:57. The act's agent then used
+**Edit figures** to make it SEK 90,000 and signed. The agreement froze carrying both:
+
+```
+guaranteeAmount "9000000"                      <- written 00:05, by the agent
+parties[0] confirmedAt "…T23:57:56.361Z" confirmedBy "e2e-operator"
+```
+
+The operator's Budget Planner then reads *"Performer fee SEK 90,000"*, and `routes/settlement.ts`
+pays the live row, so that is what the night would actually pay.
+
+**The verdict: the rule is written down, in the right place, and the predicate under it is the wrong
+one — instance TWENTY-ONE, and the first that moves money.** `routes/deals.ts:860-878` already argues
+the case better than I could: *"a guarantee moved after signature is a guarantee that gets paid,
+quietly, against a document that says something else"*, and it points at `POST /deals/:did/reopen` as
+the door for renegotiation. But the guard is `agreementIsFrozen`, which is
+`agreementStatus === "confirmed" || "signed"` — and `agreement_status` only reaches `confirmed` when
+the **last** signatory stamps. So the whole window between the first signature and the last is open,
+in both ends: `547f044`'s own title says *"a deal's figures can be edited while **nobody** has
+signed"*, and the hook's docstring says the same. Nobody-has-signed is not what either gate asks.
+
+**The scope.** One predicate in `@showme/shared`, asked by both ends — the pattern `dealDeletability`
+and `confirmsOwnDealLines` already set, and the reason `useEventAgreements` says *"the server's own
+rule, not a mirror of it"*. The API's 409 gains the partial case as its own sentence, because
+*"cannot change on a confirmed agreement"* is untrue of a deal that is still `sent`, and a refusal
+that misdescribes the state is the seventh instance of a sentence untrue of its reader.
+
+**What must NOT change:** `agreementIsFrozen` itself, and its other caller
+(`confirmDealIfComplete`, `deal-confirmation.ts:252`), where "already frozen, nothing to do" is
+exactly right. The new predicate is a superset used by the two term-editing gates only.
+
+**The decision it hides: may the FIRST signatory edit before anybody else signs?** No, and this is
+the case worth stating rather than the obvious one. Once any signature exists the document has been
+agreed to by somebody, and who moved the figure afterwards is irrelevant to them — a payer raising
+its own rental against an act that has signed is the same wrong as the sweep's. The remedy in both
+directions is the same and already built: reopen tears every signature up, which is what
+renegotiating is. Nothing here narrows what a deal with **no** signatures can do.
+
+### QA11-1 — what landed
+
+`termsAreSealed(deal, parties)` in `@showme/shared`, asked by the PATCH route, by `canReviseTerms`
+**and by Reopen at both ends**. Proven end to end against the running API, which is the same
+sequence the sweep walked:
+
+```
+agent  POST /deals/…/confirm            200      ← one signature, agreement still `sent`
+oper   PATCH /deals/… {guarantee 12m}   409      "A party has already signed this agreement, so
+                                                  guaranteeAmount cannot change — their signature is
+                                                  on the figures as they stand."
+psql                                    9000000 | sent      ← the row was not half-written
+oper   POST /deals/…/reopen             200      ← both confirmed_at back to NULL
+oper   PATCH /deals/… {guarantee 12m}   200      ← and the edit lands
+```
+
+Five mutations killed: the predicate ignoring the party rows, the reason collapsing partly-signed
+into confirmed, the API gate reverting to the status alone, and reopen in both directions (too
+narrow, and wide open).
+
+**THE FIX CARRIED ITS OWN NEXT DEFECT, TWICE, and both were caught by something other than the
+change itself.**
+
+1. **A deadlock, caught by a test.** Reopen refused anything that was not `confirmed`, so sealing at
+   the first signature would have left a partly-signed deal neither editable nor reopenable — while
+   the 409 refusing the edit points the caller *at that very route*. A refusal advising an action the
+   API also refuses is the same defect as a screen offering a control the API will refuse; it just
+   costs one more request to find out. Reopen now asks the same predicate: **what seals the terms is
+   what unseals them**, and a deal nobody has signed still cannot be reopened (un-sending is a
+   different act with a different name, and there is a test for that too).
+2. **A dead end with instructions, caught in the BROWSER.** With the route fixed and
+   `canReopen` still on `frozen`, the card offered neither *Edit figures* nor *Reopen* — the mirror
+   of the usual defect and strictly worse. Read live on the partly-signed card afterwards:
+   `Confirm your line · Reopen · Cancel agreement`, no editor.
+3. And **my own comment, false ten minutes after I wrote it** — *"`frozen` … is the right question
+   for Reopen"*. Instance twenty-two, self-inflicted, and the reason the rule now lives in one
+   function instead of a sentence.

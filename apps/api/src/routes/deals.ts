@@ -8,7 +8,12 @@ import {
 import { type Database, schema } from "@showme/db";
 import { dealPartyRecipients, notifyUsers } from "@showme/db/notify";
 import { type PrepaidTerms, prepaidAmountOf } from "@showme/settlement";
-import { type Capability, dealDeletability } from "@showme/shared";
+import {
+  type Capability,
+  dealDeletability,
+  sealedTermsReason,
+  termsAreSealed,
+} from "@showme/shared";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -25,7 +30,6 @@ import {
   resolveDealAuthorityForEvents,
 } from "../lib/deal-authority";
 import {
-  agreementIsFrozen,
   allSignatoriesConfirmed,
   assertAgreementSignable,
   confirmDealIfComplete,
@@ -876,11 +880,33 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
        * every term, moved none" has to stay an ordinary request, or this would
        * block editing everything beside the terms.
        */
-      if (agreementIsFrozen(before)) {
-        const moved = movedSignedTerms(before, fields);
-        if (moved.length > 0) {
+      /*
+       * SEALED BY THE FIRST SIGNATURE, NOT THE LAST (QA sweep run 11).
+       *
+       * The paragraph above was right and this line was not: the gate asked
+       * `agreementIsFrozen`, which is `agreement_status === "confirmed" || "signed"`, and the
+       * status only reaches `confirmed` when the LAST signatory stamps. So the window between
+       * the first signature and the last was open, and the sweep walked through it — the
+       * operator signed SEK 60,000, the act's agent edited it to **SEK 90,000** and signed,
+       * and the agreement froze carrying the new figure beside the operator's original
+       * `confirmedAt`. Exactly the document this comment says must not exist.
+       *
+       * `termsAreSealed` is asked by the Deals tab too, so the screen cannot offer an edit the
+       * route will refuse. The parties are loaded only when a signed term actually MOVED,
+       * which keeps "sent every term, moved none" the ordinary request it has to be.
+       */
+      const moved = movedSignedTerms(before, fields);
+      if (moved.length > 0) {
+        const signatories = await database
+          .select({ confirmedAt: schema.dealParties.confirmedAt })
+          .from(schema.dealParties)
+          .where(eq(schema.dealParties.dealId, before.id));
+        const sealed = sealedTermsReason(before, signatories);
+        if (sealed !== null) {
           throw conflict(
-            `These terms are frozen — ${moved.join(", ")} cannot change on a confirmed agreement. Reopen it for renegotiation first: POST /deals/${before.id}/reopen`,
+            sealed === "confirmed"
+              ? `These terms are frozen — ${moved.join(", ")} cannot change on a confirmed agreement. Reopen it for renegotiation first: POST /deals/${before.id}/reopen`
+              : `A party has already signed this agreement, so ${moved.join(", ")} cannot change — their signature is on the figures as they stand. Reopen it for renegotiation first, which tears every signature up: POST /deals/${before.id}/reopen`,
           );
         }
       }
@@ -1172,8 +1198,27 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
 
       const deal = await loadDeal(request, request.params.did);
       const { authority: viewer } = await requireDealAccess(request, deal, "agreement.manage");
-      if (deal.agreementStatus !== "confirmed" && deal.agreementStatus !== "signed") {
-        throw conflict("Only a confirmed agreement can be reopened");
+      /*
+       * WHAT SEALS THE TERMS IS WHAT REOPEN UNSEALS — the same predicate, on purpose.
+       *
+       * This used to be `agreementStatus === "confirmed" || "signed"`, which was the right
+       * question only while the PATCH gate asked it too. Sealing the figures at the FIRST
+       * signature (QA sweep run 11) and leaving this one at the last would have built a
+       * deadlock: a partly-signed deal could be neither edited nor reopened, and the 409
+       * refusing the edit points the caller straight at this route. A refusal that advises an
+       * action the API also refuses is the same defect as a screen offering a control the API
+       * will refuse — it just takes one more request to discover.
+       *
+       * A `sent` agreement NOBODY has signed is still not reopenable, and that is unchanged:
+       * there is nothing to tear up, and moving it back to draft is un-sending, a different
+       * act with a different name.
+       */
+      const signatories = await database
+        .select({ confirmedAt: schema.dealParties.confirmedAt })
+        .from(schema.dealParties)
+        .where(eq(schema.dealParties.dealId, deal.id));
+      if (!termsAreSealed(deal, signatories)) {
+        throw conflict("Only an agreement somebody has signed can be reopened");
       }
 
       const { expectedVersion, reason } = request.body;

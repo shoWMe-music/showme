@@ -19,6 +19,7 @@ import {
   confirmsOwnDealLines,
   createDealPayload,
   dealDeletability,
+  termsAreSealed,
 } from "@showme/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
@@ -159,7 +160,23 @@ export function dealActionsFor(
     // mean what it says.
     return participant != null && confirmsOwnDealLines(participant.role, party.roleInDeal);
   });
-  const frozen = deal.agreementStatus === "confirmed" || deal.agreementStatus === "signed";
+  /**
+   * SEALED BY THE FIRST SIGNATURE, NOT THE LAST (QA sweep run 11).
+   *
+   * `agreement_status` reaches `confirmed` only when the LAST signatory stamps, so asking it
+   * left the whole window between the first signature and the last open. This hook's own
+   * docstring said otherwise all along — *"the deal is not signed yet"* — and so did commit
+   * `547f044`, titled *"while nobody has signed"*. Measured: the operator signed SEK 60,000,
+   * the act's agent edited it to SEK 90,000 and signed, and the frozen document carried the
+   * new figure beside the operator's original signature.
+   *
+   * The same function the route asks, so the screen cannot offer an edit the API will refuse —
+   * and it gates REOPEN too, because what seals the terms has to be what unseals them. The
+   * first draft of this change left Reopen on `frozen` and produced a dead end with
+   * instructions: a partly-signed deal offering neither editor, and a 409 telling the operator
+   * to reopen it.
+   */
+  const sealed = termsAreSealed(deal, deal.parties);
   // The rule itself is in `@showme/shared` and the route asks the same function — the ruling says
   // the screen must not offer a delete the API will refuse, and one implementation is how that
   // stays true rather than being true today.
@@ -179,10 +196,19 @@ export function dealActionsFor(
       deal.agreementStatus === "sent" &&
       deal.status !== "cancelled" &&
       unsignedOwnLines.length > 0,
-    canReopen: authority.canManage && frozen,
+    /*
+     * WHAT SEALS THE TERMS IS WHAT REOPEN UNSEALS — `sealed`, not `frozen`.
+     *
+     * Caught in the browser rather than by a test: with the figures sealed at the first
+     * signature and this line still asking `frozen`, a partly-signed deal offered neither
+     * *Edit figures* NOR *Reopen*, while the route's own 409 tells the operator to reopen.
+     * The usual defect is a screen offering a control the API will refuse; this is its mirror,
+     * and it is worse — it is a dead end with instructions.
+     */
+    canReopen: authority.canManage && sealed,
     // `draft` and `sent` both — a draft's figures are obviously editable, and a SENT one is the
     // case the spec is actually about, where parties are looking at terms nobody has signed.
-    canReviseTerms: authority.canManage && !frozen && deal.status !== "cancelled",
+    canReviseTerms: authority.canManage && !sealed && deal.status !== "cancelled",
     canDelete: authority.canManage && deletability.deletable,
     // Only worth a sentence to somebody who could otherwise have deleted it.
     deleteBlockedReason: authority.canManage ? deletability.reason : null,

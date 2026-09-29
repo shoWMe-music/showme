@@ -152,6 +152,8 @@ export {
   structureNeedsGuarantee,
   structureNeedsSplit,
   termsTemplatePayload,
+  sealedTermsReason,
+  termsAreSealed,
 } from "./deal-terms";
 export {
   type GuestListDocument,

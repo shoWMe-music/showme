@@ -11,7 +11,9 @@ export interface DealReopenModalProps {
 }
 
 /**
- * Reopening a confirmed agreement.
+ * Reopening an agreement somebody has signed — which since QA sweep run 11 means ONE
+ * signature, not only a completed one: the figures seal at the first signature, so this is
+ * the door out of a partly-signed deal as much as a confirmed one.
  *
  * Its own dialog rather than a plain "are you sure?", because reopening does two
  * things worth saying out loud: it **clears every confirmation** already given,
@@ -49,8 +51,10 @@ export function DealReopenModal({
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.5 }}>
+          {/* True of a partly-signed deal as well as a confirmed one: there may be one
+              signature rather than all of them, and "every confirmation" still covers it. */}
           Every confirmation on <strong style={{ color: "var(--text)" }}>{dealName}</strong> is
-          cleared and the frozen terms are released. Each party has to confirm again before it is an
+          cleared, and the figures can be edited again. Each party has to confirm before it is an
           agreement.
         </div>
         <TextField

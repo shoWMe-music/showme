@@ -1010,3 +1010,53 @@ export function dealDeletability(
   }
   return { deletable: true, reason: null };
 }
+
+/**
+ * ARE THE FIGURES SEALED — and the answer is YES the moment ONE party has signed, not
+ * only when the last one has (QA sweep run 11).
+ *
+ * Measured: the operator signed a SEK 60,000 guarantee at 23:57, the act's agent used
+ * *Edit figures* to make it **SEK 90,000** at 00:05, and the agreement froze carrying the
+ * new number and the operator's original `confirmedAt` — a document nobody with that
+ * signature on it ever agreed to. `routes/settlement.ts` pays the live `deals` row, so
+ * that is the figure the night would actually pay.
+ *
+ * `agreementIsFrozen` is NOT this question. It asks `agreement_status === "confirmed" ||
+ * "signed"`, and the status only reaches `confirmed` when the LAST signatory stamps — so
+ * it leaves the whole window between the first signature and the last wide open. Both
+ * gates asked it, and both were written to mean this one: commit `547f044` is titled *"a
+ * deal's figures can be edited while **nobody** has signed"*, and `useEventAgreements`
+ * says the same in prose.
+ *
+ * Direction-agnostic on purpose. A payer raising its own rental against an act that has
+ * already signed is the same wrong as the sweep's agent raising its own fee — whoever
+ * moved it, somebody is holding a document that says something else. The remedy in both
+ * directions is `POST /deals/:did/reopen`, which tears every signature up and puts the
+ * deal back to `draft`: that is what renegotiating terms IS, and the Deals tab already
+ * offers it.
+ *
+ * A deal with no signatures at all is untouched by this — which is the whole point of
+ * editing a `sent` deal, and what QA8-1 asked for.
+ */
+export function termsAreSealed(
+  deal: { agreementStatus: string },
+  parties: readonly { confirmedAt?: string | Date | null }[],
+): boolean {
+  if (deal.agreementStatus === "confirmed" || deal.agreementStatus === "signed") return true;
+  return parties.some((party) => party.confirmedAt != null);
+}
+
+/**
+ * WHY they are sealed, for a refusal that describes the state it is refusing.
+ *
+ * *"…cannot change on a confirmed agreement"* is untrue of a deal that is still `sent`
+ * with one signature on it, and a refusal that misdescribes the state is the seventh
+ * instance in this codebase of a sentence untrue of its reader.
+ */
+export function sealedTermsReason(
+  deal: { agreementStatus: string },
+  parties: readonly { confirmedAt?: string | Date | null }[],
+): "confirmed" | "partly-signed" | null {
+  if (deal.agreementStatus === "confirmed" || deal.agreementStatus === "signed") return "confirmed";
+  return parties.some((party) => party.confirmedAt != null) ? "partly-signed" : null;
+}
