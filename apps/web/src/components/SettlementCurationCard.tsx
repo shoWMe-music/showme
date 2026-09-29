@@ -1,4 +1,5 @@
 import { Card, Icon } from "@showme/design-system";
+import { possessiveOf } from "../lib/format";
 import { CardTitle, Eyebrow } from "./primitives";
 import { type CurationChip, useSettlementCuration } from "./useSettlementCuration";
 
@@ -49,7 +50,7 @@ export function SettlementCurationCard({ eventId }: { eventId: string }) {
           <CardTitle
             subtitle={
               curation.selected
-                ? `Click a line to include or withhold it from ${curation.selected.name}'s settlement. Only you see every figure by default.`
+                ? `Click a line to include or withhold it from ${possessiveOf(curation.selected.name)} settlement. Only you see every figure by default.`
                 : undefined
             }
           >

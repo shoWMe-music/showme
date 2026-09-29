@@ -250,3 +250,51 @@ port-bind flakes** — the first entirely clean full run this session.
 
 > **qa-sweep run 11's five MAJORs are closed.** QA11-1 `657cb70` · QA11-5 `3994c01` ·
 > QA11-3 `2ec770d` · QA11-2 `14deb99` · QA11-4 here.
+
+---
+
+## 4. Run 11's MINOR rows — the first cluster
+
+### QA11-6 — the possessive, and why it was still wrong
+
+**Which file settles it:** `apps/web/src/lib/format.ts` — a new home, because the old one is the
+whole problem.
+
+**What was measured.** `45d39ac` fixed *"Northlight Presents's 75%"* eight hours ago, and the sweep
+found two live captions still reading it:
+
+- `BudgetPlanner.tsx:1437` — `aria-label="Northlight Presents's share of what the event carries"`,
+  read aloud by a screen reader on a co-promotion's only money-splitting control.
+- `BudgetLineAttribution.tsx:401` — *"Deducted from Northlight Presents's settlement."*
+
+Plus two the sweep did not reach on screen and named anyway: `BudgetLineAttribution.tsx:585` and
+`SettlementCurationCard.tsx:52`.
+
+**The verdict: this is my own fix, not generalised — the twenty-third instance of the shape, and the
+third in two days.** `possessiveOf` is correct and **private to `settlementDocument.ts`**, so the
+settlement card is right and every other screen that writes a party's name is not. The same failure
+as QA9-12's render half, the budget CSV never getting QA7-26, and the invoice modal keeping a rule on
+two sibling fields and not the third: **a rule enforced at one reader is enforced at one reader.**
+
+**The scope.** `possessiveOf` moves to `lib/format.ts`, where the web's other text rules live and
+where five call sites can reach it, and every hand-written `${name}'s` for a PARTY goes through it.
+Not every apostrophe in the app — the ones about a *party's* name, which is the set that can end in
+s because a profile name is somebody's trading name.
+
+**What landed.** `possessiveOf` now lives in `lib/format.ts` with five call sites through it. Read
+live off the DOM, both controls on one screen — the positive and negative control together:
+
+```
+aria-label="The Lantern Hall's share of what the event carries"
+aria-label="Northlight Presents' share of what the event carries"
+```
+
+**And the test I wrote first was wrong.** It asserted `possessiveOf("NORTHLIGHT PRESENTS")` →
+`"NORTHLIGHT PRESENTS's"` and called that deliberate — it is the same mistake shouting, and the only
+reason the code did it was `endsWith("s")` being case-sensitive. The implementation now tests
+`/s$/i` and the test says what it is for. **An assertion carrying a reason is a claim about the
+code, and this one was wrong before the code was.**
+
+The attribution menu's copy goes through the same helper and compiles, but its chooser would not
+open under a synthetic click, so it is covered by the unit test and the shared call rather than by a
+second live read. Said plainly rather than implied.

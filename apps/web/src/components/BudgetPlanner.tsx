@@ -1,6 +1,7 @@
 import { Button, Card, Icon, type IconName, Input, Select } from "@showme/design-system";
 import type { RevenueBasis } from "@showme/shared";
 import type { ReactNode } from "react";
+import { possessiveOf } from "../lib/format";
 import { BudgetBreakEvenChart } from "./BudgetBreakEvenChart";
 import { BudgetBreakdownCard } from "./BudgetBreakdownCard";
 import {
@@ -1434,7 +1435,7 @@ function ProductionCostsSplit({
                 <Input
                   value={String(Math.round(shareOf(party.id) / 100))}
                   inputMode="numeric"
-                  aria-label={`${party.label}'s share of what the event carries`}
+                  aria-label={`${possessiveOf(party.label)} share of what the event carries`}
                   leftIcon={<span style={{ color: "var(--muted)" }}>%</span>}
                   onChange={(event) => {
                     const parsed = Number(event.target.value);

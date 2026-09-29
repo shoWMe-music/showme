@@ -1,7 +1,7 @@
 import type { getApiV1EventsIdSettlements, getApiV1Settlements } from "@showme/api-client";
 import type { Status } from "@showme/design-system";
 import { basisPointsToPercent } from "@showme/shared";
-import { formatAmount, formatDay, formatMoney } from "../lib/format";
+import { formatAmount, formatDay, formatMoney, possessiveOf } from "../lib/format";
 import type { SettlementStep } from "./SettlementStepper";
 import type { TransferState } from "./WhoOwesWhomBoard";
 
@@ -556,15 +556,6 @@ export interface EntitlementRule {
  * of this — which is honest, and the reason the card falls back to showing the
  * bare entitlement rather than inventing an explanation for it.
  */
-/**
- * A party's name as a possessive — and an apostrophe alone when the name already ends in
- * s, because "Northlight Presents's 75% of what is left" is not a sentence anybody wrote
- * on purpose. Four captions on somebody else's card run through this (#24.2).
- */
-function possessiveOf(name: string): string {
-  return name.endsWith("s") ? `${name}'` : `${name}'s`;
-}
-
 export function entitlementRules(
   computed: ComputedBreakdown,
   currency: string,

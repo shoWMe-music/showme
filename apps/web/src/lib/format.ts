@@ -264,3 +264,22 @@ export function relativeTime(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
 }
+
+/**
+ * A PARTY'S NAME AS A POSSESSIVE — an apostrophe alone when the name already ends in s.
+ *
+ * "Northlight Presents's share of what the event carries" is not a sentence anybody wrote on
+ * purpose, and a profile name is a trading name, so plenty of them end in s. Fixed once for the
+ * settlement document (`45d39ac`) and left PRIVATE to that module, which is why the sweep found
+ * it again the same day on the Budget Planner's split control — an `aria-label`, read aloud —
+ * and in the cost-attribution menu (QA sweep run 11).
+ *
+ * It lives here so the rule has one home for every screen that writes a party's name, rather
+ * than being right on the one screen somebody happened to be looking at.
+ */
+export function possessiveOf(name: string): string {
+  // Case-INSENSITIVE, because a trading name is often set in caps and "NORTHLIGHT PRESENTS's"
+  // is the same mistake shouting. Caught while writing the test for this, which had been about
+  // to pin the lowercase-only behaviour as though it were deliberate.
+  return /s$/i.test(name) ? `${name}'` : `${name}'s`;
+}

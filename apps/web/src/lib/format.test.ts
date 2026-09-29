@@ -19,6 +19,7 @@ import {
   formatMonthYear,
   formatTime,
   parseDayLocal,
+  possessiveOf,
   relativeTime,
 } from "./format";
 
@@ -256,5 +257,43 @@ describe("relativeTime", () => {
   it("returns nothing for an unparseable timestamp", () => {
     expect(relativeTime("nonsense")).toBe("");
     expect(relativeTime("")).toBe("");
+  });
+});
+
+/**
+ * THE POSSESSIVE, in ONE place (QA sweep run 11).
+ *
+ * `45d39ac` wrote this rule for the settlement document and left it private to that module, so
+ * the same day's sweep found "Northlight Presents's share of what the event carries" on the
+ * Budget Planner's split control — in an `aria-label`, read aloud — and in the cost-attribution
+ * menu. A rule enforced at one reader is enforced at one reader; this file is why there is now
+ * one reader.
+ */
+describe("possessiveOf", () => {
+  it("gives a name ending in s the apostrophe alone", () => {
+    expect(possessiveOf("Northlight Presents")).toBe("Northlight Presents'");
+    // The seed's own co-promoter is the case, which is why it kept turning up.
+    expect(possessiveOf("Neon Tide")).toBe("Neon Tide's");
+  });
+
+  it("leaves every other name with 's", () => {
+    expect(possessiveOf("The Lantern Hall")).toBe("The Lantern Hall's");
+    expect(possessiveOf("Marlo Vance")).toBe("Marlo Vance's");
+  });
+
+  it("handles the fallback phrases the captions pass when a name is withheld", () => {
+    // `entitlementRules` passes "that party" when the reader may not see the name.
+    expect(possessiveOf("that party")).toBe("that party's");
+  });
+
+  it("reads a CAPITAL S as an s — a trading name set in caps is the same word", () => {
+    /*
+     * This test was first written the other way round, asserting `"NORTHLIGHT PRESENTS's"` and
+     * calling it deliberate. It is not: that is the same mistake shouting, and the only reason
+     * the implementation did it was `endsWith("s")`. An assertion carrying a reason is a claim
+     * about the code, and this one was wrong before the code was.
+     */
+    expect(possessiveOf("NORTHLIGHT PRESENTS")).toBe("NORTHLIGHT PRESENTS'");
+    expect(possessiveOf("THE LANTERN HALL")).toBe("THE LANTERN HALL's");
   });
 });

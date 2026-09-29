@@ -1,5 +1,6 @@
 import { Badge, Icon, type IconName, Select } from "@showme/design-system";
 import type { ReactNode } from "react";
+import { possessiveOf } from "../lib/format";
 import type {
   BudgetAttributionOption,
   BudgetDealOption,
@@ -398,7 +399,7 @@ export function CostAttribution({
                 ...participants.map((party) => ({
                   value: party.id,
                   label: party.label,
-                  description: `Deducted from ${party.label}'s settlement — their money in the end.`,
+                  description: `Deducted from ${possessiveOf(party.label)} settlement — their money in the end.`,
                 })),
                 {
                   value: SPLIT_BEARING_VALUE,
@@ -582,8 +583,8 @@ export function CostBearingNote({
   if (!bearer) return null;
   return (
     <NoteLine icon="arrow-right">
-      {payer} pays it, and it is deducted from {bearer}'s settlement — so {bearer} carries it, not
-      the event pool.
+      {payer} pays it, and it is deducted from {possessiveOf(bearer)} settlement — so {bearer}{" "}
+      carries it, not the event pool.
     </NoteLine>
   );
 }
