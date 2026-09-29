@@ -2680,6 +2680,153 @@ describe("deals — a co-promoter sees the ENTIRE financial deal (meeting 00:25:
     });
     expect(hostList.json().hiddenCount).toBe(0);
     expect(hostList.json().deals).toHaveLength(1);
+
+    /*
+     * AND A CANCELLED DEAL IS NOT ONE THE READER IS MISSING (QA sweep run 12).
+     *
+     * The sentence the count carries is about MONEY — "what the night costs is higher than the
+     * total above" — and a cancelled agreement pays nobody: the settlement engine reads
+     * `ne(status, "cancelled")`. Measured on the seeded stack: a co-host who was a party to
+     * neither of two deals, one cancelled, was told TWO were adding cost.
+     */
+    const cancelled = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${hostOnly.json().id}`,
+      headers: auth("cp2-host"),
+      payload: { status: "cancelled" },
+    });
+    expect(cancelled.statusCode).toBe(200);
+
+    const afterCancel = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("cp2-cohost"),
+    });
+    expect(afterCancel.json().hiddenCount).toBe(0);
+    // AND IT IS STILL A DEAL — counted out, never filtered out. The party who CAN see it still
+    // does, because the Deals tab is where a cancelled agreement has to remain readable.
+    const stillThere = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("cp2-host"),
+    });
+    expect(stillThere.json().deals).toHaveLength(1);
+    expect(stillThere.json().deals[0].status).toBe("cancelled");
+    expect(stillThere.json().hiddenCount).toBe(0);
+  });
+
+  it("names cancelling in the history instead of calling it a terms change", async () => {
+    /*
+     * Every other lifecycle move has its own activity type and its own sentence; cancelling
+     * travelled through PATCH and read "Deal terms changed · Changed: status" — the one ending a
+     * party is most likely to go looking for, and the only one with no name (run 12).
+     */
+    const host = await seedMemberWithSet(
+      "cancelhist-host",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const crew = await seedMemberWithSet(
+      "cancelhist-crew",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_technical,
+    );
+    const { event, participants } = await seedEvent(
+      host,
+      [
+        { ...host, role: "host" },
+        { ...crew, role: "crew" },
+      ],
+      "cancelhist-host",
+    );
+    const idOf = (profileId: string) =>
+      participants.find((party) => party.profileId === profileId)?.id as string;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("cancelhist-host"),
+      payload: {
+        type: "fee",
+        name: "Support fee",
+        currency: "SEK",
+        guaranteeAmount: "500000",
+        parties: [
+          { participantId: idOf(host.profileId), roleInDeal: "payer" },
+          { participantId: idOf(crew.profileId), roleInDeal: "payee" },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    // Cancel AND move a figure in the same call — two facts, two rows, neither swallowing the other.
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${created.json().id}`,
+      headers: auth("cancelhist-host"),
+      payload: { status: "cancelled", guaranteeAmount: "400000" },
+    });
+    expect(patched.statusCode).toBe(200);
+
+    const rows = await harness.db
+      .select()
+      .from(schema.activityLog)
+      .where(eq(schema.activityLog.eventId, event.id));
+
+    const cancelRow = rows.find((row) => row.type === "deal.cancelled");
+    expect(cancelRow).toBeDefined();
+    expect((cancelRow?.summary as { name: string }).name).toBe("Support fee");
+
+    // The other field still gets its own row, and `status` is NOT repeated inside it.
+    const updateRow = rows.find((row) => row.type === "deal.updated");
+    expect((updateRow?.summary as { fields: string[] }).fields).toEqual(["guaranteeAmount"]);
+
+    // THE CONTROL: an ordinary edit that cancels nothing writes no cancellation row, so the row
+    // above is the status transition and not something every PATCH now emits.
+    const plain = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("cancelhist-host"),
+      payload: {
+        type: "fee",
+        name: "Another fee",
+        currency: "SEK",
+        guaranteeAmount: "500000",
+        parties: [
+          { participantId: idOf(host.profileId), roleInDeal: "payer" },
+          { participantId: idOf(crew.profileId), roleInDeal: "payee" },
+        ],
+      },
+    });
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${plain.json().id}`,
+      headers: auth("cancelhist-host"),
+      payload: { guaranteeAmount: "600000" },
+    });
+    /*
+     * AND THE SECOND CONTROL, which a surviving mutation asked for: editing a deal that is
+     * ALREADY cancelled must not announce the cancellation again. Without the
+     * `before.status !== "cancelled"` half of the guard, every later PATCH on a dead agreement
+     * writes another "Agreement cancelled" row into the history.
+     */
+    const editedAfterCancel = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${created.json().id}`,
+      headers: auth("cancelhist-host"),
+      payload: { name: "Support fee (void)" },
+    });
+    expect(editedAfterCancel.statusCode).toBe(200);
+    expect(editedAfterCancel.json().status).toBe("cancelled");
+
+    const afterPlain = await harness.db
+      .select()
+      .from(schema.activityLog)
+      .where(eq(schema.activityLog.eventId, event.id));
+    expect(afterPlain.filter((row) => row.type === "deal.cancelled")).toHaveLength(1);
+    expect(
+      afterPlain.filter((row) => row.type === "deal.updated" && row.targetId === plain.json().id),
+    ).toHaveLength(1);
   });
 });
 

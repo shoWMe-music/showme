@@ -531,9 +531,30 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
       const visible = deals
         .map((deal) => ({ deal, dealParties: partiesByDeal.get(deal.id) ?? [] }))
         .filter(({ dealParties }) => isDealVisible(dealParties, viewer));
+      /*
+       * A CANCELLED DEAL IS NOT A DEAL THE READER IS MISSING (QA sweep run 12).
+       *
+       * The count carries a claim about MONEY — the Budget Planner prints "…so what the night
+       * costs is higher than the total above" — and a cancelled agreement pays nobody:
+       * `routes/settlement.ts` reads `ne(status, "cancelled")` and `useBudgetSeed` filters it on
+       * the client for the same reason. Measured: a co-host who was a party to neither of two
+       * deals, one of them cancelled, was told TWO were adding cost.
+       *
+       * Counted, not FILTERED OUT — `deals` and the visibility split above are untouched on
+       * purpose. The sweep suggested filtering before the split, which would have removed
+       * cancelled deals from the list the Deals tab renders, and that tab is exactly where a
+       * cancelled agreement must stay visible: `DealAgreementCard` has a "Cancelled — these terms
+       * pay nobody" caption written for it. A party who cancelled a deal would have watched it
+       * vanish.
+       *
+       * Cancelling is the NORMAL ending for an agreement (§25.7.2), so these accumulate over an
+       * event's life and the drift is upward.
+       */
+      const paying = (deal: { status: string }) => deal.status !== "cancelled";
       return {
         deals: visible.map(({ deal, dealParties }) => serializeDeal(deal, dealParties, viewer)),
-        hiddenCount: deals.length - visible.length,
+        hiddenCount:
+          deals.filter(paying).length - visible.filter(({ deal }) => paying(deal)).length,
         hasSettlement,
       };
     },
@@ -968,7 +989,30 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
         // saves the whole form, so a PATCH that moved nothing is audited but is not
         // history — same rule as `event.updated`.
         const changed = changedDealTermNames(before, after);
-        if (changed.length > 0) {
+        /*
+         * CANCELLING HAS ITS OWN NAME NOW (QA sweep run 12).
+         *
+         * It travels through this route like any other field, so the history read "Deal terms
+         * changed · Changed: status" — while every other lifecycle move has its own type and its
+         * own sentence (`deal.sent`, `deal.reopened`, `deal.deleted`, both confirm rows).
+         * Cancelling is the ending a party is most likely to go looking for and was the only one
+         * with no name.
+         *
+         * Two rows, not one, when a PATCH does both: the status transition is its own fact and
+         * must not swallow a fee that moved in the same call, nor be swallowed by one.
+         */
+        const cancelled = after.status === "cancelled" && before.status !== "cancelled";
+        if (cancelled) {
+          await writeActivity(tx, request, {
+            eventId: before.eventId,
+            type: "deal.cancelled",
+            targetKind: "deal",
+            targetId: before.id,
+            summary: { name: after.name, agreementStatus: after.agreementStatus },
+          });
+        }
+        const otherFields = cancelled ? changed.filter((field) => field !== "status") : changed;
+        if (otherFields.length > 0) {
           await writeActivity(tx, request, {
             eventId: before.eventId,
             type: "deal.updated",
@@ -976,7 +1020,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
             targetId: before.id,
             summary: {
               name: after.name,
-              fields: changed,
+              fields: otherFields,
               agreementStatus: after.agreementStatus,
             },
           });

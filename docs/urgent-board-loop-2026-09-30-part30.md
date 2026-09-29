@@ -169,3 +169,108 @@ DISAGREE WITH ITSELF, and the second copy was mine, written in the same hour as 
   agreement once already (CLAUDE.md, `authorize.test.ts`).
 
 Suites: biome 746 · shared 344 · web 574 · API `deals`+`activity`+`deal-confirmation` 95.
+
+---
+
+## 2. The deals-data pair — run 12 §2 lines 135 and 309
+
+### 2a. [MINOR] `hiddenCount` counts a CANCELLED deal, and one number answers two questions
+
+**Which file settles it:** `apps/api/src/routes/deals.ts:536`.
+
+**What was measured.** Two deals on the Album Release — one `confirmed`, one **cancelled**. A co-host
+who is a party to neither reads, in the Budget Planner's Results panel:
+
+> "**2** of this event's deals are not shown to you, so what the night costs is higher than the total
+> above. Profit, margin and break-even are left out rather than calculated without them."
+
+A cancelled agreement pays nobody. `routes/settlement.ts:711` says so —
+`ne(schema.deals.status, "cancelled")` — and `useBudgetSeed.ts:386` filters it on the client for the
+same reason. The count is the one number that sentence rests on, and it is the one place that does not.
+
+**THE SWEEP'S SUGGESTED FIX WOULD HAVE INTRODUCED A WORSE DEFECT.** It says *"filter `deals` by
+`ne(status,'cancelled')` before both the visibility split and the count."* Filtering before the
+**split** removes cancelled deals from `deals` — the list the Deals tab renders — and that tab is
+exactly where a cancelled agreement has to remain visible: `DealAgreementCard` carries a
+*"Cancelled — these terms pay nobody"* caption written for it, and `canCancel` is
+`status !== "cancelled"` precisely so a cancelled card still draws. A party who cancelled a deal would
+watch it disappear. **Sixth instance of a report naming a real symptom over the wrong line** — and the
+first where following the suggested line would have cost more than the finding.
+
+**The verdict, and the thing under it: ONE FIELD IS ANSWERING TWO DIFFERENT QUESTIONS.**
+`hiddenCount` feeds two sentences that mean different things:
+
+| Reader | Sentence | What it needs |
+|---|---|---|
+| Agreements tab (`EventAgreementTab.tsx:185`) | *"This event has N deals, and their terms are not yours to read"* | a count of deals |
+| Budget Planner Results | *"…so what the night COSTS is higher than the total above"* | a count of deals that can move money |
+
+A cancelled deal belongs in the first and not the second. Both sentences are about what the reader
+cannot see, and in both the useful claim is about deals that are still **live** — so the count
+excludes cancelled for both readers rather than growing a second field. A hidden dead agreement is not
+news to somebody who could never read it, and §25.7.2's own note says cancelling is the *normal*
+ending, so counting them makes both sentences drift further from true over an event's life.
+
+**The scope.** The `hiddenCount` expression only — `deals` and the visibility split are untouched, so
+a party who can see a cancelled deal still sees it.
+
+### 2b. [COSMETIC] Cancelling is recorded as "Deal terms changed · Changed: status"
+
+**Which file settles it:** `apps/api/src/routes/deals.ts:970-980` and
+`apps/web/src/components/eventHistory.ts:60-66`.
+
+Cancelling goes through `PATCH /deals/:did`, and `changedDealTermNames` lists `status` among the ten
+tracked fields, so the history row is `deal.updated` with `fields: ["status"]` and reads *"Deal terms
+changed / Status: Sent / Changed: status"*. Every other lifecycle move has its own type and its own
+sentence — `deal.created`, `deal.sent`, `deal.party_confirmed`, `deal.confirmed`, `deal.reopened`,
+`deal.deleted`. **Cancelling is the one ending a party is most likely to go looking for, and it is the
+only one with no name.**
+
+**The scope.** A `deal.cancelled` activity type written when `status` moves TO `cancelled`, its label
+in `eventHistory`, and — the part worth getting right — a PATCH that cancels *and* changes something
+else still writes the other fields as `deal.updated`, so neither row swallows the other. No new route,
+no new capability: cancelling is `deal.edit` and stays there.
+
+### What landed — both read live
+
+```
+co.host@, a party to NEITHER deal on the Album Release:
+  one live deal                     → hiddenCount 1
+  a second live deal added          → hiddenCount 2
+  that second deal CANCELLED        → hiddenCount 1      ← was 2
+
+operator@, a party to it:
+  visible=2  statuses=[cancelled, draft]  hiddenCount=0  ← the cancelled card is STILL THERE
+```
+
+Event History, same night:
+
+```
+Agreement cancelled — it pays nobody
+QA30 cancel probe
+Status: Draft
+```
+
+and `Changed: status` no longer appears anywhere on the screen.
+
+### Mutations — five, all killed
+
+| Mutation | Verdict |
+|---|---|
+| `hiddenCount` counts cancelled again — the defect itself | KILLED (1) |
+| **cancelled deals filtered OUT of the list — the sweep's own suggested fix** | **KILLED (6)** |
+| no `deal.cancelled` row is written | KILLED (1) |
+| `deal.cancelled` fires on every PATCH of an already-cancelled deal | KILLED (1) — **survived first** |
+| the cancel row swallows the other fields changed in the same call | KILLED (1) |
+
+**The second row is the evidence that matters.** The sweep's suggested one-line fix does not merely
+risk hiding a cancelled agreement — **six existing tests already forbid it.** Following the line a
+report names, without checking what the line is load-bearing for, would have broken six of them.
+
+**And one survived first:** `deal.cancelled` firing on *every* PATCH of a cancelled deal. My test
+cancelled a deal once and never edited it afterwards, so the `before.status !== "cancelled"` half of
+the guard was never exercised — every later edit of a dead agreement would have written another
+"Agreement cancelled" row. Covered by editing the deal's name after cancelling and asserting **exactly
+one** cancellation row. **A GUARD WITH TWO CLAUSES NEEDS A TEST PER CLAUSE.**
+
+Suites: biome 746 · web 574 · API `deals.test.ts` 83 (was 81).

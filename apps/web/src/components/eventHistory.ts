@@ -63,6 +63,9 @@ const ACTIVITY_TITLE: Record<string, string> = {
   "deal.party_confirmed": "A party confirmed the agreement",
   "deal.confirmed": "Agreement confirmed by all parties",
   "deal.reopened": "Agreement reopened",
+  // The ending that had no name: it travelled through PATCH and read "Deal terms changed ·
+  // Changed: status", which is the one lifecycle move a party goes looking for (run 12).
+  "deal.cancelled": "Agreement cancelled — it pays nobody",
   "deal.deleted": "Deal deleted",
   "settlement.overridden": "Settlement corrected by the operator",
   "settlement.confirmed": "Settlement signed off",
