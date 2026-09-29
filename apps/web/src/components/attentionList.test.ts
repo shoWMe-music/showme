@@ -19,6 +19,7 @@ const invitation = (over: Partial<AttentionSources["eventInvitations"][number]> 
   hostName: "Northlight Presents",
   requestStatus: "pending",
   answerableByYou: true,
+  delegateName: null,
   ...over,
 });
 
@@ -81,6 +82,34 @@ describe("the invitation inboxes — both of them", () => {
     expect(list.items[0]?.detail).toBe("Invited to perform by Northlight Presents · 2 Nov 2026");
   });
 
+  it("names WHO was invited when the reader is answering for somebody else", () => {
+    /*
+     * An AGENCY read "Invited to perform by The Lantern Hall" on its own Dashboard (run 12). An
+     * agency does not perform; its act does, and the delegation is the only reason the row is on
+     * the agency's card. `delegateName` names the ACT on an agent's row (decisions §25.7.3) and
+     * had been on the wire since part 29 with nothing reading it.
+     */
+    const list = buildAttentionList({
+      ...empty,
+      eventInvitations: [invitation({ delegateName: "Marlo Vance" })],
+    });
+    expect(list.items[0]?.detail).toBe(
+      "Marlo Vance invited to perform by Northlight Presents · 2 Nov 2026",
+    );
+    // The title and the action are the reader's either way — they are the one answering.
+    expect(list.items[0]?.title).toBe("Answer Album Release");
+    expect(list.items[0]?.action).toBe("Answer");
+  });
+
+  it("says plain `Invited` when nobody is being answered for", () => {
+    // THE CONTROL: most invitations have no agent at all, and that sentence must not gain a subject.
+    const list = buildAttentionList({ ...empty, eventInvitations: [invitation()] });
+    expect(list.items[0]?.detail).toBe("Invited to perform by Northlight Presents · 2 Nov 2026");
+    // Starts with the verb and nothing before it. `not.toContain("invited to perform")` would have
+    // passed here on letter case alone, which is a thing this codebase has already paid for once.
+    expect(list.items[0]?.detail.startsWith("Invited ")).toBe(true);
+  });
+
   it("LEAVES one the reader may see but not answer — the act sees, the agent acts", () => {
     // decisions §25.7.3. The row exists so the act's screens can show the night;
     // routing them to a button they do not have is the bug QA6-1 forbids.
@@ -89,6 +118,17 @@ describe("the invitation inboxes — both of them", () => {
       eventInvitations: [invitation({ answerableByYou: false })],
     });
     expect(list.items).toEqual([]);
+
+    // And with a delegate named on it — the ACT's own row, where `delegateName` is the AGENT.
+    // It must stay out, because naming the agent as the invitee would invert the sentence.
+    expect(
+      buildAttentionList({
+        ...empty,
+        eventInvitations: [
+          invitation({ answerableByYou: false, delegateName: "Astra Booking Agency" }),
+        ],
+      }).items,
+    ).toEqual([]);
   });
 
   it("leaves an invitation that has already been answered, or whose night has passed", () => {

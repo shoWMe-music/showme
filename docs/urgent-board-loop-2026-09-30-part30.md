@@ -274,3 +274,112 @@ the guard was never exercised — every later edit of a dead agreement would hav
 one** cancellation row. **A GUARD WITH TWO CLAUSES NEEDS A TEST PER CLAUSE.**
 
 Suites: biome 746 · web 574 · API `deals.test.ts` 83 (was 81).
+
+---
+
+## 3. My own card, two ticks old — run 12 §2 lines 224 and 353
+
+### 3a. [MINOR] The card tells an AGENCY it was "invited to perform"
+
+**Which file settles it:** `apps/web/src/components/attentionList.ts` — and the vocabulary it needs
+already exists twenty lines away in `EventInvitationsCard.tsx:200-205`.
+
+**What was measured.** `agent@` (Astra Booking Agency), Dashboard:
+
+> **Answer Nordic Synth Showcase**
+> Invited **to perform** by The Lantern Hall · 5 Dec 2026
+
+An agency does not perform. Marlo Vance does; the agency answers for them, and the delegation is the
+only reason the row is on the agency's card at all (`answerableByYou`, decisions §25.7.3).
+
+**The verdict.** The module reads `role`, `hostName`, `requestStatus` and `answerableByYou` — and
+**not `delegateName`, which the API has been serving since part 29.** `A NAME THE API HAS AND DOES NOT
+SERVE` was the class; this is its inverse and a fourth instance of the same family: **a name the API
+DOES serve that the screen does not read.** `EventInvitationsCard` reads it and gets the sentence
+right in both directions:
+
+```
+answerableByYou  → "Answering for Marlo Vance"        (the agent's row names the ACT)
+!answerableByYou → "Astra Booking answers this for you" (the act's row names the AGENT)
+```
+
+**One simplification that must not be assumed silently.** The attention card only admits rows where
+`answerableByYou` is true, so on this card `delegateName` can only ever name the ACT. That is worth
+relying on and worth stating — but the conditional stays anyway, so the sentence cannot invert if the
+membership rule is ever widened.
+
+**The scope.** `delegateName` on the source type, and the detail line gains its subject:
+
+```
+no delegation  Invited to perform by The Lantern Hall · 5 Dec 2026
+delegation     Marlo Vance invited to perform by The Lantern Hall · 5 Dec 2026
+```
+
+The second is the first with the subject made explicit — the smallest change that makes it true, and
+it needs no new vocabulary. The title (`Answer <event>`) and the action are right either way.
+
+### 3b. [COSMETIC] The caught-up state says the same thing twice
+
+**What was measured**, on `performer.a@` and `professional@`:
+
+> "You're all caught up — nothing needs your attention today."
+> **Nothing needs attention**
+> "Events awaiting a decision, unanswered booking requests and invitations, agreements and
+> settlements waiting on your signature."
+
+**The verdict.** Three statements, two of them the same. The greeting's sentence is the one a reader
+scans and it is under test; the card's *description* is the only line carrying new information. So the
+duplicate is the EmptyState's **heading**, which restates the greeting and introduces nothing.
+
+**The scope.** The heading becomes a legend rather than a second announcement — *"What lands here"* —
+and the icon moves from `check` (which says "done", which the greeting already said) to `inbox`
+(which says "this is where things arrive"). The description is unchanged: the sweep confirms it
+matches the spec word for word, tasks deliberately absent. The greeting is untouched.
+
+### What landed — both read live
+
+`agent@` (Astra Booking Agency), Dashboard:
+
+```
+BEFORE  Answer Nordic Synth Showcase · Invited to perform by The Lantern Hall · 5 Dec 2026
+AFTER   Answer Nordic Synth Showcase · Marlo Vance invited to perform by The Lantern Hall · 5 Dec 2026
+```
+
+`performer.b@`, caught up:
+
+```
+BEFORE  You're all caught up — nothing needs your attention today.
+        Nothing needs attention                                     ← the same sentence again
+        Events awaiting a decision, unanswered booking requests …
+AFTER   You're all caught up — nothing needs your attention today.
+        What lands here
+        Events awaiting a decision, unanswered booking requests …
+```
+
+`"Nothing needs attention"` no longer appears anywhere on the screen.
+
+### A SURVIVING MUTATION TOLD ME MY OWN PLAN WAS WRONG
+
+The plan above said the conditional would *"stay anyway, so the sentence cannot invert if the
+membership rule is ever widened"*. Mutating it to read `delegateName` unconditionally **survived** —
+because `if (!invitation.answerableByYou) continue;` two lines above admits only answerable rows, so
+the ternary's false branch is unreachable. **A branch nothing can reach is not a safeguard; it is a
+comment pretending to be code.** Second instance of this exact lesson (`rooms.length < 2` was the
+first), and this time I had written the justification into the plan before the mutation contradicted it.
+
+Deleted, and the mutation moved to the line that actually holds the rule — the `continue` — which the
+existing *"the act sees, the agent acts"* test kills. **One fewer line, one more thing proved.**
+
+| Mutation | Verdict |
+|---|---|
+| `delegateName` never read — the defect | KILLED |
+| the `answerableByYou` filter dropped (the act's row would name its AGENT as the invitee) | KILLED |
+| the subject named but the verb not adjusted | KILLED |
+| ~~`delegateName` read unconditionally~~ | **SURVIVED → the line was redundant and is gone** |
+
+**And one of my own assertions passed on letter case alone.** `not.toContain("invited to perform")`
+against a detail reading *"Invited to perform …"* — true because of the capital I, not because of
+anything the code does. Replaced with `startsWith("Invited ")`. This codebase has paid for the
+case-sensitivity trap once already (`endsWith("s")` on a possessive, part 28).
+
+Suites: biome 746 · web 576 (was 574).

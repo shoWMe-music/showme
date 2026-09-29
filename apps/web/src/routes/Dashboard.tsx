@@ -323,8 +323,18 @@ export function Dashboard() {
       {/* Needs attention */}
       {attentionShown.length === 0 ? (
         <EmptyState
-          icon={<Icon name="check" />}
-          title="Nothing needs attention"
+          /*
+           * A LEGEND, NOT A SECOND ANNOUNCEMENT (QA sweep run 12).
+           *
+           * The heading read "Nothing needs attention" directly under the greeting's "You're all
+           * caught up — nothing needs your attention today." — three statements, two of them the
+           * same one. The greeting's sentence is the one a reader scans and the one under test;
+           * the description below is the only line here carrying new information. So the heading
+           * introduces it instead of restating the greeting, and the icon stops saying "done" —
+           * which the greeting has already said — and says "this is where things arrive".
+           */
+          icon={<Icon name="inbox" />}
+          title="What lands here"
           // WHAT THIS CARD ACTUALLY READS. It promised "open tasks" for as long as
           // tasks had their own section below, and would now have been wrong twice
           // over — the two invitation inboxes and an unsigned settlement are on it.

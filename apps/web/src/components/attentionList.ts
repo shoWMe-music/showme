@@ -87,6 +87,11 @@ export type AttentionSources = {
     hostName: string | null;
     requestStatus: string;
     answerableByYou: boolean;
+    /**
+     * THE OTHER PARTY IN THE DELEGATION — the ACT on an agent's row, the AGENT on the act's
+     * (decisions §25.7.3). Null on the great majority of invitations, which have no agent at all.
+     */
+    delegateName: string | null;
   }[];
   /**
    * `GET /me/invitations` — an invitation addressed to the reader's email, already
@@ -220,12 +225,29 @@ export function buildAttentionList(sources: AttentionSources, limit = 5): Attent
   for (const invitation of sources.eventInvitations) {
     if (invitation.requestStatus !== "pending") continue;
     if (!invitation.answerableByYou) continue;
+    /*
+     * WHO WAS INVITED, WHICH IS NOT ALWAYS THE READER (QA sweep run 12).
+     *
+     * An AGENCY read "Invited to perform by The Lantern Hall" on its own Dashboard. An agency does
+     * not perform — its act does, and the delegation is the only reason the row is here at all.
+     * `delegateName` has been on the wire since part 29 and this module was not reading it, which
+     * is the inverse of the "name the API has and does not serve" class: a name the API DOES serve
+     * that the screen ignored.
+     *
+     * NO SECOND GUARD, and a surviving mutation is why. This read
+     * `invitation.answerableByYou ? invitation.delegateName : null`, which cannot be false: the
+     * `continue` two lines above admits only answerable rows, so `delegateName` here is always the
+     * ACT. Re-asking the question was a branch nothing could reach — a comment pretending to be
+     * code — and the thing that actually keeps the sentence from inverting is that filter, which
+     * has its own test (a non-answerable row WITH a delegate named on it stays off the card).
+     */
+    const invitee = invitation.delegateName;
     items.push({
       id: `invitation-${invitation.participantId}`,
       kind: "invitation",
       date: invitation.eventDate,
       title: `Answer ${invitation.title ?? "an invitation"}`,
-      detail: `Invited ${roleReads(invitation.role)}${
+      detail: `${invitee ? `${invitee} invited` : "Invited"} ${roleReads(invitation.role)}${
         invitation.hostName ? ` by ${invitation.hostName}` : ""
       } · ${formatDay(invitation.eventDate)}`,
       action: "Answer",
