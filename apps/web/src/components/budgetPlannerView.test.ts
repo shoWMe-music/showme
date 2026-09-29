@@ -30,6 +30,7 @@ import {
   roundToDisplayUnit,
   splitCostRows,
   ticketSplitDisplay,
+  ticketsPlannedLabelFor,
 } from "./budgetPlannerView";
 
 /** The six headings the planner always offers, as the editor hands them over. */
@@ -533,5 +534,40 @@ describe("breakEvenKpi", () => {
     // The figure is real even when the room cannot reach it — the CSV exports it — so the
     // coverage is what decides, never the number. A tile reading the number would be the bug.
     expect(breakEvenKpi("beyond_this_room", 1)).toBe("No break-even");
+  });
+});
+
+/**
+ * A PLAN THAT OVERSELLS THE ROOM SAYS SO (QA sweep run 11).
+ *
+ * *"640 tickets planned across all types"* sat above a `Venue capacity 400` field and a chart
+ * captioned *"…inside 400 capacity"*, with nothing saying the two disagree — and every per-guest
+ * figure dividing by 640. Reached without fat-fingering anything: tiers entered on Event Details
+ * ADD rows to whatever the planner already holds.
+ */
+describe("ticketsPlannedLabelFor", () => {
+  it("says the plan is over the room when it is", () => {
+    expect(ticketsPlannedLabelFor(640, 400)).toBe(
+      "640 tickets planned across all types — more than the room's 400 capacity",
+    );
+  });
+
+  it("says nothing extra when the plan fits", () => {
+    expect(ticketsPlannedLabelFor(320, 400)).toBe("320 tickets planned across all types");
+  });
+
+  it("treats a full house as fitting — the last seat is still a seat", () => {
+    // `>` and not `>=`: selling exactly the room is the plan working, not a warning.
+    expect(ticketsPlannedLabelFor(400, 400)).toBe("400 tickets planned across all types");
+  });
+
+  it("stays quiet when capacity is unset, rather than calling every plan an oversell", () => {
+    // Zero means "nobody has said how big the room is", which is most draft sheets. A warning
+    // there would fire on every one of them and teach the reader to ignore it.
+    expect(ticketsPlannedLabelFor(640, 0)).toBe("640 tickets planned across all types");
+  });
+
+  it("keeps the singular", () => {
+    expect(ticketsPlannedLabelFor(1, 400)).toBe("1 ticket planned across all types");
   });
 });

@@ -343,12 +343,31 @@ function ProjectionsScreen() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <KpiRow items={kpiItems} />
-          {/* WHY THIS SCREEN AND THE PLANNER DIFFER, said once and plainly. Without it a
-              reader has two numbers for one night and no way to tell which is theirs. */}
+          {/*
+            WHY THIS SCREEN AND THE PLANNER DIFFER, said once and plainly. Without it a reader has
+            two numbers for one night and no way to tell which is theirs.
+
+            THE SECOND REASON was measured by QA sweep run 11: a ticket tier typed on Event
+            Details lives in `events.extras.ticketTiers` and writes no budget line, so the planner
+            counted SEK 163,000 against this screen's SEK 83,000 on the same night. The planner
+            merges those tiers with the ledger's own rows; so does the settlement
+            (`seedTicketTiersIntoBudget`), which makes this screen the odd one out.
+
+            SAID RATHER THAN SUMMED, deliberately. A tier only counts if no line already states it,
+            and that rule — match by id, match by name, and a hand-typed door row suppressing the
+            tiers entirely — is already written twice, in `mergeTicketTierSeeds` and in the
+            settlement, each with a comment saying the two must agree. Its third case exists
+            because getting it wrong once showed SEK 57,000 on a SEK 25,000 night. A third copy on
+            a money screen is how that comes back; the fix is to move the rule into
+            `@showme/shared` and have all three ask it, which is its own piece of work.
+          */}
           <div style={{ color: "var(--muted)", fontSize: 12.5 }}>
             Every figure here comes from the event's shared ledger. What the deals pay the acts is
             not a budget line, so it is <strong>not</strong> subtracted — an event's Budget Planner,
-            which derives the performer fee from its deals, will show less for the same night.
+            which derives the performer fee from its deals, will show less for the same night. A
+            ticket tier entered on Event Details is not a budget line either, so it is{" "}
+            <strong>not</strong> added here until the planner or the settlement writes it in — and
+            the planner, which reads those tiers directly, will show more.
           </div>
           {coverage.isPartial && !budgetsPending && (
             <div style={{ color: "var(--muted)", fontSize: 12.5 }}>

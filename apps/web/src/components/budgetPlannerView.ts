@@ -480,6 +480,30 @@ function derivedFeeMinor(editor: BudgetEditor): bigint | null {
  * module's, and it was wrong (QA sweep run 11) — so it is a function rather than an expression
  * buried in a tile.
  */
+/**
+ * "640 TICKETS PLANNED ACROSS ALL TYPES" — IN A 400-CAPACITY ROOM (QA sweep run 11).
+ *
+ * The sheet said it, a `Venue capacity 400` field sat two rows below, the break-even chart was
+ * captioned *"…inside 400 capacity"*, and nothing anywhere said the plan oversells the house.
+ * Every per-guest figure divided by 640. `grep -rn "exceeds capacity"` across the web and shared
+ * packages returned nothing: the planner had no concept of the room being full.
+ *
+ * Easy to reach, too, and not by fat-fingering: tiers entered on Event Details ADD rows to
+ * whatever the planner already has, so two plausible sets of numbers make one impossible one.
+ *
+ * Said on the subtitle that already states the count rather than as a new banner — the reader is
+ * looking at the figure when they need to know, and a warning somewhere else on a sheet this tall
+ * is a warning they scroll past. Capacity of zero or less means "unset", not "an empty room", so
+ * it says nothing at all there.
+ */
+export function ticketsPlannedLabelFor(ticketsSold: number, capacity: number): string {
+  const counted = `${ticketsSold.toLocaleString()} ${ticketsSold === 1 ? "ticket" : "tickets"} planned across all types`;
+  if (capacity > 0 && ticketsSold > capacity) {
+    return `${counted} — more than the room's ${capacity.toLocaleString()} capacity`;
+  }
+  return counted;
+}
+
 export function breakEvenKpi(
   coverage: "on_chart" | "covered_before_doors" | "beyond_this_room",
   breakEvenTickets: number,
@@ -831,9 +855,7 @@ export function budgetPlannerViewFrom(
       // settlement will pay, which is what makes the caption worth printing.
       derivedFeeMinor(editor),
     ),
-    ticketsPlannedLabel: `${projection.ticketsSold.toLocaleString()} ${
-      projection.ticketsSold === 1 ? "ticket" : "tickets"
-    } planned across all types`,
+    ticketsPlannedLabel: ticketsPlannedLabelFor(projection.ticketsSold, inputs.capacity),
     // Keyed by the EDITOR's row id, and taken from the same `inputs` the
     // projection reads, so the column and the band under it can never disagree.
     ticketTierTotals: Object.fromEntries(
