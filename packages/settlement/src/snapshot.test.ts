@@ -102,6 +102,43 @@ describe("have two snapshots of one party anything different to say", () => {
     ).toBe(false);
   });
 
+  it("compares NESTED rows by value, not by key order", () => {
+    /*
+     * The claim the comparison is built on, and until now only a comment. `computed` comes back out
+     * of a `jsonb` column, which does not preserve key order — so a stringify would report every
+     * stored row as changed the first time Postgres handed the keys back differently, which is an
+     * infinite "the figures moved" and a settlement that can never be finalized.
+     *
+     * Worth a test of its own because the comparison is hand-written: it used `node:util`'s
+     * `isDeepStrictEqual` for an afternoon, and that import turned out to break the web app (a Node
+     * builtin in a package Vite bundles for the browser). The replacement has to keep this property.
+     */
+    const line = { dealId: "d1", amount: "100", dealTotal: "200" };
+    const reordered = { amount: "100", dealTotal: "200", dealId: "d1" };
+    expect(Object.keys(line)).not.toEqual(Object.keys(reordered));
+    expect(
+      sameStoredBreakdown(base({ lines: [line] as never }), base({ lines: [reordered] as never })),
+    ).toBe(true);
+  });
+
+  it("sees a nested row gain or lose a key", () => {
+    // The other half of a by-value compare: same values, different SHAPE, is a change. Without the
+    // key count a subset would read as equal.
+    expect(
+      sameStoredBreakdown(
+        base({ lines: [{ dealId: "d1", amount: "100" }] as never }),
+        base({ lines: [{ dealId: "d1", amount: "100", bonus: "5" }] as never }),
+      ),
+    ).toBe(false);
+    // And ORDER within an array IS meaningful — the lines are the explanation, in order.
+    expect(
+      sameStoredBreakdown(
+        base({ lines: [{ dealId: "a" }, { dealId: "b" }] as never }),
+        base({ lines: [{ dealId: "b" }, { dealId: "a" }] as never }),
+      ),
+    ).toBe(false);
+  });
+
   it("answers false for an UNWRITTEN row", () => {
     // The UNSET case: `settlements.computed` is nullable, and a row with nothing in it has nothing
     // in common with a computed one.

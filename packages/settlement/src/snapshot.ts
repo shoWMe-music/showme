@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from "node:util";
 import type { EntitlementBasis, EntitlementLine, PartyBreakdown, PoolLadder } from "./types";
 
 /**
@@ -344,7 +343,36 @@ export function storeBreakdown(breakdown: PartyBreakdown, ladder: PoolLadder): S
  * not preserve key order. Stringifying would report every stored row as changed on the first read
  * after Postgres reordered its keys, which is an infinite "the figures moved" and a settlement that
  * can never be finalized.
+ *
+ * ── And NOT `node:util`'s `isDeepStrictEqual`, which is where this went wrong once ───────────────
+ * This comparison used to live in `routes/settlement.ts`, where a Node builtin is free. Moving it
+ * into THIS package put `import { isDeepStrictEqual } from "node:util"` on a module the WEB app
+ * reaches through `@showme/settlement`, and Vite externalises a Node builtin for the browser: the
+ * whole app rendered white with *"Module node:util has been externalized for browser
+ * compatibility"*. `tsc` was clean and 2,588 unit tests passed, because vitest runs in Node. Only
+ * the browser could say so. So the comparison is spelled out here, and this package stays free of
+ * Node builtins.
  */
+function sameValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    return left.every((entry, index) => sameValue(entry, right[index]));
+  }
+  if (typeof left !== "object" || typeof right !== "object" || left === null || right === null) {
+    return false;
+  }
+  const leftKeys = Object.keys(left as Record<string, unknown>);
+  const rightKeys = Object.keys(right as Record<string, unknown>);
+  // By VALUE, not by key order — which is the whole reason this is not a stringify.
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every(
+    (key) =>
+      Object.hasOwn(right as Record<string, unknown>, key) &&
+      sameValue((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]),
+  );
+}
+
 function comparableBreakdown(value: StoredBreakdown) {
   return {
     participantId: value.participantId,
@@ -372,5 +400,5 @@ function comparableBreakdown(value: StoredBreakdown) {
 
 /** `false` when `left` is absent — an unwritten row has nothing in common with a computed one. */
 export function sameStoredBreakdown(left: StoredBreakdown | null, right: StoredBreakdown): boolean {
-  return left != null && isDeepStrictEqual(comparableBreakdown(left), comparableBreakdown(right));
+  return left != null && sameValue(comparableBreakdown(left), comparableBreakdown(right));
 }
