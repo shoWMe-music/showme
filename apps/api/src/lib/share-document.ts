@@ -428,7 +428,13 @@ async function loadDeals(
       ),
     )) as (typeof schema.dealParties.$inferSelect)[];
 
-  const viewer = { viewerParticipantIds: [party.participantId], isManagingOperator: false };
+  // A share-link recipient is a PARTY and never an author, so there is no user to compare
+  // `created_by` against — see `authoredByViewer`.
+  const viewer = {
+    viewerParticipantIds: [party.participantId],
+    isManagingOperator: false,
+    callerUserId: null,
+  };
   const document: z.infer<typeof DocumentDeal>[] = [];
   for (const deal of scoped) {
     const lines = parties.filter((line) => line.dealId === deal.id);

@@ -38,7 +38,7 @@ import {
 import { renderNotificationEmail } from "../lib/email-templates";
 import { OptimisticLockBody } from "../lib/optimistic-lock-body";
 import { withIdempotency } from "../plugins/idempotency";
-import { isDealVisible, serializeDeal, serializeDealUnredacted } from "../serialize/deal";
+import { isDealReachable, serializeDeal, serializeDealUnredacted } from "../serialize/deal";
 
 const EventParams = z.object({ id: z.string().uuid() });
 const DealParams = z.object({ did: z.string().uuid() });
@@ -530,7 +530,10 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
 
       const visible = deals
         .map((deal) => ({ deal, dealParties: partiesByDeal.get(deal.id) ?? [] }))
-        .filter(({ dealParties }) => isDealVisible(dealParties, viewer));
+        // A party to it, or its author — the same rule the single-deal gate asks, so the list and
+        // the card cannot disagree about whether a deal exists (run 13's BLOCKER). This is also what
+        // stops `hiddenCount` below counting deals the reader wrote.
+        .filter(({ deal, dealParties }) => isDealReachable(deal, dealParties, viewer));
       /*
        * A CANCELLED DEAL IS NOT A DEAL THE READER IS MISSING (QA sweep run 12).
        *

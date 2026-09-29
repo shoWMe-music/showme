@@ -3,7 +3,7 @@ import type { Capability } from "@showme/shared";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import type { FastifyRequest } from "fastify";
 import { forbidden, notFound } from "../errors";
-import { type DealViewer, isDealVisible } from "../serialize/deal";
+import { type DealViewer, isDealReachable } from "../serialize/deal";
 import { countryInRegion } from "./agent-assignment";
 import { eventCapabilities } from "./authorize";
 import { isRepresentationActiveAt } from "./representation-rules";
@@ -204,6 +204,8 @@ export async function resolveDealAuthority(
     viewerParticipantIds: [...ownParticipantIds, ...representedParticipantIds],
     actsOnlyAsAgent: rows.length > 0 && rows.every((row) => row.role === "agent"),
     isManagingOperator: capabilities.has("budget.view"),
+    // Who is asking, for the one question party membership cannot answer: did they write this deal.
+    callerUserId: principal.userId,
   };
 }
 
@@ -373,6 +375,8 @@ export async function resolveDealAuthorityForEvents(
       viewerParticipantIds: [...ownParticipantIds, ...representedParticipantIds],
       actsOnlyAsAgent: own.length > 0 && own.every((row) => row.role === "agent"),
       isManagingOperator: capabilitiesByEvent.get(eventId)?.has("budget.view") ?? false,
+      // The same caller, whatever the event — this resolver answers for many at once.
+      callerUserId: principal.userId,
     });
   }
   return byEvent;
@@ -411,7 +415,14 @@ export async function requireDealAccess(
 
   const authority = await resolveDealAuthority(request, deal.eventId, capabilities);
   const parties = await loadDealParties(request, deal.id);
-  if (!isDealVisible(parties, authority)) throw notFound("Deal not found");
+  /*
+   * A PARTY, OR THE PERSON WHO WROTE IT (run 13's BLOCKER). Party-scoping alone meant an operator
+   * could author a deal between two other participants and then be answered 404 on every route that
+   * could send, cancel or delete it — while the two accounts that COULD see it held neither
+   * `deal.edit` nor `agreement.manage`. No account in the system could unstick it, and
+   * `assertEveryAgreementSigned` refused every future compute on the night.
+   */
+  if (!isDealReachable(deal, parties, authority)) throw notFound("Deal not found");
 
   if (capability !== "event.view" && !capabilities.has(capability)) {
     throw forbidden(`Missing capability: ${capability}`);

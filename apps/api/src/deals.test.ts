@@ -2948,6 +2948,199 @@ describe("deals — an operator sees a deal by being a party, not by being the h
     expect(crewRead.statusCode).toBe(200);
     expect(crewRead.json().parties[0].participantId).toBe(crewPart);
   });
+
+  it("lets the AUTHOR reach a deal it holds no line on, and manage it", async () => {
+    /*
+     * THE BLOCKER (QA sweep run 13). The composer offers every participant as a party and requires
+     * nothing of the author, so an operator could author a deal between two OTHER participants —
+     * "the act pays its own engineer", a real agreement the settlement engine has to reconcile — and
+     * then be answered 404 by every route that could send, cancel or delete it. Measured:
+     *
+     *   operator      404 on GET / PATCH cancelled / DELETE / send        ← the AUTHOR
+     *   performer.b   200 on GET, 403 on all three writes (no deal.edit)
+     *   professional  200 on GET, 403 on all three writes
+     *
+     * No account in the system could unstick it, and `assertEveryAgreementSigned` refused every
+     * future compute on the night. The author stands behind the deal in the most literal sense —
+     * they typed every line — so reachability is "a party, OR the person who wrote it".
+     */
+    const operator = await seedMemberWithSet(
+      "author-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "author-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const crew = await seedMemberWithSet(
+      "author-crew",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_technical,
+    );
+    const { event, participants } = await seedEvent(
+      operator,
+      [
+        { ...operator, role: "host" },
+        { ...performer, role: "performer" },
+        { ...crew, role: "crew" },
+      ],
+      "author-op",
+    );
+    const idOf = (profileId: string) =>
+      participants.find((party) => party.profileId === profileId)?.id as string;
+
+    // Authored BY the host, between the performer and the crew. The host is on no party line.
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("author-op"),
+      payload: {
+        type: "fee",
+        name: "The act pays its own engineer",
+        currency: "SEK",
+        guaranteeAmount: "90000",
+        parties: [
+          { participantId: idOf(performer.profileId), roleInDeal: "payer" },
+          { participantId: idOf(crew.profileId), roleInDeal: "payee" },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const dealId = created.json().id as string;
+
+    // It is on the author's own list — the symptom was that it vanished from their screen.
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("author-op"),
+    });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().deals.map((deal: { id: string }) => deal.id)).toContain(dealId);
+    // And it is not counted as hidden FROM its own author, which is the Budget Planner's sentence.
+    expect(list.json().hiddenCount).toBe(0);
+
+    // Readable in full: a redaction that leaves nothing is a blank, not a redaction.
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/deals/${dealId}`,
+      headers: auth("author-op"),
+    });
+    expect(read.statusCode).toBe(200);
+    expect(read.json().parties).toHaveLength(2);
+
+    // And manageable — the three routes that were 404 and left the night stuck.
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/v1/deals/${dealId}/send`,
+      headers: auth("author-op"),
+    });
+    expect(sent.statusCode).toBe(200);
+    const cancelled = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${dealId}`,
+      headers: auth("author-op"),
+      payload: { status: "cancelled" },
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json().status).toBe("cancelled");
+  });
+
+  it("does NOT let a non-author operator reach the same deal — the control", async () => {
+    /*
+     * The half that must not move. `created_by` is ONE account, not a capability: widening the read
+     * to everyone holding `deal.edit` is what decisions #4 forbids, and this seeds a SECOND operator
+     * with full control who did not write the deal.
+     */
+    const author = await seedMemberWithSet(
+      "twoop-author",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const other = await seedMemberWithSet(
+      "twoop-other",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "twoop-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const crew = await seedMemberWithSet(
+      "twoop-crew",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_technical,
+    );
+    const { event, participants } = await seedEvent(
+      author,
+      [
+        { ...author, role: "host" },
+        { ...other, role: "co_host" },
+        { ...performer, role: "performer" },
+        { ...crew, role: "crew" },
+      ],
+      "twoop-author",
+    );
+    const idOf = (profileId: string) =>
+      participants.find((party) => party.profileId === profileId)?.id as string;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("twoop-author"),
+      payload: {
+        type: "fee",
+        name: "Engineer, arranged by the host",
+        currency: "SEK",
+        guaranteeAmount: "90000",
+        parties: [
+          { participantId: idOf(performer.profileId), roleInDeal: "payer" },
+          { participantId: idOf(crew.profileId), roleInDeal: "payee" },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const dealId = created.json().id as string;
+
+    // The author reaches it…
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/v1/deals/${dealId}`,
+          headers: auth("twoop-author"),
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    // …and the co-host with the SAME permission set does not. Same capabilities, same event, one
+    // difference: who typed it.
+    for (const [method, url] of [
+      ["GET", `/api/v1/deals/${dealId}`],
+      ["DELETE", `/api/v1/deals/${dealId}`],
+    ] as const) {
+      const refused = await app.inject({ method, url, headers: auth("twoop-other"), payload: {} });
+      expect(refused.statusCode, `${method} ${url}`).toBe(404);
+    }
+    const refusedPatch = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${dealId}`,
+      headers: auth("twoop-other"),
+      payload: { status: "cancelled" },
+    });
+    expect(refusedPatch.statusCode).toBe(404);
+
+    // And it is still hidden from their list, and counted as hidden there.
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/deals`,
+      headers: auth("twoop-other"),
+    });
+    expect(list.json().deals.map((deal: { id: string }) => deal.id)).not.toContain(dealId);
+    expect(list.json().hiddenCount).toBe(1);
+  });
 });
 
 /**

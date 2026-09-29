@@ -171,3 +171,139 @@ Album Release — Door Split   [confirmed/confirmed] 3/3   hidden=0
 
 Seven orphaned postgres containers from the interleaved runs were pruned; one remains, which is the
 stack's own.
+
+---
+
+## 4. Daniel's three rulings — recorded as §25.8 before any of them is built
+
+Asked as an interactive list, answered in one pass, all three the way §25.6 recommended:
+
+| Row | Ruling |
+|---|---|
+| The cross-currency money tile | **Refuse now, convert later** — `—` plus a reason when the rows are not one currency; a converted `≈` tile once `exchange_rate_cache` is real. **Unblocks QA9-10's second half.** |
+| May crew sign their own settlement? | **Yes, settlement-scoped** — mirroring `DEAL_SIGNATORY_FLOOR`. `CREW_FLOOR` stays thin. The roster's denominator follows on its own. |
+| The operator-attached rider as a HOUSE document | **Confirmed as built** |
+
+`decisions.md` §25.6's three rows are marked `[DECIDED — §25.8.x]`, and the count above the table is
+corrected: **four** unconfirmed calls of mine remain, all from 2026-09-28, none blocking.
+
+**One question is now live and is Daniel's alone** — §25.7.1's broader reading (`decisions.md:1369`):
+should a venue rental the PROMOTER signed also stop being shared by the act? He asked whether Ran had
+ruled on it. **The answer is no**, and the search is worth recording so nobody re-runs it:
+
+- **#24.1 (2026-09-15) is the nearest ruling and is his own.** It sets the waterfall with the venue
+  rental off the top and every percentage dividing the adjusted net, and it **un-retired** off-the-top
+  rentals — reversing #23.1 from two days earlier. So this area has already been flipped once. It is
+  explicitly about *the promoter rents from the venue*, where the promoter **is** the pool.
+- **ClickUp `86cba8wfk` "Settlement: which deals settle off the top?"** (high, shipped, resolved
+  2026-09-02) answers *which* deals settle off the top — rental only, `deals.priority` stays unwired —
+  and never who bears them.
+- `86caqujbc` / `86cac14ar` *"Payments: rental-counterparty settlement via contract"* are
+  backlog/in-development payments tickets; the counterparty framing was anticipated, the rule was not.
+
+---
+
+## 5. [BLOCKER] An operator can author a deal it cannot then see — run 13 §2
+
+**Which file settles it:** `apps/api/src/serialize/deal.ts` and `apps/api/src/lib/deal-authority.ts`.
+`packages/db/src/schema/deals.ts:76` already records the answer — `createdBy`, `notNull`, referencing
+`users` — and nothing reads it for authority.
+
+**What was measured.** New deal → payer *Neon Tide*, payee *Priya Sound* → Save draft. `201`, and the
+card **disappears from its author's screen**. The host's own Budget Planner then says *"2 of this
+event's deals are not shown to you"* about deals it authored, and Recalculate refuses with two raw
+UUIDs and the advice to *"cancel one that is no longer happening"*. The reachability matrix:
+
+```
+seat          GET   PATCH cancelled   DELETE   POST /send
+operator      404   404               404      404   ← the AUTHOR
+co.host       404   404               404       —
+performer.b   200   403 deal.edit     403      403 agreement.manage
+professional  200   403               403      403
+```
+
+**TWO DELIBERATE RULES, EACH RIGHT, COLLIDING.** The composer offers every participant as a party and
+requires nothing of the author — correct, because a venue brokering *the act pays its own engineer* is
+a real agreement the settlement engine needs. And `isDealVisible` is pure party-scoping whose docstring
+says exactly why: *"a performer's private sub-hire (performer↔crew) has no operator party line, so the
+venue cannot see it."* Also correct. Together they are a trap.
+
+**The verdict: the AUTHOR stands behind a deal in the most literal sense — they wrote every line of
+it.** Hiding it from them afterwards protects nothing, because the confidentiality was never there.
+So reachability becomes *party **or** author*, and that is a completion of the rule rather than a
+widening of it.
+
+**Why not the sweep's other candidate.** It offers *"`POST /events/:id/deals` could require the
+author's own participant to be one of the parties"* — that forbids the act-pays-its-own-engineer deal
+outright, removing a capability the picker offers and the engine reconciles. **And why not widen
+`GET /deals/:did` to everyone holding `deal.edit`:** that is the thing decisions #4 forbids, and the
+sweep says six tests pin it. `created_by` is one account, not a capability.
+
+**The privacy rule survives, and its own test is already the control.** `deals.test.ts:2900` inserts
+the sub-hire with `createdBy: "sub-perf"` — the PERFORMER — deliberately, and asserts the operator gets
+404 on read and delete. Under this change that 404 stands, because the operator is not the author. The
+fixture was written for this distinction before the distinction existed.
+
+**The scope, and the third touch point is the one that would have been the next defect.**
+- `DealViewer` gains `callerUserId: string | null` — null for a share-link recipient, who is a party
+  and never an author. Two constructions in the codebase, both updated.
+- `authoredByViewer(deal, viewer)` — the rule, once. `isDealVisible` is left exactly as documented,
+  because three callers depend on it meaning *party*; the new `isDealReachable` is the union.
+- `requireDealAccess` and the event deals list both ask `isDealReachable`. That also drops
+  `hiddenCount` for the author, which is the Budget Planner sentence.
+- **`serializeDeal`'s `seesEveryLine`** — `isManagingOperator && isParty(...)`. An author who is not a
+  party would otherwise be served the redacted slice, which is *their own lines*, of which they have
+  **none**: a card with a deal and no parties on it. The author sees every line because they wrote
+  every line.
+
+### What landed — the night the sweep left stuck, unstuck
+
+Run 13's two orphaned deals were still in the database, both `created_by = e2e-operator`. Before the
+change the operator was answered 404 on every route. After:
+
+```
+operator  GET    200      ← the author
+operator  SEND   200
+operator  CANCEL 200      (both of them)
+co.host    GET   404      ← same permission set, same event, did not write it
+
+POST /events/<e1>/settlement/compute → 200, pool 11,000,000   ← the night computes again
+```
+
+And the Budget Planner's sentence is gone, from both sides:
+
+```
+operator   visible=9  hiddenCount=0     ← was "2 of this event's deals are not shown to you"
+co.host    visible=0  hiddenCount=1     ← the one live deal it is not party to
+```
+
+### The fix's own next defect, caught by a test that existed before the fix
+
+The first version read *"the author sees every line, because they wrote every line"*. `deals.test.ts`'s
+performer↔crew sub-hire refused it: its fixture makes the **performer** the author, and the test's own
+sentence is *"Both parties to the sub-hire see it — each their own line."* That is the redaction rule
+between two parties, and it is not this blocker's business.
+
+So the relief is a **floor, not a widening**: the author sees the whole deal only when party-scoping
+would show them **nothing at all**. *A redaction that leaves nothing is not a redaction, it is a
+blank.* An author who holds a line already sees one.
+
+### Mutations — seven, all killed, and one survived first
+
+| Mutation | Verdict |
+|---|---|
+| authorship never grants reach — the defect | KILLED (2) |
+| authorship grants reach to everyone | KILLED (8) |
+| authorship compares the wrong way | KILLED (8) |
+| the redaction floor removed — the author's card renders blank | KILLED (1) |
+| **the floor widened to every author** | KILLED (1) — the sub-hire's own test |
+| the single-deal gate back to party-only | KILLED (**73**) |
+| the list back to party-only — the card stays vanished | KILLED (1) |
+
+**The survivor cost a line.** I had written `viewer.callerUserId != null && deal.createdBy ===
+viewer.callerUserId`, and deleting the guard changed nothing — `created_by` is `notNull`, so
+`null === <uuid>` is already false and the clause cannot decide anything. **Fourth instance of a
+surviving mutation meaning "redundant" rather than "untested"**, and the reasoning stayed as a comment
+where the line used to be.
+
+Suites: biome 748 files · API `deals` **85** (was 83) · `shares` 49 · `settlement` 124.

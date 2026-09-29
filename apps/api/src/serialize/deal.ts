@@ -86,6 +86,13 @@ export interface DealViewer {
    * (decisions #4: "if you are not a `deal_party`, you cannot see the deal").
    */
   isManagingOperator: boolean;
+  /**
+   * WHO IS ASKING — the caller's own user id, or null for a viewer who is not a user at all
+   * (a share-link recipient, who is a party and can never be an author).
+   *
+   * Read only to answer "did you write this deal". See `authoredByViewer`.
+   */
+  callerUserId: string | null;
 }
 
 function partyRecord(party: DealPartyRow): DealPartyRecord {
@@ -121,7 +128,24 @@ export function serializeDeal(
   parties: DealPartyRow[],
   viewer: DealViewer,
 ): SerializedDeal {
-  const seesEveryLine = viewer.isManagingOperator && isParty(parties, viewer);
+  /*
+   * A REDACTION THAT LEAVES NOTHING IS NOT A REDACTION, IT IS A BLANK (run 13's BLOCKER).
+   *
+   * Party-scoping serves each caller "the lines you stand behind". An AUTHOR who is not a party
+   * stands behind none, so the slice is empty and the card renders a deal with no parties on it —
+   * which is what the reachability fix in `deal-authority.ts` would otherwise have produced.
+   *
+   * So this is a FLOOR, not a widening: the author sees the whole deal only when party-scoping would
+   * show them nothing at all. Deliberately NOT "the author always sees every line" — I wrote that
+   * first and `deals.test.ts`'s performer↔crew sub-hire refused it, because its fixture makes the
+   * PERFORMER the author and the test's own sentence is *"Both parties to the sub-hire see it — each
+   * their own line."* That is the redaction rule between two parties and it is not this blocker's
+   * business. An author who holds a line already sees one.
+   */
+  const standsBehindALine = isParty(parties, viewer);
+  const seesEveryLine =
+    (viewer.isManagingOperator && standsBehindALine) ||
+    (authoredByViewer(deal, viewer) && !standsBehindALine);
   const visibleParties = seesEveryLine
     ? parties
     : parties.filter((party) => viewer.viewerParticipantIds.includes(party.participantId));
@@ -205,6 +229,46 @@ function build(deal: DealRow): Omit<SerializedDeal, "parties"> {
  */
 export function isDealVisible(parties: DealPartyRow[], viewer: DealViewer): boolean {
   return isParty(parties, viewer);
+}
+
+/**
+ * DID THIS CALLER WRITE THIS DEAL — `deals.created_by`, which has been `notNull` since the column
+ * existed and was read by nothing that decides authority.
+ *
+ * A share-link recipient carries `callerUserId: null` — a party, never an author. There is
+ * deliberately NO `!= null` guard: `created_by` cannot be null, so `null === <uuid>` is already
+ * false and the guard could not change the answer. I wrote one first and the mutation deleting it
+ * survived, which is what a line that cannot decide anything looks like.
+ */
+export function authoredByViewer(deal: { createdBy: string }, viewer: DealViewer): boolean {
+  return deal.createdBy === viewer.callerUserId;
+}
+
+/**
+ * CAN THE CALLER REACH THIS DEAL AT ALL — a party to it, or the person who wrote it.
+ *
+ * The union exists because two deliberate rules collided (run 13's BLOCKER). The composer offers
+ * every participant as a party and requires nothing of the author — right, because a venue brokering
+ * "the act pays its own engineer" is a real agreement the settlement engine has to reconcile. And
+ * `isDealVisible` above is pure party-scoping for the reason its own docstring gives. Together they
+ * let an operator create a deal that then vanished from its author's screen, that NO account in the
+ * system could send, cancel or delete, and that `assertEveryAgreementSigned` refused every future
+ * settlement over.
+ *
+ * The author stands behind the deal in the most literal sense: they typed every line. Hiding it from
+ * them afterwards protects nothing, because the confidentiality was never there. This is a completion
+ * of party-scoping, not a widening of it — and NOT "everyone holding `deal.edit`", which is the thing
+ * decisions #4 forbids and which several tests pin. `created_by` is one account.
+ *
+ * The privacy rule keeps its own test as the control: `deals.test.ts`'s performer↔crew sub-hire is
+ * inserted with the PERFORMER as `createdBy`, and the operator's 404 on it still stands.
+ */
+export function isDealReachable(
+  deal: { createdBy: string },
+  parties: DealPartyRow[],
+  viewer: DealViewer,
+): boolean {
+  return isDealVisible(parties, viewer) || authoredByViewer(deal, viewer);
 }
 
 function isParty(parties: DealPartyRow[], viewer: DealViewer): boolean {
