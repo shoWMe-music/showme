@@ -164,7 +164,14 @@ Two more ways a check lies, both measured here:
 - **CI renders text ~10% wider than macOS.** A layout that fits locally with no
   headroom fails there. A test that passes with zero headroom is not passing, it
   is pending — fix by removing the floor (`minmax(0, 1fr)`, `min-width: 0`), not
-  by buying pixels.
+  by buying pixels. **But "remove the floor" has an exception, measured 2026-09-29:
+  a cell that CANNOT wrap — `white-space: nowrap`, a money figure — answers a
+  floorless `minmax(0, Nfr)` track by overhanging it, and `overflow: hidden` then
+  cuts the number in half. `min-width: 0` lets the CELL shrink; it tells the GRID
+  nothing about what the cell needs. Such a column needs `minmax(min-content, Nfr)`
+  and the room taken out of its neighbours.** And note which assertion saw it:
+  `design-system/` has **no test runner at all**, so `mobile-audit.spec.ts` is the
+  only thing in this repo that can fail on a clipped cell.
 - **A post-deploy check can be answered by the revision you just replaced.** A
   warm instance serves during the traffic shift. Wait for the rollout, or
   confirm which revision answered.
