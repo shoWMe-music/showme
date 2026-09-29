@@ -195,3 +195,79 @@ Deals tab on the finalized Album Release, as `operator@`:
 > "Deals you are a party to. Each party sees only its own line. **This night is settled, so a deal
 > added now is recorded but will not reach the settlement.**"
 
+
+## Group B — Total Payouts, two findings in one panel
+
+Both are the same shape: a row's **label** and the panel's **total** make claims the figures do not
+support. Neither number is wrong. What is wrong is what the panel says they are.
+
+### Which file settles it
+
+`apps/web/src/components/useEventSettlement.ts` builds `payouts` (three concatenated sources) and
+`totalPayable` (one `reduce` over the same three), and `apps/web/src/routes/EventSettlement.tsx:1298`
+renders them. The caption is already pure and tested — `payoutsCaption` in
+`apps/web/src/components/settlementDocument.ts` — and it is not the defect: it is the sentence that
+makes both defects visible.
+
+### B1 — verdict: the label is wrong, the figure is right
+
+`withheldPayees` is documented as *"THE PARTIES THIS READER PAYS BUT CANNOT READ A SETTLEMENT FOR"*
+and filters `transfer.fromParticipantId === ownParticipantId`. So the amount is **this reader's leg**
+of a payout, not the payout. The row then borrows the label of the `payable` rows beside it —
+`` `${name} payout` `` — and on a night whose crew fee is split between two operators the host reads
+*"Priya Sound payout — SEK 1,250"* over Priya's own *"SEK 2,500"*.
+
+The `payable` rows are the payee's whole net and `${name} payout` is true of them. Only the withheld
+branch overclaims, and it overclaims by construction, not only when there happen to be two payers.
+
+Scope: relabel the withheld rows to name the leg — **`Paid by you to ${name}`** — which is true
+whether the reader is the only payer or one of several. The figure, the total and the caption stay.
+`entitlementGapSentence` already says *"At least … belongs to a party whose settlement is not shared
+with you; it is in Total Payouts as a transfer"* — the second surface is already honest, so this is a
+one-surface fix and the "at least" there is what tipped me off that the row was the liar.
+
+### B2 — verdict: the total is wrong, and the term cannot simply be deleted
+
+A commission is a **representation transfer out of the act's entitlement** (`b2 → b5, 300000`).
+`payable` already holds Marlo's SEK 30,000 in full, so `ownCommissionMinor + Σ payable` counts the
+SEK 3,000 twice, under *"What this event pays out, including your own share."*
+
+**Before removing it, what the term is load-bearing for.** `ownCommissionMinor`'s docstring records
+QA9-8: an agent has no positive net of their own, so an agent who cannot read their client's
+settlement had `payable` empty and read **SEK 0** on every screen while being owed SEK 3,581.
+Deleting the term unconditionally reintroduces that. So the rule is not "drop the commission", it is:
+
+> A commission is additional to this panel's total only when the party who pays it is **not already
+> counted in it**. When the payer's figure is in the panel, the commission is inside that figure.
+
+Membership is `payable` ∪ `withheld` by `participantId` — not "is the payer visible", because a
+visible party whose net is not positive contributes nothing to this total and a commission out of them
+is genuinely additional.
+
+Scope: the commission splits into two sums. The additional part keeps the row `Your commission` and
+keeps being added. The inside part gets its own row, **`Your commission, paid out of the payouts
+above`**, and is not added — so the column still reconciles by eye, which is the check QA6-4 and the
+entitlement reconciliation both exist to protect. `partiesWithOwnCommission`, `ownFigure` and
+`includesYours` keep using the **full** `ownCommissionMinor`: the agent's own card and headline are
+about what the night owes them, which is unaffected by whose total already contains it.
+
+### The decision this hides — none, and that is worth saying
+
+Neither half is a product call. B1 states a fact about a transfer; B2 restores `Σ rows = total`. The
+one thing I am choosing is that the inside commission stays **visible** rather than being dropped from
+the panel, because QA7-28 and QA9-8 were both filed for an agent reading a screen that omitted their
+own money, and a row that says where the money came from is the opposite of that.
+
+### Where the rule goes, so a mutation can reach it
+
+Rows and total are built in a React hook, where a surviving mutation proves nothing (the standing
+lesson: export the decision and test it directly). Both move into `settlementDocument.ts` as one pure
+`payoutRows()` returning the rows **and** the total from one pass over the same three sources — the
+same inputs the hook already reduces twice, so this consolidates rather than abstracts. It is also the
+only way to assert the invariant both findings broke: that the total equals the rows the reader can see
+added up, minus exactly the ones whose labels say they are already inside another.
+
+Also noted while reading: `TotalPayouts`' docstring says the total is *"a sum of formatted API figures,
+not arithmetic on money — see `settlementTotalPayable` in the hook"*. There is no
+`settlementTotalPayable`, and the sum is `BigInt` over minor units, which is the opposite of what the
+sentence claims. Corrected in passing.

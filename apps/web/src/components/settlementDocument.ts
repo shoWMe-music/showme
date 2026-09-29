@@ -431,6 +431,103 @@ export function withheldPayees(
   );
 }
 
+/**
+ * THE TOTAL PAYOUTS PANEL — the rows a reader sees and the figure under them, from one pass.
+ *
+ * The two came from two reduces over the same three sources, and both QA sweep run 14 findings
+ * against this panel are what that costs:
+ *
+ * - a withheld row borrowed the label of the rows beside it. `withheldPayees` returns what THIS
+ *   READER PAYS a party whose settlement is withheld, so on a night whose crew fee is split
+ *   between two operators the host read *"Priya Sound payout — SEK 1,250"* over Priya's own
+ *   *"SEK 2,500"*. The figure was right; `${name} payout` was not true of it, and never is —
+ *   the row is one leg of a payout, whether or not another leg exists.
+ * - the total added an agent's commission to a payout that already contained it. A commission is
+ *   a representation transfer out of the act's entitlement, so an agent who CAN read their
+ *   client's settlement read SEK 30,000 + SEK 3,000 = **SEK 33,000** under a caption saying what
+ *   the event pays out, which was SEK 30,000.
+ *
+ * The commission term cannot simply go: `ownCommissionMinor` exists because an agent has no
+ * positive net of their own, and one who cannot read their client's settlement has NOTHING in
+ * `payable` — QA9-8, an agent owed SEK 3,581 reading SEK 0 on every screen. So the rule is
+ * membership, not deletion: **a commission is additional only when the party who pays it is not
+ * already counted here.** Counted means in `payable` or `withheld`; a visible party whose net is
+ * not positive contributes nothing to this total, so a commission out of them is genuinely new.
+ *
+ * A commission that IS inside keeps a row, because an agent reading a panel that omits their own
+ * money is the defect QA7-28 and QA9-8 were both filed for — it just says so in the label, and
+ * the column reconciles by eye again.
+ */
+export function payoutRows(input: {
+  /**
+   * Visible parties with a positive net: the whole of what each is owed. Formatted here from
+   * `netMinor` rather than taking the party's own `net`, so a row and the total under it are the
+   * same number twice and cannot drift — and because `net` is nullable while a positive tone
+   * guarantees it is not, which the caller used to paper over with a cast.
+   */
+  payable: readonly {
+    settlementId: string;
+    participantId: string | null;
+    name: string;
+    netMinor: string | null;
+  }[];
+  /** `withheldPayees`, named — what this reader pays somebody they cannot read. */
+  withheld: readonly { participantId: string; name: string; amountMinor: string }[];
+  /** This reader's own commissions, with the participant each is paid out of. */
+  ownCommissions: readonly { performerParticipantId: string; commissionMinor: string }[];
+  format: (minor: string) => string;
+}): { rows: { key: string; label: string; value: string }[]; totalMinor: bigint } {
+  const rows: { key: string; label: string; value: string }[] = [];
+  let totalMinor = 0n;
+  const counted = new Set<string>();
+
+  for (const party of input.payable) {
+    const minor = party.netMinor ?? "0";
+    rows.push({
+      key: party.settlementId,
+      label: `${party.name} payout`,
+      value: input.format(minor),
+    });
+    totalMinor += BigInt(minor);
+    if (party.participantId != null) counted.add(party.participantId);
+  }
+  for (const payee of input.withheld) {
+    rows.push({
+      key: `withheld-${payee.participantId}`,
+      // Not "payout": this is the reader's own leg of one.
+      label: `Paid by you to ${payee.name}`,
+      value: input.format(payee.amountMinor),
+    });
+    totalMinor += BigInt(payee.amountMinor);
+    counted.add(payee.participantId);
+  }
+
+  let additionalCommissionMinor = 0n;
+  let insideCommissionMinor = 0n;
+  for (const commission of input.ownCommissions) {
+    const amount = BigInt(commission.commissionMinor);
+    if (counted.has(commission.performerParticipantId)) insideCommissionMinor += amount;
+    else additionalCommissionMinor += amount;
+  }
+  if (additionalCommissionMinor > 0n) {
+    rows.push({
+      key: "own-commission",
+      label: "Your commission",
+      value: input.format(additionalCommissionMinor.toString()),
+    });
+    totalMinor += additionalCommissionMinor;
+  }
+  if (insideCommissionMinor > 0n) {
+    rows.push({
+      key: "own-commission-inside",
+      label: "Your commission, paid out of the payouts above",
+      value: input.format(insideCommissionMinor.toString()),
+    });
+  }
+
+  return { rows, totalMinor };
+}
+
 /* ── The RULE behind a figure ─────────────────────────────────────────────────
    A settlement that prints only amounts asks the parties to take it on trust.
    Every number below arrives from the engine already decided — which arm of the

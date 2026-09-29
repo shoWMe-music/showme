@@ -8,6 +8,7 @@ import {
   negativeAmount,
   ownFigureLabel,
   payoutAdjustments,
+  payoutRows,
   payoutsCaption,
   settlementTotals,
   withheldPartyCount,
@@ -517,6 +518,146 @@ describe("withheldPayees", () => {
  * are asked in the order they explain the gap, and the last one says the difference
  * and stops.
  */
+describe("payoutRows — the rows and the figure under them", () => {
+  const HOST = "host-participant";
+  const ACT = "act-participant";
+  const OTHER_ACT = "other-act-participant";
+  const CREW = "crew-participant";
+
+  // Minor units in, format("125000") out — the same formatter the screen hands in.
+  const format = (minor: string) => formatMoney(minor, "SEK");
+
+  const party = (participantId: string, name: string, netMinor: string | null) => ({
+    settlementId: `settlement-${participantId}`,
+    participantId,
+    name,
+    netMinor,
+  });
+
+  const call = (input: Partial<Parameters<typeof payoutRows>[0]>) =>
+    payoutRows({ payable: [], withheld: [], ownCommissions: [], format, ...input });
+
+  it("labels a visible party's positive net as their payout, and totals it", () => {
+    const { rows, totalMinor } = call({ payable: [party(ACT, "Marlo Vance", "3000000")] });
+    expect(rows).toEqual([
+      { key: `settlement-${ACT}`, label: "Marlo Vance payout", value: format("3000000") },
+    ]);
+    expect(totalMinor).toBe(3_000_000n);
+  });
+
+  /*
+   * RUN 14: "Priya Sound payout — SEK 1,250" over Priya's own "SEK 2,500".
+   *
+   * `withheldPayees` returns what THIS READER pays a party whose settlement is withheld, so on a
+   * co-promoted night the figure is one leg. The label must not claim the payout — and must not
+   * claim it on a night with one payer either, because the row is a leg either way and the reader
+   * cannot tell from here how many there are.
+   */
+  it("names a withheld transfer as the reader's own leg, never as the payee's payout", () => {
+    const { rows, totalMinor } = call({
+      withheld: [{ participantId: CREW, name: "Priya Sound", amountMinor: "125000" }],
+    });
+    expect(rows).toEqual([
+      { key: `withheld-${CREW}`, label: "Paid by you to Priya Sound", value: format("125000") },
+    ]);
+    expect(rows[0]?.label).not.toContain("payout");
+    // Still in the total: QA5-1 is the finding that put it there.
+    expect(totalMinor).toBe(125_000n);
+  });
+
+  /*
+   * RUN 14: the agent read SEK 30,000 + SEK 3,000 = SEK 33,000 under a caption saying what the
+   * event pays out. The commission is a transfer OUT of the 30,000 already listed.
+   */
+  it("does not add a commission to a payout that already contains it", () => {
+    const { rows, totalMinor } = call({
+      payable: [party(ACT, "Marlo Vance", "3000000")],
+      ownCommissions: [{ performerParticipantId: ACT, commissionMinor: "300000" }],
+    });
+    expect(totalMinor).toBe(3_000_000n);
+    expect(rows.map((visible) => visible.label)).toEqual([
+      "Marlo Vance payout",
+      "Your commission, paid out of the payouts above",
+    ]);
+    // Visible, because an agent reading a panel with none of their own money on it is the defect
+    // QA7-28 and QA9-8 were both filed for.
+    expect(rows[1]?.value).toBe(format("300000"));
+  });
+
+  /*
+   * THE HALF THE OBVIOUS FIX WOULD HAVE BROKEN — QA9-8, an agent owed SEK 3,581 reading SEK 0.
+   * An agent who cannot read their client's settlement has NOTHING in `payable`, so the
+   * commission is the only thing this panel can say about their money and must be added.
+   */
+  it("adds a commission whose payer is not counted here", () => {
+    const { rows, totalMinor } = call({
+      ownCommissions: [{ performerParticipantId: ACT, commissionMinor: "358100" }],
+    });
+    expect(totalMinor).toBe(358_100n);
+    expect(rows).toEqual([
+      { key: "own-commission", label: "Your commission", value: format("358100") },
+    ]);
+  });
+
+  /*
+   * A VISIBLE PARTY IS NOT THE SAME AS A COUNTED ONE. The act's settlement is readable but its net
+   * is zero, so nothing of theirs is in this total and the commission out of them is genuinely new.
+   * "Is the payer visible" would have swallowed it.
+   */
+  it("adds a commission whose payer is visible but contributes nothing to the total", () => {
+    const { totalMinor } = call({
+      payable: [party(HOST, "The Lantern Hall", "500000")],
+      ownCommissions: [{ performerParticipantId: ACT, commissionMinor: "300000" }],
+    });
+    expect(totalMinor).toBe(800_000n);
+  });
+
+  it("counts a withheld payee as the payer of a commission, so it is not added twice", () => {
+    // The agency pays its client directly and cannot read their settlement: the leg IS in the
+    // total, so the commission inside it is not additional.
+    const { rows, totalMinor } = call({
+      withheld: [{ participantId: ACT, name: "Marlo Vance", amountMinor: "3000000" }],
+      ownCommissions: [{ performerParticipantId: ACT, commissionMinor: "300000" }],
+    });
+    expect(totalMinor).toBe(3_000_000n);
+    expect(rows[1]?.label).toBe("Your commission, paid out of the payouts above");
+  });
+
+  it("splits two commissions when one payer is counted and the other is not", () => {
+    const { rows, totalMinor } = call({
+      payable: [party(ACT, "Marlo Vance", "3000000")],
+      ownCommissions: [
+        { performerParticipantId: ACT, commissionMinor: "300000" },
+        { performerParticipantId: OTHER_ACT, commissionMinor: "200000" },
+      ],
+    });
+    expect(totalMinor).toBe(3_200_000n);
+    expect(rows.map((visible) => [visible.label, visible.value])).toEqual([
+      ["Marlo Vance payout", format("3000000")],
+      ["Your commission", format("200000")],
+      ["Your commission, paid out of the payouts above", format("300000")],
+    ]);
+  });
+
+  it("emits no commission row when there is none, rather than a zero", () => {
+    expect(call({ payable: [party(ACT, "Marlo Vance", "3000000")] }).rows).toHaveLength(1);
+  });
+
+  /*
+   * THE INVARIANT BOTH RUN 14 FINDINGS BROKE: the figure under the rows is the rows added up,
+   * minus exactly the ones whose label says they are already inside another.
+   */
+  it("totals the rows it shows, minus the ones that say they are already inside", () => {
+    const { rows, totalMinor } = call({
+      payable: [party(ACT, "Marlo Vance", "3000000"), party(OTHER_ACT, "Neon Tide", "2000000")],
+      withheld: [{ participantId: CREW, name: "Priya Sound", amountMinor: "125000" }],
+      ownCommissions: [{ performerParticipantId: ACT, commissionMinor: "300000" }],
+    });
+    expect(totalMinor).toBe(5_125_000n);
+    expect(rows).toHaveLength(4);
+  });
+});
+
 describe("entitlementGapSentence", () => {
   const format = (minor: string) => `SEK ${(Number(minor) / 100).toLocaleString("en-US")}`;
   const base = {

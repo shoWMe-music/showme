@@ -36,6 +36,7 @@ import {
   ladderRows,
   netToneOf,
   payoutAdjustments,
+  payoutRows,
   payoutsCaption,
   transferStateOf,
   withheldPartyCount,
@@ -1006,12 +1007,22 @@ export function useEventSettlement(
    * otherwise, so summing the rows that name this reader as the agent is the whole
    * of "what this night owes me".
    */
-  const ownCommissionMinor = useMemo(() => {
-    if (!ownParticipantId) return 0n;
-    return (settlements.data?.commissions ?? [])
-      .filter((commission) => commission.agentParticipantId === ownParticipantId)
-      .reduce((running, commission) => running + BigInt(commission.commission), 0n);
+  const ownCommissions = useMemo(() => {
+    if (!ownParticipantId) return [];
+    return (settlements.data?.commissions ?? []).filter(
+      (commission) => commission.agentParticipantId === ownParticipantId,
+    );
   }, [settlements.data, ownParticipantId]);
+  /**
+   * The whole of what this night owes the reader as commission — which is what their own card and
+   * headline are about, and is NOT the same question as what Total Payouts should add (see
+   * `payoutRows`: a commission inside a payout already listed is not additional to it).
+   */
+  const ownCommissionMinor = useMemo(
+    () =>
+      ownCommissions.reduce((running, commission) => running + BigInt(commission.commission), 0n),
+    [ownCommissions],
+  );
   /*
    * WHO IS HOLDING THE NIGHT'S MONEY — and the comment this replaces stated the rule right and
    * tested its converse (QA sweep run 11).
@@ -1043,13 +1054,31 @@ export function useEventSettlement(
     () => parties.some((party) => party.isYours && party.netTone === "negative"),
     [parties],
   );
-  const totalPayable = useMemo(() => {
-    const total = payable.reduce(
-      (running, party) => running + BigInt(party.netMinor ?? "0"),
-      ownCommissionMinor + withheldTotalMinor,
-    );
-    return formatAmount(total.toString());
-  }, [payable, ownCommissionMinor, withheldTotalMinor, formatAmount]);
+  /**
+   * THE ROWS AND THE FIGURE UNDER THEM, FROM ONE PASS — see `payoutRows`.
+   *
+   * Two reduces over the same three sources let the panel's total disagree with its own rows
+   * twice (QA sweep run 14): a withheld leg labelled as the payee's whole payout, and an agent's
+   * commission added to a payout that already contained it. The rule is pure and tested there;
+   * this only supplies the names and the formatter.
+   */
+  const payouts = useMemo(
+    () =>
+      payoutRows({
+        payable,
+        withheld,
+        ownCommissions: ownCommissions.map((commission) => ({
+          performerParticipantId: commission.performerParticipantId,
+          commissionMinor: commission.commission,
+        })),
+        format: formatAmount,
+      }),
+    [payable, withheld, ownCommissions, formatAmount],
+  );
+  const totalPayable = useMemo(
+    () => formatAmount(payouts.totalMinor.toString()),
+    [payouts, formatAmount],
+  );
 
   /**
    * AND ON THE CARD, NOT ONLY IN THE HEADLINE (QA sweep run 9, QA9-8).
@@ -1270,31 +1299,7 @@ export function useEventSettlement(
     isComputed: partyRows.some((row) => row.computed != null),
     isFinalized: partyRows.some((row) => FROZEN_STATUSES.has(row.status)),
     status: partyRows[0]?.status ?? "open",
-    payouts: [
-      ...payable.map((party) => ({
-        key: party.settlementId,
-        label: `${party.name} payout`,
-        value: party.net as string,
-      })),
-      // A party paid by transfer whose settlement row is withheld. Named, because
-      // the board two inches below already names them and a total that drops them
-      // is the defect this fixes.
-      ...withheld.map((payee) => ({
-        key: `withheld-${payee.participantId}`,
-        label: `${payee.name} payout`,
-        value: formatAmount(payee.amountMinor),
-      })),
-      // The reader's own commission, where they have one — see `ownCommissionMinor`.
-      ...(ownCommissionMinor > 0n
-        ? [
-            {
-              key: "own-commission",
-              label: "Your commission",
-              value: formatAmount(ownCommissionMinor.toString()),
-            },
-          ]
-        : []),
-    ],
+    payouts: payouts.rows,
     totalPayable,
     /**
      * WHAT THE PANEL SAYS IT IS SHOWING — one sentence, decided in `settlementDocument.ts`.

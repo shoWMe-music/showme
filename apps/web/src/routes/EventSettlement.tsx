@@ -1290,10 +1290,10 @@ function RevisionHistory({ eventId }: { eventId: string }) {
  * The operator's own share is RETAINED rather than paid out, so it is excluded and
  * the copy says why. Everything else is a transfer that has to actually happen.
  *
- * Summed from the transfers the caller can see, which is why a performer reads only
- * their own line here: the board above is already party-scoped, and this is the
- * same set totalled. It is a sum of formatted API figures, not arithmetic on money
- * — see `settlementTotalPayable` in the hook.
+ * Party-scoped like everything else, which is why a performer reads only their own line here.
+ * Rows and total come from one pass over the same sources — `payoutRows` — because two passes let
+ * them disagree: a row can name a payee's whole payout over the reader's leg of it, and a total can
+ * add an agent's commission to a payout that already contains it. Both happened.
  */
 function TotalPayouts({ settlement }: { settlement: EventSettlementData }) {
   if (settlement.payouts.length === 0) return null;
