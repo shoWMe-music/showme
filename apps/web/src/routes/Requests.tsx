@@ -26,6 +26,10 @@ import { EventInvitationsCard } from "../components/EventInvitationsCard";
 import { RequestTriageDialogs } from "../components/RequestTriageDialogs";
 import { SendOfferDialog } from "../components/SendOfferDialog";
 import { dayKey } from "../components/calendarGrid";
+import {
+  addressedInvitationsInView,
+  participationInvitationsInView,
+} from "../components/inboxInvitations";
 import { Eyebrow } from "../components/primitives";
 import { ErrorState, LoadingState } from "../components/states";
 import { useRequestTriage } from "../components/useRequestTriage";
@@ -381,28 +385,23 @@ export function Requests() {
    *
    * The day rail filters them too, so picking a date does not leave a row behind that ignores it.
    */
-  const addressedHere = useMemo(
-    () =>
-      invitations.addressed.filter((invitation) => {
-        if (filter !== "pending" && filter !== "all") return false;
-        if (selectedDay && invitation.eventDate !== selectedDay) return false;
-        return true;
-      }),
-    [invitations.addressed, filter, selectedDay],
+  /*
+   * The two invitation lists for this view — the rules are in `components/inboxInvitations`,
+   * because they are rules. Both were filters inside this render where nothing could test them,
+   * and one was missing its `direction` clause for as long as the card existed (QA sweep run 12).
+   */
+  // `view` is already the inbox's list-or-calendar state, so this one says what it is about.
+  const inboxView = useMemo(
+    () => ({ direction, filter, selectedDay }),
+    [direction, filter, selectedDay],
   );
-
+  const addressedHere = useMemo(
+    () => addressedInvitationsInView(invitations.addressed, inboxView),
+    [invitations.addressed, inboxView],
+  );
   const visibleInvitations = useMemo(
-    () =>
-      invitations.all.filter((invitation) => {
-        // "Unread" is a booking-request notion — somebody's team has or has not
-        // opened the row. An invitation addressed to you personally has no such
-        // state, so it stays out of that bucket rather than claiming a false one.
-        if (filter === UNREAD_FILTER) return false;
-        if (filter !== "all" && invitation.requestStatus !== filter) return false;
-        if (selectedDay && invitation.eventDate !== selectedDay) return false;
-        return true;
-      }),
-    [invitations.all, filter, selectedDay],
+    () => participationInvitationsInView(invitations.all, inboxView),
+    [invitations.all, inboxView],
   );
 
   const navigate = useNavigate();
