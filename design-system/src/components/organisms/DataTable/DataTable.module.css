@@ -147,3 +147,20 @@
 }
 .pageArrow:hover:not(:disabled) { color: var(--text); border-color: var(--hover-border); }
 .pageArrow:disabled { opacity: .4; cursor: not-allowed; }
+
+/*
+ * A COLUMN WHOSE CONTENT IS ONE INDIVISIBLE TOKEN — a number above all (QA sweep run 16).
+ *
+ * `.header > *, .row > *` above sets `overflow-wrap: anywhere`, which is right for prose and is how a
+ * long venue name stops a narrow column overflowing. It is wrong for money: at 490 px the Settlements
+ * list wrapped `SEK 3,60 / 5`, splitting a settled figure between its thousands separator and its last
+ * digits, while `scrollWidth === clientWidth` reported the page fine. A measurement cannot see a
+ * number cut in half.
+ *
+ * `min-width: 0` stays inherited, so the grid shrinks the columns BESIDE this one rather than pushing
+ * the page sideways — removing the floor rather than buying pixels, which is this file's own rule.
+ */
+.nowrap {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}

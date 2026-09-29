@@ -273,3 +273,37 @@ Three mutations killed, including leaving the ladder in and treating nothing as 
 existing assertion was flipped**, because a FIX superseded it: `settlement-own-read.test.ts` moved
 `updated_at` by hand and expected the badge — which is exactly the defect. That half now asserts
 silence, and a second half moves `figures_changed_at` and asserts the badge.
+
+### M7 · the Settlements list broke a settled figure mid-number
+
+At 490 px: `SEK 3,60 / 5`, `SEK 20,7 / 00`, and the `SETTLEMENT` header mid-word — while
+`scrollWidth === clientWidth` and a walk of every element found **zero** offenders on six screens.
+The green-is-not-correct lesson exactly: a measurement cannot see a number cut in half.
+
+The cause is `DataTable.module.css`'s `overflow-wrap: anywhere` on every header and cell, which is
+right for prose — it is how a long venue name stops a narrow column overflowing — and wrong for a
+token that must not break. So `DataTableColumn` gained an explicit **`wrap: "nowrap"`**, applied to the
+header as well as the cells because a label broken mid-word is the same defect one row up, and
+`min-width: 0` stays inherited so the grid shrinks the columns BESIDE it rather than pushing the page
+sideways — removing the floor rather than buying pixels, which is this file's own rule.
+
+Two columns opted in. Nothing else changed, which is the point of an explicit opt-out over a guess
+from `align === "right"`.
+
+### M8 · a ticket row with no count, presented as one SEK 55,000 ticket
+
+On Nordic Synth Showcase the seeded line is labelled *"Projected ticket sales (220 @ 250 SEK)"* and the
+sheet read `PRICE 55000 · QTY 1`, *"1 ticket planned across all types"*, `REVENUE / GUEST SEK 55,000`,
+`BREAK-EVEN TICKETS 1`, and a break-even axis running to **SEK 24,000,000**.
+
+**The `1` is load-bearing and is NOT the defect.** `amount = unitAmount × quantity`, so 1 × the amount
+is the only pair that reproduces a stored total with no breakdown — deleting it would make the line's
+SEK 55,000 vanish from the sheet. What is wrong is believing the COUNT that falls out of it.
+
+The report offers *(a) suppress* and *(b) caption it* as two defensible answers. They are not
+alternatives here, because this codebase already has a rule that settles it: QA7-13's **"name no figure
+rather than the wrong one"**, applied the way `costsIncompleteNote` and `revenuePerGuest == null`
+already apply it — withhold the derived figure AND say why. So both: *Tickets planned* reads
+**"Not stated"**, per-guest goes to a dash, the break-even curve is withheld, and a third sibling
+sentence says what is missing and — uniquely among the three — what the reader can do about it right
+now. Three mutations killed, including an empty row counting as an unknown count.

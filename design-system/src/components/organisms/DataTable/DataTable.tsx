@@ -10,6 +10,22 @@ export interface DataTableColumn<Row> {
   /** CSS grid track for this column, e.g. "2.4fr" or "120px". */
   width: string;
   align?: "left" | "right";
+  /**
+   * WHETHER THIS COLUMN'S CONTENT MAY BREAK INSIDE A TOKEN. Default `"anywhere"`, which is what every
+   * cell has always done and is right for prose: it is how a long venue name stops a narrow column
+   * overflowing.
+   *
+   * `"nowrap"` is for a column whose content is a single indivisible token — a NUMBER above all.
+   * Measured at 490 px (QA sweep run 16): the Settlements list wrapped `SEK 3,60 / 5` and
+   * `SEK 20,7 / 00`, splitting a settled figure between its thousands separator and its last digits,
+   * and the `SETTLEMENT` header mid-word. Nothing overflowed — `scrollWidth === clientWidth` and a walk
+   * of every element found zero offenders — which is the green-is-not-correct lesson exactly: the
+   * measurement cannot see a number cut in half.
+   *
+   * It applies to the HEADER as well as the cells, because a header is a label and a label broken
+   * mid-word is the same defect one row up.
+   */
+  wrap?: "anywhere" | "nowrap";
   render: (row: Row) => ReactNode;
 }
 
@@ -59,7 +75,10 @@ export function DataTable<Row>({ columns, rows, getRowKey, onRowClick, paginatio
   const template = columns.map((column) => shrinkableTrack(column.width)).join(" ");
   const cells = (row: Row) =>
     columns.map((column, index) => (
-      <span key={index} className={column.align === "right" ? styles.right : undefined}>
+      <span key={index} className={classNames(
+                    column.align === "right" ? styles.right : undefined,
+                    column.wrap === "nowrap" ? styles.nowrap : undefined,
+                  )}>
         {column.render(row)}
       </span>
     ));
@@ -70,7 +89,13 @@ export function DataTable<Row>({ columns, rows, getRowKey, onRowClick, paginatio
     <div className={classNames(styles.table, className)} aria-busy={loading || undefined}>
       <div className={styles.header} style={{ gridTemplateColumns: template }}>
         {columns.map((column, index) => (
-          <span key={index} className={column.align === "right" ? styles.right : undefined}>
+          <span
+            key={index}
+            className={classNames(
+              column.align === "right" ? styles.right : undefined,
+              column.wrap === "nowrap" ? styles.nowrap : undefined,
+            )}
+          >
             {column.header}
           </span>
         ))}
@@ -80,7 +105,10 @@ export function DataTable<Row>({ columns, rows, getRowKey, onRowClick, paginatio
         ? Array.from({ length: skeletonCount }, (_, rowIndex) => (
             <div key={`skeleton-${rowIndex}`} className={styles.row} style={{ gridTemplateColumns: template }}>
               {columns.map((column, index) => (
-                <span key={index} className={column.align === "right" ? styles.right : undefined}>
+                <span key={index} className={classNames(
+                    column.align === "right" ? styles.right : undefined,
+                    column.wrap === "nowrap" ? styles.nowrap : undefined,
+                  )}>
                   <Skeleton height={12} width={column.align === "right" ? "48px" : "70%"} />
                 </span>
               ))}

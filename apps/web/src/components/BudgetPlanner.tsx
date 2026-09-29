@@ -160,6 +160,8 @@ export interface BudgetPlannerProps {
   costsIncompleteNote?: string | null;
   /** …and for a deal this sheet CAN read and has no row for — `feeOffTheBillNoteFor` (run 15). */
   feeOffTheBillNote?: string | null;
+  /** …and for a ticket row that came in as one total with no count (run 16). */
+  ticketCountUnknownNote?: string | null;
   /** Null for a reader whose costs are incomplete — the section is not drawn (QA4-5). */
   breakEven: BreakEvenDisplay | null;
   revenueSources: BreakdownDisplayRow[];
@@ -303,6 +305,7 @@ export function BudgetPlanner({
   results,
   costsIncompleteNote,
   feeOffTheBillNote,
+  ticketCountUnknownNote,
   breakEven,
   revenueSources,
   costBreakdown,
@@ -1085,6 +1088,18 @@ export function BudgetPlanner({
           >
             <Icon name="file" size={14} style={{ marginTop: 2, flexShrink: 0 }} />
             {feeOffTheBillNote}
+          </span>
+        )}
+
+        {/* The third of these, and the one the reader can act on immediately: type the price and the
+            count into that row and the figures come back (QA sweep run 16). */}
+        {ticketCountUnknownNote && (
+          <span
+            className="muted"
+            style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 12.5 }}
+          >
+            <Icon name="receipt" size={14} style={{ marginTop: 2, flexShrink: 0 }} />
+            {ticketCountUnknownNote}
           </span>
         )}
 

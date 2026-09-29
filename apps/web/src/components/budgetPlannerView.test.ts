@@ -30,6 +30,8 @@ import {
   feeOffTheBillNoteFor,
   roundToDisplayUnit,
   splitCostRows,
+  ticketCountIsUnknown,
+  ticketCountUnknownNote,
   ticketSplitDisplay,
   ticketsPlannedLabelFor,
 } from "./budgetPlannerView";
@@ -600,5 +602,61 @@ describe("ticketsPlannedLabelFor", () => {
 
   it("keeps the singular", () => {
     expect(ticketsPlannedLabelFor(1, 400)).toBe("1 ticket planned across all types");
+  });
+});
+
+/**
+ * A COUNT NOBODY STATED IS NOT A COUNT OF ONE — QA sweep run 16.
+ *
+ * A revenue line with no `details` is read as one unit at its full amount, which it has to be: the
+ * money only reproduces as 1 × the amount. Measured on a line labelled "Projected ticket sales
+ * (220 @ 250 SEK)": the sheet printed "1 ticket planned", REVENUE / GUEST SEK 55,000, BREAK-EVEN
+ * TICKETS 1, and a break-even axis to SEK 24,000,000. Every derived figure disagreed with the label.
+ */
+describe("ticketCountIsUnknown — the money is right and the count is an artefact", () => {
+  const tier = (
+    over: Partial<{ hasBreakdown: boolean; unitAmount: bigint; quantity: number }> = {},
+  ) => ({
+    hasBreakdown: true,
+    unitAmount: 25_000n,
+    quantity: 220,
+    ...over,
+  });
+
+  it("is true for a contributing row that carried no breakdown", () => {
+    expect(
+      ticketCountIsUnknown([tier({ hasBreakdown: false, unitAmount: 5_500_000n, quantity: 1 })]),
+    ).toBe(true);
+  });
+
+  it("is false when every row states its own count", () => {
+    expect(ticketCountIsUnknown([tier(), tier({ quantity: 80 })])).toBe(false);
+  });
+
+  /*
+   * AN EMPTY ROW IS NOT AN UNKNOWN COUNT. A tier somebody is about to fill in contributes nothing, and
+   * withholding the whole sheet's per-guest figures because a blank row exists would be the same
+   * defect pointing the other way.
+   */
+  it("ignores a row that contributes nothing", () => {
+    expect(ticketCountIsUnknown([tier({ hasBreakdown: false, unitAmount: 0n, quantity: 0 })])).toBe(
+      false,
+    );
+    expect(
+      ticketCountIsUnknown([tier({ hasBreakdown: false, unitAmount: 5_000n, quantity: 0 })]),
+    ).toBe(false);
+  });
+
+  it("is false for no rows at all", () => {
+    expect(ticketCountIsUnknown([])).toBe(false);
+  });
+
+  it("says what is missing and what brings it back, only when it is missing", () => {
+    expect(ticketCountUnknownNote(false)).toBeNull();
+    const note = ticketCountUnknownNote(true);
+    expect(note).toContain("no ticket count");
+    expect(note).toContain("Per-guest figures and break-even are left out");
+    // The reader can fix this one themselves, which the other two notes cannot say.
+    expect(note).toContain("type the price and the number of tickets");
   });
 });

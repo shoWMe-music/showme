@@ -108,6 +108,8 @@ export interface BudgetPlannerView {
    * can see every deal on the night. See `costsIncomplete`.
    */
   costsIncompleteNote: string | null;
+  /** …and why per-guest and break-even are missing when a ticket row states no count (run 16). */
+  ticketCountUnknownNote: string | null;
   /**
    * …and the one for a deal this sheet CAN read and has no row for (`feeOffTheBillNoteFor`). Two
    * sentences rather than one because the causes differ and so does what the reader can do about it:
@@ -568,6 +570,44 @@ export function costsIncompleteNoteFor(
  * Says PAYEE-neutrally "somebody who is not on the bill", because the payee may be crew, a supplier or
  * an off-platform party, and the sheet is not the place to name them — the Deals tab does.
  */
+/**
+ * IS THE TICKET COUNT ACTUALLY KNOWN — QA sweep run 16.
+ *
+ * A revenue line written without `details` (a seed, an import, a lump-sum hand entry) has no stored
+ * quantity, and `useBudgetEditor` reads it as **one unit at its full amount** — which it has to, because
+ * `amount = unitAmount × quantity` and 1 × the amount is the only pair that reproduces the stored
+ * figure. The money is right; the COUNT is an artefact of that arithmetic.
+ *
+ * Measured on Nordic Synth Showcase, whose seeded line is labelled *"Projected ticket sales (220 @ 250
+ * SEK)"*: the sheet read `PRICE 55000 · QTY 1`, *"1 ticket planned across all types"*, `REVENUE / GUEST
+ * SEK 55,000`, `BREAK-EVEN TICKETS 1`, and a break-even axis running to **SEK 24,000,000** — 400
+ * capacity × an invented unit price. The line's own label says 220 at 250, and every derived figure
+ * disagreed with it.
+ *
+ * So the count is refused rather than the arithmetic, which is QA7-13's rule — *"name no figure rather
+ * than the wrong one"* — and the same thing `revenuePerGuest` already does when nobody is planned.
+ * `hasBreakdown` is the draft's own record of whether the line carried a breakdown at all.
+ *
+ * A tier that contributes NOTHING is ignored: an empty row somebody is about to fill in has no count
+ * to be unknown.
+ */
+export function ticketCountIsUnknown(
+  tiers: readonly { hasBreakdown?: boolean; unitAmount: bigint; quantity: number }[],
+): boolean {
+  return tiers.some(
+    (tier) => tier.hasBreakdown === false && tier.unitAmount * BigInt(tier.quantity) > 0n,
+  );
+}
+
+/**
+ * Why the per-guest and break-even figures are missing — the sibling of `costsIncompleteNoteFor` and
+ * `feeOffTheBillNoteFor`, and the third time this sheet has had to say what it does not know.
+ */
+export function ticketCountUnknownNote(unknown: boolean): string | null {
+  if (!unknown) return null;
+  return "One of the ticket rows came in as a single total with no ticket count, so the sheet cannot say how many guests it means. Per-guest figures and break-even are left out rather than worked out from a count of one — type the price and the number of tickets into that row and they come back.";
+}
+
 export function feeOffTheBillNoteFor(offTheBillDealCount: number): string | null {
   if (offTheBillDealCount <= 0) return null;
   const subject =
@@ -619,6 +659,9 @@ export function budgetPlannerViewFrom(
   const costsIncomplete = costsAreIncomplete(editor.hiddenDealCount, editor.isPrivateBook);
   // Its sibling, for the deals this sheet CAN see and has nowhere to put — see `feeOffTheBillNoteFor`.
   const feeOffTheBillNote = feeOffTheBillNoteFor(editor.offTheBillDealCount);
+  // …and the third: a ticket row that arrived as one total, so the COUNT is an artefact of the
+  // arithmetic rather than a fact (`ticketCountIsUnknown`).
+  const countUnknown = ticketCountIsUnknown(inputs.ticketTiers);
   const money = (minor: bigint) =>
     formatFigure ? formatFigure(minor.toString()) : formatMoney(minor.toString(), currency);
 
@@ -857,12 +900,20 @@ export function budgetPlannerViewFrom(
       // What the sheet expects to SELL. The grid showed revenue and cost per
       // guest without ever saying how many guests it meant, so neither figure
       // could be checked.
-      { label: "Tickets planned", value: projection.ticketsSold.toLocaleString() },
+      {
+        label: "Tickets planned",
+        // "1" here was the artefact the whole finding is about — see `ticketCountIsUnknown`.
+        value: countUnknown ? "Not stated" : projection.ticketsSold.toLocaleString(),
+      },
       {
         label: "Revenue / guest",
         // Null means nobody is planned, so there is no per-head anything — the same
-        // answer `Profit margin` gives three rows up, and for the same reason (QA10-17).
-        value: projection.revenuePerGuest == null ? "—" : money(projection.revenuePerGuest),
+        // answer `Profit margin` gives three rows up, and for the same reason (QA10-17). An UNKNOWN
+        // count gets the same dash for the same reason: there is no per-head of an unknown head count.
+        value:
+          countUnknown || projection.revenuePerGuest == null
+            ? "—"
+            : money(projection.revenuePerGuest),
         tone: "green",
       },
       ...(costsIncomplete
@@ -870,12 +921,16 @@ export function budgetPlannerViewFrom(
         : [
             {
               label: "Cost / guest",
-              value: projection.costPerGuest == null ? "—" : money(projection.costPerGuest),
+              value:
+                countUnknown || projection.costPerGuest == null
+                  ? "—"
+                  : money(projection.costPerGuest),
               tone: "amber" as KpiTone,
             },
           ]),
     ],
     costsIncompleteNote: costsIncompleteNoteFor(editor.hiddenDealCount, editor.isPrivateBook),
+    ticketCountUnknownNote: ticketCountUnknownNote(countUnknown),
     feeOffTheBillNote,
     ticketRevenueTotal: money(projection.ticketRevenue),
     ticketSplit: ticketSplitDisplay(
@@ -886,7 +941,10 @@ export function budgetPlannerViewFrom(
       // settlement will pay, which is what makes the caption worth printing.
       derivedFeeMinor(editor),
     ),
-    ticketsPlannedLabel: ticketsPlannedLabelFor(projection.ticketsSold, inputs.capacity),
+    // A count nobody stated is not "1 ticket planned across all types" (run 16).
+    ticketsPlannedLabel: countUnknown
+      ? "No ticket count on these rows"
+      : ticketsPlannedLabelFor(projection.ticketsSold, inputs.capacity),
     // Keyed by the EDITOR's row id, and taken from the same `inputs` the
     // projection reads, so the column and the band under it can never disagree.
     ticketTierTotals: Object.fromEntries(
@@ -916,14 +974,17 @@ export function budgetPlannerViewFrom(
      * Null, not a chart minus its caption: the cost LINE is the thing that is wrong,
      * so there is no honest version of this picture for a reader missing a fee.
      */
-    breakEven: costsIncomplete
-      ? null
-      : {
-          chart,
-          gridLabels: chart.gridLines.map((line) => ({ y: line.y, label: money(line.amount) })),
-          breakEvenLabel: `${chart.breakEvenTickets.toLocaleString()} tickets`,
-          capacityLabel: chart.capacity.toLocaleString(),
-        },
+    // WITHHELD on an unknown count as well as on incomplete costs: a curve drawn from an invented
+    // quantity of 1 ran its axis to SEK 24,000,000 on a SEK 55,000 line (run 16).
+    breakEven:
+      countUnknown || costsIncomplete
+        ? null
+        : {
+            chart,
+            gridLabels: chart.gridLines.map((line) => ({ y: line.y, label: money(line.amount) })),
+            breakEvenLabel: `${chart.breakEvenTickets.toLocaleString()} tickets`,
+            capacityLabel: chart.capacity.toLocaleString(),
+          },
     revenueSources: revenueSources.map(displayRow(money)),
     costBreakdown: costBreakdown.map(displayRow(money)),
     performingRights: performingRightsDisplay(performingRights, money),

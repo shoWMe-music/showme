@@ -118,6 +118,8 @@ function buildColumns(
     },
     {
       header: "Settlement",
+      // A one-word label, broken mid-word at 490 px. Same rule as the figure below it.
+      wrap: "nowrap",
       width: "1.3fr",
       render: (row) => {
         const display = settlementStatusToDisplay(row.status);
@@ -153,11 +155,25 @@ function buildColumns(
       header: isOperator || isSingleProfile ? "Your share" : "Artist share",
       width: "1.1fr",
       align: "right",
+      // A settled figure is one token (QA sweep run 16) — see `DataTableColumn.wrap`.
+      wrap: "nowrap",
       render: (row) => {
         // Null until the event has been computed — a real "not yet", not a placeholder.
         if (row.entitlement == null) return <span className="muted">—</span>;
         return (
-          <b>
+          /*
+           * A FIGURE NEVER BREAKS MID-NUMBER (QA sweep run 16).
+           *
+           * At 490 px this column wrapped `SEK 3,60 / 5` and `SEK 20,7 / 00` — a settled amount split
+           * between its thousands separator and its last digits, which is the one thing a money column
+           * must not do. Nothing overflowed: `scrollWidth === clientWidth` and a walk of every element
+           * found zero offenders, which is the green-is-not-correct lesson exactly.
+           *
+           * `nowrap` alone would push the overflow sideways; `min-width: 0` on the cell keeps the grid
+           * free to shrink the columns beside it instead, which is the same fix the CI-width lesson
+           * prescribes — remove the floor rather than buy pixels.
+           */
+          <b style={{ whiteSpace: "nowrap" }}>
             {row.currency
               ? formatMoney(row.entitlement, row.currency)
               : formatAmount(row.entitlement)}
