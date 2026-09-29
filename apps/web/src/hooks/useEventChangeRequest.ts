@@ -37,6 +37,8 @@ export interface EventChangeProposal {
   declined: number;
   /** Whether THIS viewer still has an answer to give. */
   answerable: boolean;
+  /** Who asked, by profile name — null when they acted without one (run 16). */
+  proposedByName: string | null;
 }
 
 export interface EventChangeRequestView {

@@ -2269,6 +2269,10 @@
                         },
                         "answerable": {
                           "type": "boolean"
+                        },
+                        "proposedByName": {
+                          "type": "string",
+                          "nullable": true
                         }
                       },
                       "required": [
@@ -2280,7 +2284,8 @@
                         "required",
                         "confirmed",
                         "declined",
-                        "answerable"
+                        "answerable",
+                        "proposedByName"
                       ],
                       "additionalProperties": false,
                       "nullable": true

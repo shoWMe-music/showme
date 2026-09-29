@@ -122,6 +122,8 @@ export type AttentionSources = {
     eventDate: string | null;
     role: string | null;
     hostName: string | null;
+    /** The night's own status — served since run 15, read here since run 16. */
+    eventStatus: string;
   }[];
   /**
    * `GET /settlements/awaiting-signature` — the lines this reader owes a signature on, across every
@@ -311,9 +313,19 @@ export function buildAttentionList(sources: AttentionSources, limit = 5): Attent
       kind: "invitation",
       date: invitation.eventDate,
       title: `Answer ${invitation.eventTitle}`,
+      /*
+       * AND SAY IF THE NIGHT IS OFF (QA sweep run 16).
+       *
+       * Run 15 put the event's status on the Requests inbox and the invitation's landing page and
+       * stopped there. This card sat "Answer Winter Gala · Invited to perform by The Lantern Hall"
+       * directly above a live one in identical styling — which is the same argument the Events list
+       * was badged on, and the same fact `inboxStatusFor` has always crossed for a participation.
+       */
       detail: `Invited ${roleReads(invitation.role)}${
         invitation.hostName ? ` by ${invitation.hostName}` : ""
-      } · ${formatDay(invitation.eventDate)}`,
+      } · ${formatDay(invitation.eventDate)}${
+        invitation.eventStatus === "cancelled" ? " · this show is off" : ""
+      }`,
       action: "Answer",
       target: { to: "requests" },
     });

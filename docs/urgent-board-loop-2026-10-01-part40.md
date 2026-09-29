@@ -171,3 +171,56 @@ press moves one row per settlement — and **false of remarks**: ten comments by
 *"A remark was added to the review · 10 parties"*. The noun now comes from the type
 (`repeatedActivityLabel`), with a bare multiplier as the default rather than a guessed noun, because a
 type added later would otherwise inherit a claim nobody checked. Live: *"· 10 remarks"*.
+
+---
+
+## Five MINORs — two of them my own unfinished work
+
+### M1 · "Send to <party>" on a finalized settlement — the same shape as last tick's Approve
+
+`3c65b41` withdrew Approve on frozen figures this week and did not look one card along.
+`SettlementDeliveryCard` drew **Send to <name>** for every party, and
+`POST /settlement/status` answers *"This settlement is finalized; its figures can no longer be
+re-issued"* every time. §25.7.2's standing rule again, tenth instance.
+
+The ADDRESS half stays: an off-platform party can still be given an address after the freeze, because
+the invitation is how they read the record rather than a request to re-issue it. The caption changes
+with the button — *"Reached in the app. These figures are final, so there is nothing left to send
+out."*
+
+### M6 · the cancelled-night fix reached two of its four surfaces — also mine
+
+Run 15's fix landed on the Requests inbox and the invitation landing page. Run 16 found the other two:
+the **Dashboard attention card**, which sat *"Answer Winter Gala"* directly above a live invitation in
+identical styling, and the **post-accept success state**, still reading *"You are in — Winter Gala is
+on your shoWMe account now"* — the one screen the reader looks at after deciding, and the exact
+sentence run 15 filed.
+
+Both fixed. The success panel now heads *"Answer recorded"* and says the night was cancelled before
+they answered, so nothing is booked by it today. Two mutations killed on the attention row, including
+the suffix firing on every invitation.
+
+**This is the fifth time in this stretch the browser has caught my fix being partial, and the second
+time the miss was "another surface of the same sentence".** The prompt's own note says to check every
+branch that renders; four surfaces of one fact is the same instruction one level up.
+
+### M3 · nothing said who asked, or who declined
+
+`proposed_by_profile_id` is written in the same transaction and no reader used it. The bell said
+*"Somebody has asked to change the date"* with no `actorDisplay` — the only row in the list with no
+*"by X"* line — and the in-event banner named the proposer in none of four seats.
+
+All three now name the **profile**: a co-promoter asking to move a date is *Northlight Presents*
+asking, which is what the other parties recognise, not the user who pressed the button. The decline
+notice gains `actorDisplay` too, which `notifyBillChangeApplied` already sent on the confirm path — one
+rule, and only one of its two halves had it.
+
+### M4 · a disclosure caption false about the one field its rule exempts
+
+*"…it is left out of what the performers, their agents and **the crew themselves** are sent"* — and
+`serialize/participant.ts` deliberately sends `callTime` to the crew member, arguing it: *"withholding
+the instruction to be in the building at 16:15 from the person being asked to turn up makes the
+engagement unperformable."* `payNote` and `privateNote` are withheld, correctly.
+
+An operator reads that caption before deciding what to type, so it now names the right fields: the
+crew member sees **their own call time and task**, and never the pay or private notes.

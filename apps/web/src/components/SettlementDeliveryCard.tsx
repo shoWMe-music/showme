@@ -50,6 +50,20 @@ export function SettlementDeliveryCard({ settlement }: { settlement: EventSettle
           key={row.participantId}
           row={row}
           isBusy={settlement.isInviting}
+          /*
+           * NOTHING LEFT TO SEND ON A FROZEN SETTLEMENT (QA sweep run 16).
+           *
+           * `POST /settlement/status` refuses a re-issue on a finalized settlement — *"its figures can
+           * no longer be re-issued"* — and this card drew **Send to <name>** for every party anyway,
+           * so pressing it produced that sentence as a toast, every time. `3c65b41` closed exactly
+           * this shape on the Approve button this week and did not look one card along; §25.7.2's
+           * standing rule is that the UI must not offer what the API will refuse.
+           *
+           * The ADDRESS half stays available: an off-platform party can still be given an address
+           * after the freeze, because the invitation is how they read the record rather than a request
+           * to re-issue it.
+           */
+          canSendForReview={!settlement.isFinalized}
           onSend={(email) => settlement.sendInvitation(row.participantId, email, row.name)}
           onSendForReview={() => settlement.sendForReviewTo(row.participantId, row.name)}
         />
@@ -61,11 +75,14 @@ export function SettlementDeliveryCard({ settlement }: { settlement: EventSettle
 function DeliveryRow({
   row,
   isBusy,
+  canSendForReview,
   onSend,
   onSendForReview,
 }: {
   row: EventSettlement["delivery"][number];
   isBusy: boolean;
+  /** False once the figures are frozen — the route refuses a re-issue then (run 16). */
+  canSendForReview: boolean;
   onSend: (email: string) => void;
   /** Ask THIS party to review, without waiting for the rest of the bill. */
   onSendForReview: () => void;
@@ -105,7 +122,9 @@ function DeliveryRow({
             On shoWMe
           </Badge>
           <span style={{ color: "var(--muted)", fontSize: 12, flex: "1 1 auto" }}>
-            Reached in the app and by email when you send for review.
+            {canSendForReview
+              ? "Reached in the app and by email when you send for review."
+              : "Reached in the app. These figures are final, so there is nothing left to send out."}
           </span>
           {/*
            * SEND TO THIS ONE PARTY — ClickUp `86cbcn1ue`: *"the option to send
@@ -121,14 +140,16 @@ function DeliveryRow({
            * arrive before being asked to sign, and that is a one-person decision
            * taken one person at a time.
            */}
-          <Button
-            variant="ghost"
-            disabled={isBusy}
-            leftIcon={<Icon name="mail" size={14} />}
-            onClick={onSendForReview}
-          >
-            Send to {row.name}
-          </Button>
+          {canSendForReview && (
+            <Button
+              variant="ghost"
+              disabled={isBusy}
+              leftIcon={<Icon name="mail" size={14} />}
+              onClick={onSendForReview}
+            >
+              Send to {row.name}
+            </Button>
+          )}
         </div>
       ) : (
         <>

@@ -71,8 +71,14 @@ export function EventChangeRequestBanner({
     >
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
         <Icon name="calendar" />
+        {/* NAMES WHO ASKED (QA sweep run 16). Read in four seats and naming the proposer in none of
+            them, while `proposed_by_profile_id` sat on the row — and on a co-promoted night who asked
+            to move the date is most of the decision. The PROFILE, which is what the other parties
+            recognise; unnamed only when the proposer acted without an acting profile. */}
         <h2 id="change-request-heading" style={{ margin: 0, fontSize: 14.5, fontWeight: 600 }}>
-          A change to this booking is waiting on an answer
+          {proposal.proposedByName
+            ? `${proposal.proposedByName} has asked to change this booking`
+            : "A change to this booking is waiting on an answer"}
         </h2>
       </div>
 

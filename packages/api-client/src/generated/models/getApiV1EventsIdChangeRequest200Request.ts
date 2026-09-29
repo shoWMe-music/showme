@@ -21,4 +21,6 @@ export type GetApiV1EventsIdChangeRequest200Request = {
   confirmed: number;
   declined: number;
   answerable: boolean;
+  /** @nullable */
+  proposedByName: string | null;
 } | null;

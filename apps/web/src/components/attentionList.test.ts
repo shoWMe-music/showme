@@ -226,12 +226,54 @@ describe("the invitation inboxes — both of them", () => {
           eventDate: "2026-12-01",
           role: "co_host",
           hostName: "The Lantern Hall",
+          eventStatus: "confirmed",
         },
       ],
     });
     expect(list.items).toHaveLength(1);
     expect(list.items[0]?.detail).toBe("Invited to co-promote by The Lantern Hall · 1 Dec 2026");
     expect(list.items[0]?.target).toEqual({ to: "requests" });
+  });
+
+  /*
+   * AND IT SAYS WHEN THE NIGHT IS OFF (QA sweep run 16).
+   *
+   * Run 15 put this fact on the Requests inbox and the invitation landing page and stopped there, so
+   * this card sat a cancelled night directly above a live one in identical styling. Both halves
+   * asserted, because a suffix on every row would be the same defect in the other direction.
+   */
+  it("says the show is off on a cancelled night, and nothing on a live one", () => {
+    const cancelled = buildAttentionList({
+      ...empty,
+      addressedInvitations: [
+        {
+          id: "i3",
+          eventId: "e5",
+          eventTitle: "Winter Gala",
+          eventDate: "2027-01-08",
+          role: "performer",
+          hostName: "The Lantern Hall",
+          eventStatus: "cancelled",
+        },
+      ],
+    });
+    expect(cancelled.items[0]?.detail).toContain("this show is off");
+
+    const live = buildAttentionList({
+      ...empty,
+      addressedInvitations: [
+        {
+          id: "i4",
+          eventId: "e3",
+          eventTitle: "Open Mic Wednesdays",
+          eventDate: "2027-01-08",
+          role: "performer",
+          hostName: "The Lantern Hall",
+          eventStatus: "suggested",
+        },
+      ],
+    });
+    expect(live.items[0]?.detail).not.toContain("this show is off");
   });
 
   it("reads with no host and no date on it — the UNSET case", () => {
@@ -245,6 +287,7 @@ describe("the invitation inboxes — both of them", () => {
           eventDate: null,
           role: null,
           hostName: null,
+          eventStatus: "draft",
         },
       ],
     });

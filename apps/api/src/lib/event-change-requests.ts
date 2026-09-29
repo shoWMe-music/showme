@@ -412,14 +412,33 @@ export async function proposeEventChange(
   });
 
   const what = describeChange(input.changes);
+  /*
+   * WHO ASKED (QA sweep run 16).
+   *
+   * The body said *"Somebody has asked to change the date"* and no `actorDisplay` went out, so this
+   * was the only row in the bell with no *"by X"* line — while `proposed_by_profile_id` was written on
+   * the request in the same transaction. On a six-party co-promoted night, WHO asked to move the date
+   * is most of the decision, and every other notification in this app names its actor.
+   *
+   * The PROFILE that asked, not the user who pressed it: a co-promoter asking to move a date is
+   * Northlight Presents asking, which is what the other parties recognise. Read once for the loop.
+   */
+  const [proposer] = proposerProfileId
+    ? await database
+        .select({ name: schema.profiles.name })
+        .from(schema.profiles)
+        .where(eq(schema.profiles.id, proposerProfileId))
+    : [];
+  const asker = proposer?.name ?? null;
   for (const party of parties) {
     if (!party.profileId) continue;
     try {
       await notifyProfileMembers(database, party.profileId, principal.userId, {
         type: "event.change_requested",
         title: `A change to ${event?.title ?? "an event"}`,
-        body: `Somebody has asked to change ${what}. Confirm or decline it on the event.${input.reason ? ` Reason: ${input.reason}` : ""}`,
+        body: `${asker ?? "Somebody"} has asked to change ${what}. Confirm or decline it on the event.${input.reason ? ` Reason: ${input.reason}` : ""}`,
         eventId: input.eventId,
+        actorDisplay: asker ?? undefined,
         link: `/events/${input.eventId}`,
         metadata: { changeRequestId: created.id, changes: input.changes },
       });
@@ -793,6 +812,10 @@ export async function notifyProposer(
           ? "Everyone agreed, and the event has been updated."
           : input.note || "The change was declined.",
       eventId: input.eventId,
+      // WHO ANSWERED — the other half of run 16's finding. A decline reached the proposer with no
+      // "by X" line at all, which on a bill with three answerers leaves them guessing which one said
+      // no. `notifyBillChangeApplied` already sends this on the confirm path.
+      actorDisplay: request.firebaseUser?.name ?? undefined,
       link: `/events/${input.eventId}`,
       metadata: { changes: input.changes, ...(input.note ? { note: input.note } : {}) },
     });

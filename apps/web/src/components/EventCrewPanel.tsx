@@ -288,10 +288,19 @@ function InHousePanel({
             not see their own call time here either, so it still has to be told
             to them. A card that overstated this would be the same bug in a new
             costume. */}
+        {/*
+          TRUE OF EVERY FIELD IT NAMES (QA sweep run 16).
+          This said a call time here is "left out of what … the crew themselves are sent" — and
+          `serialize/participant.ts` deliberately DOES send it, with a good argument: "withholding the
+          instruction to be in the building at 16:15 from the person being asked to turn up makes the
+          engagement unperformable". `payNote` and `privateNote` are withheld, correctly. An operator
+          reads this caption before deciding what to type, so it has to name the right fields.
+        */}
         <p style={{ color: "var(--muted)", fontSize: 12.5, margin: "6px 0 0", lineHeight: 1.55 }}>
-          Call times, notes and assigned work for your own crew. Only you and your co-operators see
-          this — it is left out of what the performers, their agents and the crew themselves are
-          sent, so a call time here is your plan, not their notification.
+          Call times, notes and assigned work for your own crew. The performers and their agents see
+          none of it. Each crew member sees their own <strong>call time and task</strong> — they are
+          being asked to turn up, so they are told when and for what — and never your pay notes or
+          private notes, which stay between you and your co-operators.
         </p>
       </SectionCard>
 

@@ -422,11 +422,28 @@ function AnswerCard({
     // so saying it did would be the kind of small lie this page exists to stop.
     case "accepted":
       return (
-        <Panel title="You are in">
+        <Panel
+          title={
+            // THE SURFACE THE READER ACTUALLY LOOKS AT AFTER DECIDING, and the one run 15's fix did
+            // not reach: "You are in" over a night that is off is the sentence run 16 filed unchanged
+            // (QA sweep run 16). Four surfaces carry this fact; two of them were mine to finish.
+            offer?.targetEventStatus === "cancelled" ? "Answer recorded" : "You are in"
+          }
+        >
           <p style={bodyStyle}>
-            {offer?.targetName
-              ? `${offer.targetName} is on your shoWMe account now.`
-              : "This is on your shoWMe account now."}{" "}
+            {offer?.targetEventStatus === "cancelled" ? (
+              <>
+                {offer?.targetName ?? "This event"} is on your shoWMe account, but it was{" "}
+                <strong>cancelled</strong> before you answered — so nothing is booked by this today.
+                If the night is reinstated your answer stands.{" "}
+              </>
+            ) : (
+              <>
+                {offer?.targetName
+                  ? `${offer.targetName} is on your shoWMe account now.`
+                  : "This is on your shoWMe account now."}{" "}
+              </>
+            )}
             {offer?.inviterName ?? "Whoever invited you"} has been told you accepted.
           </p>
           <Button onClick={() => window.location.assign(eventLink)}>

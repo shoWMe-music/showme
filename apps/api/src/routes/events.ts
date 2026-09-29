@@ -597,6 +597,15 @@ const ChangeRequestResponse = z.object({
       declined: z.number(),
       /** Whether THIS caller still has an answer to give. */
       answerable: z.boolean(),
+      /**
+       * WHO ASKED — the profile, by name (QA sweep run 16).
+       *
+       * The banner read *"A change to this booking is waiting on an answer · Date 16 Oct → 24 Oct ·
+       * Waiting on 3 people to answer"* in four seats and named the proposer in none of them, while
+       * `proposed_by_profile_id` sat on the row. On a co-promoted night that is most of the decision.
+       * Null for a request whose proposer acted without an acting profile.
+       */
+      proposedByName: z.string().nullable(),
     })
     .nullable(),
 });
@@ -2106,6 +2115,14 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
           confirmed: open.confirmed,
           declined: open.declined,
           answerable,
+          proposedByName: open.proposedByProfileId
+            ? ((
+                await database
+                  .select({ name: schema.profiles.name })
+                  .from(schema.profiles)
+                  .where(eq(schema.profiles.id, open.proposedByProfileId))
+              )[0]?.name ?? null)
+            : null,
         },
       };
     },
