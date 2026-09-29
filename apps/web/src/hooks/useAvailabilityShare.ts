@@ -116,6 +116,40 @@ export interface AvailabilityShareView {
   copyLink: () => void;
 }
 
+/**
+ * THE DATE CHIPS, AND WHICH ROOM EACH FREE NIGHT IS IN (QA sweep run 11).
+ *
+ * On "All rooms" the flat list is a UNION — a night counts as free if any room is — so the
+ * Friday of a sold-out 400-cap show appeared as a bare chip because the 80-cap back room was
+ * empty, and **Copy dates** copied it. Technically true and unusable: the promoter who is pasted
+ * those dates is being told the Friday is open.
+ *
+ * The data was already right three lines above this: `rooms[]` is room-scoped and correct. Only
+ * the sentence was a union, so only the sentence changes.
+ *
+ * A night when EVERY room is free stays a bare chip. Naming all of them on the ordinary case is
+ * noise, and noise is how a reader learns to skim the one chip that carries a qualifier.
+ */
+export function availabilityChipLabels(
+  dateKeys: readonly string[],
+  rooms: readonly { name: string; availableDates: readonly string[] }[],
+  wholeVenue: boolean,
+): string[] {
+  // A room-scoped share already says where it is, in the heading above.
+  //
+  // There is no `rooms.length < 2` clause beside this, and a surviving mutation is why: a
+  // one-room venue is covered by the all-rooms-free test below, because a date only reaches
+  // this list if some room is free and with one room that room is all of them. The extra
+  // condition was a second way of saying the same thing, which is a second thing to keep true.
+  if (!wholeVenue) return dateKeys.map(formatDayWithWeekday);
+  return dateKeys.map((key) => {
+    const label = formatDayWithWeekday(key);
+    const free = rooms.filter((room) => room.availableDates.includes(key));
+    if (free.length === 0 || free.length === rooms.length) return label;
+    return `${label} — ${free.map((room) => room.name).join(", ")}`;
+  });
+}
+
 export function useAvailabilityShare(
   events: EventItem[],
   sources: CalendarSource[],
@@ -233,8 +267,8 @@ export function useAvailabilityShare(
   // the year because these chips are routinely pasted into a mail about next
   // season. The chips used to be a private `en-US`, yearless "Thu · Aug 28".
   const availableDates = useMemo(
-    () => availableDateKeys.map(formatDayWithWeekday),
-    [availableDateKeys],
+    () => availabilityChipLabels(availableDateKeys, rooms, selected?.room === WHOLE_VENUE),
+    [availableDateKeys, rooms, selected],
   );
 
   /**

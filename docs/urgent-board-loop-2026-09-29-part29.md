@@ -78,3 +78,54 @@ the planner's field names (`unitAmount`/`maxQuantity`/`estimatedSales`) and the 
 `price`/`max`/`est`, so the event answered **500** and the screen read *"Couldn't load this event"*.
 Worth recording because the DB took the write happily — `extras` is `jsonb` and validates on the way
 OUT, so a hand-written fixture can be malformed in a way only a page load reveals.
+
+---
+
+## 3. QA11-15 — "All rooms" lists a sold Friday as free
+
+**Which file settles it:** `apps/web/src/hooks/useAvailabilityShare.ts` — the chip labels, and the
+clipboard text built from them.
+
+**What was measured.** Calendar → Check & Share Availability, venue The Lantern Hall, room **All
+rooms**: the list offers **Fri, 16 Oct 2026** as a bare chip — the night of the confirmed Album
+Release — and **Copy dates** copies that union. Technically true (the 80-cap Back Room is free) and
+unusable: a promoter pasted those dates is being told a 400-cap Friday is open. Selecting **Main
+Room** correctly drops it.
+
+**The verdict: the data is already right and the SENTENCE is a union.** The snapshot carries
+`rooms[]`, room-scoped and correct — `rooms[Main Room].availableDates` excludes 16 Oct and
+`rooms[Back Room]` includes it — beside a flat `availableDates` that does not. The same hook
+computes both, three lines apart. The flat one feeds the chips and the clipboard, and a union across
+rooms is only meaningful if you say which room.
+
+**The scope.** When the whole venue is selected and more than one room is in play, a chip names the
+rooms free that night; a night when **every** room is free stays a bare chip, because naming all of
+them is noise on the ordinary case. The clipboard follows, which is where the harm actually
+happened. A room-scoped share is untouched — it has one room and already says so in its heading.
+
+**The decision it hides: should the flat `availableDates` in the SNAPSHOT stop being a union?** No,
+and not from here. It is what links minted before `rooms` existed carry, and the public page reads
+it as the fallback for exactly those — changing its meaning would silently re-interpret every link
+already in somebody's inbox. The chips are this screen's own rendering; the payload is a contract.
+
+### What landed
+
+Read live, the sweep's own night in a list of fifty-odd:
+
+```
+Thu, 15 Oct 2026
+Fri, 16 Oct 2026 — Back Room      ← the sold 400-cap Friday, naming the only room that is free
+Sat, 17 Oct 2026
+```
+
+Every other chip is bare, which is the point: the qualifier means something because it is rare.
+**Copy dates** joins these same labels, so the text pasted to a promoter carries the room too —
+which is where the harm actually was.
+
+**And a surviving mutation deleted a line rather than adding a test.** The early-out was
+`!wholeVenue || rooms.length < 2`, and removing the second half broke nothing. It is genuinely
+redundant: a date only reaches this list because some room is free, so with one room that room is
+all of them, and the all-rooms-free test below already returns a bare chip. **A surviving mutation
+is a question, and this time the answer was "that clause is a second way of saying the same
+thing"** — a second thing to keep true. The test for the one-room case stays, because the case is
+worth pinning even though the code no longer has a branch of its own for it.
