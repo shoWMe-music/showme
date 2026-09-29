@@ -26,6 +26,7 @@ export {
   type SerializedEntitlementLine,
   type SerializedLadder,
   type StoredLadder,
+  samePartyFigures,
   sameStoredBreakdown,
   type StoredBreakdown,
 } from "./snapshot";

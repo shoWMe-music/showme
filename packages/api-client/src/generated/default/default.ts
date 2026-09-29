@@ -58,6 +58,7 @@ import type {
   GetApiV1DealsAwaitingSignature200,
   GetApiV1DealsDid200,
   GetApiV1Events200,
+  GetApiV1EventsChangeRequestsAwaitingAnswer200,
   GetApiV1EventsDateConflicts200,
   GetApiV1EventsDateConflictsParams,
   GetApiV1EventsId200,
@@ -1386,6 +1387,92 @@ export function useGetApiV1EventsIdChangeRequest<TData = Awaited<ReturnType<type
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetApiV1EventsIdChangeRequestQueryOptions(id,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const getApiV1EventsChangeRequestsAwaitingAnswer = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1EventsChangeRequestsAwaitingAnswer200>(
+      {url: `/api/v1/events/change-requests/awaiting-answer`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1EventsChangeRequestsAwaitingAnswerQueryKey = () => {
+    return [
+    `/api/v1/events/change-requests/awaiting-answer`
+    ] as const;
+    }
+
+    
+export const getGetApiV1EventsChangeRequestsAwaitingAnswerQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1EventsChangeRequestsAwaitingAnswerQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>> = ({ signal }) => getApiV1EventsChangeRequestsAwaitingAnswer(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1EventsChangeRequestsAwaitingAnswerQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>>
+export type GetApiV1EventsChangeRequestsAwaitingAnswerQueryError = unknown
+
+
+export function useGetApiV1EventsChangeRequestsAwaitingAnswer<TData = Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsChangeRequestsAwaitingAnswer<TData = Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1EventsChangeRequestsAwaitingAnswer<TData = Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1EventsChangeRequestsAwaitingAnswer<TData = Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1EventsChangeRequestsAwaitingAnswer>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1EventsChangeRequestsAwaitingAnswerQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

@@ -115,6 +115,25 @@ export type AttentionSources = {
    * `GET /me/invitations` — an invitation addressed to the reader's email, already
    * narrowed by `useEventInvitations` to the rows that have somewhere to go.
    */
+  /**
+   * CHANGE PROPOSALS WAITING ON THIS READER'S ANSWER (QA sweep run 16).
+   *
+   * The Dashboard's own empty state promises *"Events awaiting a decision"*, and a pending move of a
+   * confirmed, published, settled night — the most time-critical decision in the product — was on the
+   * bell and nowhere else. An agent with the change request in its bell read *"You're all caught up."*
+   *
+   * `GET /events/change-requests/awaiting-answer` serves only the ones the reader still owes an answer
+   * on, so this loop adds no filter of its own: a party with no vote already has the banner on the
+   * event and needs no card.
+   */
+  changeRequests: readonly {
+    id: string;
+    eventId: string;
+    eventTitle: string;
+    eventDate: string | null;
+    proposedByName: string | null;
+    changes: Record<string, string | null>;
+  }[];
   addressedInvitations: readonly {
     id: string;
     eventId: string;
@@ -307,6 +326,31 @@ export function buildAttentionList(sources: AttentionSources, limit = 5): Attent
    * that they were all caught up.
    *
    */
+  for (const proposal of sources.changeRequests) {
+    // What is moving, in the reader's words. `eventDate` is the one NEGOTIATED_FIELDS entry worth
+    // naming with its value; a venue or room arrives as an id, so the field name is the honest half
+    // and the event page carries the detail — the same split the banner makes.
+    const moving = Object.keys(proposal.changes);
+    const what = moving.includes("eventDate")
+      ? "the date"
+      : moving.includes("venueProfileId")
+        ? "the venue"
+        : moving.includes("stageId")
+          ? "the room"
+          : "this booking";
+    items.push({
+      id: `change-${proposal.id}`,
+      kind: "event",
+      date: proposal.eventDate,
+      title: `Answer the change to ${proposal.eventTitle}`,
+      detail: `${proposal.proposedByName ?? "Somebody"} asked to change ${what} · ${formatDay(
+        proposal.eventDate,
+      )}`,
+      action: "Answer",
+      target: { to: "event", eventId: proposal.eventId },
+    });
+  }
+
   for (const invitation of sources.addressedInvitations) {
     items.push({
       id: `addressed-${invitation.id}`,

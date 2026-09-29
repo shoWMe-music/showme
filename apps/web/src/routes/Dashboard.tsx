@@ -2,6 +2,7 @@ import {
   useGetApiV1BookingRequests,
   useGetApiV1DealsAwaitingSignature,
   useGetApiV1Events,
+  useGetApiV1EventsChangeRequestsAwaitingAnswer,
   useGetApiV1InsightsProfilesIdSummary,
   useGetApiV1Settlements,
   useGetApiV1SettlementsAwaitingSignature,
@@ -183,6 +184,8 @@ export function Dashboard() {
    * (QA sweep run 12). Its sibling `/deals/awaiting-signature` exists for exactly this reason.
    */
   const awaitingSettlementSignature = useGetApiV1SettlementsAwaitingSignature();
+  // Change proposals this reader still owes an answer on, across every night they stand on.
+  const changeRequests = useGetApiV1EventsChangeRequestsAwaitingAnswer();
   /**
    * BOTH INVITATION INBOXES, through the hook the Requests screen uses.
    *
@@ -232,6 +235,9 @@ export function Dashboard() {
     dealsAwaitingSignature: awaitingSignature.data?.items ?? [],
     eventInvitations: invitations.invitations,
     addressedInvitations: invitations.addressed,
+    // The fourth thing somebody can be waiting on, and it was on the bell and nowhere else
+    // (QA sweep run 16) — see `changeRequests` in `attentionList.ts`.
+    changeRequests: changeRequests.data?.items ?? [],
     settlements: awaitingSettlementSignature.data?.items ?? [],
   });
   const attentionShown = attentionList.shown;

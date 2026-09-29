@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type StoredBreakdown, sameStoredBreakdown } from "./snapshot";
+import { type StoredBreakdown, samePartyFigures, sameStoredBreakdown } from "./snapshot";
 
 const base = (over: Partial<StoredBreakdown> = {}): StoredBreakdown => ({
   participantId: "p1",
@@ -143,5 +143,61 @@ describe("have two snapshots of one party anything different to say", () => {
     // The UNSET case: `settlements.computed` is nullable, and a row with nothing in it has nothing
     // in common with a computed one.
     expect(sameStoredBreakdown(null, base())).toBe(false);
+  });
+});
+
+/**
+ * DID THIS PARTY'S OWN MONEY MOVE — QA sweep run 16.
+ *
+ * The roster's "Signed off · Figures changed since" badge was derived from `updated_at`, and the pool
+ * LADDER is stored inside every party's breakdown — so an unrelated cost edit told every signed party
+ * their figures had changed. Measured: Priya Sound on a flat SEK 4,000 guarantee, entitlement and net
+ * unmoved, badge lit.
+ */
+describe("samePartyFigures — the ladder is the night's, not the party's", () => {
+  const withLadder = (ladder: Record<string, string>, over: Partial<StoredBreakdown> = {}) =>
+    base({ ladder, ...over } as Partial<StoredBreakdown>);
+
+  it("ignores a ladder that moved while the party's own figures did not", () => {
+    const before = withLadder({ costs: "2650000", revenue: "5500000", adjustedNet: "2850000" });
+    const after = withLadder({ costs: "2800000", revenue: "5500000", adjustedNet: "2700000" });
+    // The row IS worth rewriting — this is the distinction, in one pair of assertions.
+    expect(sameStoredBreakdown(before, after)).toBe(false);
+    expect(samePartyFigures(before, after)).toBe(true);
+  });
+
+  /*
+   * AND IT STILL SEES THE PARTY'S OWN MONEY MOVE. A comparison that ignored everything would close
+   * the over-warning and un-warn every genuinely stale signature — which is the one irreversible
+   * mistake available here, and the shape that has passed a naive test three times in this stretch.
+   */
+  it("sees an entitlement move, a net move and a deductible move", () => {
+    const before = withLadder({ costs: "1" });
+    expect(samePartyFigures(before, withLadder({ costs: "1" }, { entitlement: "40800" }))).toBe(
+      false,
+    );
+    expect(samePartyFigures(before, withLadder({ costs: "1" }, { net: "40800" }))).toBe(false);
+    expect(samePartyFigures(before, withLadder({ costs: "1" }, { deductibles: "500" }))).toBe(
+      false,
+    );
+  });
+
+  /*
+   * `lines` STAYS IN. The composition of a party's own entitlement is theirs: a guarantee moved so
+   * that it still loses to the door share leaves every total identical and changes what the settlement
+   * SAYS to them — which is the reason the sibling comparison carries `lines` too.
+   */
+  it("sees the composition change even when every total is identical", () => {
+    const before = withLadder({ costs: "1" }, {
+      lines: [{ dealId: "d1", dealTotal: "23100", amount: "23100" }],
+    } as Partial<StoredBreakdown>);
+    const after = withLadder({ costs: "1" }, {
+      lines: [{ dealId: "d1", dealTotal: "30000", amount: "23100" }],
+    } as Partial<StoredBreakdown>);
+    expect(samePartyFigures(before, after)).toBe(false);
+  });
+
+  it("treats an unwritten row as having nothing in common, like its sibling", () => {
+    expect(samePartyFigures(null, base())).toBe(false);
   });
 });

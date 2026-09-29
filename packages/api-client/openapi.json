@@ -2300,6 +2300,79 @@
         }
       }
     },
+    "/api/v1/events/change-requests/awaiting-answer": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "eventTitle": {
+                            "type": "string"
+                          },
+                          "eventDate": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "changes": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          },
+                          "previous": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          },
+                          "proposedByName": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "eventId",
+                          "eventTitle",
+                          "eventDate",
+                          "changes",
+                          "previous",
+                          "proposedByName",
+                          "createdAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["items"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/events/{id}/change-request/{crid}/{answer}": {
       "post": {
         "requestBody": {

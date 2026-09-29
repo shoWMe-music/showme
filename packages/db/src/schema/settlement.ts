@@ -185,6 +185,23 @@ export const settlements = pgTable(
     version: integer("version").notNull().default(1), // optimistic lock (decisions #8)
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * WHEN THIS PARTY'S OWN MONEY LAST MOVED — not when the row was last written (migration 0049,
+     * QA sweep run 16).
+     *
+     * `updated_at` answers "was this row rewritten", and the POOL LADDER is stored inside every
+     * party's `computed` — so a cost edit anywhere rewrites every row and moved `updated_at` for
+     * everyone. `figuresMovedSince` read that, so the roster's "Signed off · Figures changed since"
+     * badge — which exists so an operator can see whose consent is stale before finalizing — fired on
+     * every signed party every time. Measured: Priya Sound's entitlement and net did not move by a
+     * minor unit and the badge fired.
+     *
+     * Written only when `samePartyFigures` says the party's own figures changed, so the two questions
+     * stop sharing one column. Backfilled from `updated_at`, which is exactly today's behaviour for
+     * rows written before it existed — conservative in the over-warning direction rather than
+     * silently un-warning a signature somebody may already have acted on.
+     */
+    figuresChangedAt: timestamp("figures_changed_at", { withTimezone: true }),
   },
   (table) => [
     check(

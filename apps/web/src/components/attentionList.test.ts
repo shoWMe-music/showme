@@ -8,6 +8,7 @@ const empty: AttentionSources = {
   eventInvitations: [],
   addressedInvitations: [],
   settlements: [],
+  changeRequests: [],
 };
 
 /**
@@ -485,5 +486,66 @@ describe("the rank and the cut", () => {
     const list = buildAttentionList({ ...empty, settlements: [settlement()] });
     expect(list.shown).toEqual(list.items);
     expect(list.hidden).toBe(0);
+  });
+});
+
+/**
+ * A CHANGE PROPOSAL WAITING ON THIS READER (QA sweep run 16).
+ *
+ * The Dashboard promised "Events awaiting a decision" and a pending move of a confirmed, published,
+ * settled night was on the bell and nowhere else — an agent with it in their bell read "You're all
+ * caught up. Nothing needs your attention today."
+ */
+describe("the change proposals waiting on an answer", () => {
+  const proposal = (over: Partial<AttentionSources["changeRequests"][number]> = {}) => ({
+    id: "cr1",
+    eventId: "e1",
+    eventTitle: "Album Release",
+    eventDate: "2026-10-16",
+    proposedByName: "Northlight Presents",
+    changes: { eventDate: "2026-10-24" },
+    ...over,
+  });
+
+  it("names who asked and what is moving, and opens the event", () => {
+    const list = buildAttentionList({ ...empty, changeRequests: [proposal()] });
+    expect(list.items).toHaveLength(1);
+    expect(list.items[0]?.title).toBe("Answer the change to Album Release");
+    expect(list.items[0]?.detail).toContain("Northlight Presents asked to change the date");
+    expect(list.items[0]?.action).toBe("Answer");
+    expect(list.items[0]?.target).toEqual({ to: "event", eventId: "e1" });
+  });
+
+  // The route serves only what the reader owes an answer on, so an empty list is an empty card —
+  // asserted because a card that fired on every event with an open proposal would be the defect in
+  // the other direction.
+  it("adds nothing when there is nothing to answer", () => {
+    expect(buildAttentionList({ ...empty, changeRequests: [] }).items).toHaveLength(0);
+  });
+
+  it("names the venue and the room when those are what is moving", () => {
+    expect(
+      buildAttentionList({
+        ...empty,
+        changeRequests: [proposal({ changes: { venueProfileId: "v2" } })],
+      }).items[0]?.detail,
+    ).toContain("change the venue");
+    expect(
+      buildAttentionList({
+        ...empty,
+        changeRequests: [proposal({ changes: { stageId: "s2" } })],
+      }).items[0]?.detail,
+    ).toContain("change the room");
+  });
+
+  // A proposer who acted without an acting profile has no name to print, and "Somebody" is the same
+  // word the notification falls back to — one vocabulary for one absence.
+  it("falls back to Somebody when the proposer has no profile name", () => {
+    expect(
+      buildAttentionList({
+        ...empty,
+        changeRequests: [proposal({ proposedByName: null })],
+      }).items[0]?.detail,
+    ).toContain("Somebody asked to change the date");
   });
 });

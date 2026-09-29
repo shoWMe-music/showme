@@ -224,3 +224,52 @@ engagement unperformable."* `payNote` and `privateNote` are withheld, correctly.
 
 An operator reads that caption before deciding what to type, so it now names the right fields: the
 crew member sees **their own call time and task**, and never the pay or private notes.
+
+### M2 · a date move waiting on your answer was on the bell and nowhere else
+
+The Dashboard's own empty state promises *"Events awaiting a decision"*, and a pending move of a
+confirmed, published, settled night — the most time-critical decision in the product — reached it in no
+seat. An agent with the change request sitting in its bell read *"You're all caught up. Nothing needs
+your attention today."*
+
+`GET /events/change-requests/awaiting-answer`, the same shape `/deals/awaiting-signature` and
+`/settlements/awaiting-signature` already have and added for the same reason. **Answerable only**: a
+party with no vote already sees the banner on the event, and this list is "what is waiting on you".
+
+Live, with a proposal from the co-host on e1:
+
+```
+operator     1  [Album Release · Northlight Presents]
+agent        1  [Album Release · Northlight Presents]
+performer.b  1  [Album Release · Northlight Presents]
+co.host      0  []                                       ← the one who asked has nothing to answer
+Dashboard (operator): "Answer the change to Marlo Vance — Album Release"
+                      "Northlight Presents asked to change the date · 16 Oct 2026"
+```
+
+Three mutations killed, including the proposer never being named and every change reading as a date
+move.
+
+### M5 · the stale-consent badge fired on every party, every time
+
+`c8f1446` built *"Signed off · Figures changed since"* so an operator can see whose consent is stale
+before finalizing, and derived it from `updated_at > approved_at`. The **pool ladder is stored inside
+every party's breakdown**, so a cost edit anywhere legitimately rewrites every row, moves every
+`updated_at`, and lit the badge for everyone. Measured on Priya Sound: a flat SEK 4,000 guarantee,
+entitlement and net unmoved by a minor unit, badge on.
+
+One column was answering two questions — *"was this row rewritten"* and *"has what this party signed
+changed"* — and the second is about consent. So the party's own money got its own clock:
+**migration 0049**'s `figures_changed_at`, stamped only when `samePartyFigures` (the stored comparison
+with the ladder taken out) says their entitlement, net or composition moved. `lines` stays in, for the
+reason its sibling carries it: a guarantee moved so that it still loses to the door share leaves every
+total identical and changes what the settlement SAYS to them.
+
+Backfilled from `updated_at`, which reproduces today's behaviour exactly — deliberately the
+over-warning direction, because silently un-warning a stale signature somebody may already have acted
+on is the one irreversible mistake available here.
+
+Three mutations killed, including leaving the ladder in and treating nothing as a move. And **one
+existing assertion was flipped**, because a FIX superseded it: `settlement-own-read.test.ts` moved
+`updated_at` by hand and expected the badge — which is exactly the defect. That half now asserts
+silence, and a second half moves `figures_changed_at` and asserts the badge.

@@ -402,3 +402,29 @@ function comparableBreakdown(value: StoredBreakdown) {
 export function sameStoredBreakdown(left: StoredBreakdown | null, right: StoredBreakdown): boolean {
   return left != null && sameValue(comparableBreakdown(left), comparableBreakdown(right));
 }
+
+/**
+ * DID THIS PARTY'S OWN MONEY MOVE — the same comparison WITHOUT the shared ladder (QA sweep run 16).
+ *
+ * `sameStoredBreakdown` is the right question for *"is this row worth rewriting"*: the ladder is
+ * stored inside every party's breakdown, so a cost edit anywhere genuinely changes every row and
+ * every row has to be written.
+ *
+ * It is the wrong question for *"has what this party signed changed"*, and `figuresMovedSince` was
+ * built on it through `updated_at`. Measured: Priya Sound signed a flat SEK 4,000 guarantee, an
+ * unrelated production cost moved, and the roster told the operator her figures had changed — because
+ * the ladder inside her row had. Her entitlement and her net had not moved by a minor unit. A consent
+ * signal that fires on every party every time is not a signal.
+ *
+ * So the ladder comes out and nothing else does. `lines` STAYS: the composition of a party's own
+ * entitlement is theirs, and the comment above says why — a guarantee moved so that it still loses to
+ * the door share leaves every total identical and changes what the settlement SAYS to them.
+ */
+export function samePartyFigures(left: StoredBreakdown | null, right: StoredBreakdown): boolean {
+  if (left == null) return false;
+  const withoutLadder = (value: StoredBreakdown) => {
+    const { ladder: _ladder, ...rest } = comparableBreakdown(value);
+    return rest;
+  };
+  return sameValue(withoutLadder(left), withoutLadder(right));
+}

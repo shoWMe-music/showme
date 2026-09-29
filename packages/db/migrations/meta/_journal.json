@@ -344,6 +344,13 @@
       "when": 1790691009793,
       "tag": "0048_a_hold_moves_up_unless_somebody_froze_it",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1790706617065,
+      "tag": "0049_a_partys_own_figures_have_their_own_clock",
+      "breakpoints": true
     }
   ]
 }

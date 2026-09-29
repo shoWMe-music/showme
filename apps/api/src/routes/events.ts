@@ -610,6 +610,34 @@ const ChangeRequestResponse = z.object({
     .nullable(),
 });
 
+/**
+ * Change proposals waiting on THIS caller's answer, across every event they stand on.
+ *
+ * The same shape `GET /deals/awaiting-signature` and `GET /settlements/awaiting-signature` already
+ * have, and added for the same reason (QA sweep run 16): the Dashboard promises *"Events awaiting a
+ * decision … agreements and settlements waiting on your signature"* and a pending move of a
+ * confirmed, published, settled show — the most time-critical decision in the product — was on the
+ * bell and nowhere else. An agent with seven unread bell rows, one of them the change request, read
+ * *"You're all caught up. Nothing needs your attention today."*
+ *
+ * ANSWERABLE ONLY. A party with no vote already sees the banner on the event and needs no card: this
+ * list is "what is waiting on you", which is what the Dashboard is.
+ */
+const AwaitingAnswerResponse = z.object({
+  items: z.array(
+    z.object({
+      id: z.string(),
+      eventId: z.string(),
+      eventTitle: z.string(),
+      eventDate: z.string().nullable(),
+      changes: z.record(z.string(), z.string().nullable()),
+      previous: z.record(z.string(), z.string().nullable()),
+      proposedByName: z.string().nullable(),
+      createdAt: z.string(),
+    }),
+  ),
+});
+
 const UpdateEventBody = z.object({
   title: z.string().min(1).optional(),
   notes: z.string().nullable().optional(),
@@ -2082,6 +2110,98 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
    * event has an interest in knowing the night is being moved, even the parties
    * who are not the ones being asked (a crew member's call time depends on it).
    */
+  /*
+   * …AND ACROSS EVERY EVENT, for the Dashboard — see `AwaitingAnswerResponse`.
+   *
+   * Registered BEFORE `/events/:id/change-request` would not matter (the paths do not collide), but it
+   * sits here so the two reads of one fact are next to each other rather than a file apart.
+   */
+  app.get(
+    "/events/change-requests/awaiting-answer",
+    { schema: { response: { 200: AwaitingAnswerResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+      const profileIds = principal.memberships.map((membership) => membership.profileId);
+      if (profileIds.length === 0) return { items: [] };
+
+      // The caller's own participations — the bound every cross-event list in this app starts from,
+      // and `removed` is the only status that takes one away entirely.
+      const standing = await database
+        .select({
+          id: schema.eventParticipants.id,
+          eventId: schema.eventParticipants.eventId,
+        })
+        .from(schema.eventParticipants)
+        .where(
+          and(
+            inArray(schema.eventParticipants.profileId, profileIds),
+            ne(schema.eventParticipants.status, "removed"),
+          ),
+        );
+      if (standing.length === 0) return { items: [] };
+
+      // Only events that actually have one open, so the per-event resolver below runs on a short list
+      // rather than on every night the caller stands on.
+      const eventIds = [...new Set(standing.map((row) => row.eventId))];
+      const open = await database
+        .select({ eventId: schema.eventChangeRequests.eventId })
+        .from(schema.eventChangeRequests)
+        .where(
+          and(
+            inArray(schema.eventChangeRequests.eventId, eventIds),
+            eq(schema.eventChangeRequests.status, "pending"),
+          ),
+        );
+      if (open.length === 0) return { items: [] };
+
+      const mine = new Set(standing.map((row) => row.id));
+      const items: {
+        id: string;
+        eventId: string;
+        eventTitle: string;
+        eventDate: string | null;
+        changes: Record<string, string | null>;
+        previous: Record<string, string | null>;
+        proposedByName: string | null;
+        createdAt: string;
+      }[] = [];
+      for (const eventId of [...new Set(open.map((row) => row.eventId))]) {
+        const proposal = await openChangeRequest(database, eventId);
+        if (!proposal) continue;
+        // The caller's own participation on this event, and whether it still owes an answer — the
+        // same two questions the per-event route asks, so the card and the banner cannot disagree
+        // about whether the reader has a vote.
+        const ours = proposal.partyIds.find((partyId) => mine.has(partyId));
+        if (!ours) continue;
+        if (await hasAnswered(database, proposal.id, ours)) continue;
+
+        const [event] = await database
+          .select({ title: schema.events.title, eventDate: schema.events.eventDate })
+          .from(schema.events)
+          .where(eq(schema.events.id, eventId));
+        const [proposer] = proposal.proposedByProfileId
+          ? await database
+              .select({ name: schema.profiles.name })
+              .from(schema.profiles)
+              .where(eq(schema.profiles.id, proposal.proposedByProfileId))
+          : [];
+        items.push({
+          id: proposal.id,
+          eventId,
+          eventTitle: event?.title ?? "an event",
+          eventDate: event?.eventDate ?? null,
+          changes: proposal.changes as Record<string, string | null>,
+          previous: proposal.previous as Record<string, string | null>,
+          proposedByName: proposer?.name ?? null,
+          createdAt: proposal.createdAt.toISOString(),
+        });
+      }
+      return { items };
+    },
+  );
+
   app.get(
     "/events/:id/change-request",
     { schema: { params: EventParams, response: { 200: ChangeRequestResponse } } },

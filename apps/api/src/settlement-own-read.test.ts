@@ -984,8 +984,25 @@ describe("the approval roster counts who is being WAITED ON", () => {
     expect((await rosterFor()).some((row) => row.figuresMovedSince)).toBe(false);
 
     /*
-     * Move the FIGURES. A manual override is the narrowest way to do it — it bumps `updated_at` on one
-     * row without touching any status — and it is one of the four causes the field is about.
+     * A ROW REWRITTEN WITHOUT THIS PARTY'S MONEY MOVING SAYS NOTHING (QA sweep run 16).
+     *
+     * This assertion used to be the one below, on `updated_at` alone — and that is exactly the defect
+     * run 16 found: the pool LADDER is stored inside every party's breakdown, so an unrelated cost
+     * edit rewrites every row, moves every `updated_at`, and told every signed party their figures had
+     * changed. Migration 0049 gave the party's own money its own clock, so this half must be silent.
+     */
+    await harness.db
+      .update(schema.settlements)
+      .set({ updatedAt: new Date(Date.now() + 60_000) })
+      .where(eq(schema.settlements.id, mine.id));
+    expect(
+      (await rosterFor()).some((entry) => entry.figuresMovedSince),
+      "a rewrite that did not move this party's money is not a stale signature",
+    ).toBe(false);
+
+    /*
+     * Now move the PARTY'S OWN FIGURES. `figures_changed_at` is what the write loop stamps when
+     * `samePartyFigures` says their entitlement, net or composition moved.
      */
     const [row] = await harness.db
       .select()
@@ -994,7 +1011,7 @@ describe("the approval roster counts who is being WAITED ON", () => {
     if (!row) throw new Error("settlement row missing");
     await harness.db
       .update(schema.settlements)
-      .set({ updatedAt: new Date(Date.now() + 60_000) })
+      .set({ figuresChangedAt: new Date(Date.now() + 120_000) })
       .where(eq(schema.settlements.id, mine.id));
 
     const afterMove = await rosterFor();
@@ -1004,8 +1021,8 @@ describe("the approval roster counts who is being WAITED ON", () => {
 
     /*
      * AND IT GOES QUIET ONCE FINALIZED — the assertion the naive comparison fails. Finalize bumps
-     * `updated_at` on every row, so a bare `updated_at > approved_at` would light this up on a night
-     * whose figures have by definition stopped moving.
+     * every row, so a bare timestamp comparison would light this up on a night whose figures have by
+     * definition stopped moving.
      */
     await app.inject({
       method: "POST",

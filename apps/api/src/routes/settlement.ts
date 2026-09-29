@@ -29,6 +29,7 @@ import {
   assertBalanced,
   prepaidAmountOf,
   reconcile,
+  samePartyFigures,
   sameStoredBreakdown,
   serializeLadder,
 } from "@showme/settlement";
@@ -1731,14 +1732,34 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
                   eventId: id,
                   participantId: breakdown.participantId,
                   computed,
+                  // Its figures came into existence now, so its own clock starts now — the reader's
+                  // fallback to `updated_at` is then only ever for rows written before 0049.
+                  figuresChangedAt: new Date(),
                 });
                 continue;
               }
               unmatched.delete(breakdown.participantId);
               if (sameStoredBreakdown(prior.computed as StoredBreakdown | null, computed)) continue;
+              /*
+               * TWO CLOCKS, because two different questions were sharing one (QA sweep run 16).
+               *
+               * The row IS being rewritten — the guard above says so — but `updated_at` was also the
+               * only record of "this party's money moved", and the pool ladder lives inside every
+               * party's breakdown. So a cost edit anywhere told every signed party their figures had
+               * changed. `figures_changed_at` moves only when they did.
+               */
+              const ownFiguresMoved = !samePartyFigures(
+                prior.computed as StoredBreakdown | null,
+                computed,
+              );
               await tx
                 .update(schema.settlements)
-                .set({ computed, version: prior.version + 1, updatedAt: new Date() })
+                .set({
+                  computed,
+                  version: prior.version + 1,
+                  updatedAt: new Date(),
+                  ...(ownFiguresMoved ? { figuresChangedAt: new Date() } : {}),
+                })
                 .where(eq(schema.settlements.id, prior.id));
             }
             for (const stale of unmatched.values()) {
@@ -2501,7 +2522,18 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           // for when its figures last moved — so this adds no query. See the field's own note for
           // why the status guard is the precision rather than a convenience.
           const underReview = SETTLEMENT_REVIEW_WINDOW.has(row.status);
-          const movedAt = row.updatedAt;
+          /*
+           * THIS PARTY'S OWN CLOCK, not the row's (QA sweep run 16).
+           *
+           * `updated_at` moves whenever the row is rewritten, and the pool ladder is stored inside
+           * every party's breakdown — so a cost edit anywhere told EVERY signed party their figures
+           * had changed. Measured on Priya Sound: entitlement and net unmoved, badge lit.
+           *
+           * The fallback to `updated_at` is for a row that predates the column, which migration 0049
+           * backfills anyway — it is here so a null can never read as "nothing ever moved", which
+           * would un-warn a stale signature rather than over-warn.
+           */
+          const movedAt = row.figuresChangedAt ?? row.updatedAt;
           const signedAt = signed?.approvedAt ?? null;
           return {
             participantId,
