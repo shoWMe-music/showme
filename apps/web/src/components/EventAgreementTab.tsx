@@ -3,6 +3,7 @@ import {
   type getApiV1EventsIdParticipants,
   type getApiV1EventsIdSchedule,
   useGetApiV1EventsIdSchedule,
+  useGetApiV1EventsIdSettlements,
 } from "@showme/api-client";
 import { Button, EmptyState, Icon } from "@showme/design-system";
 import { PAYMENT_TIMING_OPTIONS, dealKindLabel, eventParticipantRoleLabel } from "@showme/shared";
@@ -24,6 +25,18 @@ import { dealActionsFor, useEventAgreements } from "./useEventAgreements";
 type Deal = Awaited<ReturnType<typeof getApiV1EventsIdDeals>>["deals"][number];
 type Participant = Awaited<ReturnType<typeof getApiV1EventsIdParticipants>>[number];
 type ScheduleItem = Awaited<ReturnType<typeof getApiV1EventsIdSchedule>>[number];
+
+/**
+ * The statuses in which the night's figures have stopped moving — `settlement.ts`'s own
+ * `LOCKED_SETTLEMENT_STATUSES`, which is what makes `compute` refuse. Spelled here rather than
+ * imported because it is an API constant and this is the web; the two are checked against each other
+ * by the test that asserts the sentence appears on a finalized night.
+ */
+const SEALED_SETTLEMENT_STATUSES: ReadonlySet<string> = new Set([
+  "finalized",
+  "partly_paid",
+  "paid",
+]);
 
 export interface EventAgreementTabProps {
   eventId: string;
@@ -78,6 +91,26 @@ export function EventAgreementTab({
 }: EventAgreementTabProps) {
   const agreements = useEventAgreements(eventId, capabilities);
   const schedule = useGetApiV1EventsIdSchedule(eventId);
+  /*
+   * IS THE NIGHT'S MONEY SEALED (QA sweep run 14)?
+   *
+   * `POST /events/:id/deals` answers 201 on a finalized night and `compute` then answers 409, so the
+   * agreement can never reach the settlement — and nothing on this tab said so, while the Budget
+   * Planner two tabs over says it in the right words. The reader found out from a refusal on a button
+   * they pressed next.
+   *
+   * ALLOWED, NOT REFUSED, following that same precedent: the planner lets a late cost be entered and
+   * explains that it revises the plan without moving the reconciliation. A paper agreement signed
+   * late is a real thing to record. Refusing the create would be a new product rule and is not taken
+   * here; saying so is the half that is unambiguous.
+   *
+   * The same query `EventDetail` already runs for the planner's own seal, so TanStack serves it from
+   * cache — the pattern `EventDealsTab` documents for `deals`, and no second request.
+   */
+  const settlements = useGetApiV1EventsIdSettlements(eventId);
+  const moneyIsSealed = (settlements.data?.settlements ?? []).some((settlement) =>
+    SEALED_SETTLEMENT_STATUSES.has(settlement.status),
+  );
   const [composerOpen, setComposerOpen] = useState(false);
   /**
    * The deal whose FIGURES are being revised, or null to compose a new one (QA8-1).
@@ -147,6 +180,13 @@ export function EventAgreementTab({
       >
         <span style={{ color: "var(--muted)", fontSize: 12.5 }}>
           Deals you are a party to. Each party sees only its own line.
+          {moneyIsSealed && (
+            <>
+              {" "}
+              This night is settled, so a deal added now is recorded but will not reach the
+              settlement.
+            </>
+          )}
         </span>
         {agreements.authority.canCompose && (
           <Button

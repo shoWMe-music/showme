@@ -3722,6 +3722,25 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       if (!maySignOwnSettlement(capabilities, lineParticipant?.role)) {
         throw forbidden("Missing capability: settlement.confirm");
       }
+      /*
+       * AND THE FIGURES MUST STILL BE MOVEABLE (QA sweep run 14).
+       *
+       * This route answered 200 on a `finalized` night and wrote an approval row plus an activity
+       * entry dated after the freeze — a consent moment recorded against something that had already
+       * become immutable. It checked ownership and the capability and never read the status, which
+       * made it the ONE write on this plugin that skipped `assertNotFinalized`; compute, the manual
+       * override and the four settlement-line routes all call it.
+       *
+       * Its own sentence rather than that helper's, because the helper's is about RECOMPUTING — *"the
+       * figures cannot be recomputed"* — which is not what a party pressing Approve needs to hear.
+       * What they need is that there is nothing left to agree to, and that a signature given before
+       * the freeze still counts.
+       */
+      if (LOCKED_SETTLEMENT_STATUSES.has(settlement.status)) {
+        throw conflict(
+          "These figures are already final, so there is nothing left to sign. Signatures given before they were finalized still stand.",
+        );
+      }
 
       // Idempotent. A signature given twice is still one signature, and the route
       // used to append a second `settlement_approvals` row for every click — two

@@ -125,3 +125,73 @@ decided together.
 `npx biome check .` 756 clean · web **630** · API `settlement-own-read` **19** + `settlement`
 **145** together · `tsc` clean on api and web.
 
+---
+
+## 2. Run 14's MINORs — grouped, because one rule closes several
+
+Thirteen findings remain (11 MINOR, 2 COSMETIC, 3 NOTE). Grouped by the rule they share rather than
+worked one at a time:
+
+| Group | Findings | The one rule |
+| --- | --- | --- |
+| **A. finalized means closed** | a finalized settlement still accepts a signature; a deal can be added to a finalized night and can never settle | a write against sealed money is refused or disclosed |
+| **B. Total Payouts** | "Priya Sound payout SEK 1,250" is half her payout; the agent's "Total payable" double-counts the commission | a figure is labelled with whose it is, and a sum counts each movement once |
+| **C. copy** | "Invitation accepted" names nobody; the deal card states the rule part 29 replaced; the finalize refusal talks about opening; the stepper ticks stages that never happened | a sentence is true of its reader |
+| **D. holds** | a hold is born with `hold_auto_promote = false`; "Cancel show…" does not promote the queue while "Release hold" does | placing a hold joins a queue that advances |
+| **E. Integrations** | a finished screen routed by nothing while Settings says it has not shipped | — |
+
+### A1 — a finalized settlement still accepts a signature
+
+`POST …/settlements/:sid/confirm` answers **200** on a `finalized` night and writes an approval row
+plus an activity entry dated after the freeze. It checks ownership and `maySignOwnSettlement` and
+**never reads `settlement.status`**.
+
+This is not a taste question: the finalize dialog promises *"the figures freeze into an immutable
+record … cannot be recomputed and cannot be un-finalized"*, and **compute already refuses with exactly
+that sentence**. `assertNotFinalized` exists and is called by **seven** routes — compute, the manual
+override, and the four settlement-line routes — and confirm is the one write that skipped it.
+
+It needs its **own** sentence rather than that helper's, because the helper's message is about
+recomputing (*"the figures cannot be recomputed"*), which is not what a party pressing Approve is
+being told. What they need to know is that there is nothing left to agree to, and that signatures
+given before the freeze still stand.
+
+### A2 — a deal added to a finalized night
+
+`POST /events/:id/deals` answers 201 on a sealed night, and `compute` then answers 409, so the
+agreement can never reach the settlement. **The Budget Planner already has the precedent and the
+words** — *"This night is settled. The settlement kept its own copy of this budget the first time it
+ran, so anything changed here now revises the plan without moving the reconciliation."*
+
+So this needs no new ruling: **follow that precedent.** Allow the record — a paper agreement signed
+late is a real thing — and say on the Deals tab that the night is settled, so the reader is not left
+to discover it from a 409 on a button they press next. Refusing the create outright would be a new
+product rule and is not mine to make; disclosing is the half that is unambiguous.
+
+### Group A built
+
+**A1.** The confirm route refuses on a locked settlement, with its own sentence. Three mutations
+killed — no guard (the defect), only `paid` counting as locked (so `finalized` slipped through), and
+refusing **every** signature, which would have dropped the consent given before the freeze. That third
+one is why the test asserts both halves: a guard that quietly discarded existing signatures would be a
+worse defect than the one it closed.
+
+**A2.** The Deals tab now says it, following the Budget Planner's precedent rather than inventing a
+rule — allow the record, disclose the consequence. Read from the same settlements query `EventDetail`
+already runs, so TanStack serves it from cache.
+
+### Proved on the running stack — run 14's exact probe, inverted
+
+```
+POST /events/…e2/settlements/…f3/confirm        (Spring Warmup, finalized)
+run 14:  200 {"approved": true}  + an approval row and an activity entry dated after the freeze
+now:     409 "These figures are already final, so there is nothing left to sign.
+              Signatures given before they were finalized still stand."
+         approvals on e2 after the refusal: 0
+```
+
+Deals tab on the finalized Album Release, as `operator@`:
+
+> "Deals you are a party to. Each party sees only its own line. **This night is settled, so a deal
+> added now is recorded but will not reach the settlement.**"
+

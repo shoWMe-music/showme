@@ -1015,6 +1015,84 @@ describe("the approval roster counts who is being WAITED ON", () => {
     expect((await rosterFor()).some((entry) => entry.figuresMovedSince)).toBe(false);
   });
 
+  it("REFUSES a signature once the figures are finalized, and keeps the ones given before", async () => {
+    /*
+     * QA sweep run 14. `POST …/confirm` answered 200 on a finalized night and wrote an approval row
+     * plus an activity entry dated after the freeze — consent recorded against something already
+     * immutable. This route checked ownership and the capability and never read the status, which made
+     * it the one write on this plugin that skipped `assertNotFinalized`; compute, the override and the
+     * four line routes all call it, and compute refuses with the very sentence the finalize dialog
+     * promises.
+     *
+     * BOTH HALVES ARE ASSERTED: the new signature is refused, AND the one given before the freeze is
+     * still there — a guard that quietly dropped existing consent would be a worse defect than the one
+     * it closed.
+     */
+    const host = await seedOperator("finalsig-host", "Host", PRESET_PERMISSION_SETS.operator_full);
+    const coHost = await seedOperator("finalsig-co", "Co-promoter", []);
+    const { event } = await seedNightFor(host, coHost, "accepted");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/status`,
+      headers: auth(host.userId),
+      payload: { status: "pending_review" },
+    });
+
+    const mineOf = async (userId: string) => {
+      const own = await app.inject({
+        method: "GET",
+        url: "/api/v1/settlements",
+        headers: auth(userId),
+      });
+      return (own.json().items as { id: string }[])[0];
+    };
+
+    // One party signs BEFORE the freeze — this is the signature that must survive.
+    const early = await mineOf(coHost.userId);
+    if (!early) throw new Error("the co-promoter has no settlement");
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${event.id}/settlements/${early.id}/confirm`,
+          headers: auth(coHost.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/finalize`,
+      headers: auth(host.userId),
+    });
+
+    // The HOST now tries to sign their own line, after the freeze.
+    const late = await mineOf(host.userId);
+    if (!late) throw new Error("the host has no settlement");
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlements/${late.id}/confirm`,
+      headers: auth(host.userId),
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.message).toContain("nothing left to sign");
+    // The refusal names what DOES still stand, so it is not read as "your signature was discarded".
+    expect(refused.json().error.message).toContain("still stand");
+
+    // And no row was written for the refused attempt, while the earlier one is intact.
+    const approvals = await harness.db
+      .select()
+      .from(schema.settlementApprovals)
+      .where(eq(schema.settlementApprovals.eventId, event.id));
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0]?.approved).toBe(true);
+  });
+
   it("keeps counting a signature whose grant was REVOKED afterwards — the `|| approved` clause", async () => {
     /*
      * The one case the union genuinely cannot predict, and the only remaining reason that clause
