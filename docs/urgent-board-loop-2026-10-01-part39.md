@@ -458,3 +458,47 @@ defect to fix**:
   source of every console error seen all run. Nothing in the app is wrong. Worth knowing for the next
   sweep: `pnpm dev` does not start it, so seeded avatar URLs and the *"— public profile"* links
   refuse to connect.
+
+## The full pass, after run 15 closed completely
+
+```
+biome check .                       757 files, no fixes
+@showme/shared                      23 files ·  354 tests   (up from 349)
+@showme/auth                         1 file  ·   41 tests
+@showme/settlement                   4 files ·   82 tests
+@showme/db                           2 files ·   25 tests
+@showme/web (unit)                  43 files ·  658 tests   (up from 649)
+@showme/api (full)                  65 files · 1507 tests · 0 skipped, 0 todo  (up from 1497)
+pnpm test:e2e                       118 passed
+```
+
+**The first attempt at the API suite was NOT this**, and the difference is the lesson already in
+CLAUDE.md earning its place: five suites reported `FAIL` with *"Timed out after 10000ms while waiting
+for container ports to be bound"* and 45 tests counted as **skipped** — the Docker port allocator
+wedged again, in the same session that recorded it. Restarting Docker Desktop produced the run above
+with zero skipped. Recognising it cost a minute instead of an hour; without the note it reads exactly
+like five broken suites.
+
+`✓ src/` lines counted (65) against `Test Files 65`, and `skipped|todo` grepped to zero — the two
+checks that keep a green shape over a suite that never executed from being read as a pass.
+
+**Run 15 is closed in full:** the MAJOR, all six MINORs, four of five COSMETICs built and the fifth
+reverted with its reason left in the code, and all five NOTEs dispositioned.
+
+## Is a run 16 warranted — yes
+
+Run 15's MAJOR is the argument. It was **not a regression** — those rows had been unreachable since
+they were written — but nothing could see it until the previous tick put a widget on that feed, and
+then it was visible in four of six seats at once. That is the third sweep in a row where the thing
+most worth finding was only findable *because of* what shipped just before it, and this tick shipped:
+
+- three activity writers re-targeted, one of them changing **who can read a row**;
+- two `signableByYou` gates and a hold-route refusal, all three of them **withdrawing** something;
+- two new fields on invitation payloads, with two screens reading them;
+- a shared clock formatter that **replaced two private copies in a second app**;
+- a query invalidation matched by predicate across two widgets' different keys.
+
+Withdrawing a control and changing who may read a row are the two shapes whose failure mode is silent
+and seat-specific — exactly what a browser check in one seat misses, which is how run 15's MAJOR
+survived my own verification. The sweeps are converging (six MAJORs → one), which is a reason to
+expect a shorter report, not a reason to skip it.
