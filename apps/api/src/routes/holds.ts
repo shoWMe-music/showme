@@ -4,12 +4,10 @@ import { eventParticipantRecipients, notifyUsers } from "@showme/db/notify";
 import {
   type Capability,
   type HoldRankUpdate,
-  type HoldSibling,
   competingHoldIds,
-  computeDeclinePromotion,
   computeRankShift,
 } from "@showme/shared";
-import { type Column, type SQL, and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -18,6 +16,13 @@ import { writeActivity } from "../lib/activity";
 import { writeAudit } from "../lib/audit";
 import { eventCapabilities, requireEventCapability } from "../lib/authorize";
 import { assertEventCapAllows } from "../lib/entitlements";
+import {
+  applyHoldQueueClose,
+  holdSiblingsOf,
+  planHoldQueueClose,
+  toHoldSiblings,
+  writableHoldIds,
+} from "../lib/hold-queue";
 
 const EventParams = z.object({ id: z.string().uuid() });
 
@@ -87,94 +92,18 @@ const HoldStateResponse = z.object({
 
 type EventRow = typeof schema.events.$inferSelect;
 
-/** `= value`, or `IS NULL` when the value is null — SQL `= null` never matches. */
-function matchNullable(column: Column, value: unknown): SQL {
-  return value === null ? isNull(column) : eq(column, value);
-}
-
 /**
- * The competing holds for an event: other `on_hold` events sharing the exact
- * `(event_date, venue_profile_id, stage_id)`. `includeTarget` keeps the event
- * itself in the pool (the rank math needs the full picture); confirm/decline
- * exclude it (they act on the siblings around a fixed target).
- *
- * TWO NULLS THAT ARE NOT SHARED QUEUES. `matchNullable` turns a null column into
- * `IS NULL`, and on two of these columns that quietly pooled strangers together.
- * The shared queue is justified by ONE PHYSICAL ROOM that only one show can
- * occupy (decisions #20); where there is no room and no night, there is nothing
- * to share, and the null match was the bug rather than the rule.
- *
- * - **No date** → no pool at all. A hold is a claim on a date; without one it
- *   claims nothing. `event_date IS NULL` had matched every dateless hold in the
- *   database against every other.
- * - **No venue profile** → this host's own holds only. The create-event wizard
- *   captures a free-text venue NAME, so its holds carry neither `venue_profile_id`
- *   nor `stage_id`, and `IS NULL` put every unpinned hold on a date into one
- *   platform-wide queue: taking "1st hold" from the wizard silently demoted a
- *   stranger's pencil in another city. An operator still cannot run two shows on
- *   one night, so their OWN unpinned holds keep queueing together.
- *
- * `stage_id IS NULL` under a real venue profile stays a shared pool, and should:
- * that is one venue's unassigned room, and two operators pencilling it are
- * competing for the same building on the same night.
+ * The competing holds for an event — one query, and the queue rules that shape it live in
+ * `lib/hold-queue.ts` beside the rest of the queue mechanics ("which rows are the queue, and the
+ * one write"). Kept as a request-shaped wrapper because six call sites in this file read it that
+ * way and the rule moved, not the callers.
  */
-async function loadSiblings(
+function loadSiblings(
   request: FastifyRequest,
   event: EventRow,
   includeTarget: boolean,
 ): Promise<EventRow[]> {
-  if (event.eventDate === null) return includeTarget ? [event] : [];
-  const { database } = request.server;
-  return database
-    .select()
-    .from(schema.events)
-    .where(
-      and(
-        eq(schema.events.status, "on_hold"),
-        matchNullable(schema.events.eventDate, event.eventDate),
-        matchNullable(schema.events.venueProfileId, event.venueProfileId),
-        matchNullable(schema.events.stageId, event.stageId),
-        // No room, no shared queue — see the second bullet above.
-        event.venueProfileId === null
-          ? eq(schema.events.hostProfileId, event.hostProfileId)
-          : undefined,
-        includeTarget ? undefined : ne(schema.events.id, event.id),
-      ),
-    );
-}
-
-/** Shape event rows into the pure-logic `HoldSibling[]` (rank defaults to 1). */
-function toHoldSiblings(rows: EventRow[]): HoldSibling[] {
-  return rows.map((row) => ({
-    id: row.id,
-    holdRank: row.holdRank ?? 1,
-    holdAutoPromote: row.holdAutoPromote,
-  }));
-}
-
-/**
- * Of these holds, the ones the caller may WRITE — resolved through the one
- * authorization module, per hold, exactly as the pool read resolves each title.
- *
- * THE POOL IS SHARED; THE ROWS ARE NOT. A pool is keyed on (date, venue, stage)
- * and deliberately not scoped to one host, because one physical room on one night
- * is one queue and two operators courting that night genuinely are in it together
- * — separate queues would tell both of them they are first in line. But every
- * pencil in it is a separate EVENT belonging to a separate operator, and an
- * operator's authority stops at their own row. So every cascade in this file asks
- * this first: it decides which rank moves a caller is allowed to make at all, and
- * whose name may go on the ones the cascade makes anyway.
- *
- * Reads are untouched by any of it — a rival's title is withheld and stays
- * withheld (`GET /events/:id/hold`); this is about the WRITES.
- */
-async function writableHoldIds(request: FastifyRequest, rows: EventRow[]): Promise<Set<string>> {
-  const writable = new Set<string>();
-  for (const row of rows) {
-    const capabilities = await eventCapabilities(request, row.id);
-    if (capabilities.has("event.edit")) writable.add(row.id);
-  }
-  return writable;
+  return holdSiblingsOf(request.server.database, event, includeTarget);
 }
 
 /**
@@ -662,14 +591,11 @@ async function dropHoldAndRepack(
   const [event] = await database.select().from(schema.events).where(eq(schema.events.id, eventId));
   if (!event) throw notFound("Event not found");
 
-  const remainingSiblings = await loadSiblings(request, event, false);
-  const promotions = computeDeclinePromotion({
-    siblings: toHoldSiblings(remainingSiblings),
-    removedRank: event.holdRank ?? 1,
-  });
-  // Resolved BEFORE the transaction opens: the test pool is `max: 1`, so a query
-  // nested inside `database.transaction` deadlocks rather than failing.
-  const writableSiblings = await writableHoldIds(request, remainingSiblings);
+  // Read BEFORE the transaction opens: the plan resolves capabilities per hold, and the test pool
+  // is `max: 1`, so a query nested inside `database.transaction` deadlocks rather than failing.
+  // The rule itself is `lib/hold-queue.ts`, shared with the Events list's Cancel show… (run 14).
+  const plan = await planHoldQueueClose(request, event);
+  const promotions = plan.promotions;
 
   await database.transaction(async (tx) => {
     await tx
@@ -680,16 +606,6 @@ async function dropHoldAndRepack(
         updatedAt: new Date(),
       })
       .where(eq(schema.events.id, event.id));
-    for (const promotion of promotions) {
-      await tx
-        .update(schema.events)
-        .set({
-          holdRank: promotion.holdRank,
-          version: sql`${schema.events.version} + 1`,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.events.id, promotion.id));
-    }
     await writeAudit(tx, request, {
       capability: intent.capability,
       action: intent.auditAction,
@@ -706,41 +622,10 @@ async function dropHoldAndRepack(
       targetId: event.id,
       summary: { from: event.status, to: "cancelled" },
     });
-    // A promotion is a rank move on ANOTHER event — operator-only there, for the
-    // same reason the rank route is.
-    //
-    // Whose move it was depends on whose hold it is. An operator withdrawing one of
-    // their own pencils and watching the next one step up is doing their own
-    // housekeeping, and their name belongs on it. A pencil belonging to somebody
-    // else moves up because the queue closed, not because this caller touched it —
-    // and on the decline path the caller is the ACT, who holds no authority over any
-    // hold in the pool, so every promotion there is a consequence. That row gets its
-    // own actor-less audit entry too: it is the only trace of the write that lands
-    // on an event its own operator can actually read.
-    for (const promotion of promotions) {
-      const isOwn = writableSiblings.has(promotion.id);
-      if (!isOwn) {
-        const previous = remainingSiblings.find((row) => row.id === promotion.id);
-        await writeAudit(tx, request, {
-          actor: "system",
-          capability: null,
-          action: "hold.promoted_queue_closed",
-          targetKind: "event",
-          targetId: promotion.id,
-          eventId: promotion.id,
-          before: { holdRank: previous?.holdRank ?? null },
-          after: { holdRank: promotion.holdRank, reason: "queue_closed" },
-        });
-      }
-      await writeActivity(tx, request, {
-        actor: isOwn ? "caller" : "system",
-        eventId: promotion.id,
-        type: "hold.promoted",
-        targetKind: "hold",
-        targetId: promotion.id,
-        summary: { to: promotion.holdRank, reason: "queue_closed" },
-      });
-    }
+    // A promotion is a rank move on ANOTHER event — operator-only there, for the same reason the
+    // rank route is, and whose name goes on it depends on whose hold it is. Both live in
+    // `applyHoldQueueClose` so the Events list's Cancel show… cannot diverge from this.
+    await applyHoldQueueClose(tx, request, plan);
   });
 
   return { id: event.id, status: "cancelled", promoted: promotions };

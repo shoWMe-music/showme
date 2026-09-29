@@ -461,3 +461,100 @@ Screenshots: `c2-terms-live-until-first-signature.png`, `c4-rail-and-history-agr
   `NetworkSettings.Ports` empty against a `HostPort: "0"` request. Not load, not the suite:
   restarting Docker Desktop fixed it and nothing else did (`TESTCONTAINERS_RYUK_DISABLED` moved the
   failure rather than removing it). Worth recognising, because it looks exactly like a flaky test.
+
+## Group D — holds, two findings that are one sentence apart
+
+Both are about a hold LEAVING a queue and the queue not closing behind it. The promotion machinery
+itself is correct — run 14 proved that with a control — so neither finding is about `holds.ts`'s
+arithmetic.
+
+### D1 — verdict: nobody chose `false`, and three other places say `true`
+
+`events.hold_auto_promote` is `boolean not null default false`, from the initial scaffold, with no
+comment and no ruling behind it. Every other statement of the rule says the opposite:
+
+- `packages/shared/src/holds.ts`: *"`holdAutoPromote` defaults to **`true`** when undefined"*, and
+  `computeDeclinePromotion` reads `sibling.holdAutoPromote !== false // undefined → true`.
+- the release dialog: *"Every hold below it moves up one, **unless it is frozen**"* — promotion the
+  norm, freezing the exception.
+- the hold panel draws a **"Frozen"** badge, which is a word for the unusual state.
+
+Because the column is `NOT NULL`, `undefined` can never reach the shared helper from the database:
+every hold the app creates arrives already frozen, and the `undefined → true` branch is dead against
+real rows. So the fix is the column default, not the wizard sending a field — a wizard that has to
+send `true` to get the documented behaviour is the same defect one layer out.
+
+**And the rows already written.** `false` today means one of two things — born that way, or frozen on
+purpose — and unfreezing somebody's deliberate freeze changes who gets a date. That is not a
+migration's decision to take blind. But the distinction is RECOVERABLE: the only way to choose `false`
+is `POST /events/:id/hold/auto-promote`, which writes an `audit_log` row with
+`action = 'hold.auto_promote'`. So the backfill moves exactly the holds no such row was ever written
+for, and leaves every deliberate freeze standing. No question for Daniel, because the data answers it.
+
+### D2 — verdict: one rule, two controls, and only one of them runs it
+
+`computeDeclinePromotion` has exactly one caller — `dropHoldAndRepack` in `routes/holds.ts`, serving
+`/hold/decline` and `/hold/release`. The Events row menu's **Cancel show…** is
+`PATCH { status: "cancelled" }` (`hooks/useEventRowActions.tsx:221`), and `routes/events.ts` does not
+call it. So which control the operator reaches for decides whether the queue advances — and the one
+that *promises* promotion in its own dialog is the one the Events list does not offer.
+
+Scope: the repack moves into `lib/hold-queue.ts`, beside `placeHoldInQueue`, which is already that
+module's job — *"which rows are the queue, and the one write"*. Both callers then run one rule.
+
+**The constraint that shapes it.** `dropHoldAndRepack` resolves `writableHoldIds` — a per-hold
+capability read — BEFORE opening its transaction, with a comment saying why: the test pool is
+`max: 1`, so a query nested inside `database.transaction` deadlocks rather than failing. The events
+PATCH already has an open transaction by the time it knows the status moved, so the split has to be
+**plan before, apply inside**: `planHoldQueueClose(request, event)` reads the siblings, the
+promotions and the writable set; `applyHoldQueueClose(tx, request, plan)` writes the ranks and the
+audit and activity rows. That is also the only shape that keeps the "a promotion on somebody else's
+hold gets an actor-less audit row" rule in one place rather than copied.
+
+### No decision for Daniel in either
+D1 follows three existing statements of the rule and leaves every deliberate freeze alone. D2 makes
+two controls that end the same fact about a night have the same effect, which is what the release
+dialog already promises.
+
+### Group D built
+
+**D1** — the column default is `true` (migration 0048), and the backfill moves only holds with no
+`hold.auto_promote` audit row. Proved by the dev database itself: `UPDATE 0`, because the one frozen
+hold on it is run 14's own control probe and it carries that audit row. The deliberate freeze stood;
+a hold born frozen would have moved.
+
+Then live, the wizard's own two calls with no flag sent anywhere:
+
+```
+POST /events {title, eventDate 2026-12-05, venueProfileId}  → created
+PATCH /events/… {"status":"on_hold"}                        → rank 3
+in Postgres: rank=3, hold_auto_promote=TRUE   (before this change: false)
+```
+
+`seedHoldPool` in `holds.test.ts` stopped pinning `holdAutoPromote: true` — pinning it is precisely
+why thirty-three passing hold tests could not see that every hold the app created arrived frozen. A
+fixture stating a value the app never writes tests the fixture.
+
+**D2** — the repack is `planHoldQueueClose` / `applyHoldQueueClose` in `lib/hold-queue.ts`, and the
+events PATCH is its second caller. Live, on the three holds above:
+
+```
+PATCH /events/…e4 {"status":"cancelled","cancellationReason":"…"}   (Cancel show… from the Events list)
+before:  Nordic 1 (auto) · QA14 probe 2 (FROZEN) · D1 probe 3 (auto)
+after:   Nordic cancelled · D1 probe 1 · QA14 probe 2 (kept its number)
+activity: hold.promoted {"to":1,"reason":"queue_closed"} actor=e2e-operator
+```
+
+Which is the whole finding and its guard in one run: the queue advanced, the frozen hold was jumped
+rather than moved, and the promotion is filed under the operator's own name because it is their hold.
+
+Seven mutations, five killed. **Two survived, and they are one fact seen twice**: the
+`before.status === "on_hold"` clause in `routes/events.ts` and the `status !== "on_hold"` early return
+in `planHoldQueueClose` protect each other, so removing either changes nothing. Rather than delete a
+line, both are now labelled for what they are — the rule lives in `hold-queue.ts` where the next
+caller inherits it, and the call site's clause is a short-circuit that saves a query. That is the
+pattern `placeHoldInQueue` in the same file already documents, in the same words, for the same reason:
+*"mutating either away leaves the answer unchanged, which is the honest reason there is no test
+pinning them."*
+
+biome 756 · holds 37 (up from 33) · hold-queue + the five event suites 199, 0 skipped.

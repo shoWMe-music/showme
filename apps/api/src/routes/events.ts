@@ -49,7 +49,13 @@ import {
 import { notifyPublicationChanged } from "../lib/event-publication";
 import { advanceEventStatus } from "../lib/event-status-ladder";
 import { resolveEventTimezone } from "../lib/event-timezone";
-import { movedHoldQueue, placeHoldInQueue, touchesHoldQueue } from "../lib/hold-queue";
+import {
+  applyHoldQueueClose,
+  movedHoldQueue,
+  placeHoldInQueue,
+  planHoldQueueClose,
+  touchesHoldQueue,
+} from "../lib/hold-queue";
 import { participantAddedLink } from "../lib/participant-added-link";
 import { assertProfileImageFiles, signProfileImageUrls } from "../lib/profile-media";
 import { withIdempotency } from "../plugins/idempotency";
@@ -1513,6 +1519,27 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         }
       }
 
+      /*
+       * CANCELLING A HOLD CLOSES ITS QUEUE — the same rule Release hold runs (QA sweep run 14).
+       *
+       * The Events row menu's "Cancel show…" is this PATCH, and `computeDeclinePromotion` had one
+       * caller: `/hold/decline` and `/hold/release`. So which control the operator reached for
+       * decided whether the holds below advanced — and the one that promises promotion in its own
+       * dialog is the one the Events list does not offer. The rule is `lib/hold-queue.ts`.
+       *
+       * Planned HERE rather than inside the transaction because it resolves capabilities per hold
+       * and the test pool is `max: 1`, so a query nested in `database.transaction` deadlocks.
+       *
+       * `before.status === "on_hold"` IS ONLY A SHORT-CIRCUIT, the same kind `placeHoldInQueue`
+       * documents: `planHoldQueueClose` already answers "nothing moves" for an event that is not a
+       * pencil, so removing this clause leaves every answer unchanged and only makes the sibling
+       * query run on cancellations that cannot need it. Mutating it away survives, and that is the
+       * honest reason no test pins it — the rule it looks like lives in `lib/hold-queue.ts`, where
+       * the next caller inherits it too.
+       */
+      const closesHoldQueue = fields.status === "cancelled" && before.status === "on_hold";
+      const holdQueuePlan = closesHoldQueue ? await planHoldQueueClose(request, before) : null;
+
       const where =
         expectedVersion != null
           ? and(eq(schema.events.id, id), eq(schema.events.version, expectedVersion))
@@ -1618,6 +1645,10 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
           if (after.status === "cancelled" && before.status !== "cancelled") {
             await closeChangeRequestsOnCancel(tx, id);
           }
+
+          // …AND THE QUEUE CLOSES BEHIND IT, for the same reason and in the same transaction: a
+          // cancelled hold still holding its place is the state this prevents. See the plan above.
+          if (holdQueuePlan) await applyHoldQueueClose(tx, request, holdQueuePlan);
 
           /*
            * A HOLD JOINING A QUEUE TAKES A NUMBER — QA sweep run 5 (QA5-4).

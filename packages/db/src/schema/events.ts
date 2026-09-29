@@ -75,7 +75,18 @@ export const events = pgTable("events", {
   notes: text("notes"),
   extras: jsonb("extras"), // amenities / catering / ticket links, read with the event
   holdRank: integer("hold_rank"),
-  holdAutoPromote: boolean("hold_auto_promote").notNull().default(false),
+  /**
+   * DOES THIS HOLD MOVE UP WHEN THE ONE ABOVE IT GOES — and it does, unless somebody says
+   * otherwise (migration 0048, QA sweep run 14).
+   *
+   * The default was `false` from the initial scaffold, with nothing behind it, while three other
+   * places said the opposite: `holds.ts` documents *"defaults to `true` when undefined"* and reads
+   * `holdAutoPromote !== false`, the release dialog says *"Every hold below it moves up one, unless
+   * it is frozen"*, and the panel badges the off state **"Frozen"** — a word for the unusual one.
+   * Because this column is NOT NULL, `undefined` never reached that helper from a real row: every
+   * hold the app created arrived frozen, and the queue it joined never advanced.
+   */
+  holdAutoPromote: boolean("hold_auto_promote").notNull().default(true),
   /**
    * When the show-day bell rang for this event (migration 0042, ClickUp
    * `123qy9rng4z`). NULL means it has not.

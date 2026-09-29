@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
+import { eventRoutes } from "./routes/events";
 import { holdRoutes } from "./routes/holds";
 import { buildTestApp } from "./testing";
 
@@ -20,7 +21,12 @@ let app: FastifyInstance;
 
 beforeAll(async () => {
   harness = await startTestDatabase();
-  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [holdRoutes]);
+  // `eventRoutes` too: "Cancel show…" in the Events list is `PATCH /events/:id`, and the queue
+  // closing behind a cancelled hold is the same rule the hold routes run (QA sweep run 14).
+  app = buildTestApp({ database: harness.db, tokenVerifier: fakeVerifier }, [
+    holdRoutes,
+    eventRoutes,
+  ]);
   await app.ready();
 });
 
@@ -90,7 +96,10 @@ async function seedHoldPool(
         venueProfileId: operator.profileId,
         stageId: stage.id,
         holdRank: rank,
-        holdAutoPromote: true,
+        // NOT `holdAutoPromote: true`. The fixture used to pin it, which is exactly why the suite
+        // could not see that every hold the APP created arrived frozen (QA sweep run 14): a
+        // fixture stating a value the app never writes tests the fixture. The column's default is
+        // the rule now (migration 0048), so leaving it out is what the wizard does.
         createdBy: operatorUid,
       })
       .returning();
@@ -971,6 +980,209 @@ describe("holds — auto-promote (operator only)", () => {
  * "the act turned this date down". Same effect on the pool, different authority,
  * and the history has to be able to tell them apart.
  */
+/**
+ * A HOLD IS BORN ABLE TO MOVE UP, AND EVERY CONTROL THAT ENDS ONE CLOSES ITS QUEUE.
+ *
+ * Two QA sweep run 14 findings, one sentence apart. The promotion machinery was never the problem —
+ * the sweep proved it with a control — so both of these are about a hold ARRIVING frozen and about
+ * which door the operator happened to use.
+ *
+ * Driven through the real routes, because the whole question is what the app produces. The pool
+ * fixture above deliberately no longer states `hold_auto_promote`: pinning it is what hid the first
+ * of these.
+ */
+describe("holds — the queue closes behind a hold however it ends", () => {
+  /** The wizard's own path: create the event, then move it to `on_hold`. Sends no flag. */
+  async function placeHoldThroughTheApp(
+    uid: string,
+    profileId: string,
+    like: { eventDate: string | null; venueProfileId: string | null; stageId: string | null },
+  ) {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth(uid), "x-profile-id": profileId },
+      payload: {
+        title: "Placed through the app",
+        baseCurrency: "SEK",
+        eventDate: like.eventDate ?? undefined,
+        venueProfileId: like.venueProfileId ?? undefined,
+        stageId: like.stageId ?? undefined,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const held = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${created.json().id}`,
+      headers: { ...auth(uid), "x-profile-id": profileId },
+      payload: { status: "on_hold", expectedVersion: created.json().version },
+    });
+    expect(held.statusCode).toBe(200);
+    return created.json().id as string;
+  }
+
+  it("places a hold that can move up, without anybody asking for it", async () => {
+    const operator = await seedMemberWithSet(
+      "born-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "born-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first] = await seedHoldPool("born", "born-op", operator, performer, 1);
+    if (!first) throw new Error("seed failed");
+    const existing = await readEvent(first);
+
+    const placed = await placeHoldThroughTheApp(
+      "born-op",
+      operator.profileId,
+      existing as {
+        eventDate: string | null;
+        venueProfileId: string | null;
+        stageId: string | null;
+      },
+    );
+
+    // It took the back of the queue, and it is NOT frozen — the whole of the finding. The wizard
+    // sent no `holdAutoPromote`; the column's default is the rule.
+    expect((await readEvent(placed)).holdRank).toBe(2);
+    expect((await readEvent(placed)).holdAutoPromote).toBe(true);
+
+    // And the consequence, which is what the operator actually notices: releasing the 1st lets it up.
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${first}/hold/release`,
+          headers: auth("born-op"),
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await readEvent(placed)).holdRank).toBe(1);
+  });
+
+  it("promotes the survivors when the hold is cancelled from the Events list", async () => {
+    const operator = await seedMemberWithSet(
+      "cx-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "cx-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first, second, third] = await seedHoldPool("cx", "cx-op", operator, performer, 3);
+    if (!first || !second || !third) throw new Error("seed failed");
+
+    // Exactly what `useEventRowActions` sends for "Cancel show…".
+    const cancelled = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${first}`,
+      headers: { ...auth("cx-op"), "x-profile-id": operator.profileId },
+      payload: { status: "cancelled", cancellationReason: "The act pulled out" },
+    });
+    expect(cancelled.statusCode).toBe(200);
+
+    // The same outcome Release hold gives — which is the finding: it did not, and which control
+    // the operator reached for decided whether the queue advanced.
+    expect((await readEvent(second)).holdRank).toBe(1);
+    expect((await readEvent(third)).holdRank).toBe(2);
+
+    // The promotions are on the operator's own holds, so their name goes on them — the rule
+    // `applyHoldQueueClose` carries, asserted here because this route is its second caller.
+    const promotions = await harness.db
+      .select()
+      .from(schema.activityLog)
+      .where(eq(schema.activityLog.type, "hold.promoted"));
+    const mine = promotions.filter((row) => row.eventId === second || row.eventId === third);
+    expect(mine).toHaveLength(2);
+    for (const row of mine) expect(row.actorUserId).toBe("cx-op");
+  });
+
+  /*
+   * AND IT STILL RESPECTS A FREEZE. A guard that promoted everything would pass the test above and
+   * quietly overrule the one control an operator has over their queue.
+   */
+  it("leaves a frozen hold where it is when the one above it is cancelled", async () => {
+    const operator = await seedMemberWithSet(
+      "cxf-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "cxf-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first, second] = await seedHoldPool("cxf", "cxf-op", operator, performer, 2);
+    if (!first || !second) throw new Error("seed failed");
+
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${second}/hold/auto-promote`,
+          headers: auth("cxf-op"),
+          payload: { holdAutoPromote: false },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    expect(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: `/api/v1/events/${first}`,
+          headers: { ...auth("cxf-op"), "x-profile-id": operator.profileId },
+          payload: { status: "cancelled" },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await readEvent(second)).holdRank).toBe(2);
+  });
+
+  /*
+   * A CANCELLATION THAT IS NOT A HOLD LEAVING A QUEUE MOVES NOTHING. The plan is taken on every
+   * PATCH that cancels, so the branch that decides it is empty needs its own case — otherwise a
+   * condition reading only `status === "cancelled"` passes every assertion above.
+   */
+  it("moves no rank when a CONFIRMED show on the same night is cancelled", async () => {
+    const operator = await seedMemberWithSet(
+      "cxn-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "cxn-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first, second] = await seedHoldPool("cxn", "cxn-op", operator, performer, 2);
+    if (!first || !second) throw new Error("seed failed");
+
+    // The 1st pencil becomes the booking, which cancels the rest of the pool through the real
+    // route; re-pencil the 2nd so there is a queue to leave alone.
+    await harness.db
+      .update(schema.events)
+      .set({ status: "confirmed" })
+      .where(eq(schema.events.id, first));
+
+    const cancelled = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${first}`,
+      headers: { ...auth("cxn-op"), "x-profile-id": operator.profileId },
+      payload: { status: "cancelled" },
+    });
+    expect(cancelled.statusCode).toBe(200);
+    // The show was never in the queue, so nothing closed behind it.
+    expect((await readEvent(second)).holdRank).toBe(2);
+  });
+});
+
 describe("holds — release (operator withdraws its own pencil)", () => {
   it("cancels the hold, compacts the survivors and files it as a release", async () => {
     const operator = await seedMemberWithSet(

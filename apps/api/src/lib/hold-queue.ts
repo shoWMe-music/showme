@@ -1,4 +1,4 @@
-import { schema } from "@showme/db";
+import { type Database, schema } from "@showme/db";
 /**
  * A HOLD THAT JOINS A QUEUE LATE STILL HAS TO TAKE A NUMBER — QA sweep run 5 (QA5-4).
  *
@@ -18,9 +18,19 @@ import { schema } from "@showme/db";
  * The arithmetic is `rankForHoldJoiningQueue` in `@showme/shared` (pure, tested per
  * branch). This is the database half: which rows are the queue, and the one write.
  */
-import { type HoldSibling, rankForHoldJoiningQueue } from "@showme/shared";
-import { and, eq, isNull, ne } from "drizzle-orm";
-import type { Transaction } from "./audit";
+import {
+  type HoldRankUpdate,
+  type HoldSibling,
+  computeDeclinePromotion,
+  rankForHoldJoiningQueue,
+} from "@showme/shared";
+import { type Column, type SQL, and, eq, isNull, ne, sql } from "drizzle-orm";
+import type { FastifyRequest } from "fastify";
+import { writeActivity } from "./activity";
+import { type Transaction, writeAudit } from "./audit";
+import { eventCapabilities } from "./authorize";
+
+type EventRow = typeof schema.events.$inferSelect;
 
 /** The fields that can move an event into, out of, or between hold queues. */
 const QUEUE_FIELDS = ["status", "venueProfileId", "stageId", "eventDate"] as const;
@@ -145,4 +155,197 @@ export async function placeHoldInQueue(
     .set({ holdRank: rank, updatedAt: new Date() })
     .where(eq(schema.events.id, event.id));
   return rank;
+}
+
+/** `= value`, or `IS NULL` when the value is null — SQL `= null` never matches. */
+function matchNullable(column: Column, value: unknown): SQL {
+  return value === null ? isNull(column) : eq(column, value);
+}
+
+/**
+ * The competing holds for an event: other `on_hold` events sharing the exact
+ * `(event_date, venue_profile_id, stage_id)`. `includeTarget` keeps the event
+ * itself in the pool (the rank math needs the full picture); confirm/decline
+ * exclude it (they act on the siblings around a fixed target).
+ *
+ * TWO NULLS THAT ARE NOT SHARED QUEUES. `matchNullable` turns a null column into
+ * `IS NULL`, and on two of these columns that quietly pooled strangers together.
+ * The shared queue is justified by ONE PHYSICAL ROOM that only one show can
+ * occupy (decisions #20); where there is no room and no night, there is nothing
+ * to share, and the null match was the bug rather than the rule.
+ *
+ * - **No date** → no pool at all. A hold is a claim on a date; without one it
+ *   claims nothing. `event_date IS NULL` had matched every dateless hold in the
+ *   database against every other.
+ * - **No venue profile** → this host's own holds only. The create-event wizard
+ *   captures a free-text venue NAME, so its holds carry neither `venue_profile_id`
+ *   nor `stage_id`, and `IS NULL` put every unpinned hold on a date into one
+ *   platform-wide queue: taking "1st hold" from the wizard silently demoted a
+ *   stranger's pencil in another city. An operator still cannot run two shows on
+ *   one night, so their OWN unpinned holds keep queueing together.
+ *
+ * `stage_id IS NULL` under a real venue profile stays a shared pool, and should:
+ * that is one venue's unassigned room, and two operators pencilling it are
+ * competing for the same building on the same night.
+ */
+export async function holdSiblingsOf(
+  database: Database | Transaction,
+  event: EventRow,
+  includeTarget: boolean,
+): Promise<EventRow[]> {
+  if (event.eventDate === null) return includeTarget ? [event] : [];
+  return database
+    .select()
+    .from(schema.events)
+    .where(
+      and(
+        eq(schema.events.status, "on_hold"),
+        matchNullable(schema.events.eventDate, event.eventDate),
+        matchNullable(schema.events.venueProfileId, event.venueProfileId),
+        matchNullable(schema.events.stageId, event.stageId),
+        // No room, no shared queue — see the second bullet above.
+        event.venueProfileId === null
+          ? eq(schema.events.hostProfileId, event.hostProfileId)
+          : undefined,
+        includeTarget ? undefined : ne(schema.events.id, event.id),
+      ),
+    );
+}
+
+/** Shape event rows into the pure-logic `HoldSibling[]` (rank defaults to 1). */
+export function toHoldSiblings(rows: EventRow[]): HoldSibling[] {
+  return rows.map((row) => ({
+    id: row.id,
+    holdRank: row.holdRank ?? 1,
+    holdAutoPromote: row.holdAutoPromote,
+  }));
+}
+
+/**
+ * Of these holds, the ones the caller may WRITE — resolved through the one
+ * authorization module, per hold, exactly as the pool read resolves each title.
+ *
+ * THE POOL IS SHARED; THE ROWS ARE NOT. A pool is keyed on (date, venue, stage)
+ * and deliberately not scoped to one host, because one physical room on one night
+ * is one queue and two operators courting that night genuinely are in it together
+ * — separate queues would tell both of them they are first in line. But every
+ * pencil in it is a separate EVENT belonging to a separate operator, and an
+ * operator's authority stops at their own row. So every cascade in this file asks
+ * this first: it decides which rank moves a caller is allowed to make at all, and
+ * whose name may go on the ones the cascade makes anyway.
+ *
+ * Reads are untouched by any of it — a rival's title is withheld and stays
+ * withheld (`GET /events/:id/hold`); this is about the WRITES.
+ */
+export async function writableHoldIds(
+  request: FastifyRequest,
+  rows: EventRow[],
+): Promise<Set<string>> {
+  const writable = new Set<string>();
+  for (const row of rows) {
+    const capabilities = await eventCapabilities(request, row.id);
+    if (capabilities.has("event.edit")) writable.add(row.id);
+  }
+  return writable;
+}
+
+/**
+ * ONE RULE FOR A QUEUE CLOSING BEHIND A HOLD THAT LEAVES — planned here, applied below.
+ *
+ * `computeDeclinePromotion` had exactly one caller: `dropHoldAndRepack` in `routes/holds.ts`,
+ * serving `/hold/decline` and `/hold/release`. The Events row menu's **Cancel show…** is a plain
+ * `PATCH { status: "cancelled" }` and did not call it — so which control the operator reached for
+ * decided whether the queue advanced, and the one that PROMISES promotion in its own dialog
+ * ("Every hold below it moves up one, unless it is frozen") is the one the Events list does not
+ * offer (QA sweep run 14).
+ *
+ * SPLIT IN TWO BECAUSE OF WHERE THE READS MAY HAPPEN. `writableHoldIds` resolves capabilities per
+ * hold, and the test pool is `max: 1`, so a query nested inside `database.transaction` deadlocks
+ * rather than failing — the reason `dropHoldAndRepack` already resolved it before opening its
+ * transaction. The events PATCH is inside one by the time it knows the status moved, so the plan is
+ * taken first and applied after. It also keeps "a promotion on somebody else's hold gets an
+ * actor-less audit row" in one place instead of copied into a second route.
+ */
+export interface HoldQueueClosePlan {
+  promotions: HoldRankUpdate[];
+  /** The rank each promoted hold held before — the `before` of its audit row. */
+  previousRanks: Map<string, number | null>;
+  /** Of the promoted holds, the ones this caller may write. */
+  writableIds: Set<string>;
+}
+
+/** Read the queue as it will be once `event` leaves it. No writes; safe outside a transaction. */
+export async function planHoldQueueClose(
+  request: FastifyRequest,
+  event: EventRow,
+): Promise<HoldQueueClosePlan> {
+  /*
+   * An event that is not a pencil is in no queue, so nothing closes behind it. THE RULE LIVES HERE
+   * rather than at either call site: `routes/events.ts` states the same thing as a short-circuit to
+   * save the query below, and two guards that protect each other both survive mutation while the
+   * behaviour is pinned by neither. This is the one a future caller inherits.
+   */
+  if (event.status !== "on_hold") {
+    return { promotions: [], previousRanks: new Map(), writableIds: new Set() };
+  }
+  const remaining = await holdSiblingsOf(request.server.database, event, false);
+  const promotions = computeDeclinePromotion({
+    siblings: toHoldSiblings(remaining),
+    removedRank: event.holdRank ?? 1,
+  });
+  return {
+    promotions,
+    previousRanks: new Map(remaining.map((row) => [row.id, row.holdRank])),
+    writableIds: await writableHoldIds(request, remaining),
+  };
+}
+
+/**
+ * Write the promotions the plan found, with the audit and activity rows each one needs.
+ *
+ * Whose move it was depends on whose hold it is. An operator withdrawing one of their own pencils
+ * and watching the next step up is doing their own housekeeping, and their name belongs on it. A
+ * pencil belonging to somebody else moves up because the queue closed, not because this caller
+ * touched it — and on the decline path the caller is the ACT, who holds no authority over any hold
+ * in the pool, so every promotion there is a consequence. That row gets its own actor-less audit
+ * entry too: it is the only trace of the write that lands on an event its own operator can read.
+ */
+export async function applyHoldQueueClose(
+  tx: Transaction,
+  request: FastifyRequest,
+  plan: HoldQueueClosePlan,
+): Promise<void> {
+  for (const promotion of plan.promotions) {
+    await tx
+      .update(schema.events)
+      .set({
+        holdRank: promotion.holdRank,
+        version: sql`${schema.events.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.events.id, promotion.id));
+  }
+  for (const promotion of plan.promotions) {
+    const isOwn = plan.writableIds.has(promotion.id);
+    if (!isOwn) {
+      await writeAudit(tx, request, {
+        actor: "system",
+        capability: null,
+        action: "hold.promoted_queue_closed",
+        targetKind: "event",
+        targetId: promotion.id,
+        eventId: promotion.id,
+        before: { holdRank: plan.previousRanks.get(promotion.id) ?? null },
+        after: { holdRank: promotion.holdRank, reason: "queue_closed" },
+      });
+    }
+    await writeActivity(tx, request, {
+      actor: isOwn ? "caller" : "system",
+      eventId: promotion.id,
+      type: "hold.promoted",
+      targetKind: "hold",
+      targetId: promotion.id,
+      summary: { to: promotion.holdRank, reason: "queue_closed" },
+    });
+  }
 }
