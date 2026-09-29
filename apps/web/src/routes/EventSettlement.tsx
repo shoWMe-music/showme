@@ -1051,6 +1051,20 @@ function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
                     : "Not required"}
             </Badge>
             {/*
+              AND WHAT THEY OBJECTED TO (decisions §25.9.8). The bell tells the operator to "open
+              the settlement to see what they said", and until the note was served this screen
+              could not answer that — it printed the word "Objected" and nothing else.
+            */}
+            {approval.objected && approval.objectionNote && (
+              <span
+                className="muted"
+                style={{ fontSize: 12, minWidth: 0 }}
+                title={approval.objectionNote}
+              >
+                “{approval.objectionNote}”
+              </span>
+            )}
+            {/*
               THE SIGNATURE IS STILL THERE AND THE FIGURES ARE NOT (QA sweep run 14).
  
               Nothing on any screen said so: five parties signed, a walk-up line doubled, entitlements

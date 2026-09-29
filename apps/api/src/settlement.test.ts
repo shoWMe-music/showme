@@ -2,7 +2,7 @@ import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { convertMinorUnits } from "@showme/shared";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
@@ -280,7 +280,7 @@ describe("settlement — a dispute cannot re-open a finalized night to signature
   it("keeps the lock and the signature withdrawn after a party disputes", async () => {
     const seed = await finalized("disputelock");
 
-    // The band raises a dispute on its own row — allowed, and it moves that row's status.
+    // The band raises an objection on its own row — allowed on frozen figures, by design.
     const disputed = await app.inject({
       method: "POST",
       url: `/api/v1/events/${seed.event.id}/settlement/status`,
@@ -291,9 +291,16 @@ describe("settlement — a dispute cannot re-open a finalized night to signature
 
     const body = await ownRow(seed.event.id, seed.band.userId);
     const mine = body.settlements[0];
-    // The status really did move — this is not a test of the dispute being refused.
-    expect(mine?.status).toBe("dispute");
-    // …and the night is still finalized, which is the fact `status` stopped recording.
+    /*
+     * THE DEFECT IS GONE AT ITS SOURCE — decisions §25.9.8.
+     *
+     * This used to assert `status === "dispute"`, because that is what an objection overwrote, and
+     * the whole describe block exists because overwriting it un-froze the event. The objection now
+     * lands on `settlement_approvals`, so the status simply stays `finalized` and the lock needs no
+     * durable-record lookup to survive. `wasFinalized` is asserted beside it because the belt is
+     * still buckled — it is no longer the thing holding the trousers up.
+     */
+    expect(mine?.status).toBe("finalized");
     expect(body.wasFinalized).toBe(true);
     expect(mine?.signableByYou).toBe(false);
 
@@ -338,7 +345,9 @@ describe("settlement — a dispute cannot re-open a finalized night to signature
 
     const body = await ownRow(seed.event.id, seed.band.userId);
     expect(body.wasFinalized).toBe(false);
-    expect(body.settlements[0]?.status).toBe("dispute");
+    // The status is untouched by an objection now (§25.9.8) — what matters here is that objecting
+    // has not cost the party the ability to sign, which is the thing this test has always guarded.
+    expect(body.settlements[0]?.status).toBe("open");
     expect(body.settlements[0]?.signableByYou).toBe(true);
   });
 
@@ -495,8 +504,20 @@ describe("settlement — a dispute cannot re-open a finalized night to signature
 
     const body = await ownRow(seed.event.id, seed.band.userId);
     const mine = body.settlements[0];
-    expect(mine?.status).toBe("dispute");
-    // The other parties' rows are still `finalized`, and that is now the record consulted.
+    /*
+     * §25.9.8 TOOK THE TEETH OUT OF THIS CASE, which is the best outcome it could have had.
+     *
+     * Written in run 17, when an objection overwrote `settlements.status` and a snapshotless
+     * finalized row therefore came back signable. The objection no longer touches the status, so the
+     * row stays `finalized` and `LOCKED_SETTLEMENT_STATUSES` — the first clause, older than any of
+     * this — holds the lock on its own.
+     *
+     * KEPT ANYWAY, and deliberately: it is the only test that drives a finalized event with no
+     * snapshot, which is still a state the seed can produce, and it still proves the second clause
+     * of `eventHasBeenFinalized` is wired up. A test whose defect has been designed away is the
+     * cheapest possible regression guard.
+     */
+    expect(mine?.status).toBe("finalized");
     expect(body.wasFinalized).toBe(true);
     expect(mine?.signableByYou).toBe(false);
 
@@ -2740,16 +2761,31 @@ describe("settlement — the review conversation and derived payment", () => {
     });
     expect(disputed.statusCode).toBe(200);
 
+    /*
+     * THE SCOPING RULE IS UNCHANGED; WHERE IT IS RECORDED MOVED — decisions §25.9.8.
+     *
+     * This asserted `settlements.status` per party, because a dispute used to be written there.
+     * The rule it protects is the same one and still the point: naming nobody must not speak for
+     * the whole bill. It now reads off `settlement_approvals`, which is where an objection lives.
+     */
+    const objections = await harness.db
+      .select({ participantId: schema.settlementApprovals.partyParticipantId })
+      .from(schema.settlementApprovals)
+      .where(
+        and(
+          eq(schema.settlementApprovals.eventId, seed.event.id),
+          isNotNull(schema.settlementApprovals.declinedAt),
+        ),
+      );
+    expect(objections.map((row) => row.participantId)).toEqual([seed.bPart]);
+
+    // THE NEGATIVE HALF, and now it is stronger: NO settlement status moved at all, the band's
+    // included. An objection is not a statement about whether anybody is signing.
     const rows = await harness.db
       .select()
       .from(schema.settlements)
       .where(eq(schema.settlements.eventId, seed.event.id));
-    const statusOf = (participantId: string) =>
-      rows.find((row) => row.participantId === participantId)?.status;
-    expect(statusOf(seed.bPart)).toBe("dispute");
-    // THE NEGATIVE HALF: the operator's own settlement, and the venue's, are untouched.
-    expect(statusOf(seed.pPart)).toBe("open");
-    expect(statusOf(seed.vPart)).toBe("open");
+    expect(rows.every((row) => row.status === "open")).toBe(true);
   });
 
   it("refuses a dispute from somebody who is a party to nothing on the event", async () => {
@@ -7114,5 +7150,196 @@ describe("settlement realtime — the quiet frame", () => {
     expect(response.statusCode).toBeGreaterThanOrEqual(400);
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(framesPublished()).toEqual([]);
+  });
+});
+
+/**
+ * AN OBJECTION MARKS ITS OWN LINE, AND A SIGNATURE CLEARS WHEN THE FIGURES MOVE.
+ *
+ * decisions §25.9.8 and §25.9.7, built together because they share migration 0051.
+ *
+ * These are the LOCK for both: they fail if the objection goes back to overwriting
+ * `settlements.status`, if either clearing path stops firing, or if the clearing widens to fire on
+ * a recompute that did not move this party's own money.
+ */
+describe("settlement — an objection is line-scoped and a signature clears (§25.9.7, §25.9.8)", () => {
+  async function computed(prefix: string) {
+    const seed = await seedWorkedExample(prefix);
+    await signEveryAgreement(harness.db, seed.event.id);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+    return seed;
+  }
+
+  const readAs = async (eventId: string, uid: string) => {
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/settlements`,
+      headers: auth(uid),
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json() as {
+      settlements: { id: string; status: string; participantId: string }[];
+      approvals: {
+        participantId: string;
+        approved: boolean;
+        objected: boolean;
+        objectionNote: string | null;
+      }[];
+    };
+  };
+
+  /*
+   * THE DEFECT ITSELF: one party objecting used to move the EVENT's status, which says "nobody is
+   * signing anything" — and, because that column is also the only record of a finalize, it un-froze
+   * figures the app had promised were immutable.
+   */
+  it("records the objection on the party's own row and leaves every settlement status alone", async () => {
+    const seed = await computed("objectline");
+
+    const disputed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.band.userId),
+      payload: { status: "dispute", note: "the door count is short" },
+    });
+    expect(disputed.statusCode).toBe(200);
+
+    // NOT ONE settlement row moved — the assertion the old implementation could never pass.
+    const rows = await harness.db
+      .select({ status: schema.settlements.status })
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    expect(rows.every((row) => row.status !== "dispute")).toBe(true);
+
+    // …and the objection is on the objector's own approvals row, with what they said.
+    const body = await readAs(seed.event.id, seed.band.userId);
+    const mine = body.approvals.find((row) => row.participantId === seed.bPart);
+    expect(mine?.objected).toBe(true);
+    expect(mine?.objectionNote).toBe("the door count is short");
+    // Nobody else is marked as having refused anything.
+    expect(body.approvals.filter((row) => row.objected)).toHaveLength(1);
+  });
+
+  /*
+   * AND THAT RETIRES THE WORKAROUND. `eventHasBeenFinalized` was written because a dispute
+   * overwrote the status; now the status survives, so a finalized event stays finalized through an
+   * objection on the column itself — which is what runs 16 and 17 both spent a MAJOR on.
+   */
+  it("keeps a finalized event finalized when a party objects", async () => {
+    const seed = await computed("objectfrozen");
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/status`,
+          headers: auth(seed.band.userId),
+          payload: { status: "dispute" },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const rows = await harness.db
+      .select({ status: schema.settlements.status })
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    // The freeze is intact in the column that records it — no snapshot lookup needed.
+    expect(rows.every((row) => row.status === "finalized")).toBe(true);
+  });
+
+  /*
+   * §25.9.7's clearing, on the RECOMPUTE path — and the control beside it, which is the whole
+   * safety argument. Clearing on "the row was rewritten" would wipe every signature on the event
+   * because the pool ladder lives inside every party's breakdown.
+   */
+  it("clears the signature when the party's own figures move, and keeps it when they do not", async () => {
+    const seed = await computed("clearsig");
+
+    const own = await readAs(seed.event.id, seed.band.userId);
+    const mine = own.settlements.find((row) => row.participantId === seed.bPart);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlements/${mine?.id}/confirm`,
+          headers: auth(seed.band.userId),
+          payload: {},
+        })
+      ).statusCode,
+    ).toBe(200);
+    const signedRows = async () =>
+      harness.db
+        .select({ id: schema.settlementApprovals.id })
+        .from(schema.settlementApprovals)
+        .where(
+          and(
+            eq(schema.settlementApprovals.eventId, seed.event.id),
+            eq(schema.settlementApprovals.partyParticipantId, seed.bPart),
+            eq(schema.settlementApprovals.approved, true),
+          ),
+        );
+    expect(await signedRows()).toHaveLength(1);
+
+    // AN IDENTICAL RECOMPUTE MOVES NOTHING, so the signature must survive it.
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(await signedRows()).toHaveLength(1);
+
+    /*
+     * Now move THIS party's own money. Doubling the door would NOT do it — the band is on a
+     * `guarantee`, a fixed sum, so a bigger door moves the pool and the operator's residual and
+     * leaves the band's entitlement exactly where it was. That is `samePartyFigures` working, and
+     * choosing the wrong lever here would have written a test that passes for the wrong reason.
+     */
+    const [bandDeal] = await harness.db
+      .select({ id: schema.deals.id, guaranteeAmount: schema.deals.guaranteeAmount })
+      .from(schema.deals)
+      .innerJoin(schema.dealParties, eq(schema.dealParties.dealId, schema.deals.id))
+      .where(
+        and(
+          eq(schema.deals.eventId, seed.event.id),
+          eq(schema.dealParties.participantId, seed.bPart),
+          eq(schema.dealParties.roleInDeal, "payee"),
+        ),
+      );
+    if (!bandDeal?.guaranteeAmount) throw new Error("fixture has no band guarantee to move");
+    await harness.db
+      .update(schema.deals)
+      .set({ guaranteeAmount: bandDeal.guaranteeAmount * 2n })
+      .where(eq(schema.deals.id, bandDeal.id));
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(await signedRows()).toHaveLength(0);
   });
 });

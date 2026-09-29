@@ -12,5 +12,7 @@ export type GetApiV1EventsIdSettlements200ApprovalsItem = {
   approvedAt: string | null;
   signatureExpected: boolean;
   objected: boolean;
+  /** @nullable */
+  objectionNote: string | null;
   figuresMovedSince: boolean;
 };

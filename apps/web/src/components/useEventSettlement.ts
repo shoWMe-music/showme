@@ -260,6 +260,8 @@ export interface SettlementApprovalRow {
    * is the word it prints for a party who has said nothing.
    */
   objected: boolean;
+  /** What they said was wrong, in their words — null when they objected without saying. */
+  objectionNote: string | null;
   /**
    * Did this party's figures move AFTER they signed? See the API field's own note: the comparison is
    * confined to the review window, because `updated_at` also moves on finalize and on payment, and a
@@ -1210,6 +1212,7 @@ export function useEventSettlement(
        */
       signatureExpected: approval.signatureExpected,
       objected: approval.objected,
+      objectionNote: approval.objectionNote ?? null,
       figuresMovedSince: approval.figuresMovedSince,
       // The settlement id to sign, or null when this line is not the reader's to
       // sign. Carried on the roster row because the roster IS where somebody

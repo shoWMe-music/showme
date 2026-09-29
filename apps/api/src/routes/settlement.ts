@@ -39,8 +39,9 @@ import {
   isTicketRevenueBasis,
   operatesTheEvent,
 } from "@showme/shared";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, notInArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import type { FastifyRequest } from "fastify";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -250,6 +251,16 @@ const ApprovalResponse = z.object({
    * to settle, and the operator's roster is where the difference has to show.
    */
   objected: z.boolean(),
+  /**
+   * WHAT THEY SAID WAS WRONG, in their words — null when they objected without saying, and null on
+   * an objection raised before migration 0051, which stored no note anywhere.
+   *
+   * Served because the notification tells the operator to *"open the settlement to see what they
+   * said"*, and until this field existed the settlement did not say it: the note went into the
+   * activity row's summary and the roster showed the word "Objected" and nothing else. A sentence
+   * untrue of its reader, pointing at a screen that could not answer it.
+   */
+  objectionNote: z.string().nullable(),
   /**
    * HAVE THIS PARTY'S FIGURES MOVED SINCE THEY SIGNED (QA sweep run 14)?
    *
@@ -673,6 +684,54 @@ async function eventHasBeenFinalized(database: Database | Transaction, eventId: 
     .where(and(eq(schema.settlements.eventId, eventId), eq(schema.settlements.status, "finalized")))
     .limit(1);
   return stillFinalized != null;
+}
+
+/**
+ * AN OBJECTION IS THE OPERATOR'S QUESTION ANSWERED "NO" (QA sweep run 17's MAJOR).
+ *
+ * The status route's only `notifyUsers` was guarded on `pending_review`, so a party could refuse
+ * their figures and NOBODY was told. Measured twice, from two performer accounts on two events: the
+ * operator's bell held one notification (*"Marlo Vance signed off their settlement"*), the Dashboard
+ * attention list still read "4 things that need attention today", and the only surface carrying the
+ * objection at all was the Event History feed, eleven rows down. The operator can be finished, paid
+ * out and gone.
+ *
+ * This is the CONFIRM route's mechanism, not a new one. That route notifies the operators only, and
+ * writes down why: *"'Has everyone signed off yet?' is the operator's question — it is what gates
+ * finalize."* An objection is that same question answered no, and it takes the same recipients
+ * (`operatorsOnly`), for the same reason: whether a different act has refused is not the rest of the
+ * bill's business.
+ *
+ * No e-mail. The in-app notification is the standing precedent for "a party answered" — the confirm
+ * route sends none either — and the settlements category already governs it.
+ *
+ * A function rather than an inline block because §25.9.8 moved the objection off the status write
+ * path and onto its own, and a notification copied into two places is a notification that will be
+ * sent from one of them.
+ */
+async function notifyOperatorsOfObjection(
+  request: FastifyRequest,
+  eventId: string,
+  database: Database,
+) {
+  try {
+    const actorUserId = request.principal?.userId ?? null;
+    const recipients = await eventParticipantRecipients(database, eventId, actorUserId, {
+      operatorsOnly: true,
+    });
+    const objectorName = request.firebaseUser?.name ?? "A party";
+    await notifyUsers(database, recipients, actorUserId, {
+      type: "settlement.disputed",
+      title: `${objectorName} disputed their settlement`,
+      body: "They have objected to their figures — open the settlement to see what they said.",
+      eventId,
+      actorDisplay: request.firebaseUser?.name ?? undefined,
+      link: `/events/${eventId}/settlement`,
+      metadata: { eventId },
+    });
+  } catch (error) {
+    request.log.error({ error, eventId }, "settlement dispute notification failed");
+  }
 }
 
 /**
@@ -1340,12 +1399,26 @@ async function participantIdsOf(
  *     `GET /settlements`
  * Both null would be every approval on the platform, so it is refused rather than served.
  */
+/**
+ * What the approvals table says about ONE party: whether they signed, and whether they objected.
+ *
+ * Both, not one or the other. §25.9.8 put the objection on this row because it has the same grain as
+ * the signature, and a party can sign after objecting or object after signing — two answers to two
+ * questions, never a state machine.
+ */
+interface ApprovalRosterEntry {
+  approved: boolean;
+  approvedAt: Date | null;
+  declinedAt: Date | null;
+  declinedNote: string | null;
+}
+
 async function approvalRosterOf(
   database: Database,
   eventId: string | null,
   participantIds: Set<string> | null,
-): Promise<Map<string, { approved: boolean; approvedAt: Date | null }>> {
-  const roster = new Map<string, { approved: boolean; approvedAt: Date | null }>();
+): Promise<Map<string, ApprovalRosterEntry>> {
+  const roster = new Map<string, ApprovalRosterEntry>();
   if (eventId == null && participantIds == null) {
     throw new Error("approvalRosterOf needs an event or a participant set to scope by");
   }
@@ -1355,6 +1428,8 @@ async function approvalRosterOf(
       participantId: schema.settlementApprovals.partyParticipantId,
       approved: schema.settlementApprovals.approved,
       approvedAt: schema.settlementApprovals.approvedAt,
+      declinedAt: schema.settlementApprovals.declinedAt,
+      declinedNote: schema.settlementApprovals.declinedNote,
     })
     .from(schema.settlementApprovals)
     .where(
@@ -1380,9 +1455,25 @@ async function approvalRosterOf(
           ? seen.approvedAt
           : row.approvedAt
         : (seen?.approvedAt ?? row.approvedAt);
+    /*
+     * THE LATEST OBJECTION WINS, where the earliest SIGNATURE does (§25.9.8).
+     *
+     * They fold in opposite directions on purpose. A signature is "approved once is approved", so
+     * the roster keeps the first one — that is the moment consent was given. An objection is a
+     * standing complaint, so the roster keeps the most recent one and the note that came with it:
+     * what a party is objecting to NOW is the thing the operator has to answer.
+     */
+    const declinedAt =
+      seen?.declinedAt && row.declinedAt
+        ? seen.declinedAt > row.declinedAt
+          ? seen.declinedAt
+          : row.declinedAt
+        : (seen?.declinedAt ?? row.declinedAt);
     roster.set(row.participantId, {
       approved: (seen?.approved ?? false) || row.approved,
       approvedAt,
+      declinedAt,
+      declinedNote: declinedAt === row.declinedAt ? row.declinedNote : (seen?.declinedNote ?? null),
     });
   }
   return roster;
@@ -1839,6 +1930,42 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
                   ...(ownFiguresMoved ? { figuresChangedAt: new Date() } : {}),
                 })
                 .where(eq(schema.settlements.id, prior.id));
+              /*
+               * AND THE SIGNATURE GOES WITH THEM — decisions §25.9.7, Daniel 2026-09-29.
+               *
+               * A signature against figures that changed is not consent to the new ones. Measured
+               * (QA sweep run 14): five parties signed, a walk-up-sales line went SEK 18,000 →
+               * 36,000, a performer's entitlement went 30,000 → 40,800, and their 10:54 signature
+               * still read "Signed off" — so an operator could finalize on 5/6 against figures that
+               * no longer existed. The starker form: cancelling a crew deal took a party's
+               * entitlement to SEK 0 and their settlement still answered `approvedByYou: true`.
+               *
+               * The deal side already draws this line and says so in its own copy — *"Reopen it to
+               * renegotiate. That clears every signature and asks the parties again."*
+               *
+               * GATED AT THE DERIVATION, NOT AT THE RENDER, and on `ownFiguresMoved` rather than on
+               * the row being rewritten. That distinction is the whole reason this is safe: the pool
+               * ladder lives inside every party's breakdown, so a cost edit anywhere rewrites every
+               * row, and clearing on THAT would wipe six signatures because somebody corrected a
+               * taxi fare. §25.9.7 recorded the risk — *"a settlement is recomputed far more often
+               * than a deal is reopened"* — and `samePartyFigures` is the line that answers it: it
+               * compares the party's own figures with the ladder deliberately excluded.
+               *
+               * The objection is NOT cleared beside it. A party who objected and whose figures then
+               * moved has not withdrawn anything — if the new number is right they will sign, and
+               * that is the act that answers it.
+               */
+              if (ownFiguresMoved) {
+                await tx
+                  .delete(schema.settlementApprovals)
+                  .where(
+                    and(
+                      eq(schema.settlementApprovals.eventId, id),
+                      eq(schema.settlementApprovals.partyParticipantId, breakdown.participantId),
+                      eq(schema.settlementApprovals.approved, true),
+                    ),
+                  );
+              }
             }
             for (const stale of unmatched.values()) {
               await tx.delete(schema.settlements).where(eq(schema.settlements.id, stale.id));
@@ -2372,12 +2499,28 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         )
         .leftJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
         .innerJoin(schema.events, eq(schema.events.id, schema.settlements.eventId))
+        // The party's own objection row, when there is one — see the `or` below.
+        .leftJoin(
+          schema.settlementApprovals,
+          and(
+            eq(schema.settlementApprovals.eventId, schema.settlements.eventId),
+            eq(schema.settlementApprovals.partyParticipantId, schema.settlements.participantId),
+          ),
+        )
         .where(
           and(
             inArray(schema.settlements.eventId, answerable),
             // A commission line has no separate review conversation (#14).
             isNull(schema.settlements.representationId),
-            eq(schema.settlements.status, "dispute"),
+            /*
+             * THE OBJECTION IS ON THE APPROVALS ROW NOW (§25.9.8), so this joins to it rather
+             * than reading `settlements.status`. The `or` keeps pre-0051 rows readable: that
+             * migration does not backfill, because an event-scoped dispute names no party.
+             */
+            or(
+              isNotNull(schema.settlementApprovals.declinedAt),
+              eq(schema.settlements.status, "dispute"),
+            ),
             notInArray(schema.eventParticipants.status, [...NON_STANDING_PARTICIPANT_STATUSES]),
           ),
         )
@@ -2792,7 +2935,19 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
              * row moves an objection into `settlement_approvals` this field stays and its source
              * changes — which is the point of serving the ANSWER rather than the status.
              */
-            objected: row.status === "dispute",
+            /*
+             * READ FROM THE APPROVALS ROW, NOT THE STATUS (§25.9.8). This asked
+             * `row.status === "dispute"` while an objection still overwrote the event's status;
+             * it is now the party's own `declined_at`, which is the grain it always had.
+             *
+             * `|| row.status === "dispute"` is the OLD-ROW clause and is deliberate: migration
+             * 0051 does not backfill, because an event-scoped dispute names no party and
+             * inventing one would put a refusal in somebody's mouth. An objection raised before
+             * the migration is still real, so it still reads as one — on every party, which is
+             * exactly as precise as the data it came from.
+             */
+            objected: signed?.declinedAt != null || row.status === "dispute",
+            objectionNote: signed?.declinedNote ?? null,
             /*
              * Or they have already given one — which, now that the expectation is a standing fact,
              * only matters if the grant behind it was revoked afterwards. See the field.
@@ -2851,12 +3006,45 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       const updated = await database.transaction(async (tx) => {
         const [after] = await tx
           .update(schema.settlements)
-          .set({ manualOverrides, version: before.version + 1, updatedAt: new Date() })
+          .set({
+            manualOverrides,
+            version: before.version + 1,
+            updatedAt: new Date(),
+            /*
+             * AN OVERRIDE IS THIS PARTY'S FIGURES MOVING — the second surface of §25.9.7, and it
+             * was not stamping the clock at all.
+             *
+             * `figures_changed_at` exists to answer "did THIS party's money move" without the pool
+             * ladder making every row look changed (QA sweep run 16). A manual override is that,
+             * by construction: it is scoped to one settlement row, so there is no ladder question
+             * to disentangle. It went unstamped because the column was added for the recompute
+             * path and this route was not looked at — which also left the run-14 stale-signature
+             * disclosure blind to overrides.
+             */
+            figuresChangedAt: new Date(),
+          })
           .where(where)
           .returning();
         if (!after) {
           throw conflict("Settlement was changed by someone else; reload and retry");
         }
+        /*
+         * …SO THE SIGNATURE CLEARS HERE TOO (§25.9.7).
+         *
+         * The recompute path clears on `ownFiguresMoved`; this is the other way a party's figures
+         * change, and a ruling implemented on one of its two surfaces is the shape this repo has
+         * hit ten times. An operator correcting a number a party already signed is exactly the
+         * case §25.9.7 describes — consent to the old figure is not consent to the new one.
+         */
+        await tx
+          .delete(schema.settlementApprovals)
+          .where(
+            and(
+              eq(schema.settlementApprovals.eventId, id),
+              eq(schema.settlementApprovals.partyParticipantId, before.participantId as string),
+              eq(schema.settlementApprovals.approved, true),
+            ),
+          );
         await writeAudit(tx, request, {
           capability: "settlement.edit",
           action: "settlement.override",
@@ -3278,7 +3466,44 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       if (!principal) throw new Error("principal missing after authentication");
       const { status, note, fullAccess } = request.body;
 
-      await requireEventCapability(request, id, REVIEW_STATUS_CAPABILITY[status]);
+      /*
+       * AN OBJECTION IS SETTLEMENT-SCOPED, LIKE THE SIGNATURE IT INVERTS (§25.9.8, §25.8.2).
+       *
+       * `settlement.confirm` event-wide is the right bar for the two OPERATOR transitions. For a
+       * dispute it was the wrong one, and it is the whole reason §25.9.8 was asked: §25.8.2 made
+       * SIGNING settlement-scoped — a crew member signs the line that is theirs, off
+       * `settlementPartyBaselineCapabilities` — while this gate stayed event-wide. So the review
+       * e-mail truthfully asked a crew member to "sign off when they match your books" and in the
+       * same breath said "if something looks wrong, say so there", and the route answered **403**.
+       * Measured on the running stack in the crew seat, after the storage half of §25.9.8 was
+       * already built — half a ruling looks exactly like a whole one until somebody presses the
+       * button.
+       *
+       * `maySignOwnSettlement` is the function the confirm route uses, asked here with the caller's
+       * own role: *"the capability that signs a settlement off is the same authority inverted"* is
+       * this route's own sentence about dispute, and now one function answers both. The per-row
+       * ownership check below is unchanged and still decides WHOSE line may be objected to.
+       */
+      const capabilities = await requireEventCapability(request, id, "settlement.view.own");
+      if (status === "dispute") {
+        const roles = await database
+          .select({ role: schema.eventParticipants.role })
+          .from(schema.eventParticipants)
+          .where(
+            and(
+              eq(schema.eventParticipants.eventId, id),
+              inArray(
+                schema.eventParticipants.profileId,
+                principal.memberships.map((membership) => membership.profileId),
+              ),
+            ),
+          );
+        if (!roles.some((row) => maySignOwnSettlement(capabilities, row.role))) {
+          throw forbidden("Missing capability: settlement.confirm");
+        }
+      } else {
+        await requireEventCapability(request, id, REVIEW_STATUS_CAPABILITY[status]);
+      }
 
       const rows = await settlementRowsOf(database, id);
       const everyParty = rows.filter((row) => row.representationId == null);
@@ -3351,6 +3576,85 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       // credit note, not a status change.
       if (scopedRows.some((row) => row.status === "paid")) {
         throw conflict("This settlement is fully paid");
+      }
+
+      /*
+       * AN OBJECTION LANDS ON THE PARTY'S OWN ROW — decisions §25.9.8, Daniel 2026-09-29.
+       *
+       * It used to overwrite `settlements.status`, which is the EVENT's column, and that is two
+       * defects in one line. It said "nobody is signing anything" when one party had refused; and
+       * because `status` is also the only column recording a finalize, disputing frozen figures
+       * un-froze them — `signableByYou` returned and `confirm` answered 200 on figures the app had
+       * just promised were immutable (QA sweep run 16's first MAJOR; run 17's QA17-2 was the same
+       * defect surviving in a second data shape, which is what a workaround rather than a fix looks
+       * like).
+       *
+       * `settlement_approvals` already holds one row per party, which is the grain an objection has,
+       * so the refusal goes beside the signature it is the opposite of and the status is left alone.
+       * `eventHasBeenFinalized` stays as a belt and stops being load-bearing.
+       *
+       * The audit row and the timeline row are unchanged in shape — a party still reads "these
+       * figures were disputed" on their own settlement's feed — because what moved is where the fact
+       * is STORED, not what happened.
+       */
+      if (status === "dispute") {
+        const declinedAt = new Date();
+        const objected = await database.transaction(async (tx) => {
+          let count = 0;
+          for (const row of scopedRows) {
+            const participantId = row.participantId as string;
+            // One standing objection per party, re-stated rather than accumulated: a party pressing
+            // it twice has objected once, and the note they gave last is the one they mean. Mirrors
+            // the confirm route's idempotence, which exists for the same two-tabs reason.
+            const [existing] = await tx
+              .select({ id: schema.settlementApprovals.id })
+              .from(schema.settlementApprovals)
+              .where(
+                and(
+                  eq(schema.settlementApprovals.eventId, id),
+                  eq(schema.settlementApprovals.partyParticipantId, participantId),
+                  isNotNull(schema.settlementApprovals.declinedAt),
+                ),
+              );
+            if (existing) {
+              await tx
+                .update(schema.settlementApprovals)
+                .set({ declinedAt, declinedNote: note ?? null })
+                .where(eq(schema.settlementApprovals.id, existing.id));
+            } else {
+              await tx.insert(schema.settlementApprovals).values({
+                eventId: id,
+                partyParticipantId: participantId,
+                // NOT `approved: false`. A party who signed and then objected has done both, and
+                // overwriting the signature would erase a consent that was really given — the
+                // audit trail's problem, not the roster's. They are independent answers.
+                approved: false,
+                declinedAt,
+                declinedNote: note ?? null,
+              });
+            }
+            count += 1;
+            await writeAudit(tx, request, {
+              capability: REVIEW_STATUS_CAPABILITY.dispute,
+              action: "settlement.dispute",
+              targetKind: "settlement",
+              targetId: row.id,
+              eventId: id,
+              before: { declinedAt: null },
+              after: { declinedAt: declinedAt.toISOString(), ...(note ? { note } : {}) },
+            });
+            await writeActivity(tx, request, {
+              eventId: id,
+              type: "settlement.dispute",
+              targetKind: "settlement",
+              targetId: row.id,
+              summary: { participantId, ...(note ? { note } : {}) },
+            });
+          }
+          return count;
+        });
+        await notifyOperatorsOfObjection(request, id, database);
+        return { status, updated: objected, emailed: [] };
       }
 
       const updated = await database.transaction(async (tx) => {
@@ -3516,54 +3820,6 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           }
         } catch (error) {
           request.log.error({ error, eventId: id }, "settlement review notification failed");
-        }
-      }
-
-      /*
-       * AN OBJECTION IS THE OPERATOR'S QUESTION ANSWERED "NO" (QA sweep run 17's MAJOR).
-       *
-       * The block above is the only `notifyUsers` in this route, and it is guarded on
-       * `pending_review` — so a party could refuse their figures and NOBODY was told. Measured twice,
-       * from two performer accounts on two events: the operator's bell held one notification
-       * (*"Marlo Vance signed off their settlement"*), the Dashboard attention list still read "4
-       * things that need attention today", and the only surface carrying the objection at all was the
-       * Event History feed, eleven rows down. The operator can be finished, paid out and gone.
-       *
-       * The comment on that guard is about E-MAIL, and it is right about it — *"a dispute is raised BY
-       * a party and mailing them their own objection helps nobody"*. It is not an argument about the
-       * operator, who is the one person an objection asks to act.
-       *
-       * So this is the CONFIRM route's mechanism, not a new one. Forty lines away, `POST
-       * …/settlements/:sid/confirm` notifies the operators only, and writes down why: *"'Has everyone
-       * signed off yet?' is the operator's question — it is what gates finalize."* An objection is
-       * that same question answered no, and it takes the same recipients (`operatorsOnly`), for the
-       * same reason: whether a different act has refused is not the rest of the bill's business.
-       *
-       * ONLY `dispute`. `pending_review` and `revised` are the operator's OWN acts — telling somebody
-       * what they just did is noise — and `comments_received` lands in a Comments thread the operator
-       * reads on the same screen. A dispute has no thread of its own; that is the whole problem.
-       *
-       * No e-mail. The in-app notification is the standing precedent for "a party answered" (the
-       * confirm route sends none either), and the settlements category already governs it.
-       */
-      if (status === "dispute") {
-        try {
-          const actorUserId = request.principal?.userId ?? null;
-          const recipients = await eventParticipantRecipients(database, id, actorUserId, {
-            operatorsOnly: true,
-          });
-          const objectorName = request.firebaseUser?.name ?? "A party";
-          await notifyUsers(database, recipients, actorUserId, {
-            type: "settlement.disputed",
-            title: `${objectorName} disputed their settlement`,
-            body: "They have objected to their figures — open the settlement to see what they said.",
-            eventId: id,
-            actorDisplay: request.firebaseUser?.name ?? undefined,
-            link: `/events/${id}/settlement`,
-            metadata: { eventId: id },
-          });
-        } catch (error) {
-          request.log.error({ error, eventId: id }, "settlement dispute notification failed");
         }
       }
 

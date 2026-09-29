@@ -316,6 +316,22 @@ export const settlementApprovals = pgTable("settlement_approvals", {
     .references(() => eventParticipants.id),
   approved: boolean("approved").notNull().default(false),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
+  /**
+   * THIS PARTY REFUSED THEIR FIGURES — the opposite of the signature above, and on the same row
+   * because it has the same grain (decisions §25.9.8, migration 0051).
+   *
+   * It used to be `settlements.status = 'dispute'`, which is the EVENT's column: one party objecting
+   * moved a status that means "nobody is signing anything", and — because `dispute` overwrote the
+   * only column recording a finalize — it also un-froze figures the app had promised were immutable
+   * (QA sweep run 16's first MAJOR, and run 17's QA17-2 in a second data shape).
+   *
+   * Null on a row that was never objected to. A party can sign after objecting and vice versa, so
+   * this is not a state machine with `approved` — they are two independent answers to two questions,
+   * and the roster shows the objection first because it is the one asking somebody to act.
+   */
+  declinedAt: timestamp("declined_at", { withTimezone: true }),
+  /** What they said was wrong, in their words. Null when they objected without saying. */
+  declinedNote: text("declined_note"),
 });
 
 /** An immutable legal record, written only when a settlement is finalized. */

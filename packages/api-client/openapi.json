@@ -9027,6 +9027,10 @@
                           "objected": {
                             "type": "boolean"
                           },
+                          "objectionNote": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "figuresMovedSince": {
                             "type": "boolean"
                           }
@@ -9037,6 +9041,7 @@
                           "approvedAt",
                           "signatureExpected",
                           "objected",
+                          "objectionNote",
                           "figuresMovedSince"
                         ],
                         "additionalProperties": false
