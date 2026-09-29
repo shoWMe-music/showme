@@ -11,6 +11,8 @@ export type PatchApiV1BookingRequestsId200 = {
   status: string;
   targetProfileId: string;
   /** @nullable */
+  targetName: string | null;
+  /** @nullable */
   senderProfileId: string | null;
   /** @nullable */
   senderType: string | null;

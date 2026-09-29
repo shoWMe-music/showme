@@ -11,6 +11,8 @@ export type GetApiV1BookingRequests200ItemsItem = {
   status: string;
   targetProfileId: string;
   /** @nullable */
+  targetName: string | null;
+  /** @nullable */
   senderProfileId: string | null;
   /** @nullable */
   senderType: string | null;

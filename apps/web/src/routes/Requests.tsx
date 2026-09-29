@@ -32,6 +32,7 @@ import { useRequestTriage } from "../components/useRequestTriage";
 import { conflictMessage } from "../hooks/useDateConflicts";
 import { useEventInvitations } from "../hooks/useEventInvitations";
 import {
+  type RequestDirection,
   type RequestItem,
   type RequestViewMode,
   UNREAD_FILTER,
@@ -114,7 +115,28 @@ function initials(label: string): string {
  * agent's offer carries the performer it is FOR (audit A-24), so the inbox names
  * the act and credits the agency on the line beneath it.
  */
-function requesterName(request: RequestItem): string {
+/**
+ * WHOSE NAME HEADS THE CARD, and it depends on which way the reader is looking.
+ *
+ * This was written for the INBOX, where the recipient is the reader and the only interesting
+ * party is the act. The Outgoing tab reuses the same card, so every offer a performer had sent
+ * was headed **by that performer** — the reader themself — with the venue nowhere on it, under a
+ * tab whose subtitle is *"Offers and requests you have sent, and where they stand"* (QA sweep
+ * run 11). An agency with several venues in play could not tell two cards apart.
+ *
+ * The fallback chain is deliberate rather than defensive: `targetName` is null only if the
+ * profile is gone, and a card headed by the act is still better than one headed by a uuid.
+ */
+export function requesterName(request: RequestItem, direction: RequestDirection): string {
+  if (direction === "outgoing") {
+    return (
+      request.targetName ??
+      request.onBehalfOfName ??
+      request.artistName ??
+      request.contactName ??
+      "Unknown recipient"
+    );
+  }
   return request.onBehalfOfName ?? request.artistName ?? request.contactName ?? "Unknown requester";
 }
 
@@ -211,8 +233,12 @@ function useRequestClashes(
   return clashes;
 }
 
-function toCardData(request: RequestItem, clash?: string): RequestCardData {
-  const requester = requesterName(request);
+function toCardData(
+  request: RequestItem,
+  direction: RequestDirection,
+  clash?: string,
+): RequestCardData {
+  const requester = requesterName(request, direction);
   const meta = REQUEST_STATUS[request.status] ?? {
     status: "draft" as Status,
     label: request.status,
@@ -532,7 +558,12 @@ export function Requests() {
               onSelect={toggleDay}
               onNavigate={moveMonth}
             />
-            <RequestsByDate requests={requests} selectedDay={selectedDay} onSelectDay={selectDay} />
+            <RequestsByDate
+              requests={requests}
+              direction={direction}
+              selectedDay={selectedDay}
+              onSelectDay={selectDay}
+            />
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
@@ -626,7 +657,7 @@ export function Requests() {
                 visible.map((request) => (
                   <RequestCard
                     key={request.id}
-                    request={toCardData(request, clashes.get(request.id))}
+                    request={toCardData(request, direction, clashes.get(request.id))}
                     layout={view === "list" ? "row" : "card"}
                     expanded={expansion.isExpanded(expansionKey(request.id))}
                     onToggleExpanded={(id) => expansion.toggle(expansionKey(id))}
@@ -647,10 +678,13 @@ export function Requests() {
 /** Left-rail "Requests by date" list, grouped Earlier / Selected day / Later. */
 function RequestsByDate({
   requests,
+  direction,
   selectedDay,
   onSelectDay,
 }: {
   requests: RequestItem[];
+  /** Which way this list is reading — the calendar names the other party, same as the cards. */
+  direction: RequestDirection;
   selectedDay?: string;
   onSelectDay: (day: string) => void;
 }) {
@@ -731,7 +765,7 @@ function RequestsByDate({
                     {formatDay(request.wantedDate)}
                   </span>
                   <span style={{ color: "var(--text)", fontSize: 13 }}>
-                    {requesterName(request)}
+                    {requesterName(request, direction)}
                   </span>
                 </button>
               );

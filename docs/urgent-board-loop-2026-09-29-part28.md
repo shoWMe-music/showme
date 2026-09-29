@@ -284,3 +284,56 @@ over a list that had simply stopped filtering.
 
 The agent's own line — *"Answering for Marlo Vance"* — is the same expression's other branch and is
 verified by the payload above rather than by a second seat switch. Said plainly.
+
+---
+
+## 5. QA11-11 — an outgoing offer never says who it went to
+
+**Which files settle it:** `apps/api/src/routes/inbound.ts` (the name) and
+`apps/web/src/routes/Requests.tsx` (`requesterName` / `toCardData`).
+
+**What was measured.** `performer.a@` → Requests → **Outgoing**. Every card is headed **"Marlo
+Vance"** — the reader themself — and expands to WANTED DATE / SOURCE / FEE / EMAIL / MESSAGE. The
+venue it was sent to appears nowhere, under a tab whose own subtitle is *"Offers and requests you
+have sent, and where they stand."*
+
+**The verdict: the card names the act because it was written for the INBOX, and the outgoing tab
+reuses it whole.** `requesterName` is `onBehalfOfName ?? artistName ?? contactName` — the right
+answer for a venue reading its inbox and a tautology for a sender reading their own outbox. The API
+gives it nothing else to use: `targetProfileId` is a uuid, and no name comes with it.
+
+**The scope.** `GET /booking-requests` already joins `profiles` for `onBehalfOfName` and `stages`
+for `stageName`, both in one pass and both for exactly this reason — *"a second round trip per row
+would be absurd"*. A second aliased join on `profiles` for the target adds `targetName`, and the
+card's heading asks which direction it is reading.
+
+**The decision it hides: does naming the recipient disclose anything?** No — the sender chose them.
+`targetProfileId` is already in the payload; this only stops the screen from making the reader look
+it up. What stays scoped is the read receipt, which the route already withholds from a sender
+(*"whether a venue has opened your offer is the venue's business"*) and which is untouched.
+
+### What landed
+
+`targetName` joins in the same pass as `onBehalfOfName` and `stageName`, and the card asks which
+direction it is reading. Live, as `performer.a@` on the Outgoing tab — both cards, and the calendar
+beside them:
+
+```
+TH  The Lantern Hall          TH  The Lantern Hall        REQUESTS BY DATE
+    Pending                       Pending                   21 Nov 2026  The Lantern Hall
+    Marlo Vance · 7m ago          via Astra Booking · 7m    11 Dec 2026  The Lantern Hall
+```
+
+Every one of those read **"Marlo Vance"** before — the reader's own name, three times on one screen.
+The sub-line still says who sent it, which is the half that was always right.
+
+Three mutations killed, and the middle one needed the lesson from two items ago: dropping the JOIN
+fails an API test, but **the card's direction branch survived everything** — it is the fix, so
+`requesterName` is exported and tested directly, and the two mutations that matter (never asking the
+direction, and not preferring the target) now fail. Same move as `breakEvenKpi`, for the same
+reason.
+
+**Watch the fallback chain rather than the first branch:** `targetName` is null only if the profile
+was deleted, and a card headed by the act beats one headed by nothing — so the outgoing chain falls
+through to the incoming answer rather than to a blank. There is a test for that and one for the
+no-name-at-all case in both directions.

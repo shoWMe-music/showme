@@ -18726,6 +18726,10 @@
                           "targetProfileId": {
                             "type": "string"
                           },
+                          "targetName": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "senderProfileId": {
                             "type": "string",
                             "nullable": true
@@ -18828,6 +18832,7 @@
                           "source",
                           "status",
                           "targetProfileId",
+                          "targetName",
                           "senderProfileId",
                           "senderType",
                           "contactName",
@@ -18974,6 +18979,10 @@
                     "targetProfileId": {
                       "type": "string"
                     },
+                    "targetName": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "senderProfileId": {
                       "type": "string",
                       "nullable": true
@@ -19076,6 +19085,7 @@
                     "source",
                     "status",
                     "targetProfileId",
+                    "targetName",
                     "senderProfileId",
                     "senderType",
                     "contactName",
@@ -19263,6 +19273,10 @@
                     "targetProfileId": {
                       "type": "string"
                     },
+                    "targetName": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "senderProfileId": {
                       "type": "string",
                       "nullable": true
@@ -19365,6 +19379,7 @@
                     "source",
                     "status",
                     "targetProfileId",
+                    "targetName",
                     "senderProfileId",
                     "senderType",
                     "contactName",

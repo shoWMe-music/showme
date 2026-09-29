@@ -4,6 +4,7 @@ import { schema } from "@showme/db";
 import { notifyProfileMembers } from "@showme/db/notify";
 import { currencyForCountry, invitationExpiresAt } from "@showme/shared";
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -328,6 +329,17 @@ const BookingRequestResponse = z.object({
   source: z.string(),
   status: z.string(),
   targetProfileId: z.string(),
+  /**
+   * THE PROFILE IT WAS SENT TO, named — so an OUTGOING card can say who it went to.
+   *
+   * The inbox never needed it (the recipient is the reader), and the outgoing tab reuses the
+   * same card, so every offer a performer had sent was headed by the performer themself and the
+   * venue appeared nowhere (QA sweep run 11). Null only if the target profile is gone.
+   *
+   * Not a disclosure: the sender chose the recipient, and `targetProfileId` has always been in
+   * this payload. The read receipt stays withheld from a sender — see `readAt`.
+   */
+  targetName: z.string().nullable(),
   /*
    * WHO sent it. `senderProfileId` is null for a public-form request (no account).
    * `contactName` / `email` are the sender's business contact — the whole point of a booking
@@ -514,12 +526,15 @@ function serializeBookingRequest(
   /** The named room's display name, resolved by the caller for the same reason
    * `onBehalfOfName` is: this stays synchronous and free of I/O. */
   stageName: string | null = null,
+  /** The TARGET profile's display name, resolved by the caller for the same reason again. */
+  targetName: string | null = null,
 ): z.infer<typeof BookingRequestResponse> {
   return {
     id: row.id,
     source: row.source,
     status: row.status,
     targetProfileId: row.targetProfileId,
+    targetName,
     senderProfileId: row.senderProfileId,
     senderType: row.senderType,
     contactName: row.contactName,
@@ -1154,6 +1169,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
 
       // The represented performer's name comes along in the same query — the inbox
       // has to name the ACT, and a second round trip per row would be absurd.
+      const targetProfile = alias(schema.profiles, "target_profile");
       const rows = await database
         .select({
           request: schema.bookingRequests,
@@ -1161,6 +1177,10 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
           // And the room's name, in the same pass and for the same reason: the inbox
           // has to say "Big Room", and a uuid is not an answer (`123qy9rpqp0` §3).
           stageName: schema.stages.name,
+          // …and WHO IT WENT TO, third in the same pass, for the outgoing tab: every offer a
+          // performer had sent was headed by the performer themself, because the card was
+          // written for the inbox where the recipient is the reader (QA sweep run 11).
+          targetName: targetProfile.name,
         })
         .from(schema.bookingRequests)
         .leftJoin(
@@ -1168,6 +1188,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
           eq(schema.profiles.id, schema.bookingRequests.onBehalfOfProfileId),
         )
         .leftJoin(schema.stages, eq(schema.stages.id, schema.bookingRequests.stageId))
+        .leftJoin(targetProfile, eq(targetProfile.id, schema.bookingRequests.targetProfileId))
         .where(
           and(
             scope,
@@ -1191,6 +1212,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
             row.onBehalfOfName,
             direction === "incoming",
             row.stageName,
+            row.targetName,
           ),
         ),
         nextCursor,
@@ -1327,6 +1349,12 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
       return serializeBookingRequest(
         updated,
         await profileDisplayName(database, updated.onBehalfOfProfileId),
+        // The caller is triaging their OWN inbox, so they are the recipient and the read state
+        // is theirs. `targetName` is filled anyway rather than left null: a declared field that
+        // is null on one route and a name on another is a field a client has to guess about.
+        true,
+        null,
+        await profileDisplayName(database, updated.targetProfileId),
       );
     },
   );

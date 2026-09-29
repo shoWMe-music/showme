@@ -11,6 +11,8 @@ export type PostApiV1Offers201 = {
   status: string;
   targetProfileId: string;
   /** @nullable */
+  targetName: string | null;
+  /** @nullable */
   senderProfileId: string | null;
   /** @nullable */
   senderType: string | null;

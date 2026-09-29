@@ -579,6 +579,15 @@ describe("inbound — an agent offers on behalf of the act it represents (decisi
     });
     const sent = outgoing.json().items.find((item: { id: string }) => item.id === offer.id);
     expect(sent.onBehalfOfName).toBe(profileName("ob-perf"));
+    /*
+     * AND WHO IT WENT TO (QA sweep run 11). The card is the inbox's, where the recipient is the
+     * reader and naming them would be noise — so the Outgoing tab headed every offer with the
+     * SENDER's own act and the venue appeared nowhere. An agency with several venues in play
+     * could not tell two cards apart.
+     */
+    expect(sent.targetName).toBe(profileName("ob-tgt"));
+    // The incoming row carries it too and is simply not read there: one shape, both directions.
+    expect(listed.targetName).toBe(profileName("ob-tgt"));
   });
 
   /**
