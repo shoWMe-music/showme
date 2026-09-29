@@ -1624,6 +1624,29 @@ returns null for a non-performer payee, so the planner shows no cost and disagre
 settlement by the fee) is now un-blocked and owed: the payer bears it, so the planner shows the cost
 against the payer.
 
+##### OPEN, and it came out of BUILDING this: does a PERCENTAGE deal's named payer bear it?
+
+**Built as ruled for a stated sum — `structure = 'guarantee'` — and deliberately NOT for a
+`door_split` or a `guarantee_vs_door`.** All three measurements behind §25.9.6 are a stated sum (a
+SEK 4,000 crew fee, a SEK 1,000 guarantee, a SEK 2,500 crew fee), where "the signer owes it" is
+plainly right. A percentage deal is a different animal and the arithmetic says so:
+
+> On a co-promotion splitting the residual 70/30, moving a **50% door split** onto its named payer
+> takes the host from 0.35 of the pool to 0.20 and the co-host from 0.15 to **0.30** — the co-host
+> **doubles its take and contributes nothing to the talent it is co-promoting.**
+
+A door split's payee is entitled to *a share of the pool*, so "charge the payer and leave the pool
+alone" is close to self-contradictory; on such a deal the `payer` role reads as *"the operator who
+booked them"* rather than as somebody who owes a sum. And `guarantee_vs_door` is worse than
+ambiguous: it is a stated sum on the nights the guarantee wins and a share of the pool on the nights
+the door does, so the same agreement would change who bears it according to ticket sales — not a
+rule anybody could explain to the party reading it.
+
+**Both answers are defensible and the difference is large on every co-promoted event**, so it is not
+mine to take as a side effect of §25.9.6 — the same reason §25.7.1 gave for leaving #24.1 alone.
+The predicate carries the argument beside it (`dealBorneBy`'s `statedSumOnly`). Until it is
+answered, a percentage deal settles exactly as it always has.
+
 #### 25.9.7 A SIGNATURE CLEARS when the figures it signed change
 
 **Ruling:** *the recommendation.* Clear the signature and ask again, matching the deal side, whose
