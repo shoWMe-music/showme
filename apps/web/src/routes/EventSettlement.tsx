@@ -901,9 +901,14 @@ function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
         {/*
           THE DENOMINATOR IS WHO IS BEING WAITED ON, not who is on the roster. It counted every
           party, crew included — and crew cannot sign their own settlement, so "0/6" could never
-          reach 6/6 (QA sweep run 12). Derived from each party's floor rather than written down,
-          because whether crew sign at all is still an open ruling (decisions §25.6): this reads
-          5/5 today and 6/6 the moment that answer changes, untouched either way.
+          reach 6/6 (QA sweep run 12).
+ 
+          AND IT IS A STANDING FACT, which took a second pass. Asking each party's FLOOR alone
+          missed a grant — an `agent` preset carries `settlement.confirm` so the agency can sign for
+          its act (#14) — so that party read "Not required", signed anyway, and this badge went
+          **0/4 → 1/5** under the operator watching it (QA sweep run 13). The API now asks the floor
+          UNION the band, so the number is the same before and after any signature. Derived and not
+          written down, because whether crew sign at all is still an open ruling (decisions §25.6).
         */}
         <Badge
           status={

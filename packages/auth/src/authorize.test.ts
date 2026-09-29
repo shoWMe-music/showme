@@ -210,6 +210,37 @@ describe("performance_report.file — only the managing operator files", () => {
  * on the EVENT, because that capability is also what `POST /events/:id/hold/confirm`
  * gates on — whether the show happens is the act's call, never the sound engineer's.
  */
+describe("settlement.confirm sits under no ceiling — which a second reader relies on", () => {
+  it("is grantable to EVERY event role, so a preset can carry it to any party", () => {
+    /*
+     * PINNING AN ASSUMPTION THAT IS LOAD-BEARING SOMEWHERE ELSE (QA sweep run 13).
+     *
+     * `routes/settlement.ts`'s approval roster derives "is a signature expected from this party"
+     * as `floor(role) ∪ (granted ∩ grantable)` — the same union `effectiveEventCapabilities`
+     * builds, kept identical deliberately, because a rule written twice will otherwise disagree
+     * with itself. The `isGrantable` half of it is a no-op TODAY: `settlement.confirm` is in none
+     * of the three ceiling sets, so the call is constant `true` and a mutation deleting it
+     * survives every test in that file.
+     *
+     * It is kept rather than deleted, and this is what makes that honest: if the capability is
+     * ever added to `POOL_CAPABILITIES` (or to either artistic/filing set), THIS test fails and
+     * names the roster as the second place to look — instead of the roster silently claiming a
+     * signature from a party who could never have been granted one.
+     */
+    for (const role of [
+      "host",
+      "co_host",
+      "performer",
+      "support",
+      "crew_lead",
+      "crew",
+      "agent",
+    ] as const) {
+      expect(isGrantable("settlement.confirm", role), `role ${role}`).toBe(true);
+    }
+  });
+});
+
 describe("the deal-scoped confirm — crew sign the agreement that is with them", () => {
   it("stays out of the crew floor and out of every crew preset (event scope unchanged)", () => {
     expect(baselineCapabilities("crew")).not.toContain("agreement.confirm");

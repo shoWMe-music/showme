@@ -140,5 +140,208 @@ new clause did not quietly replace the old one.
 `npx biome check .` 748 files clean · web **605 passed** (up from 602) · `tsc --noEmit` clean.
 No API change, so no `sync-spec`, no regeneration, no API restart.
 
-**Committed as `TBD` — see below.**
+**Committed as `1fdecf2`.**
+
+---
+
+## 2. Run 13 MINOR (292) — the approval badge's denominator moves, 0/4 → 1/5
+
+> The host's roster reads **0/4** with *"Not required"* on Astra Booking Agency. The agency signs
+> its own line (`POST …/confirm` → 200). The host re-reads: **1/5**, the agency now *"Signed off"*.
+> And before the signature, **4/4 read as "everyone has signed"** while a party that can and may
+> sign had not.
+
+**This is my own incomplete fix from `2e77e65`.** Not a regression on somebody else's code.
+
+### Which file settles it
+
+`apps/api/src/routes/settlement.ts:2126` — the one line that derives the expectation:
+
+```ts
+floorMaySign.set(row.id, baselineCapabilities(row.role as EventRole).includes("settlement.confirm"));
+…
+signatureExpected: (floorMaySign.get(participantId) ?? false) || approved,
+```
+
+### The verdict — the FLOOR is the wrong question, and `|| approved` was covering for that
+
+`signatureExpected`'s own docstring already admits the gap and then patches it instead of closing
+it:
+
+> *"`settlement.confirm` IS grantable to crew (`isGrantable` — it is not a pool capability), so an
+> operator can hand it to one crew member through a permission set, **which the floor cannot see**.
+> Counting an existing signature as its own proof absorbs that case."*
+
+Absorbing it is what makes the number move: the answer becomes **retroactive**, deciding itself
+from the party's own action rather than from a standing fact. **One field answering two
+questions** — "is this line waiting on somebody" and "has somebody already proved they could sign
+it" — and the second silently rewrites the first.
+
+**Measured in the seed, and the floor is wrong about the agency for exactly that reason:**
+
+```
+role       party                  preset                        grants settlement.confirm
+host       The Lantern Hall       Operator — full               t
+co_host    Northlight Presents    Operator — full               t
+performer  Marlo Vance            Performer — own slice         t
+performer  Neon Tide              Performer — own slice         t
+crew       Priya Sound            Crew — schedule only          f
+agent      Astra Booking Agency   Agent — represents performer  t   ← the floor cannot see this
+```
+
+The agency's preset grants `settlement.confirm` — that is **how an agency signs for its act**
+(decisions #14, §25.7.3), and a permission set is attached to a PARTICIPATION, so it inevitably
+also reaches the agency's own line. So `/settlements/awaiting-signature` offers that line
+correctly (it asks `effectiveEventCapabilitiesForEvents`, which unions floor and band), the
+confirm route accepts it correctly, and only the roster — asking the floor alone — calls it
+"Not required". **Three surfaces, two different questions.** Fifth instance of *a ruling
+implemented on one of its two surfaces*.
+
+### The scope — ask the band as well as the floor, so the answer is a STANDING fact
+
+`packages/auth/src/authorize.ts:144-158` is the algebra to mirror:
+
+```
+effective = floor(role, delegated) ∪ { c ∈ roleFilter(granted, profileRole) : isGrantable(c, role) }
+```
+
+The roster cannot ask `roleFilter`, and its docstring is right about why: `profileRole` belongs to
+a MEMBER, so a party with three members has no single answer. But the **upper bound** is well
+defined and is the right question here — `roleFilter` returns the full set for `owner` and
+`admin` (`presets.ts:216`), and **every profile has an owner**. So "could a signature arrive from
+this party at all" is:
+
+```ts
+baselineCapabilities(role).includes("settlement.confirm") ||
+  (granted.includes("settlement.confirm") && isGrantable("settlement.confirm", role))
+```
+
+`delegated` stays out of `baselineCapabilities`, unchanged and for its recorded reason: delegation
+moves WHO signs, not WHETHER a signature is expected.
+
+Under this, the seeded night reads **0/5 → 1/5**. The denominator never moves, and 4/4 can no
+longer claim everyone has signed while the agency has not.
+
+### `|| approved` stays, and its ROLE INVERTS
+
+It stops being the patch that causes the movement and becomes the stabiliser against the one case
+the union genuinely cannot predict: an operator **revoking** the grant after a signature, which
+would otherwise drop the denominator below the numerator. That case is reachable, so it gets a
+test of its own rather than a comment — a branch nothing can reach is not a safeguard.
+
+### The decision it hides — recorded, NOT a new §25.6 row
+
+Should an `agent`'s own participation line be offered for signature at all, given #14 says its own
+line is entitled to nothing? It is a zero line and signing it harms nobody, the offer is a
+consequence of a preset that exists for a different and correct reason, and narrowing it would be
+a product change on a shipped surface. Noted for Daniel in passing; not raised as a sixth open row,
+because the reported defect is fixed either way and a row nobody needs dilutes the five that are live.
+
+### Built
+
+`apps/api/src/routes/settlement.ts` — the derivation now left-joins the participation's permission
+set and asks both halves:
+
+```ts
+const maySign = new Map<string, boolean>();
+for (const row of participantRoles) {
+  const role = row.role as EventRole;
+  const granted = (row.granted ?? []) as Capability[];
+  maySign.set(
+    row.id,
+    baselineCapabilities(role).includes("settlement.confirm") ||
+      (granted.includes("settlement.confirm") && isGrantable("settlement.confirm", role)),
+  );
+}
+```
+
+`signatureExpected` keeps its name, type and schema, so **no `sync-spec` and no regeneration**.
+
+**Three comments were stating the superseded rule and are corrected**, since a comment that states
+a rule is a test that never runs and this fix falsified all three at once:
+
+- `settlement.ts`'s own paragraph *"So the expectation follows the ROLE alone. An `agent`
+  participation is still not expected…"* — true about the floor, false about the agency.
+- `EventSettlement.tsx`'s badge note *"Derived from each party's floor … this reads 5/5 today"*.
+- `useEventSettlement.ts`'s *"`signatureExpected` already absorbs a party who has signed"*.
+
+### Proved on the running stack — at exactly the reported moment
+
+The agency's approval row was deleted, the host's roster read, the agency re-signed through the
+API, the roster read again. API restarted first (it does not hot-reload).
+
+| | Badge | Astra Booking Agency | Priya Sound |
+| --- | --- | --- | --- |
+| before the signature | **0/5** | Pending | Not required |
+| after the signature | **1/5** | Signed off | Not required |
+
+Previously this was **0/4 → 1/5**. The denominator is now the same number on both sides, and
+`4/4` can no longer claim everyone has signed while the agency has not. Priya keeps "Not required"
+— the run 12 fix is intact, because her crew preset genuinely does not grant it.
+
+Read the same way in the browser, on the Settlement sub-tab the report screenshotted:
+
+```
+Approval Status  0/5
+The Lantern Hall (you)   Operator      Pending   [Approve]
+Marlo Vance              Performer     Pending
+Neon Tide                Performer     Pending
+Priya Sound              Crew          Not required
+Northlight Presents      Co-operator   Pending
+Astra Booking Agency     Agent         Pending        ← was "Not required"
+```
+
+The seed is back to the state run 13 left it in (the agency signed).
+
+### Mutations — five, four killed, and the survivor is the interesting one
+
+| Mutation | Result |
+| --- | --- |
+| floor only — drop the band (the original defect) | 2 failed |
+| band only — drop the floor | 1 failed |
+| **drop the `isGrantable` ceiling** | **SURVIVED** |
+| drop `|| approved` (the revocation stabiliser) | 1 failed |
+| always expected | 2 failed |
+
+**The survivor is REDUNDANCY, not a gap — and this time the line stays.** `settlement.confirm` is
+in none of the three ceiling sets (`POOL_CAPABILITIES`, the performer-authored set, the
+operator-filing set), so `isGrantable("settlement.confirm", role)` is constant `true` for every
+role and nothing can currently distinguish its presence.
+
+The four previous survivors of this shape were deleted. This one is kept, because it is the second
+copy of `effectiveEventCapabilities`'s union and keeping the two copies *identical* is what stops
+them disagreeing — dropping the ceiling here would have the roster claim a signature from a party
+who could never be granted one, the moment that set changes.
+
+What makes keeping it honest rather than decorative: the assumption is now **executable**, in
+`packages/auth/src/authorize.test.ts` —
+
+```
+settlement.confirm sits under no ceiling — which a second reader relies on
+  ✓ is grantable to EVERY event role, so a preset can carry it to any party
+```
+
+Verified it can fail: adding `settlement.confirm` to `POOL_CAPABILITIES` fails **that test and
+only that test** (1 failed | 36 passed), and its body names the roster as the second place to
+look. Restored.
+
+### Tests
+
+`settlement-own-read.test.ts` 15 → **17**:
+
+- the granted-party test was retitled and **reads the roster BEFORE the signature**, which is the
+  whole defect — the old version read it only afterwards and so could not tell "counted because
+  they CAN" from "counted because they DID". It now asserts the denominator is the same number on
+  both sides, and that before the signature `approved < expected` (the thing "4/4" claimed).
+- **the agency case, with its control**: an `agent` participation whose preset grants the
+  capability is expected; one with no grant is not. Neither has signed, so nothing there can be
+  `|| approved` answering for the band.
+- **the revocation case**, for `|| approved` — a branch nothing can reach is not a safeguard.
+
+`authorize.test.ts` 36 → 37.
+
+### Suites
+
+`npx biome check .` 748 clean · web **605** · API `settlement-own-read` + `settlement` **141
+passed** · auth **37** · `tsc --noEmit` clean on api and web.
 

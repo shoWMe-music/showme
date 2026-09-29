@@ -4,6 +4,7 @@ import {
   NON_STANDING_PARTICIPANT_STATUSES,
   baselineCapabilities,
   effectiveEventCapabilitiesForEvents,
+  isGrantable,
   liveEventDelegations,
   liveEventDelegationsForEvents,
 } from "@showme/auth";
@@ -30,7 +31,12 @@ import {
   reconcile,
   serializeLadder,
 } from "@showme/settlement";
-import { convertMinorUnits, isTicketRevenueBasis, operatesTheEvent } from "@showme/shared";
+import {
+  type Capability,
+  convertMinorUnits,
+  isTicketRevenueBasis,
+  operatesTheEvent,
+} from "@showme/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, notInArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
@@ -201,14 +207,27 @@ const ApprovalResponse = z.object({
    * sign off their own figures at all). Hard-coding 5 or 6 would pre-empt the ruling; reading the
    * floor means the counter is right today and still right afterwards without being touched.
    *
-   * Two clauses, and the second is the one that keeps it safe. "Does this party HOLD
-   * `settlement.confirm`" is not a well-defined question — the band is
-   * `roleFilter(permissionSet.capabilities, profileRole)` and `profileRole` belongs to a MEMBER of
-   * the profile, so a party with three members holding three profile roles has no single answer.
-   * The FLOOR is well defined. But `settlement.confirm` IS grantable to crew (`isGrantable` — it is
-   * not a pool capability), so an operator can hand it to one crew member through a permission set,
-   * which the floor cannot see. Counting an existing signature as its own proof absorbs that case:
-   * without it, such a party signing would read 6/5, which is worse than the bug.
+   * A STANDING FACT, and it took two goes to become one. The first version asked the FLOOR alone,
+   * and the floor cannot see a grant: `settlement.confirm` is grantable (`isGrantable` — it is not
+   * a pool capability), so an `agent` preset carries it in order to sign for its ACT (#14), and a
+   * crew member can be handed it through a permission set. Those parties read "Not required" and
+   * then signed anyway, so the answer rewrote itself from their own action — the host watched
+   * **0/4 become 1/5**, and before it moved, 4/4 claimed everyone had signed while a party that
+   * could and may sign had not (QA sweep run 13).
+   *
+   * So the question is asked of the floor AND the band, which is the same union
+   * `authorize.ts::effectiveEventCapabilities` builds and the same one
+   * `GET /settlements/awaiting-signature` already asked — the roster was the odd surface out.
+   *
+   * The band is asked at its UPPER BOUND, not through `roleFilter`. "Does this party hold
+   * `settlement.confirm`" has no single answer — `profileRole` belongs to a MEMBER, so a party
+   * with three members holding three profile roles has three answers — but "could a signature
+   * arrive from this party at all" does, because `roleFilter` returns the full set for `owner` and
+   * `admin` and every profile has an owner. That is the question the roster is asking.
+   *
+   * `|| approved` remains, and its job has INVERTED: it used to be the patch that made the
+   * denominator move, and it is now the only thing that stops it. An operator revoking the grant
+   * after a signature would otherwise drop the denominator below the numerator and read 1/0.
    */
   signatureExpected: z.boolean(),
 });
@@ -2101,8 +2120,15 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           id: schema.eventParticipants.id,
           role: schema.eventParticipants.role,
           profileId: schema.eventParticipants.profileId,
+          // The BAND the participation grants — left-joined because a participation may carry no
+          // permission set at all, which is the floor-only case and by far the commonest.
+          granted: schema.permissionSets.capabilities,
         })
         .from(schema.eventParticipants)
+        .leftJoin(
+          schema.permissionSets,
+          eq(schema.permissionSets.id, schema.eventParticipants.permissionSetId),
+        )
         .where(eq(schema.eventParticipants.eventId, id));
       /*
        * DELEGATION MOVES WHO SIGNS, NOT WHETHER A SIGNATURE IS EXPECTED — so it is deliberately
@@ -2115,15 +2141,25 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
        * exactly that. The roster asks "is this line waiting on somebody", not "can this party sign
        * it themselves"; the second question is `signableByYou` and it is about the reader.
        *
-       * So the expectation follows the ROLE alone. An `agent` participation is still not expected:
-       * its floor is `event.view` and its own line is entitled to nothing (#14 — the agent's cut is
-       * a separate representation-scoped settlement).
+       * THE ROLE ALONE IS NOT ENOUGH, AND THIS PARAGRAPH USED TO SAY IT WAS — *"an `agent`
+       * participation is still not expected: its floor is `event.view` and its own line is entitled
+       * to nothing"*. True about the floor, false about the agency, and the roster printed
+       * "Not required" over a party holding the Approve button (QA sweep run 13).
+       *
+       * An `agent` preset grants `settlement.confirm` so the agency can sign for its ACT (#14,
+       * §25.7.3), and a permission set attaches to a PARTICIPATION, so it reaches the agency's own
+       * line too. `GET /settlements/awaiting-signature` therefore offers that line and the confirm
+       * route accepts it — both by asking the floor UNION the band, which is what this now asks.
+       * The band at its upper bound, for the reason `ApprovalResponse.signatureExpected` gives.
        */
-      const floorMaySign = new Map<string, boolean>();
+      const maySign = new Map<string, boolean>();
       for (const row of participantRoles) {
-        floorMaySign.set(
+        const role = row.role as EventRole;
+        const granted = (row.granted ?? []) as Capability[];
+        maySign.set(
           row.id,
-          baselineCapabilities(row.role as EventRole).includes("settlement.confirm"),
+          baselineCapabilities(role).includes("settlement.confirm") ||
+            (granted.includes("settlement.confirm") && isGrantable("settlement.confirm", role)),
         );
       }
 
@@ -2259,8 +2295,9 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             participantId,
             approved,
             approvedAt: signed?.approvedAt?.toISOString() ?? null,
-            // Or they have already given one, which proves they could — see the field's own note.
-            signatureExpected: (floorMaySign.get(participantId) ?? false) || approved,
+            // Or they have already given one — which, now that the expectation is a standing
+            // fact, only matters if the grant behind it was revoked afterwards. See the field.
+            signatureExpected: (maySign.get(participantId) ?? false) || approved,
           };
         }),
       };

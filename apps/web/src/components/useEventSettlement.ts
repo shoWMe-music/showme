@@ -1225,8 +1225,13 @@ export function useEventSettlement(
     approvedCount: approvals.filter((approval) => approval.approved).length,
     /**
      * The DENOMINATOR — parties a signature is actually expected from, not every party on the
-     * roster. `signatureExpected` already absorbs a party who has signed, so this can never be
-     * smaller than `approvedCount` and the ratio can never read above 1.
+     * roster.
+     *
+     * A STANDING NUMBER: the API derives `signatureExpected` from each party's floor UNION the band
+     * their permission set grants, so it does not change when somebody signs. It used to be the
+     * floor alone plus "or has already signed", which made this move 4 → 5 under the reader (QA
+     * sweep run 13). The clause survives only for a grant REVOKED after a signature, which is also
+     * what keeps this from falling below `approvedCount`.
      */
     expectedApprovalCount: approvals.filter((approval) => approval.signatureExpected).length,
     delivery: (settlements.data?.delivery ?? []).map((row) => ({

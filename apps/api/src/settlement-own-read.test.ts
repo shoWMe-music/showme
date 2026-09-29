@@ -572,12 +572,20 @@ describe("the approval roster counts who is being WAITED ON", () => {
     expect(actRow?.signatureExpected).toBe(true);
   });
 
-  it("expects a signature from a party who has ALREADY GIVEN ONE, whatever their floor says", async () => {
+  it("expects a GRANTED party's signature BEFORE they give it, so the denominator cannot move", async () => {
     /*
-     * `settlement.confirm` is GRANTABLE to crew (`isGrantable` — it is not a pool capability), so
-     * an operator can hand it to one crew member through a permission set, which the floor cannot
-     * see. Without the "or has already signed" clause that signature would read 6/5 — a ratio above
-     * one, which is worse than the bug this closes.
+     * QA sweep run 13. `settlement.confirm` is GRANTABLE (`isGrantable` — it is not a pool
+     * capability), so an operator can hand it to a crew member through a permission set and an
+     * `agent` preset carries it outright in order to sign for its act (#14). The floor cannot see
+     * either. The roster used to ask the floor ALONE and then count an existing signature as its
+     * own proof — so the party read "Not required", signed anyway, and the host watched **0/4
+     * become 1/5**. Worse, before it moved, 4/4 claimed everyone had signed while a party that
+     * could and may sign had not.
+     *
+     * THE READ BEFORE THE SIGNATURE IS THE WHOLE TEST. The previous version read the roster only
+     * afterwards, so it could not tell "counted because they CAN" from "counted because they DID" —
+     * which is exactly the defect. The assertion that matters is that the denominator is the same
+     * number on both sides of the signature.
      */
     const host = await seedOperator("granted-host", "Host", PRESET_PERMISSION_SETS.operator_full);
     const coHost = await seedOperator("granted-co", "Co-promoter", []);
@@ -621,6 +629,26 @@ describe("the approval roster counts who is being WAITED ON", () => {
     // The grant reaches them, which is what makes this case real rather than hypothetical.
     expect(crewOwn[0]?.signableByYou).toBe(true);
 
+    // BEFORE — the grant is visible to the roster, so the crew line is already waited on.
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/settlements`,
+      headers: auth(host.userId),
+    });
+    const beforeApprovals = before.json().approvals as {
+      participantId: string;
+      approved: boolean;
+      signatureExpected: boolean;
+    }[];
+    const crewBefore = beforeApprovals.find((row) => row.participantId === crewPart.id);
+    expect(crewBefore?.approved, "not signed yet").toBe(false);
+    expect(crewBefore?.signatureExpected, "expected from the grant, not from the signature").toBe(
+      true,
+    );
+    const denominatorBefore = beforeApprovals.filter((row) => row.signatureExpected).length;
+    // And it is NOT already satisfied — the thing "4/4" wrongly claimed.
+    expect(beforeApprovals.filter((row) => row.approved).length).toBeLessThan(denominatorBefore);
+
     const signed = await app.inject({
       method: "POST",
       url: `/api/v1/events/${event.id}/settlements/${crewOwn[0]?.id}/confirm`,
@@ -640,13 +668,168 @@ describe("the approval roster counts who is being WAITED ON", () => {
     }[];
     const crewRow = approvals.find((row) => row.participantId === crewPart.id);
     expect(crewRow?.approved).toBe(true);
-    // Counted, because the signature is its own proof they could give it.
     expect(crewRow?.signatureExpected).toBe(true);
 
-    // THE INVARIANT the clause exists for: the ratio can never read above one.
+    // THE ASSERTION THE REPORT IS ABOUT: the goal did not move under the host.
     const approved = approvals.filter((row) => row.approved).length;
     const expected = approvals.filter((row) => row.signatureExpected).length;
+    expect(expected, "the denominator is a standing fact").toBe(denominatorBefore);
+    // And the ratio still cannot read above one.
     expect(approved).toBeLessThanOrEqual(expected);
+  });
+
+  it("expects the AGENCY's line, whose preset carries the capability its floor does not", async () => {
+    /*
+     * THE PARTY THE REPORT WAS ACTUALLY ABOUT (QA sweep run 13). Measured in the seed: the
+     * "Agent — represents performer" preset grants `settlement.confirm`, because that is how an
+     * agency signs for its ACT (#14, §25.7.3) — and a permission set attaches to a PARTICIPATION,
+     * so it reaches the agency's own line too. The floor is `event.view` and sees none of it, so
+     * the roster printed "Not required" over a party holding the Approve button.
+     *
+     * Paired with its own control, because a guard with two sources needs one test per source: an
+     * `agent` participation with NO grant is still not expected, so the true above is the BAND and
+     * not the role having been quietly added to the floor.
+     */
+    const host = await seedOperator("agency-host", "Host", PRESET_PERMISSION_SETS.operator_full);
+    const coHost = await seedOperator("agency-co", "Co-promoter", []);
+    const withGrant = await seedOperator("agency-a", "Astra Booking", []);
+    const without = await seedOperator("agency-b", "Bare Booking", []);
+    const { event } = await seedNightFor(host, coHost, "accepted");
+
+    const [set] = await harness.db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: host.profileId,
+        name: "agent — represents performer",
+        capabilities: ["event.view", "deal.edit", "agreement.manage", "settlement.confirm"],
+      })
+      .returning();
+    const agents = await harness.db
+      .insert(schema.eventParticipants)
+      .values([
+        {
+          eventId: event.id,
+          profileId: withGrant.profileId,
+          role: "agent",
+          permissionSetId: set?.id ?? null,
+          status: "confirmed",
+        },
+        {
+          eventId: event.id,
+          profileId: without.profileId,
+          role: "agent",
+          permissionSetId: null,
+          status: "confirmed",
+        },
+      ])
+      .returning();
+    const [granted, bare] = agents;
+    if (!granted || !bare) throw new Error("agent participant seed failed");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/settlements`,
+      headers: auth(host.userId),
+    });
+    const approvals = read.json().approvals as {
+      participantId: string;
+      approved: boolean;
+      signatureExpected: boolean;
+    }[];
+
+    // Neither has signed, so nothing here can be the `|| approved` clause answering for the band.
+    for (const row of approvals)
+      expect(row.approved, `participant ${row.participantId}`).toBe(false);
+    expect(
+      approvals.find((row) => row.participantId === granted.id)?.signatureExpected,
+      "the agency whose preset grants it",
+    ).toBe(true);
+    expect(
+      approvals.find((row) => row.participantId === bare.id)?.signatureExpected,
+      "THE CONTROL: an agent participation with no grant — its floor is `event.view`",
+    ).toBe(false);
+  });
+
+  it("keeps counting a signature whose grant was REVOKED afterwards — the `|| approved` clause", async () => {
+    /*
+     * The one case the union genuinely cannot predict, and the only remaining reason that clause
+     * exists. Its job has inverted: it used to be the patch that MADE the denominator move, and it
+     * is now the only thing that stops it — an operator editing the permission set after a
+     * signature would otherwise drop the denominator below the numerator and read 1/0.
+     *
+     * Tested rather than asserted in a comment, because a branch nothing can reach is not a
+     * safeguard.
+     */
+    const host = await seedOperator("revoked-host", "Host", PRESET_PERMISSION_SETS.operator_full);
+    const coHost = await seedOperator("revoked-co", "Co-promoter", []);
+    const crew = await seedCrew("revoked-crew", "Priya Sound");
+    const { event } = await seedNightFor(host, coHost, "accepted");
+
+    const [set] = await harness.db
+      .insert(schema.permissionSets)
+      .values({
+        profileId: host.profileId,
+        name: "crew, may sign for now",
+        capabilities: ["event.view", "settlement.view.own", "settlement.confirm"],
+      })
+      .returning();
+    const [crewPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: crew.profileId,
+        role: "crew",
+        permissionSetId: set?.id ?? null,
+        status: "confirmed",
+      })
+      .returning();
+    if (!crewPart || !set) throw new Error("crew participant seed failed");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+    const own = await app.inject({
+      method: "GET",
+      url: "/api/v1/settlements",
+      headers: auth(crew.userId),
+    });
+    const ownRows = own.json().items as { id: string }[];
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlements/${ownRows[0]?.id}/confirm`,
+      headers: auth(crew.userId),
+    });
+    expect(confirmed.statusCode).toBe(200);
+
+    // The operator takes the capability back — the signature already given stays given.
+    await harness.db
+      .update(schema.permissionSets)
+      .set({ capabilities: ["event.view", "settlement.view.own"] })
+      .where(eq(schema.permissionSets.id, set.id));
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/settlements`,
+      headers: auth(host.userId),
+    });
+    const approvals = read.json().approvals as {
+      participantId: string;
+      approved: boolean;
+      signatureExpected: boolean;
+    }[];
+    const crewRow = approvals.find((row) => row.participantId === crewPart.id);
+    expect(crewRow?.approved, "the signature survives the revocation").toBe(true);
+    expect(crewRow?.signatureExpected, "and so does its place in the denominator").toBe(true);
+    expect(approvals.filter((row) => row.approved).length).toBeLessThanOrEqual(
+      approvals.filter((row) => row.signatureExpected).length,
+    );
   });
 });
 
