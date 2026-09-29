@@ -2641,10 +2641,17 @@ describe("events — a change to a booked night is a question", () => {
           .where(eq(schema.eventMessages.eventId, event.id))
       ).map((row) => row.body);
 
-    // The ASK is in the thread, with both values — a conversation that only
-    // records the outcome reads "can we move it?" / "sure" six months later.
+    /*
+     * The ASK is in the thread, with both values — a conversation that only records the outcome
+     * reads "can we move it?" / "sure" six months later.
+     *
+     * IN THE READER'S DATE SHAPE, and these assertions used to pin the stored one. A change notice
+     * is prose a person reads in the event room, so `2026-09-12` was the same defect QA sweep run 13
+     * reported on a notification, held in place here by a passing test
+     * (`@showme/shared::formatCalendarDay`).
+     */
     expect(await bodies()).toEqual([
-      "Asked to change the date from 2026-09-12 to 2026-09-19. Waiting on the other side to confirm.",
+      "Asked to change the date from 12 Sep 2026 to 19 Sep 2026. Waiting on the other side to confirm.",
     ]);
 
     const crid = (
@@ -2663,9 +2670,11 @@ describe("events — a change to a booked night is a question", () => {
 
     // And the ANSWER, carrying the reason.
     expect(await bodies()).toEqual([
-      "Asked to change the date from 2026-09-12 to 2026-09-19. Waiting on the other side to confirm.",
-      "Declined the change to the date from 2026-09-12 to 2026-09-19. Reason: We fly out that morning",
+      "Asked to change the date from 12 Sep 2026 to 19 Sep 2026. Waiting on the other side to confirm.",
+      "Declined the change to the date from 12 Sep 2026 to 19 Sep 2026. Reason: We fly out that morning",
     ]);
+    // No stored date shape survives into either half.
+    for (const body of await bodies()) expect(body).not.toMatch(/\d{4}-\d{2}-\d{2}/);
 
     // The event room, not a private thread: a night moving is not a matter
     // between two parties — the crew's call time depends on it.

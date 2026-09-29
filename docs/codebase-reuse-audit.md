@@ -622,3 +622,27 @@ cached reads, and the shape of the fix is known.
 `SEEDED_TICKET_SHARE` (0.8) had exactly one reader — a budget seed row that guessed a head count.
 When the guess went (QA6-11), the constant had no callers at all and went with it. Nothing in the
 codebase pointed at it; the sweep did, by measuring what the guess did on a second ledger.
+
+## Nine copies of `initials()` — left alone on purpose (2026-09-30)
+
+Ten files derive an avatar's letters from a name: `routes/Team.tsx` (now
+`routes/teamLabels.ts`), `shell/AppShell.tsx`, `components/useEventMessageThreads.ts`,
+`components/PerformerSearch.tsx`, `components/settlementDocument.ts`, `components/ProfileFace.tsx`,
+`components/ProfilePublicPreview.tsx`, `routes/Requests.tsx`, `routes/Contacts.tsx`,
+`routes/Profiles.tsx`.
+
+Well past the three-call-site bar, and **still not consolidated**, for two reasons:
+
+1. **They do not all answer the same question.** Team's takes a composed LABEL that may fall back to
+   an email local-part or a role name; `ProfileFace` takes a profile name; `settlementDocument`'s
+   feeds a document, not a chip. A single function would need every caller's fallback chain, which
+   is how one screen's rule quietly becomes another's.
+2. **The risk lands on surfaces a sweep has just verified.** Ten call sites changed at once, each an
+   avatar on a screen run 13 walked, is a large blast radius for a cosmetic gain.
+
+What WAS done (`f0abd70`+, QA sweep run 13's `T(`/`PE` finding): the Team screen's three label
+decisions moved into `routes/teamLabels.ts` with tests, so there is now one tested reference for the
+parenthetical rule — `users.name` really does store `Priya Sound (FOH engineer)`. **A consolidation
+should start from that module**, and should check each caller's fallback chain against its own
+tests before adopting it. `users.initials` exists as a column and is read by nothing, which is a
+third option nobody has costed (see run 13's NOTE on `users.date_format`).

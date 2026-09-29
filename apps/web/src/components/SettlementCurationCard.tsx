@@ -47,10 +47,22 @@ export function SettlementCurationCard({ eventId }: { eventId: string }) {
             Without the basis the title grew to the full row and pushed the chips
             onto a line of their own, which is not where the design puts them. */}
         <div style={{ flex: "1 1 280px", minWidth: 0 }}>
+          {/*
+            IT SAYS WHICH LIST IT IS TALKING ABOUT, and the second sentence used to not.
+ 
+            It read *"Only you see every figure by default"*, which is true of THIS settlement's line
+            list and false of the night: the Overview tab of the same workspace tells the same
+            co-host *"the list leaves out 5 parties on this night whose settlements are not shared
+            with you"*. Consistent in the model's vocabulary, contradictory in English (QA sweep run
+            13) — and "every figure" is the phrase that makes it sound like a claim about the night.
+ 
+            `included` is `line.visibleTo.includes(selected.participantId)` (`useSettlementCuration`),
+            so the honest sentence is about the party's COPY, which is the thing the click changes.
+          */}
           <CardTitle
             subtitle={
               curation.selected
-                ? `Click a line to include or withhold it from ${possessiveOf(curation.selected.name)} settlement. Only you see every figure by default.`
+                ? `Click a line to include or withhold it from ${possessiveOf(curation.selected.name)} settlement. A withheld line is not on their copy.`
                 : undefined
             }
           >

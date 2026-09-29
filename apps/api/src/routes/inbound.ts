@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { notifyProfileMembers } from "@showme/db/notify";
-import { currencyForCountry, invitationExpiresAt } from "@showme/shared";
+import { currencyForCountry, formatCalendarDay, invitationExpiresAt } from "@showme/shared";
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -654,7 +654,7 @@ function counterOfferTerms(offer: {
       formatMinorUnits((offer.offerFeeMin ?? offer.offerFeeMax) as string, offer.currency),
     );
   }
-  if (offer.wantedDate) parts.push(`for ${offer.wantedDate}`);
+  if (offer.wantedDate) parts.push(`for ${formatCalendarDay(offer.wantedDate)}`);
   return parts.join(" ");
 }
 
@@ -670,8 +670,10 @@ function datesAsked(bookingRequest: {
 }): string {
   const alternates = bookingRequest.additionalDates ?? [];
   return alternates.length > 0
-    ? `They asked about ${bookingRequest.wantedDate}, or ${alternates.join(" / ")}.`
-    : `They asked about ${bookingRequest.wantedDate}.`;
+    ? `They asked about ${formatCalendarDay(bookingRequest.wantedDate)}, or ${alternates
+        .map(formatCalendarDay)
+        .join(" / ")}.`
+    : `They asked about ${formatCalendarDay(bookingRequest.wantedDate)}.`;
 }
 
 /**
@@ -684,7 +686,7 @@ function draftEventNotes(bookingRequest: BookingRequestRow): string {
   const askedFee = bookingRequest.artistFee ?? bookingRequest.offerFeeMin;
   const alternates = bookingRequest.additionalDates ?? [];
   const lines = [
-    `From a booking request for ${bookingRequest.wantedDate}.`,
+    `From a booking request for ${formatCalendarDay(bookingRequest.wantedDate)}.`,
     // The alternates survive into the event because the draft takes ONE of the
     // dates — the operator who later has to move the night needs to know which
     // others the act already said yes to.
@@ -894,7 +896,9 @@ async function deliverDraftEventInvitation(
         {
           type: "booking_request.draft_event",
           title: `${event.title} is being drafted`,
-          body: `Your request became a draft event${event.eventDate ? ` on ${event.eventDate}` : ""}. You are on it as the act.`,
+          body: `Your request became a draft event${
+            event.eventDate ? ` on ${formatCalendarDay(event.eventDate)}` : ""
+          }. You are on it as the act.`,
           eventId: event.id,
           actorDisplay: request.firebaseUser?.name ?? undefined,
           link: `/events/${event.id}`,
@@ -918,7 +922,9 @@ async function deliverDraftEventInvitation(
           {
             type: "event.participant_added",
             title: `Added to "${event.title}"`,
-            body: `Your agent's request became a draft event${event.eventDate ? ` on ${event.eventDate}` : ""}. You are on it as the act.`,
+            body: `Your agent's request became a draft event${
+              event.eventDate ? ` on ${formatCalendarDay(event.eventDate)}` : ""
+            }. You are on it as the act.`,
             eventId: event.id,
             actorDisplay: request.firebaseUser?.name ?? undefined,
             // The act is attached to a DRAFT event as `invited`, so the event 404s for them
@@ -1336,7 +1342,7 @@ export async function inboundRoutes(fastify: FastifyInstance): Promise<void> {
             {
               type: "booking_request.status_changed",
               title: `Your request was ${updated.status}`,
-              body: `For ${updated.wantedDate}.`,
+              body: `For ${formatCalendarDay(updated.wantedDate)}.`,
               link: "/requests",
               metadata: { bookingRequestId: updated.id, status: updated.status },
             },

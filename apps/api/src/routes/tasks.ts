@@ -1,6 +1,7 @@
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
 import { notifyProfileMembers } from "@showme/db/notify";
+import { formatCalendarDay } from "@showme/shared";
 import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -356,7 +357,7 @@ async function announceAssignment(
           .where(eq(schema.events.id, task.eventId))
       : [];
     const handedBy = request.firebaseUser?.name ?? "Someone";
-    const due = task.dueDate ? ` Due ${task.dueDate}.` : "";
+    const due = task.dueDate ? ` Due ${formatCalendarDay(task.dueDate)}.` : "";
 
     await notifyProfileMembers(
       database,

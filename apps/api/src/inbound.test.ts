@@ -185,6 +185,45 @@ describe("inbound — public booking request + listing", () => {
     expect(match.offerFeeMax).toBe("120000");
   });
 
+  it("writes the arrival notification with READABLE dates, alternates included", async () => {
+    /*
+     * QA sweep run 13: *"Booking request from QA13 Clash Band — They asked about 2026-10-16."* The
+     * API composes this line once and stores it, so the formatting has to happen here; every other
+     * date the reader meets is `16 Oct 2026`, and `apps/web/src/components/eventHistory.ts` has
+     * stated that rule in a comment since part 30 without anything enforcing it.
+     *
+     * The ALTERNATES are asserted because they are their own code path — a separate `.map` over the
+     * additional dates — and nothing tested any of this prose before.
+     */
+    const owner = await seedOwnerWithProfile("inb-dates");
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/booking-requests",
+      headers: publicFormHeaders(),
+      payload: {
+        source: "public_form",
+        targetProfileId: owner.profileId,
+        contactName: "Clara",
+        email: "clara@example.showme.test",
+        artistName: "Clash Band",
+        wantedDate: "2026-10-16",
+        additionalDates: ["2026-10-18", "2026-11-02"],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const rows = await harness.db
+      .select({ body: schema.notifications.body })
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, "inb-dates"));
+    const body = rows.map((row) => row.body).find((text) => text?.includes("They asked about"));
+    expect(body, "the arrival notification was written").toBeDefined();
+    expect(body).toBe("They asked about 16 Oct 2026, or 18 Oct 2026 / 2 Nov 2026.");
+    // The claim, not the wording: no stored date shape survives into the sentence.
+    expect(body).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+
   it("lets the owner PATCH status but 404s a non-owner", async () => {
     const owner = await seedOwnerWithProfile("inb-po");
     await seedOwnerWithProfile("inb-stranger");

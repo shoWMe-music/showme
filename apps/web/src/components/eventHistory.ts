@@ -89,6 +89,44 @@ function humanize(value: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+/**
+ * THE READER'S WORD FOR A FIELD THAT MOVED — never the API's identifier.
+ *
+ * The timeline printed *"Changed: agreementBodyText"* at a venue operator (QA sweep run 13), and
+ * `humanize` above does not help: it spaces `snake_case` and dots, so a camelCase identifier comes
+ * out of it capitalised and otherwise untouched. Run 12's finding #11 took this same vocabulary out
+ * of the sealed-terms toast; the timeline kept it.
+ *
+ * RULES rather than a table, because the set is OPEN: every writer builds `fields` from a
+ * `Partial<$inferInsert>` (deals, events, budget lines, tasks), so any column of those tables can
+ * appear and a map alone would leave the next one raw. Measured what has actually been printed —
+ * `select distinct jsonb_array_elements_text(summary->'fields') from activity_log` — which is the
+ * six names the tests below use.
+ *
+ * The map holds only the names whose reader's word DIFFERS from the identifier. `Id` and
+ * `BasisPoints` are stripped as plumbing suffixes: "split" is what a reader calls
+ * `splitBasisPoints`, and calling basis points a percentage would be a second inaccuracy.
+ */
+const FIELD_LABELS: Record<string, string> = {
+  agreementBodyText: "terms",
+  assigneeParticipantId: "assignee",
+  // One jsonb column behind three things a reader knows separately, so the label names them.
+  extras: "amenities, ticket tiers or guest list",
+};
+
+export function fieldLabel(field: string): string {
+  const mapped = FIELD_LABELS[field];
+  if (mapped) return mapped;
+  const trimmed = field.replace(/Id$/, "").replace(/BasisPoints$/, "");
+  const spaced = trimmed
+    .replace(/[._]/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .trim()
+    .toLowerCase();
+  // An identifier that is nothing BUT a stripped suffix would otherwise read as an empty change.
+  return spaced || field;
+}
+
 function stringField(record: Record<string, unknown>, key: string): string | null {
   const value = record[key];
   return typeof value === "string" && value.length > 0 ? value : null;
@@ -142,7 +180,7 @@ function activityDetailLines(record: Record<string, unknown>): string[] {
   const fields = stringListField(record, "fields").filter(
     (field) => !(transition && field === "status"),
   );
-  if (fields.length > 0) lines.push(`Changed: ${fields.join(", ")}`);
+  if (fields.length > 0) lines.push(`Changed: ${fields.map(fieldLabel).join(", ")}`);
 
   const role = stringField(record, "role");
   if (role) lines.push(`Role: ${humanize(role)}`);

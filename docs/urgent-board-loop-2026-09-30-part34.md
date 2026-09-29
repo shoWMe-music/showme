@@ -133,3 +133,145 @@ sentence mentions no *show*, *event*, *nobody*, *anyone* or *parties* — the cl
 
 **Committed as `e5da658`.**
 
+---
+
+## 2. Run 13's four COSMETICs — the plan for all of them before any of them
+
+### (375) Event History prints the API's field names
+
+> "Deal terms changed · QA13 seal probe · Status: Draft · **Changed: agreementBodyText**"
+
+`eventHistory.ts:145` joins `summary.fields` raw. The module already has `humanize`, and it does
+**not** help: it spaces `snake_case` and dots only, so `agreementBodyText` comes out
+`AgreementBodyText`.
+
+**Measured what the timeline can actually print**, rather than guessing at a map —
+`select distinct jsonb_array_elements_text(summary->'fields')` over `activity_log`:
+
+```
+agreementBodyText · assigneeParticipantId · dueDate · extras · notes · splitBasisPoints
+```
+
+The writers are generic (`changed` off a `Partial<$inferInsert>` in deals, events, budget and
+tasks), so **the set is open** and a map alone would leave the next field raw. Rules, in order,
+with a map only for the names a reader's own word differs from:
+
+1. an override map — `agreementBodyText` → "terms", `assigneeParticipantId` → "assignee",
+   `extras` → "amenities, ticket tiers or guest list";
+2. strip a trailing `Id` and a trailing `BasisPoints` — both are plumbing suffixes
+   (`splitBasisPoints` → "split", which is the reader's word and avoids calling basis points a
+   percentage);
+3. camelCase → spaced and lowercased, because it follows "Changed: ";
+4. the original string if all of that leaves nothing.
+
+New `eventHistory.test.ts` — the module has none — over the six observed names plus the two
+suffix rules and the unmapped fallback.
+
+### (389) Notifications print a raw `yyyy-mm-dd`
+
+> "Booking request from QA13 Clash Band — **They asked about 2026-10-16.**"
+
+`apps/api/src/routes/inbound.ts:673-674` (`datesAsked`) and `:657`. This is the API composing prose,
+so the formatter has to be server-side; `eventHistory.ts` already states the rule in a comment —
+*"the raw `yyyy-mm-dd` … is the one date shape a reader has to decode rather than read"* — which is
+the thirty-first comment stating a rule nothing enforced.
+
+### (400) Team — an avatar reads "T("
+
+`Team.tsx:86`'s `initials()` takes the first letter of the first and last words. `GET /groups`
+serves `members[0].name` as `"The Lantern Hall (operator)"`, so the last word is `(operator)`.
+The same function turns `"Priya Sound (FOH engineer)"` into `PE` — which looks right and is
+P(riya)+e(ngineer), i.e. wrong for a reason nobody would notice.
+
+The label is built by `groupMemberLabel`, and the parenthetical is part of the name the API sends,
+so the fix belongs in `initials()`: a trailing parenthetical is an ANNOTATION on a name, never part
+of it. The PEOPLE list beside it already reads `TH` because it reads the profile name directly, so
+the two lists agreeing is the check.
+
+### (414) The curation card's "Only you see every figure by default"
+
+Strictly consistent in the model's vocabulary (the card is about the settlement LINE list, which the
+co-host does see in full; the Overview sentence is about other parties' ENTITLEMENTS) and
+contradictory in English. The fix is to say which list — "every line of this settlement" rather than
+"every figure" — so the two sentences stop appearing to answer the same question.
+
+### Built — and three of the four were bigger than reported
+
+**(375) `eventHistory.ts` — `fieldLabel`, exported and tested.** The rules in the plan, with the
+map holding three entries. Live on e1's timeline as `operator@`: *"Changed: due date, assignee"* and
+*"Changed: split"*, and **no identifier leaks at all** — `agreementBodyText`, `splitBasisPoints`,
+`assigneeParticipantId`, `dueDate`, `lineKind`, `riderType` all absent from the rendered page. New
+`eventHistory.test.ts`, 5 tests.
+
+**A mutation survived and the test was the thing that was wrong.** Dropping the `$` from
+`/Id$/` passed everything, because my boundary fixtures were `identityCheck` and `basisPointsCap` —
+lower-cased suffixes an unanchored `replace(/Id/, "")` never matches. No schema column carries a
+mid-string `Id` today (checked), which is precisely why the fixture has to supply one:
+`taxIdNumber` and `splitBasisPointsCap` make both anchors observable, and both mutations then die.
+*One fixture of a kind makes a matching predicate untestable* — and this time the missing kind was
+one real data could not provide.
+
+**(389) the raw `yyyy-mm-dd` — nine call sites, not one.** `@showme/shared::formatCalendarDay`
+(`2026-10-16` → `16 Oct 2026`), wired into `routes/inbound.ts` ×6, `routes/tasks.ts` and
+`lib/event-change-requests.ts`. A month TABLE rather than `new Date(...)`: a stored `date` is a
+calendar day with no instant, so parsing it gives UTC midnight and formatting THAT in a zone behind
+Greenwich moves a booking request for the 16th to the 15th. Asserted under `America/Los_Angeles`
+and `Pacific/Kiritimati`. `email-templates.ts::formatEventDate` keeps its own long form for emails —
+different reader, different shape, cross-referenced.
+
+Proved on a **stored row**, not a toast:
+
+```
+task.assigned | The Lantern Hall (operator) gave you "Part34 date prose probe" … Due 16 Oct 2026.
+```
+
+**Two existing suites were pinning the defect in place.** `tasks.test.ts:659` asserted
+`toContain("2026-08-01")` and `participants.test.ts` asserted the change-notice thread bodies word
+for word with stored dates. Both assertions are flipped, each with the reason recorded — a change
+notice in the event room is prose a person reads, so it was the same finding on a path that *was*
+covered, held green by the test. Both now also assert that no `\d{4}-\d{2}-\d{2}` survives.
+
+**(400) the avatar — and the report's example does not reproduce.** The stored names carrying a
+parenthetical are `Priya Sound (FOH engineer)` and `Northlight Presents (co-promoter)`;
+`The Lantern Hall` has none, and **no `profiles.name` in the database contains a bracket at all**.
+So `T(` could not have come from that chip. The LINE the report named was right and the real
+casualty was `PE` — P(riya) + e(ngineer) — which is the dangerous kind of wrong because it looks
+like a correct pair of initials. Eighth instance of *a report naming a real symptom over the wrong
+subject*.
+
+`initials`, `nameFromEmail` and `groupMemberLabel` moved out of `Team.tsx` into
+`routes/teamLabels.ts` so the judgement can be tested, and every parenthetical is stripped —
+wherever it sits, because "Jane (she/her) Doe" is the same shape and a trailing-only rule reads JD
+by luck. **My own fallback carried the next defect**: falling back to the *unstripped* label read
+`(O` for a member labelled only `(operator)`, which its own test caught — putting the brackets back
+is not a fallback. The fallback drops the bracket CHARACTERS instead.
+
+Live, `/team` as `operator@`: Core Crew reads **PS · TH · TO**, no avatar anywhere carries a
+bracket, and the group chip now agrees with the People list beside it (both `PS`).
+
+*Nine other files derive initials their own way.* Consolidating them is a separate job with its own
+risk and is recorded in `docs/codebase-reuse-audit.md`; this module claims only to be the Team
+screen's answer, which is the one with a tested contract.
+
+**(414) the curation card.** Now *"Click a line to include or withhold it from Marlo Vance's
+settlement. **A withheld line is not on their copy.**"* — `included` is
+`line.visibleTo.includes(selected.participantId)`, so the party's copy is exactly what the click
+changes, and the sentence no longer sounds like a claim about the night. Read live as `co.host@`;
+"Only you see every figure" is gone.
+
+**No test scaffolding for this one, deliberately.** The riders fix earned an exported decision
+because its *condition* was wrong; here only the words were, and building a harness for one
+sentence is the over-abstraction the review gate warns about.
+
+### Mutations — fourteen across four surfaces, all killed
+
+teamLabels 4/4 · calendar-day 4/4 · eventHistory 4/4 (after the fixture fix above) · inbound
+prose 2/2, including the alternates `.map`, which had no coverage of any kind before.
+
+### Suites
+
+`npx biome check .` **755** files clean · shared **349** · web **622** (from 611) · API
+`inbound` **61**, `tasks` + `participants` green · `tsc --noEmit` clean on api and web.
+
+**Committed as `3e22395`.**
+

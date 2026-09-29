@@ -1,6 +1,7 @@
 import { liveEventDelegationsForEvents } from "@showme/auth";
 import { schema } from "@showme/db";
 import { eventParticipantRecipients, notifyProfileMembers, notifyUsers } from "@showme/db/notify";
+import { formatCalendarDay } from "@showme/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyRequest } from "fastify";
 import { writeActivity } from "./activity";
@@ -326,7 +327,9 @@ export function describeMove(changes: NegotiatedValues, previous: NegotiatedValu
   const parts: string[] = [];
   if ("eventDate" in changes) {
     parts.push(
-      `the date from ${previous.eventDate ?? "no date"} to ${changes.eventDate ?? "no date"}`,
+      `the date from ${formatCalendarDay(previous.eventDate) || "no date"} to ${
+        formatCalendarDay(changes.eventDate) || "no date"
+      }`,
     );
   }
   if ("venueProfileId" in changes) parts.push("the venue");

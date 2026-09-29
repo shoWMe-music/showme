@@ -656,7 +656,15 @@ describe("tasks — the assignee", () => {
     // The TITLE travels — a bell saying only "a task" costs a trip to find out
     // what — and so does the due date.
     expect(bells[0]?.body).toContain("Chase the backline");
-    expect(bells[0]?.body).toContain("2026-08-01");
+    /*
+     * IN THE SHAPE A READER READS, and this assertion used to pin the stored one. It asserted
+     * `2026-08-01`, which is what QA sweep run 13 reported at the reader on a sibling notification —
+     * so the test was holding the defect in place on the one path that was covered. The date is
+     * formatted at the writer now (`@showme/shared::formatCalendarDay`); the stored shape must not
+     * come back.
+     */
+    expect(bells[0]?.body).toContain("Due 1 Aug 2026");
+    expect(bells[0]?.body).not.toMatch(/\d{4}-\d{2}-\d{2}/);
     expect(bells[0]?.link).toBe(`/events/${seeded.event.id}`);
   });
 
