@@ -129,3 +129,45 @@ route's other 409s are already plain English addressed to their reader. Third ti
 checking what a line is load-bearing for changed the answer.
 
 Suites: biome 748 files · web 602 (was 597) · API `deals` 83.
+
+---
+
+## 3. The full pass — stack down, one go
+
+All eleven of run 12's findings closed, so this is the reconciliation.
+
+| Suite | Result | Against |
+|---|---|---|
+| `npx biome check .` | **748 files**, no errors | repo-wide, not per file |
+| `@showme/shared` | **344** | 343 before this stretch (+1, the observer-signature case) |
+| `@showme/auth` | **36** | unchanged |
+| `@showme/settlement` | **74** | unchanged |
+| `@showme/db` | **25** | unchanged |
+| `apps/web` | **602** | 546 at the start of the stretch |
+| `apps/api` | **1469** across 65 files, **0 failed** | 1460 before this stretch |
+| `pnpm test:e2e` | **116**, including all four of `tests/motion.spec.ts` | 116 |
+
+The API run lost **one** file to the Testcontainers port-bind flake (`settlement-own-read`, reported as
+14 *skipped* with zero failures — the tell), re-run alone: 14 passed. 1455 + 14 = 1469.
+
+The web total grew by 56 across the stretch and the API by 9; both are this stretch's new tests, and
+every one of them exists because a mutation or a live probe asked for it rather than because a file
+was being tidied.
+
+### The stack afterwards
+
+`pnpm test:e2e` removes the docker postgres on the way out, so `pnpm dev` rebuilt it — which means the
+fixtures are **pristine** without needing the manual FK sweep at all. Verified rather than assumed:
+
+```
+events not e2e%              0
+deals not e2e%               0
+participants on e4           1        (the seeded one, not the probe's Marlo)
+settlement_approvals         0
+settlements                  3
+Album Release — Door Split   [confirmed/confirmed] 3/3   hidden=0
+/favicon.svg                 200
+```
+
+Seven orphaned postgres containers from the interleaved runs were pruned; one remains, which is the
+stack's own.
