@@ -51,7 +51,7 @@ function AudienceOwnersOnly({ children }: { children: ReactNode }) {
     <EmptyState
       icon={<Icon name="users" />}
       title="An audience belongs to the room and to the act"
-      description="The venue's own following and the performer's are theirs. A crew member is booked for the night, and an agent represents the act — neither has a fanbase here."
+      description="The venue's own following and the performer's are theirs. A crew member is booked for the night, and an agent represents the act. Neither has a fanbase here."
     />
   );
 }
@@ -105,7 +105,7 @@ function AudienceScreen() {
         <EmptyState
           icon={<Icon name="users" />}
           title="No audience yet"
-          description="Fans appear here once they RSVP or buy tickets — segmented by city, tier and source."
+          description="Fans appear here once they RSVP or buy tickets, segmented by city, tier and source."
         />
       ) : (
         <div

@@ -380,6 +380,6 @@ export function assertEveryAgreementSigned(
 
   if (waiting.length === 0) return;
   throw conflict(
-    `This settlement cannot open until every agreement on the event is signed: ${waiting.join("; ")}. Send each agreement and have its parties confirm it — or cancel one that is no longer happening — then run the settlement again.`,
+    `This settlement cannot open until every agreement on the event is signed: ${waiting.join("; ")}. Send each agreement and have its parties confirm it, or cancel one that is no longer happening, then run the settlement again.`,
   );
 }

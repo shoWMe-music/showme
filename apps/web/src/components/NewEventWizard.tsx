@@ -468,7 +468,7 @@ export function NewEventWizard({
       onSuccess: (event) => {
         toast.success(
           isHold
-            ? `"${event.title}" saved as a draft. It is not on hold yet — set its status when you're ready.`
+            ? `"${event.title}" saved as a draft. It is not on hold yet. Set its status when you're ready.`
             : `"${event.title}" saved as a draft.`,
         );
         setConfirmingExit(false);
@@ -506,12 +506,12 @@ export function NewEventWizard({
           toast.success(`"${event.title}" is on hold — ${holdOrdinal(outcome.holdRank)} hold`);
         } else if (outcome.kind === "on_hold_without_rank") {
           toast.warning(
-            `"${event.title}" is on hold, but its priority couldn't be set (${outcome.message}) — it counts as the 1st hold until you rank it.`,
+            `"${event.title}" is on hold, but its priority couldn't be set (${outcome.message}). It counts as the 1st hold until you rank it.`,
             { duration: 12000 },
           );
         } else {
           toast.error(
-            `"${event.title}" was created but couldn't be put on hold (${outcome.message}). It is saved as a draft — set its status to On hold when you're ready.`,
+            `"${event.title}" was created but couldn't be put on hold (${outcome.message}). It is saved as a draft. Set its status to On hold when you're ready.`,
             { duration: 12000 },
           );
         }
@@ -928,7 +928,7 @@ export function NewEventWizard({
             </h2>
             <p style={{ color: "var(--muted)", fontSize: 13, margin: "4px 0 0" }}>
               {isHold
-                ? "A hold is an event you pencil in — the act confirms or declines the date."
+                ? "A hold is an event you pencil in. The act confirms or declines the date."
                 : // The count follows the stepper, which is two steps for an
                   // operator with one profile and three for one who has to pick
                   // which of theirs is hosting. The copy said "three" for
@@ -1447,7 +1447,7 @@ function DetailsStep(props: {
           <div style={{ color: "var(--dim)", fontSize: 12, marginTop: 10 }}>
             {props.multiPerformer
               ? "Add at least one performer."
-              : "Optional — link the act's shoWMe profile and the deal you set next is recorded against them."}
+              : "Optional: link the act's shoWMe profile and the deal you set next is recorded against them."}
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>

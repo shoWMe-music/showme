@@ -57,7 +57,7 @@ describe("what qualifies as needing attention", () => {
     expect(list.hidden).toBe(0);
     expect(attentionSentence(0, 0)).toEqual({
       caughtUp: true,
-      text: "You're all caught up — nothing needs your attention today.",
+      text: "You're all caught up. Nothing needs your attention today.",
     });
   });
 

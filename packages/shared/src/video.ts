@@ -39,7 +39,7 @@ export interface VideoLink {
 
 /** What a caller says when `parseVideoLink` refuses: one sentence, one fix. */
 export const VIDEO_LINK_REJECTION =
-  "Only YouTube and Vimeo links can be embedded — e.g. https://youtube.com/watch?v=… or https://vimeo.com/…";
+  "Only YouTube and Vimeo links can be embedded. E.g. https://youtube.com/watch?v=… or https://vimeo.com/…";
 
 /** YouTube ids are 11 characters today; the range is loose enough to outlive that. */
 const YOUTUBE_ID = /^[A-Za-z0-9_-]{6,24}$/;

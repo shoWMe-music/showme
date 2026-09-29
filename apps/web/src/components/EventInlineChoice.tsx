@@ -159,7 +159,7 @@ export interface EventInlineDateChoiceProps {
 }
 
 /** What the panel says instead of letting Save be pressed on half a date. */
-const HALF_TYPED_NOTE = "Finish the date — day, month and year — or pick one on the calendar.";
+const HALF_TYPED_NOTE = "Finish the date (day, month and year) or pick one on the calendar.";
 
 /**
  * The day as it is TYPED, and the half-typed day, which is not a day at all.

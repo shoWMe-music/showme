@@ -40,7 +40,7 @@ export function useCopyToClipboard(): ClipboardCopier {
       } catch {
         // Naming the field matters: the person is mid-task with a payment page
         // open in another tab, and needs to know THIS value did not arrive.
-        toast.error(`Couldn't copy the ${label.toLowerCase()} — select it and copy manually.`);
+        toast.error(`Couldn't copy the ${label.toLowerCase()}. Select it and copy manually.`);
       }
     },
     [toast],

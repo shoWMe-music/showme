@@ -728,7 +728,7 @@ function ProfileEditor({
           label="Tagline"
           value={tagline}
           maxLength={140}
-          placeholder="One line under your name — what you sound like, or what the room is for"
+          placeholder="One line under your name: what you sound like, or what the room is for"
           onChange={(event) => setTagline(event.target.value)}
         />
 
@@ -761,7 +761,7 @@ function ProfileEditor({
           />
           <ProfileImageField
             label="Cover banner"
-            hint="Wide — around 1500×500. It runs across the top of your page."
+            hint="Wide: around 1500×500. It runs across the top of your page."
             previewUrl={banner.previewUrl}
             shape="banner"
             isUploading={upload.isUploading}

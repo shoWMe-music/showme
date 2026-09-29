@@ -295,7 +295,7 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
       writableSiblings.add(event.id);
       if (updates.some((update) => !writableSiblings.has(update.id))) {
         throw conflict(
-          "Another operator holds that rank on this date — you can only reorder your own holds",
+          "Another operator holds that rank on this date. You can only reorder your own holds",
         );
       }
 

@@ -126,7 +126,7 @@ export function narrowSharedCapabilities(
     }
     if (access === "public" && PROTECTED_ONLY.has(value)) {
       throw badRequest(
-        `${value} may only be shared with a verified recipient — use access "protected"`,
+        `${value} may only be shared with a verified recipient. Use access "protected"`,
       );
     }
     if (!capabilities.includes(value)) capabilities.push(value);

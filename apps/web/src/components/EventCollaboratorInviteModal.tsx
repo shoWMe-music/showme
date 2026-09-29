@@ -79,7 +79,7 @@ export const ACCESS_OPTIONS: AccessOption[] = [
     value: "full_control",
     label: "Full control — paid plans only",
     description:
-      "Everything the operator can do on this event: the budget, the settlement, and inviting others. Charged to this event's operator plan — a free plan is refused.",
+      "Everything the operator can do on this event: the budget, the settlement, and inviting others. Charged to this event's operator plan. A free plan is refused.",
   },
 ];
 

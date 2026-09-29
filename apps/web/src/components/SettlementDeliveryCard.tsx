@@ -157,7 +157,7 @@ function DeliveryRow({
                 {row.lastSeenAt ? ` · opened ${formatDay(row.lastSeenAt)}` : " · not opened yet"}
               </>
             ) : (
-              "Not on shoWMe — they get a private link and a one-time code, and can sign off from it."
+              "Not on shoWMe: they get a private link and a one-time code, and can sign off from it."
             )}
           </div>
         </>

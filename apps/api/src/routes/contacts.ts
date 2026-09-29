@@ -196,7 +196,7 @@ function judgeImportRows(
       values: null,
     });
 
-    if (!name) return verdict("rejected", "No name — a contact needs one to be findable.");
+    if (!name) return verdict("rejected", "No name: a contact needs one to be findable.");
     if (email && !EmailSchema.safeParse(email).success) {
       return verdict("rejected", `"${email}" is not an email address.`);
     }
@@ -233,7 +233,7 @@ function judgeImportRows(
         name,
         email: email ?? null,
         outcome: "imported",
-        reason: key ? null : "No email — not checked against your existing contacts.",
+        reason: key ? null : "No email: not checked against your existing contacts.",
         contactId: null,
       },
       values: {

@@ -234,7 +234,7 @@ export function Contacts() {
         title="Contacts"
         // Was "…with verified payout details", which nothing in the system
         // verifies. See the badge note on the card below.
-        subtitle="Venues, performers, agents and suppliers — with their payout details in one place."
+        subtitle="Venues, performers, agents and suppliers, with their payout details in one place."
         actions={
           // A fragment, not a row: `SectionHeader` already puts these in a
           // flex row that wraps, with this exact gap and alignment. Wrapping

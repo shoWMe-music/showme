@@ -704,7 +704,7 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
     }
 
     if (messageField.value().length === 0) {
-      problems.push([messageField, "Write a line or two — an empty request is noise."]);
+      problems.push([messageField, "Write a line or two. An empty request is noise."]);
     }
 
     // Only when the visitor is the one naming the night; a clicked chip has
@@ -824,10 +824,10 @@ export function createDateRequestPanel(options: PanelOptions): DateRequestPanel 
         );
         return;
       case "unreachable":
-        showStatus("Could not reach shoWMe. Nothing was sent — check your connection and retry.");
+        showStatus("Could not reach shoWMe. Nothing was sent. Check your connection and retry.");
         return;
       default:
-        showStatus("shoWMe could not take that request. Nothing was sent — please try again.");
+        showStatus("shoWMe could not take that request. Nothing was sent. Please try again.");
     }
   });
 

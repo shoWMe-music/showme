@@ -198,7 +198,7 @@ export function Invoices() {
             <EmptyState
               icon={<Icon name="receipt" />}
               title="No recurring invoices"
-              description="Repeating bills — rent, subscriptions, retainers — aren't tracked yet. When they are, they'll appear here."
+              description="Repeating bills (rent, subscriptions, retainers) aren't tracked yet. When they are, they'll appear here."
             />
           ) : visible.length === 0 ? (
             <EmptyState
@@ -207,7 +207,7 @@ export function Invoices() {
               description={
                 tab === "sent"
                   ? "Invoices you raise for venue rental, fees and services appear here."
-                  : "Bills you owe — crew, production, ticketing — appear here."
+                  : "Bills you owe (crew, production, ticketing) appear here."
               }
               action={
                 <Button

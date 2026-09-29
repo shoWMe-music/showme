@@ -63,7 +63,7 @@ function permissionRefusal(error: ApiError): string | null {
  */
 function sealedTermsRefusal(error: ApiError): string | null {
   if (error.code !== TERMS_SEALED_CODE) return null;
-  return "A party has already signed this agreement, so its terms are fixed. Reopen it to renegotiate — that clears every signature and asks the parties again.";
+  return "A party has already signed this agreement, so its terms are fixed. Reopen it to renegotiate. That clears every signature and asks the parties again.";
 }
 
 /**
@@ -80,7 +80,7 @@ function sealedTermsRefusal(error: ApiError): string | null {
  * itself in the first place. `errors.test.ts` holds them to the same trigger.
  */
 export const SEALED_TERMS_FORECAST =
-  "Plain text. Every party to this deal sees the same words, and they are frozen the moment the FIRST party signs — after that only reopening the agreement can change them, which clears every signature. shoWMe does not compute anything from them.";
+  "Plain text, and every party to this deal sees the same words. They freeze when the first party signs. After that only reopening the agreement can change them, and reopening clears every signature. shoWMe does not compute anything from them.";
 
 /** Pull a human-friendly message out of an unknown query/mutation error. */
 export function errorMessage(error: unknown, fallback = "Something went wrong."): string {

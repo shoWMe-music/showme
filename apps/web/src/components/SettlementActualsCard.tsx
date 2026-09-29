@@ -87,7 +87,7 @@ export function SettlementActualsCard({
       <div
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
       >
-        <CardTitle subtitle="What the night actually took and cost. This is the settlement's own copy — your budget is left as the forecast it was.">
+        <CardTitle subtitle="What the night actually took and cost. This is the settlement's own copy, so your budget is left as the forecast it was.">
           The real numbers
         </CardTitle>
         {isFinalized && <Badge status="confirmed">Locked</Badge>}
@@ -125,8 +125,8 @@ export function SettlementActualsCard({
         >
           <span style={{ color: "var(--muted)", fontSize: 12.5, flex: 1 }}>
             {recalculateBlocked
-              ? "Recalculating is on hold until every agreement is signed — the notice at the top of this tab says which, and takes you there."
-              : "Changes here are not settled until you recalculate — the parties keep seeing the last figures you sent them until then."}
+              ? "Recalculating is on hold until every agreement is signed. The notice at the top of this tab says which, and takes you there."
+              : "Changes here are not settled until you recalculate. Until then the parties keep seeing the last figures you sent them."}
           </span>
           <Button
             variant="primary"

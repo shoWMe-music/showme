@@ -267,7 +267,7 @@ function PerformanceReportsScreen() {
         <EmptyState
           icon={<Icon name="file" />}
           title="Nothing to report yet"
-          description="A show appears here once a performer on it writes a setlist — the report is derived from what they wrote."
+          description="A show appears here once a performer on it writes a setlist. The report is derived from what they wrote."
         />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -297,7 +297,7 @@ function OperatorOnlyReports({ children }: { children: ReactNode }) {
     <EmptyState
       icon={<Icon name="file" />}
       title="The filing belongs to the operator"
-      description="A performed-works report is filed by whoever ran the show. A performer writes the setlist it is derived from — that is the Setlists screen."
+      description="A performed-works report is filed by whoever ran the show. A performer writes the setlist it is derived from: that is the Setlists screen."
     />
   );
 }

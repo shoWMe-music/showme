@@ -355,7 +355,7 @@ function resolveDateTime(
     return {
       date: raw.date,
       time: raw.time,
-      caveat: `Time zone "${tzid}" isn't one we recognise — the times were kept exactly as written.`,
+      caveat: `Time zone "${tzid}" isn't one we recognise. The times were kept exactly as written.`,
     };
   }
 
@@ -460,7 +460,7 @@ export function parseIcs(text: string, options: { timeZone: string }): IcsParseR
   const lines = unfoldIcsLines(text);
 
   if (!lines.some((line) => /^BEGIN:VCALENDAR\s*$/i.test(line))) {
-    throw new IcsParseError("That file isn't a calendar — it has no BEGIN:VCALENDAR line.");
+    throw new IcsParseError("That file isn't a calendar. It has no BEGIN:VCALENDAR line.");
   }
 
   const { events, calendarName } = readVEvents(lines);
@@ -492,13 +492,13 @@ function readVEvent(event: RawEvent, timeZone: string): IcsEntry | IcsRejection 
   const reject = (reason: string): IcsRejection => ({ index: event.index, uid, title, reason });
 
   if (!uid) {
-    return reject("No UID — without one, importing this file twice would duplicate the entry.");
+    return reject("No UID: without one, importing this file twice would duplicate the entry.");
   }
   if (property("RRULE") || property("RDATE")) {
     return reject("It repeats. Only the first occurrence could be imported, so it was left out.");
   }
   if (text("STATUS")?.toUpperCase() === "CANCELLED") {
-    return reject("Cancelled in the file — importing it would block a night for nothing.");
+    return reject("Cancelled in the file: importing it would block a night for nothing.");
   }
 
   const startLine = property("DTSTART");

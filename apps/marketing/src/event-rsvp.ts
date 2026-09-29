@@ -240,7 +240,7 @@ export function createRsvpForm(options: RsvpFormOptions): RsvpForm {
   const intro = element(
     "p",
     "rsvp__intro",
-    "Let the organiser know you're coming. It is not a ticket — it tells them to expect you.",
+    "Let the organiser know you're coming. It is not a ticket. It tells them to expect you.",
   );
 
   const nameField = createField({
@@ -429,10 +429,10 @@ export function createRsvpForm(options: RsvpFormOptions): RsvpForm {
         );
         return;
       case "unreachable":
-        showStatus("Could not reach shoWMe. Nothing was sent — check your connection and retry.");
+        showStatus("Could not reach shoWMe. Nothing was sent. Check your connection and retry.");
         return;
       default:
-        showStatus("shoWMe could not take that RSVP. Nothing was sent — please try again.");
+        showStatus("shoWMe could not take that RSVP. Nothing was sent. Please try again.");
     }
   });
 

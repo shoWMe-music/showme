@@ -147,7 +147,7 @@ function RiderPreviewPane({
       <EmptyState
         icon={<Icon name="file" />}
         title="No document attached"
-        description="This rider is written down rather than uploaded — its type and notes above are all of it."
+        description="This rider is written down rather than uploaded: its type and notes above are all of it."
       />
     );
   }
@@ -236,7 +236,7 @@ function RiderDocument({
             <EmptyState
               icon={<Icon name="alert" />}
               title="The document didn't open here"
-              description="It can still be opened in a new tab — the button is below."
+              description="It can still be opened in a new tab. The button is below."
             />
           )}
         </div>

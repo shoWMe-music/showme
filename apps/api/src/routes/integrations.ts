@@ -152,7 +152,7 @@ function requireIntegration(request: FastifyRequest): CalendarIntegration {
   const integration = request.server.calendarIntegration;
   if (!integration) {
     throw serviceUnavailable(
-      "Calendar connections are not available on this deployment — no Google credentials are configured",
+      "Calendar connections are not available on this deployment: no Google credentials are configured",
     );
   }
   return integration;
@@ -437,11 +437,11 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
         // an access token that dies in an hour and no way to renew it, so refusing
         // is the only honest outcome.
         throw conflict(
-          "Google did not issue a refresh token — remove shoWMe at myaccount.google.com/permissions and connect again",
+          "Google did not issue a refresh token. Remove shoWMe at myaccount.google.com/permissions and connect again",
         );
       }
       if (!grant.scope.includes(GOOGLE_CALENDAR_SCOPE)) {
-        throw badRequest("Calendar access was not granted — connect again and allow it");
+        throw badRequest("Calendar access was not granted. Connect again and allow it");
       }
 
       // Which account is this? `calendars.get` is a 403 under this scope, so the

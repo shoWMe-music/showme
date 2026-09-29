@@ -127,7 +127,7 @@ export function useCalendarIcsImport(): CalendarIcsImportView {
     setFileName(file.name);
     const contents = await file.text();
     if (contents.length > MAX_ICS_CHARACTERS) {
-      setFileError("That file is too large to import in one go — export a shorter period.");
+      setFileError("That file is too large to import in one go. Export a shorter period.");
       return;
     }
     setIcs(contents);

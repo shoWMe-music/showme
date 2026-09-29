@@ -443,7 +443,7 @@ function DealTermsBlock({
         <span style={{ color: "var(--dim)", fontSize: 12.5 }}>
           {frozen
             ? "No terms were written before this deal was signed."
-            : "No terms written yet — the figures above are the whole of this deal."}
+            : "No terms written yet: the figures above are the whole of this deal."}
         </span>
       )}
     </div>

@@ -632,7 +632,9 @@ function unsettlableLine(eventId: string, line: BudgetLineReference, problem: st
   // Pointing at the planner would send the operator to fix a forecast that the
   // settlement has already stopped listening to.
   return conflict(
-    `Settlement line "${line.label}" (${line.id}) ${problem}, so the settlement cannot balance. Correct or remove it — DELETE /events/${eventId}/settlement/lines/${line.id} — then compute again.`,
+    // The route STAYS — see the note above, and decisions #16.14 — and stops interrupting the
+    // sentence. An operator reads the first two sentences and stops; a caller reads the third.
+    `Settlement line "${line.label}" (${line.id}) ${problem}, so the settlement cannot balance. Correct or remove it, then compute again. DELETE /events/${eventId}/settlement/lines/${line.id}`,
   );
 }
 

@@ -175,8 +175,14 @@ export function useRiderUpload(eventId: string): RiderUploadView {
           body: input.file,
         });
       } catch (cause) {
+        // The diagnosis goes to the console, the sentence goes to the person — a bucket's CORS
+        // policy is not the act's to fix and not theirs to know about.
+        console.warn(
+          "[shoWMe] the signed upload URL was refused by the browser. This is usually a missing CORS policy on the storage bucket.",
+          cause,
+        );
         throw new Error(
-          `Couldn't send the file to storage — the upload URL was refused by the browser (${errorMessage(cause, "network error")}). This is usually a missing CORS policy on the storage bucket.`,
+          `Couldn't upload the file. Storage refused the request (${errorMessage(cause, "network error")}). Try again, and let support know if it keeps happening.`,
         );
       }
       if (!put.ok) {

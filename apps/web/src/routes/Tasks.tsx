@@ -53,7 +53,7 @@ const FILTERS: { key: TaskFilterKey; label: string; title?: string }[] = [
     // model yet"), which is why it looked broken. Ownership IS in the model and
     // in the payload — `ownerUserId` — so the chip now answers the question the
     // data can actually answer, and the tooltip says which question that is.
-    title: "Tasks filed under you personally — not your profile's shared pile.",
+    title: "Tasks filed under you personally: not your profile's shared pile.",
   },
   { key: "open", label: "Open" },
   { key: "done", label: "Done" },

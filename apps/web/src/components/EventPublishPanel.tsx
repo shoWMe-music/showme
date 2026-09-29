@@ -55,7 +55,7 @@ export function EventPublishPanel({
     } catch {
       // Clipboard access can be refused (permissions, an insecure origin). The
       // link is on screen and selectable, so say so instead of failing silently.
-      toast.error("Couldn't copy — select the link and copy it by hand.");
+      toast.error("Couldn't copy. Select the link and copy it by hand.");
     }
   };
 

@@ -463,7 +463,7 @@ function NotificationSoundRow() {
             if (!playNotificationSound()) {
               toast.error(
                 muted
-                  ? "Sound is off — turn it on to hear it."
+                  ? "Sound is off. Turn it on to hear it."
                   : "Your browser blocked the sound. Interact with the page and try again.",
               );
             }

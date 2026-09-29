@@ -292,7 +292,7 @@ export function renderShareVerificationCodeEmail(input: {
     ],
     callout: { label: "Verification code", value: input.code },
     footerNote:
-      "If you did not request this code, you can ignore this email — nothing was shared with you.",
+      "If you did not request this code, you can ignore this email: nothing was shared with you.",
   });
 }
 
@@ -319,7 +319,7 @@ export function renderOffPlatformPerformerEmail(input: {
     heading: "You've been added to an event",
     paragraphs: [
       `${greeting} you have been added as a performer on an event on shoWMe.`,
-      "Create an account with this email address to claim your profile — this event, and any other you have been added to, will be waiting for you.",
+      "Create an account with this email address to claim your profile. This event, and any other you have been added to, will be waiting for you.",
     ],
     details: input.event ? eventDetails(input.event) : undefined,
     action: { label: "Claim your profile", url: buildApplicationUrl("/", input.baseUrl) },
@@ -382,7 +382,7 @@ export function renderInvitationEmail(input: {
       `${greeting} ${inviter} has invited you to collaborate on ${target}.`,
       input.code
         ? "Open shoWMe, sign in or create an account with this email address, and enter the invitation code below."
-        : "Open the link below and sign in — or create an account with this email address — to accept.",
+        : "Open the link below and sign in (or create an account with this email address) to accept.",
     ],
     callout: input.code ? { label: "Invitation code", value: input.code } : undefined,
     action: { label: "Open shoWMe", url },
@@ -465,7 +465,7 @@ export function renderSettlementReviewEmail(input: {
     heading: "A settlement is ready for you",
     paragraphs: [
       `${greeting} ${sender} has sent out the settlement for ${input.event.title}.`,
-      "Open it to see your own line — what you are owed, and the rule behind every figure in it. If it matches your books, sign it off; if something looks wrong, say so there and the organizer can re-issue.",
+      "Open it to see your own line: what you are owed, and the rule behind every figure in it. If it matches your books, sign it off. If something looks wrong, say so there and the organizer can re-issue.",
       input.shareToken
         ? "You will be asked for a one-time code sent to this address, so the link only works for you."
         : "You are already on shoWMe, so it is waiting for you in the app as well.",
@@ -543,7 +543,7 @@ export function renderInvitationClaimCodeEmail(input: {
     heading: "Confirm this is your address",
     paragraphs: [
       `Enter this code to finish claiming the shoWMe account set up for this address. It expires in ${input.expiresInMinutes} minutes.`,
-      "You can then sign in with whichever email address you prefer — this one only proves the invitation reached you.",
+      "You can then sign in with whichever email address you prefer. This one only proves the invitation reached you.",
     ],
     callout: { label: "Claim code", value: input.code },
     footerNote:

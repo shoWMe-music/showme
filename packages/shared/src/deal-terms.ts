@@ -133,7 +133,7 @@ export const DEAL_KIND_OPTIONS: DealKindOption[] = [
      * `gross − deductions − off-the-top`, and omitting the off-the-top step tells an operator
      * their 70% is of a larger base than the engine will use.
      */
-    description: "A share of the adjusted net — revenue less deductions and anything off the top.",
+    description: "A share of the adjusted net: revenue less deductions and anything off the top.",
     structure: "door_split",
     type: "performance",
   },
@@ -172,7 +172,7 @@ export const DEAL_KIND_OPTIONS: DealKindOption[] = [
     value: "paper_only",
     label: "Other — agreed manually",
     description:
-      "shoWMe will not compute this one. Write the terms down, both sides sign them, and the parties settle it between themselves — no figure from it reaches the settlement.",
+      "shoWMe will not compute this one. Write the terms down, both sides sign them, and the parties settle it between themselves: no figure from it reaches the settlement.",
     structure: null,
     type: "performance",
   },
@@ -618,7 +618,7 @@ export function dealDraftProblems(
   const problems: string[] = [];
 
   if (draft.name.trim() === "") {
-    problems.push("Give the agreement a name — it is how both sides refer to it.");
+    problems.push("Give the agreement a name. It is how both sides refer to it.");
   }
 
   const chosen = draft.parties.filter((party) => party.participantId !== "");
@@ -633,7 +633,7 @@ export function dealDraftProblems(
       // decisions #14: the agent acts FOR the performer, whose own line stays the
       // entitled one. It is never a separate entitled party.
       problems.push(
-        "A booking agent is never an entitled party — it acts for the performer it represents, whose own line is the entitled one. Set the agent to Observes.",
+        "A booking agent is never an entitled party. It acts for the performer it represents, whose own line is the entitled one. Set the agent to Observes.",
       );
     }
   }
@@ -647,7 +647,7 @@ export function dealDraftProblems(
   );
   if (bands.length > 0 && !structureNeedsSplit(draft.structure)) {
     problems.push(
-      "A band changes the SPLIT, so it needs a deal that has one — a guarantee pays the same whatever the night does.",
+      "A band changes the SPLIT, so it needs a deal that has one. A guarantee pays the same whatever the night does.",
     );
   }
   for (const band of bands) {
@@ -760,13 +760,13 @@ export function dealDraftProblems(
     const stated = entitled.map((party) => percentToBasisPoints(party.sharePercent));
     if (stated.some((value) => value == null)) {
       problems.push(
-        "When more than one party shares the payout, every one of them has to state its share — an unstated share is not an equal share.",
+        "When more than one party shares the payout, every one of them has to state its share. An unstated share is not an equal share.",
       );
     } else {
       const total = stated.reduce<number>((running, value) => running + (value ?? 0), 0);
       if (total !== 10000) {
         problems.push(
-          `The shares add up to ${(total / 100).toFixed(2)}%. They have to divide the payout exactly — 100%.`,
+          `The shares add up to ${(total / 100).toFixed(2)}%. They have to divide the payout exactly: 100%.`,
         );
       }
     }
@@ -798,7 +798,7 @@ export function dealDraftNotices(draft: DealDraft): string[] {
   if (chosen.length > 0 && entitled.length === 0) {
     notices.push(
       draft.structure === null
-        ? "Nobody on this deal is paid by it, and it is agreed manually — the terms are recorded and no figure from it reaches the settlement."
+        ? "Nobody on this deal is paid by it, and it is agreed manually. The terms are recorded and no figure from it reaches the settlement."
         : "Nobody on this deal is paid by it, so shoWMe will not compute it: the terms are recorded, and the night's money stays with the operator. Give a party the Is paid or Takes a share role to have it settled.",
     );
   }
@@ -1020,7 +1020,7 @@ export function dealDeletability(
   if (deal.agreementStatus !== "draft") {
     return {
       deletable: false,
-      reason: `${named} has left draft, so somebody has seen it. Cancel it instead — that stops it paying and keeps the record that it was offered.`,
+      reason: `${named} has left draft, so somebody has seen it. Cancel it instead: that stops it paying and keeps the record that it was offered.`,
     };
   }
   return { deletable: true, reason: null };

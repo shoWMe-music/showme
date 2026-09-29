@@ -219,9 +219,9 @@ export function useScheduleTemplates(
    */
   const saveBlockedReason = useMemo(() => {
     if (!profileId) return "Pick a profile to save templates under.";
-    if (editor.items.length === 0) return "Add some items first — there is nothing to save yet.";
+    if (editor.items.length === 0) return "Add some items first. There is nothing to save yet.";
     if (editor.items.every((item) => !item.localDateTime)) {
-      return "Give at least one item a time — a template without times has nothing to apply.";
+      return "Give at least one item a time. A template without times has nothing to apply.";
     }
     return null;
   }, [profileId, editor.items]);

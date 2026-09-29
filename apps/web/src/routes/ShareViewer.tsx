@@ -443,7 +443,7 @@ function ShareFooter({ document }: { document: ShareDocument }) {
       {document.viewer.email && (
         <span style={{ color: "var(--muted)", fontSize: 12.5, lineHeight: 1.6 }}>
           {document.viewer.claimed
-            ? `${document.viewer.email} already has a shoWMe account — sign in and anything you have been added to is on your dashboard.`
+            ? `${document.viewer.email} already has a shoWMe account. Sign in and anything you have been added to is on your dashboard.`
             : `Shared with ${document.viewer.email}. With a shoWMe account on that address, the people you work with can add you to a show directly instead of sending a link.`}
         </span>
       )}

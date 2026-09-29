@@ -359,7 +359,7 @@ export async function groupRoutes(fastify: FastifyInstance): Promise<void> {
           .where(eq(schema.users.id, request.body.userId));
         if (!user)
           throw badRequest(
-            "No such user — a group member needs a real userId, or an email for someone off-platform",
+            "No such user: a group member needs a real userId, or an email for someone off-platform",
           );
       }
       if (request.body.defaultPermissionSetId) {

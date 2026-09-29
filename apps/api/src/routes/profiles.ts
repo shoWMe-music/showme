@@ -178,7 +178,7 @@ const ProfilePhotoBody = z
   })
   .refine(
     (photo) => (photo.fileId === undefined) !== (photo.url === undefined),
-    "A photo is either an uploaded fileId or an external url — not both, not neither.",
+    "A photo is either an uploaded fileId or an external url: not both, not neither.",
   );
 
 /**

@@ -228,7 +228,7 @@ export function SendOfferDialog({ open, onClose, onSent }: SendOfferDialogProps)
         <TextField
           label="Why this night"
           value={draft.pitch}
-          placeholder="Optional — what you would bring, and who you draw"
+          placeholder="Optional: what you would bring, and who you draw"
           onChange={(event) => change({ pitch: event.target.value })}
         />
 

@@ -74,7 +74,7 @@ export function CostSplitModal({ target, participants, onClose, onSubmit }: Cost
     stated.length === 0
       ? "Give at least one party a share, or close this and pick a single bearer instead."
       : total > 10_000
-        ? `These shares add up to ${(total / 100).toFixed(2)}%, which charges out more than the cost. They may total less than 100% — the rest stays a shared cost — but never more.`
+        ? `These shares add up to ${(total / 100).toFixed(2)}%, which charges out more than the cost. They may total less than 100% (the rest stays a shared cost) but never more.`
         : null;
 
   const submit = () => {

@@ -678,7 +678,7 @@ export async function publicRoutes(fastify: FastifyInstance): Promise<void> {
 
       if (!leadRateLimiter.take(clientIp(request))) {
         reply.header("retry-after", "60");
-        throw tooManyRequests("Too many submissions — please try again in a minute");
+        throw tooManyRequests("Too many submissions: please try again in a minute");
       }
 
       // Honeypot tripped → pretend success so bots don't learn they were caught,

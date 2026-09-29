@@ -136,13 +136,13 @@ export function DealCostAccountabilityCard({
           <div key={deal.id} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <span style={{ color: "var(--text)", fontSize: 14 }}>{deal.name}</span>
             <AssignedGroup
-              caption="Real costs reported under it — these lower the settlement pool"
+              caption="Real costs reported under it: these lower the settlement pool"
               lines={costs.reported}
               total={costs.reportedTotal}
               currency={currency}
             />
             <AssignedGroup
-              caption="The agreement's own figure, as planned — the settlement takes it from the deal"
+              caption="The agreement's own figure, as planned. The settlement takes it from the deal"
               lines={costs.planned}
               total={costs.plannedTotal}
               currency={currency}

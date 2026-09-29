@@ -72,7 +72,7 @@ export function ImageCropDialog({ file, shape, title, onCancel, onConfirm }: Ima
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.5, color: "var(--dim)" }}>
           {cropper.status === "undecodable"
-            ? "This browser can't open that picture to crop it — it will be uploaded as it is."
+            ? "This browser can't open that picture to crop it. It will be uploaded as it is."
             : shape.guidance}
         </p>
 

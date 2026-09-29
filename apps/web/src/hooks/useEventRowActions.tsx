@@ -220,7 +220,7 @@ export function useEventRowActions({ onDeleted }: EventRowActionOptions = {}): E
         await patchApiV1EventsId(eventId, { status: "cancelled", cancellationReason: reason });
         refreshEventLists();
         // What the operator most needs to know is that it was not silent.
-        toast.success(`"${title}" is cancelled — everyone on the bill has been told why.`);
+        toast.success(`"${title}" is cancelled. Everyone on the bill has been told why.`);
       } catch (error) {
         toast.error(errorMessage(error, `Couldn't cancel "${title}".`));
       } finally {
@@ -338,7 +338,7 @@ export function useEventRowActions({ onDeleted }: EventRowActionOptions = {}): E
           label: "Settlement",
           onSelect: () =>
             navigate({ to: "/events/$eventId/settlement", params: { eventId: event.id } }),
-          hint: "The money for this night — what each party is owed, and what has moved.",
+          hint: "The money for this night: what each party is owed, and what has moved.",
         },
         unarchive: {
           key: "unarchive",

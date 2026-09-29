@@ -328,7 +328,7 @@ export function entitlementGapSentence(input: {
   //    pool they divide: a rental settled before the adjusted net is struck is in the
   //    payee's entitlement and not in the base.
   if (input.offTheTopMinor > 0n && entitlementsMinor > adjustedNetMinor) {
-    return `${opening}. ${format(input.offTheTopMinor.toString())} was settled off the top — it is in a party's entitlement and not in the net the percentages divide. ${shares}`;
+    return `${opening}. ${format(input.offTheTopMinor.toString())} was settled off the top. It is in a party's entitlement and not in the net the percentages divide. ${shares}`;
   }
 
   /*
@@ -520,7 +520,7 @@ export function describeBasis(
         ? `The ${basisPointsToPercent(basis.basisPoints)}% door share beats the ${contract(basis.guarantee)} guarantee`
         : `The ${contract(basis.guarantee)} guarantee beats the ${basisPointsToPercent(basis.basisPoints)}% door share`;
     default:
-      return "A paper agreement — nothing for the settlement to compute";
+      return "A paper agreement: nothing for the settlement to compute";
   }
 }
 

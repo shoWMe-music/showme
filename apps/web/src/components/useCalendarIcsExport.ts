@@ -121,7 +121,7 @@ export function useCalendarIcsExport(options: CalendarIcsExportOptions): () => v
     } catch {
       // A blocked object URL or a denied download is the only way this fails,
       // and it fails silently in the browser — say so rather than looking dead.
-      toast.error("Couldn't start the download — your browser blocked it.");
+      toast.error("Couldn't start the download. Your browser blocked it.");
       return;
     }
 

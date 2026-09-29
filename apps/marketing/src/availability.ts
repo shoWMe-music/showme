@@ -111,7 +111,7 @@ function formatBusyStates(snapshot: AvailabilitySnapshot): string {
   const states: string[] = [];
   if (snapshot.confirmedCountsAsBusy) states.push("confirmed events");
   if (snapshot.heldCountsAsBusy) states.push("held events");
-  if (states.length === 0) return "Nothing — every date in the filter is listed";
+  if (states.length === 0) return "Nothing: every date in the filter is listed";
   return states.join(" and ");
 }
 
@@ -306,8 +306,8 @@ function renderSnapshot(
           "p",
           "dates__hint",
           snapshot.rooms.length > 1
-            ? "Pick a date to see which rooms are free that night — one click, then a short note."
-            : "Pick a date to ask about it — one click, then a short note.",
+            ? "Pick a date to see which rooms are free that night. One click, then a short note."
+            : "Pick a date to ask about it. One click, then a short note.",
         ),
       );
     }
@@ -319,8 +319,8 @@ function renderSnapshot(
         "p",
         "note note--withdrawn",
         withdrawn.length === 1
-          ? "One of these dates has been blocked since the link was made — it is struck through."
-          : `${withdrawn.length} of these dates have been blocked since the link was made — they are struck through.`,
+          ? "One of these dates has been blocked since the link was made. It is struck through."
+          : `${withdrawn.length} of these dates have been blocked since the link was made. They are struck through.`,
       ),
     );
   }
@@ -345,8 +345,8 @@ function renderSnapshot(
       "p",
       "note",
       snapshot.generatedOn
-        ? `Snapshot taken ${formatLongDate(snapshot.generatedOn)}. Availability changes — confirm before you plan around it.`
-        : "Availability changes — confirm before you plan around it.",
+        ? `Snapshot taken ${formatLongDate(snapshot.generatedOn)}. Availability changes: confirm before you plan around it.`
+        : "Availability changes: confirm before you plan around it.",
     ),
   );
 
@@ -403,7 +403,7 @@ async function render(): Promise<void> {
     if (!shared) {
       renderProblem(
         container,
-        "This availability link is no longer available. It may have been withdrawn, or the profile behind it may have been made private — ask whoever sent it for a new one.",
+        "This availability link is no longer available. It may have been withdrawn, or the profile behind it may have been made private. Ask whoever sent it for a new one.",
       );
       return;
     }
@@ -423,7 +423,7 @@ async function render(): Promise<void> {
   if (!snapshot) {
     renderProblem(
       container,
-      "The shared dates are missing from this address. Ask whoever sent it for the full link — everything after the # matters.",
+      "The shared dates are missing from this address. Ask whoever sent it for the full link. Everything after the # matters.",
     );
     return;
   }

@@ -91,7 +91,7 @@ export function MyCalendarsCard({ groups, periodTitle, onManageRooms }: MyCalend
       <p style={{ margin: 0, fontSize: 11.5, color: "var(--dim)" }}>
         Shows in {periodTitle}.
         {hasVenue
-          ? " A venue's rooms are separate calendars — two rooms can hold two shows on the same night."
+          ? " A venue's rooms are separate calendars. Two rooms can hold two shows on the same night."
           : ""}
       </p>
       {hasVenue && (

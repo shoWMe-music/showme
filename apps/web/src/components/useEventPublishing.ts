@@ -168,13 +168,13 @@ export function useEventPublishing(
     if (status !== "confirmed") {
       return STATUSES_WITH_A_PUBLIC_PAGE.has(status)
         ? `A ${describeStatus(status)} event can't be announced.`
-        : `Only a confirmed event has a public page. This one is ${describeStatus(status)} — confirm the booking first.`;
+        : `Only a confirmed event has a public page. This one is ${describeStatus(status)}. Confirm the booking first.`;
     }
     if (!hasDate) return "A page with no date isn't an announcement. Give the event a date first.";
     // The publish route writes the row that is SAVED, not the draft in the form
     // above it — so an operator who publishes mid-edit would put the old title on
     // the internet and have no way to tell.
-    if (hasUnsavedChanges) return "Save your changes first — the public page shows what's saved.";
+    if (hasUnsavedChanges) return "Save your changes first. The public page shows what's saved.";
     return null;
   })();
 

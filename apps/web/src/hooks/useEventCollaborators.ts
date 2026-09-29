@@ -227,7 +227,7 @@ export function useEventCollaborators({
         // to present a reversible act as a permanent one — not out of caution but
         // because the route kept no memory of the status it overwrote, so there
         // was genuinely no way back (ClickUp 86cbazcc7, item 3).
-        body: `${displayName} loses access to this event's workspace — its budget, deals, messages and files. Their own account and every other event they are on are untouched, and the history of what they did here stays on the Event History tab. You can put them back from this menu afterwards.`,
+        body: `${displayName} loses access to this event's workspace: its budget, deals, messages and files. Their own account and every other event they are on are untouched, and what they did here stays on the Event History tab. You can put them back from this menu afterwards.`,
         confirmLabel: "Remove from event",
         destructive: true,
         onConfirm: () => remove.mutate({ id: eventId, pid: next.id }),
@@ -273,7 +273,7 @@ export function useEventCollaborators({
         (restoration.isPending && restoration.variables?.pid === next.id);
 
       const editRefusal = isHost
-        ? "The operator anchors this event — their role and access are fixed."
+        ? "The operator anchors this event: their role and access are fixed."
         : next.role === "agent"
           ? "An agent stands on this event through the performer they represent, not through a role set here."
           : isRemoved
@@ -309,7 +309,7 @@ export function useEventCollaborators({
             ? undefined
             : allowsFullControl(next.role) && fullControlPermissionSetId !== null
               ? "Change their role on this event, and the access that role is given."
-              : "Change the role they hold on this event — what it may touch comes with it. Only a co-operator can be granted more than their role's own access.",
+              : "Change the role they hold on this event. What it may touch comes with it. Only a co-operator can be granted more than their role's own access.",
         },
         // Removed rows get the undo in place of the remove — the two are never
         // both on offer, and neither is a dead entry. `statusBeforeRemoval` is

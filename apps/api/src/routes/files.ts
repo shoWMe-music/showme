@@ -148,7 +148,7 @@ function assertUploadAllowed(kind: FileKind, contentType: string, sizeBytes: num
   }
   if (sizeBytes > policy.maxBytes) {
     throw badRequest(
-      `That file is ${Math.ceil(sizeBytes / MEGABYTE)} MB — the limit for a ${kind} is ${Math.floor(policy.maxBytes / MEGABYTE)} MB.`,
+      `That file is ${Math.ceil(sizeBytes / MEGABYTE)} MB. The limit for a ${kind} is ${Math.floor(policy.maxBytes / MEGABYTE)} MB.`,
     );
   }
 }

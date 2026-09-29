@@ -613,7 +613,7 @@ export function useEventInlineFields(event: EditableEventInformation): EventInli
         { venueProfileId: choice.profileId },
         "Venue",
         choice.name,
-        `Linked to ${choice.name} — it filled in what this event had left blank`,
+        `Linked to ${choice.name}: it filled in what this event had left blank`,
       );
       close();
     },

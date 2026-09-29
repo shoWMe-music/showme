@@ -70,7 +70,7 @@ export interface GoogleTokenGrant {
  */
 export class GoogleAuthorizationRevokedError extends Error {
   constructor(readonly detail: string) {
-    super("Google access was revoked or expired — reconnect the calendar");
+    super("Google access was revoked or expired. Reconnect the calendar");
     this.name = "GoogleAuthorizationRevokedError";
   }
 }
@@ -92,7 +92,7 @@ export class GoogleApiError extends Error {
  */
 export class GoogleSyncTokenExpiredError extends Error {
   constructor() {
-    super("The stored sync token expired — a full re-listing is required");
+    super("The stored sync token expired: a full re-listing is required");
     this.name = "GoogleSyncTokenExpiredError";
   }
 }
@@ -932,7 +932,7 @@ async function googleWrite(input: {
     // The same class the read path already raises, so a revoked or narrowed grant
     // is handled by the code that already knows what to do about it.
     throw new GoogleAuthorizationRevokedError(
-      `Google refused the write (${response.status}) — the grant may have been revoked or narrowed`,
+      `Google refused the write (${response.status}): the grant may have been revoked or narrowed`,
     );
   }
   if (!response.ok) {

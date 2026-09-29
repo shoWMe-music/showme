@@ -848,7 +848,7 @@ function TicketInformationCard({
               <Button
                 variant="ghost"
                 disabled
-                title="Ticketing-provider sync isn't connected yet — enter tiers by hand for now."
+                title="Ticketing-provider sync isn't connected yet. Enter tiers by hand for now."
                 leftIcon={<Icon name="download" size={13} />}
               >
                 Sync from Ticketing Company

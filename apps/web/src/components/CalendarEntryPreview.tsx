@@ -177,7 +177,7 @@ export function CalendarEntryPreview({
             <KeyValueRow label="Queue position" value={`#${entry.holdRank}`} />
             <KeyValueRow
               label="Auto-promote"
-              value={entry.holdAutoPromote ? "On — moves up if a hold above it falls" : "Off"}
+              value={entry.holdAutoPromote ? "On, so it moves up if a hold above it falls" : "Off"}
             />
           </div>
         )}

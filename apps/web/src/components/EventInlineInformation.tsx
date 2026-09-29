@@ -325,7 +325,7 @@ export function EventInlineInformation({
           noteAbove
           hint={
             event.venueProfileId
-              ? "Linked to a venue profile. Anything this event had not filled in — capacity, house curfew, amenities, city — came from it, and everything already typed was left alone. Take the chip off to unlink it."
+              ? "Linked to a venue profile. It filled in what this event had left blank (capacity, house curfew, amenities, city) and left everything already typed alone. Take the chip off to unlink it."
               : "Type any name, or pick the room off shoWMe and it fills in what this event is still missing: capacity, house curfew, amenities and city. Nothing already typed is touched."
           }
         >
@@ -375,7 +375,7 @@ export function EventInlineInformation({
             value={inline.draft}
             placeholder="No room set"
             canSave={inline.hasUnsavedChanges}
-            hint="Each room is its own calendar — two rooms can hold two shows the same night. A show with no room set counts against every room's availability."
+            hint="Each room is its own calendar. Two rooms can hold two shows the same night. A show with no room set counts against every room's availability."
             // Said BEFORE Save, not discovered after it. A room is a more
             // specific statement than a building, so its capacity wins over the
             // one the venue filled in — but only on Save, and only if the room

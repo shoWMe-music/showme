@@ -118,7 +118,7 @@ function OperatorControls({
   const askToRelease = () =>
     confirmation.ask({
       title: "Release this hold?",
-      body: "The date stops being held for this event and the event is cancelled. Every hold below it moves up one — unless it is frozen. This cannot be undone from here.",
+      body: "The date stops being held for this event and the event is cancelled. Every hold below it moves up one, unless it is frozen. This cannot be undone from here.",
       confirmLabel: "Release hold",
       destructive: true,
       onConfirm: hold.release,

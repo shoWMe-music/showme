@@ -143,7 +143,7 @@ describe("coPromotedNote — the sentence, and when there is none", () => {
 
   it("names how many of how many", () => {
     expect(coPromotedNote(2, 5)).toBe(
-      "2 of these 5 nights are run with another operator, so the ledger — and this figure — covers the whole night rather than your share of it. What you are owed is on the event's settlement.",
+      "2 of these 5 nights are run with another operator, so the ledger (and this figure) covers the whole night rather than your share of it. What you are owed is on the event's settlement.",
     );
   });
 

@@ -126,7 +126,10 @@ export async function assertEventIsDeletable(
   // 1. The profile operating the show, and no other.
   if (principal.actingProfileId !== event.hostProfileId) {
     throw forbidden(
-      "Only the profile operating this show can delete it. Switch to it (X-Profile-Id) — or, if the show is not yours, archive it instead: that hides it from your own lists and touches nobody else's.",
+      // No header name in it. `X-Profile-Id` is how an API caller switches profile and it belongs
+      // in the OpenAPI document, not in a sentence a promoter reads (the same split
+      // `TERMS_SEALED_CODE` exists to make).
+      "Only the profile operating this show can delete it. Switch to that profile and try again. If the show is not yours, archive it instead: that hides it from your lists and changes nothing for anybody else.",
     );
   }
 

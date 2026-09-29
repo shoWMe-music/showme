@@ -33,7 +33,7 @@ export const SHARE_SCOPES: readonly ShareScope[] = [
   {
     capability: "schedule.view",
     label: "Schedule",
-    description: "The run of show — load-in, soundcheck, doors, set times.",
+    description: "The run of show: load-in, soundcheck, doors, set times.",
     kind: "view",
   },
   {
@@ -46,7 +46,7 @@ export const SHARE_SCOPES: readonly ShareScope[] = [
     capability: "budget.view",
     label: "Budget",
     description:
-      "The shared ledger and its totals. A performer or crew recipient will not see this — the authorization ceiling refuses it whatever the link says.",
+      "The shared ledger and its totals. A performer or crew recipient will not see this. The authorization ceiling refuses it whatever the link says.",
     kind: "view",
   },
   {

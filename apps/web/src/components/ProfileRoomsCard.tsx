@@ -168,7 +168,7 @@ export function ProfileRoomsCard({ profileId }: { profileId: string }) {
     // availability. Worth saying before, not after.
     confirm.ask({
       title: `Remove ${room.name}?`,
-      body: `${room.eventCount} ${room.eventCount === 1 ? "event is" : "events are"} in this room. They keep their date and lose their room — and a show with no room counts against every room's availability until it is put in one.`,
+      body: `${room.eventCount} ${room.eventCount === 1 ? "event is" : "events are"} in this room. They keep their date and lose their room, and a show with no room counts against every room's availability until it is put in one.`,
       confirmLabel: "Remove room",
       destructive: true,
       onConfirm: () => rooms.remove(room.id),
@@ -183,8 +183,8 @@ export function ProfileRoomsCard({ profileId }: { profileId: string }) {
         <Eyebrow>Rooms &amp; capacity</Eyebrow>
         <p style={{ margin: 0, fontSize: 12.5, color: "var(--dim)" }}>
           {soleRoom
-            ? "How many people fit. If this venue has more than one space, add them — each room is its own calendar, so two rooms can hold two shows on the same night."
-            : "Each room is its own calendar — two rooms can hold two shows on the same night, and availability is answered per room."}
+            ? "How many people fit. If this venue has more than one space, add them. Each room is its own calendar, so two rooms can hold two shows on the same night."
+            : "Each room is its own calendar. Two rooms can hold two shows on the same night, and availability is answered per room."}
         </p>
         <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--dim)" }}>
           Saves as you go — rooms are separate records, not fields on this profile.

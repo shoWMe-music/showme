@@ -46,12 +46,12 @@ export const EVENT_COLLABORATOR_ROLES: EventCollaboratorRoleOption[] = [
   {
     value: "co_host",
     label: "Co-operator",
-    description: "Runs the show with you — another promoter, venue or organizer.",
+    description: "Runs the show with you: another promoter, venue or organizer.",
   },
   {
     value: "performer",
     label: "Performer",
-    description: "On the bill. Sees their own deal, settlement, schedule — never anyone else's.",
+    description: "On the bill. Sees their own deal, settlement, schedule, never anyone else's.",
   },
   {
     value: "support",

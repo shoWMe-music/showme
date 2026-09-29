@@ -46,7 +46,7 @@ const IDENTIFIER_SHAPES: Record<
     pattern: /^[A-Za-z]{2}\d{2}[A-Za-z0-9]{11,30}$/,
     noun: "an IBAN",
     looksLike:
-      "two letters, two check digits, then the account — e.g. SE45 5000 0000 0583 9825 7466",
+      "two letters, two check digits, then the account. E.g. SE45 5000 0000 0583 9825 7466",
   },
   // 7 or 8 digits, and the dash is how they are PRINTED rather than part of the number — a
   // caller who sends `50516905` has sent a bankgiro number and is not wrong.
@@ -58,7 +58,7 @@ const IDENTIFIER_SHAPES: Record<
   swish: {
     pattern: /^\+?\d{7,15}$/,
     noun: "a Swish number",
-    looksLike: "the phone number it pays to — e.g. 0701234567",
+    looksLike: "the phone number it pays to: e.g. 0701234567",
   },
 };
 

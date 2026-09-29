@@ -1337,7 +1337,7 @@ function EntryMethodCard({
         <SelectCard
           icon={<Icon name="trending-up" size={18} />}
           title="Start from the Budget Planner"
-          description="Takes the settlement's own copy of every forecast line, so you correct figures rather than retype them. Recommended — it is also what gives you planned-vs-actual."
+          description="Takes the settlement's own copy of every forecast line, so you correct figures rather than retype them. Recommended. It is also what gives you planned-vs-actual."
           onSelect={blocked ? undefined : () => settlement.compute()}
         />
         <SelectCard

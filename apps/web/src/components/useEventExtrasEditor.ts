@@ -147,7 +147,7 @@ export function useEventExtrasEditor(event: EditableEventExtras): EventExtrasEdi
         setDraft(null);
         setSettledVersion(null);
         invalidateEvent();
-        toast.error("Someone else changed this event — reloaded their version.");
+        toast.error("Someone else changed this event, so their version is now loaded.");
       } else {
         toast.error(errorMessage(error, "Couldn't save this change."));
         setDraft(null);

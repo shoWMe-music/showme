@@ -206,7 +206,7 @@ export function BudgetCustomFieldModal({
                 description: party.roleLabel,
               }))}
               placeholder="Defaults to you"
-              aria-label="Carried by — who the invoice goes out from"
+              aria-label="Carried by: who the invoice goes out from"
               searchable={participants.length > 6}
             />
           </div>

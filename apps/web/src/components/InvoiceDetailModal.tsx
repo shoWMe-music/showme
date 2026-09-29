@@ -151,8 +151,8 @@ function InvoiceLines({
     return (
       <span className="muted" style={{ fontSize: 12 }}>
         {hasTotal
-          ? "No line items — this invoice carries a total only."
-          : "Nothing itemised and no total yet — this draft is still being written."}
+          ? "No line items: this invoice carries a total only."
+          : "Nothing itemised and no total yet: this draft is still being written."}
       </span>
     );
   }

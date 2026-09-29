@@ -84,7 +84,7 @@ export const TEAM_ROLES = [
   {
     value: "editor",
     label: "Editor",
-    description: "Creates and changes the work — events, deals and budgets — but not the team.",
+    description: "Creates and changes the work (events, deals and budgets) but not the team.",
     consumesSeat: true,
   },
   {
@@ -122,7 +122,7 @@ export function seatRefusalHint(): string {
   const label = (role: TeamRoleOption) => role.label;
   const paid = TEAM_ROLES.filter((role) => role.consumesSeat).map(label);
   const free = TEAM_ROLES.filter((role) => !role.consumesSeat).map(label);
-  return `${andList(paid)} each consume one of the account's seats. ${andList(free)} are included on every plan — pick one of those, or upgrade this account's plan.`;
+  return `${andList(paid)} each consume one of the account's seats. ${andList(free)} are included on every plan. Pick one of those, or upgrade this account's plan.`;
 }
 
 /** "A and B" / "A, B and C" — for a sentence naming a set of roles. */

@@ -232,7 +232,7 @@ export function EventDetail() {
     } catch {
       // Clipboard access can be refused (permissions, an insecure origin). Say so
       // rather than failing silently — the address is also on the Event Information card.
-      detailToast.error("Couldn't copy — the link is on the Event Information card.");
+      detailToast.error("Couldn't copy. The link is on the Event Information card.");
     }
   };
 
@@ -586,7 +586,7 @@ export function EventDetail() {
                 onSelect: () => void copyPublicLink(),
                 hint: event.published
                   ? "Copies the public page's address."
-                  : "Copies the address the public page WILL have — it is not up yet.",
+                  : "Copies the address the public page WILL have. It is not up yet.",
               },
             ]}
           />
@@ -1093,7 +1093,7 @@ function BudgetTab({
       <BudgetPlanner
         sealedNote={
           budgetIsSealed
-            ? "This night has been settled, and the settlement keeps its own copy of this budget from the moment it was first run. Anything changed here from now on is a revision of the plan — it will not move the reconciliation. A cost that arrived late belongs in the settlement's own figures, on the Financials tab."
+            ? "This night is settled. The settlement kept its own copy of this budget the first time it ran, so anything changed here now revises the plan without moving the reconciliation. A cost that arrived late belongs in the settlement's own figures, on the Financials tab."
             : undefined
         }
         currencySymbol={currencySymbol(currency)}
@@ -1429,7 +1429,7 @@ function PendingInvitationCard({ invitation }: { invitation: EventInvitation }) 
       </div>
       <div style={{ color: "var(--dim)", fontSize: 12, lineHeight: 1.45 }}>
         {invitation.recipientEmail
-          ? `Invited ${formatDay(invitation.createdAt)} — nothing is granted until they accept.`
+          ? `Invited ${formatDay(invitation.createdAt)}: nothing is granted until they accept.`
           : "Nothing is granted until they accept."}
       </div>
     </Card>

@@ -247,7 +247,7 @@ function AnswerCard({
         <Panel title="Sign in to answer">
           <p style={bodyStyle}>
             {offer?.boundToEmail
-              ? `This was sent to ${offer.recipientEmail}. Sign in with that address — or create an account with it, if you do not have one yet — and this invitation will be here waiting.`
+              ? `This was sent to ${offer.recipientEmail}. Sign in with that address (or create an account with it, if you do not have one yet) and this invitation will be here waiting.`
               : "Sign in, or create an account, and this invitation will be here waiting."}
           </p>
           <Button onClick={onSignIn}>Sign in or create an account</Button>

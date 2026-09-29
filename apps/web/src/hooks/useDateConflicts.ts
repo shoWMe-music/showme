@@ -141,7 +141,7 @@ export function conflictMessage(input: {
   const blocked = input.blocks[0];
   if (blocked) {
     const because = blocked.reason ? ` (${blocked.reason})` : "";
-    return `You marked this date unavailable${because}. You can still book it — the block is yours to change.`;
+    return `You marked this date unavailable${because}. You can still book it. The block is yours to change.`;
   }
 
   const [first, ...rest] = input.events;

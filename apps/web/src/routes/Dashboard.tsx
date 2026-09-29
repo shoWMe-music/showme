@@ -641,7 +641,7 @@ export function Dashboard() {
             <EmptyState
               icon={<Icon name="receipt" />}
               title="No settlements yet"
-              description="Concluded events with a settlement will show here — with status and amount."
+              description="Concluded events with a settlement will show here, with status and amount."
             />
           ) : (
             <div style={{ display: "flex", flexDirection: "column" }}>

@@ -84,7 +84,7 @@ function coverageHint(coverage: BudgetCoverage): string {
 function partialCoverageNote(coverage: BudgetCoverage): string {
   const missing = coverage.matched - coverage.budgeted;
   const missingClause = missing === 1 ? "1 event has none yet" : `${missing} events have none yet`;
-  return `Figures cover the ${coverage.budgeted} of ${coverage.matched} events in this view that have a budget — ${missingClause}, so they show as —.`;
+  return `Figures cover the ${coverage.budgeted} of ${coverage.matched} events in this view that have a budget. ${missingClause}, so they show as —.`;
 }
 
 /** Why the screen is empty when the filter did match events: no budgets on them. */
@@ -345,7 +345,7 @@ function ProjectionsScreen() {
         <EmptyState
           icon={<Icon name="trending-up" />}
           title="No events match this filter"
-          description="Nothing in your pipeline fits this scope — switch the filter above to see the rest of it."
+          description="Nothing in your pipeline fits this scope. Switch the filter above to see the rest of it."
         />
       ) : !hasProjection && !budgetsPending ? (
         // The filter matched, the budgets are in, and every one of them is missing:

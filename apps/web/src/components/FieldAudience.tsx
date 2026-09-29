@@ -41,7 +41,7 @@ export const AUDIENCE_COPY: Record<FieldAudience, AudienceCopy> = {
     // section exists to fix. Widen this sentence in the same change that ships
     // the industry-facing profile view, not before.
     explanation:
-      "Taken off your public page. An anonymous visitor never sees it — today only you and your team can, and it is what we would show a promoter who asks.",
+      "Taken off your public page. An anonymous visitor never sees it. Today only you and your team can, and it is what we would show a promoter who asks.",
   },
   private: {
     badge: "Never published",

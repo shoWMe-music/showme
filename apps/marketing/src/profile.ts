@@ -409,7 +409,7 @@ function vocabularyFor(profile: PublicProfile): Vocabulary {
         aboutLabel: "The room",
         laneEyebrow: "Artists & promoters",
         laneProse:
-          "House tech spec, patch list and load-in notes are shared with signed-in artists and crew — never on the open web.",
+          "House tech spec, patch list and load-in notes are shared with signed-in artists and crew, never on the open web.",
         emptyShows: "Nothing announced right now. Check back soon.",
       }
     : {
@@ -419,7 +419,7 @@ function vocabularyFor(profile: PublicProfile): Vocabulary {
         aboutLabel: "About",
         laneEyebrow: "Booking & industry",
         laneProse:
-          "Riders, stage plots and hospitality notes are shared with signed-in venues, promoters and crew — never on the open web.",
+          "Riders, stage plots and hospitality notes are shared with signed-in venues, promoters and crew, never on the open web.",
         emptyShows: "No dates announced right now. Check back soon.",
       };
 }

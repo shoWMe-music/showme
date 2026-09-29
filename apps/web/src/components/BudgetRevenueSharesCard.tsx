@@ -140,7 +140,7 @@ export function BudgetRevenueSharesCard({
         // missing is the difference between a dead control and an instruction.
         <Eyebrow>
           {sources.length === 0
-            ? "Add a revenue line first — a share is a slice of one"
+            ? "Add a revenue line first. A share is a slice of one"
             : "Invite a collaborator to move a share to"}
         </Eyebrow>
       )}

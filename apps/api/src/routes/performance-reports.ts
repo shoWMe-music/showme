@@ -447,7 +447,7 @@ export async function performanceReportRoutes(fastify: FastifyInstance): Promise
       }
       if (draft.works.length === 0) {
         throw badRequest(
-          "There is nothing to report — no performer on this show has written a setlist yet.",
+          "There is nothing to report: no performer on this show has written a setlist yet.",
         );
       }
 

@@ -547,7 +547,7 @@ export function Team() {
             <EmptyState
               icon={<Icon name="users" />}
               title={selectedProfileId ? "No groups on this profile" : "No groups yet"}
-              description="Reusable rosters — Booking, Production, Marketing — appear here. Optional: people can join the team without one."
+              description="Reusable rosters (Booking, Production, Marketing) appear here. Optional: people can join the team without one."
             />
           ) : (
             <div
@@ -587,7 +587,7 @@ export function Team() {
             <EmptyState
               icon={<Icon name="users" />}
               title="No one here yet"
-              description="Invite someone by email and pick what they may do — they join the account as soon as they accept."
+              description="Invite someone by email and pick what they may do. They join the account as soon as they accept."
               action={
                 <Button
                   variant="primary"

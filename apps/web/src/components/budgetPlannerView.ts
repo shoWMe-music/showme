@@ -427,7 +427,7 @@ export function ticketSplitDisplay(
     feePayableMinor != null && claimed > 0n
       ? feePayableMinor === claimed
         ? "Box office only, before costs and rental."
-        : `Box office only, before costs and rental — after them the deal pays ${money(feePayableMinor)}.`
+        : `Box office only, before costs and rental. After them the deal pays ${money(feePayableMinor)}.`
       : null;
 
   return {
@@ -917,7 +917,7 @@ function performingRightsDisplay(
   const ratePercent = estimate.rateBasisPoints / 100;
   const shared = [
     "Charged on ticket revenue only; bar, merch and other revenue are outside it.",
-    "Applies the rate to PROJECTED ticket revenue — the fee moves with what actually sells.",
+    "Applies the rate to PROJECTED ticket revenue. The fee moves with what actually sells.",
   ];
 
   if (estimate.tariffSource === "territory_tariff") {
@@ -930,7 +930,7 @@ function performingRightsDisplay(
       sourceUrl: estimate.sourceUrl,
       assumptions: [
         estimate.sourceNote
-          ? `${ratePercent}% is the rate configured for ${estimate.country} — ${estimate.sourceNote}.`
+          ? `${ratePercent}% is the rate configured for ${estimate.country}: ${estimate.sourceNote}.`
           : `${ratePercent}% is the rate configured for ${estimate.country}. No tariff reference was recorded against it.`,
         ...shared,
         // Even a real, sourced rate is not a quote. shoWMe files nothing with any
@@ -949,12 +949,12 @@ function performingRightsDisplay(
     sourceUrl: null,
     assumptions: [
       estimate.country
-        ? `Flat ${ratePercent}% planning rate — shoWMe has no tariff configured for ${estimate.country}.`
-        : `Flat ${ratePercent}% planning rate — no territory tariff is configured in shoWMe.`,
+        ? `Flat ${ratePercent}% planning rate: shoWMe has no tariff configured for ${estimate.country}.`
+        : `Flat ${ratePercent}% planning rate: no territory tariff is configured in shoWMe.`,
       ...shared,
       estimate.country
         ? "No PRO is set for this event, so no published tariff was consulted."
-        : "shoWMe could not tell where this show happens — set the venue's country and its PRO rate can be applied.",
+        : "shoWMe could not tell where this show happens. Set the venue's country and its PRO rate can be applied.",
     ],
   };
 }

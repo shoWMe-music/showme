@@ -1407,7 +1407,7 @@ export function useBudgetEditor(
             // Sticky: a figure that did not save is not something to notice four
             // seconds later, and the row is about to change under them.
             toast.error(
-              `“${label}” was changed by someone else, so ${attempted} was not saved. The budget now shows their figure — retype yours if it is still right.`,
+              `“${label}” was changed by someone else, so ${attempted} was not saved. The budget now shows their figure. Retype yours if it is still right.`,
               { duration: 0 },
             );
             return;

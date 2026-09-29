@@ -126,7 +126,7 @@ export function SettlementCurationCard({ eventId }: { eventId: string }) {
         <ChipList
           tone="included"
           title="In their settlement"
-          empty="Nothing yet — this party sees no figures at all."
+          empty="Nothing yet: this party sees no figures at all."
           chips={included}
           isBusy={curation.isBusy}
           onToggle={curation.toggle}

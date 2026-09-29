@@ -895,7 +895,7 @@ export function Calendar() {
                 <output style={{ fontSize: 12.5, color: "var(--muted)" }}>
                   {markUnavailable.selectedDays.size === 0
                     ? "Click or drag across the nights to block. Shift-click extends. Esc cancels."
-                    : `${markUnavailable.selectedDays.size} picked — click a picked night to drop it, Esc cancels.`}
+                    : `${markUnavailable.selectedDays.size} picked: click a picked night to drop it, Esc cancels.`}
                 </output>
               </>
             ) : (

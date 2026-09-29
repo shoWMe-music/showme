@@ -121,7 +121,7 @@ export function PerformerSearch({
             setQuery(event.target.value);
             setOpen(true);
           }}
-          placeholder="Add a performer — search or type a name…"
+          placeholder="Search for a performer, or type a name…"
           style={{
             flex: 1,
             minWidth: 0,

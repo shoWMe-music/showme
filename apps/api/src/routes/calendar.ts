@@ -411,7 +411,7 @@ function judgeIcsEntries(parsed: IcsParseResult, context: IcsImportContext): Jud
 
     const existingId = context.alreadyImported.get(entry.uid);
     if (existingId) {
-      const refreshed = "Imported before — its title and times were refreshed, nothing else.";
+      const refreshed = "Imported before: its title and times were refreshed, nothing else.";
       judged.push(
         verdict("updated", entry.caveat ? `${refreshed} ${entry.caveat}` : refreshed, existingId),
       );
@@ -703,7 +703,7 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
       // change, and it has its own route below.
       if (before.type === "external") {
         throw conflict(
-          "This entry comes from a connected calendar — edit it there, or use 'available anyway'",
+          "This entry comes from a connected calendar. Edit it there, or use 'available anyway'",
         );
       }
 

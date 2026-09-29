@@ -92,7 +92,7 @@ export function useDealAutoSend(): DealAutoSend {
           onClick: () => {
             cancelled = true;
             toast.dismiss(toastId);
-            toast("Kept as a draft — send it from the event's Deals tab when you're ready.");
+            toast("Kept as a draft: send it from the event's Deals tab when you're ready.");
           },
         },
       });
@@ -113,12 +113,12 @@ export function useDealAutoSend(): DealAutoSend {
           void queryClient.invalidateQueries({
             queryKey: getGetApiV1EventsIdDealsQueryKey(eventId),
           });
-          toast.success(`Agreement sent to ${partyName} — they can confirm it now.`);
+          toast.success(`Agreement sent to ${partyName}: they can confirm it now.`);
         } catch (error) {
           toast.error(
             errorMessage(
               error,
-              "Couldn't send the agreement. It's saved as a draft — open the event's Deals tab and press Send to parties.",
+              "Couldn't send the agreement. It's saved as a draft. Open the event's Deals tab and press Send to parties.",
             ),
             { duration: 12000 },
           );

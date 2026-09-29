@@ -1770,7 +1770,7 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
             // arriving as an empty line — the reader then knows to go and ask.
             body: cancellationReason
               ? cancellationReason
-              : "No reason was given. The show is off — ask the operator if you need to know why.",
+              : "No reason was given. The show is off. Ask the operator if you need to know why.",
             eventId: id,
             actorDisplay: request.firebaseUser?.name ?? undefined,
             link: `/events/${id}`,
@@ -2124,7 +2124,7 @@ export async function eventRoutes(fastify: FastifyInstance): Promise<void> {
         throw forbidden(
           isProposer
             ? "You proposed this change; somebody else has to answer it"
-            : "This change is not yours to answer — the parties standing on this date decide it",
+            : "This change is not yours to answer. The parties standing on this date decide it",
         );
       }
       if (await hasAnswered(database, open.id, participant.id)) {

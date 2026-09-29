@@ -351,7 +351,7 @@ export function OnboardingFlow() {
             <Step
               eyebrow="Your profiles"
               title="Set up your first profile"
-              subtitle="Add one now — you can add more here, or anytime later."
+              subtitle="Add one now. You can add more here, or anytime later."
             >
               {profiles.length > 0 && (
                 <div style={{ display: "grid", gap: 8, marginBottom: 14 }}>

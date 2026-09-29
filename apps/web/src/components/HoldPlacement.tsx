@@ -304,7 +304,7 @@ export function HoldPriorityField({
   // `(date, venue, stage)`), and the wizard cannot pin one, so they are named
   // rather than silently counted or silently ignored.
   const queueLine = !eventDate
-    ? "Pick a date — a hold is a claim on one, and its priority is decided per date."
+    ? "Pick a date. A hold is a claim on one, and its priority is decided per date."
     : poolIsPending
       ? "Checking what else is held on this date…"
       : competingHolds === 0
@@ -354,8 +354,8 @@ function HoldPlanNote({ placement }: { placement: HoldPlacement }) {
   return (
     <div style={panelNote}>
       {eventSlots.allowed
-        ? `Plan: ${eventSlots.used} of ${eventSlots.limit} event slots used. A hold spends none — the slot is charged when the act confirms.`
-        : `Plan: all ${eventSlots.limit} event slots are used. You can still hold this date — the slot is only charged when the act confirms, and confirming will be refused until a slot frees up or you upgrade.`}
+        ? `Plan: ${eventSlots.used} of ${eventSlots.limit} event slots used. A hold spends none. The slot is charged when the act confirms.`
+        : `Plan: all ${eventSlots.limit} event slots are used. You can still hold this date. The slot is only charged when the act confirms, and confirming will be refused until a slot frees up or you upgrade.`}
     </div>
   );
 }

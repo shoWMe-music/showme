@@ -136,7 +136,7 @@ function serializeInvoice(invoice: InvoiceRow) {
 function assertInvoiceNamesAnAmount(total: bigint | null): void {
   if (total == null) {
     throw badRequest(
-      "This invoice has no amount on it yet. Add the total before sending it — an invoice without one reads as zero everywhere it is listed.",
+      "This invoice has no amount on it yet. Add the total before sending it. An invoice without one reads as zero everywhere it is listed.",
     );
   }
 }

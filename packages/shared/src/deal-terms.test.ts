@@ -98,7 +98,7 @@ describe("the ladder, as the form holds it", () => {
   it("refuses a ladder on a deal with no split to escalate", () => {
     const onGuarantee = { ...guaranteeDraft(), escalators: ladderDraft().escalators };
     expect(dealDraftProblems(onGuarantee)).toContainEqual(
-      "A band changes the SPLIT, so it needs a deal that has one — a guarantee pays the same whatever the night does.",
+      "A band changes the SPLIT, so it needs a deal that has one. A guarantee pays the same whatever the night does.",
     );
     // …and nothing is sent, so a refusal the operator overrode in some future UI
     // still cannot write a band onto a guarantee.

@@ -153,5 +153,5 @@ export function coPromotedNote(coPromoted: number, inView: number): string | nul
         ? "This night is"
         : `All ${coPromoted} of these nights are`
       : `${coPromoted} of these ${inView} nights are`;
-  return `${nights} run with another operator, so the ledger — and this figure — covers the whole night rather than your share of it. What you are owed is on the event's settlement.`;
+  return `${nights} run with another operator, so the ledger (and this figure) covers the whole night rather than your share of it. What you are owed is on the event's settlement.`;
 }

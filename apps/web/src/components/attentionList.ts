@@ -370,7 +370,7 @@ export type AttentionSentence =
  */
 export function attentionSentence(total: number, hidden: number): AttentionSentence {
   if (total === 0) {
-    return { caughtUp: true, text: "You're all caught up — nothing needs your attention today." };
+    return { caughtUp: true, text: "You're all caught up. Nothing needs your attention today." };
   }
   return {
     caughtUp: false,

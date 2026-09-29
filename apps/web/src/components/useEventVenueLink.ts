@@ -45,7 +45,7 @@ export function useEventVenueLink(event: LinkableEvent): EventVenueLink {
       },
       onError: (error) => {
         if (error instanceof ApiError && error.status === 409) {
-          toast.error("Someone else changed this event — reload it and try again.");
+          toast.error("Someone else changed this event. Reload it and try again.");
           queryClient.invalidateQueries({ queryKey: getGetApiV1EventsIdQueryKey(event.id) });
           return;
         }

@@ -111,7 +111,7 @@ export function RequestTriageDialogs({ triage, onOpenEvents }: RequestTriageDial
               {draft.eventCap.limit == null
                 ? "Your plan has no event limit."
                 : draft.eventCap.allowed
-                  ? `Your plan allows ${draft.eventCap.limit} confirmed events and you have used ${draft.eventCap.used ?? 0}. Confirming this one later is what spends a slot — a draft costs nothing.`
+                  ? `Your plan allows ${draft.eventCap.limit} confirmed events and you have used ${draft.eventCap.used ?? 0}. Confirming this one later is what spends a slot. A draft costs nothing.`
                   : // The cap is already full: saying "confirming spends a slot"
                     // would be a half-truth, because there is no slot to spend.
                     `Your plan allows ${draft.eventCap.limit} confirmed events and all ${draft.eventCap.used ?? 0} are used. The draft is saved, but confirming it will be refused until you upgrade or a confirmed event is freed.`}
@@ -200,7 +200,7 @@ function ActionBody({
         <Strong>{requester}</Strong> will be told this date is a no.{" "}
         {hasAccount
           ? "They get it in their own Requests screen."
-          : `They came in from the public form, so there is no account to notify — write to them${email ? ` at ${email}` : ""} if you want to explain.`}{" "}
+          : `They came in from the public form, so there is no account to notify. Write to them${email ? ` at ${email}` : ""} if you want to explain.`}{" "}
         You can restore the request later from the Declined filter.
       </Paragraph>
     );

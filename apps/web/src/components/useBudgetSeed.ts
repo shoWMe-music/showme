@@ -669,8 +669,8 @@ function splitSummarySentence(basis: EntitlementBasis): string | null {
   }
   if (basis.kind === "guarantee_vs_door") {
     return basis.won === "door"
-      ? `The door beats the guarantee — ${basisPointsToPercent(basis.basisPoints)}% of the door is more than the guarantee, so the split governs.`
-      : `The guarantee beats the door — ${basisPointsToPercent(basis.basisPoints)}% of the door falls short of it, so the guarantee is paid.`;
+      ? `The door beats the guarantee. ${basisPointsToPercent(basis.basisPoints)}% of the door is more than the guarantee, so the split governs.`
+      : `The guarantee beats the door. ${basisPointsToPercent(basis.basisPoints)}% of the door falls short of it, so the guarantee is paid.`;
   }
   return null;
 }

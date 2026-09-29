@@ -370,7 +370,7 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         );
         if (!represents) {
           throw badRequest(
-            "This agent represents nobody on this event, so there is nothing for them to act for. Add the performer they represent — their agent is attached automatically.",
+            "This agent represents nobody on this event, so there is nothing for them to act for. Add the performer they represent: their agent is attached automatically.",
           );
         }
       }

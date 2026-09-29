@@ -380,7 +380,7 @@ export function CostAttribution({
               onChange={onPaidByChange}
               options={participantOptions(participants)}
               searchable={participants.length > 6}
-              aria-label={`Carried by — who the invoice goes out from, for ${rowLabel}`}
+              aria-label={`Carried by: who the invoice goes out from, for ${rowLabel}`}
             />
           </Cell>
         )}
@@ -399,7 +399,7 @@ export function CostAttribution({
                 ...participants.map((party) => ({
                   value: party.id,
                   label: party.label,
-                  description: `Deducted from ${possessiveOf(party.label)} settlement — their money in the end.`,
+                  description: `Deducted from ${possessiveOf(party.label)} settlement: their money in the end.`,
                 })),
                 {
                   value: SPLIT_BEARING_VALUE,
@@ -408,7 +408,7 @@ export function CostAttribution({
                 },
               ]}
               searchable={participants.length > 6}
-              aria-label={`To be deducted from — whose money it finally comes out of, for ${rowLabel}`}
+              aria-label={`To be deducted from: whose money it finally comes out of, for ${rowLabel}`}
             />
           </Cell>
         )}
@@ -437,12 +437,12 @@ export function CostAttribution({
                   {
                     value: `${DEAL_FIGURE_PREFIX}${deal.id}`,
                     label: deal.name,
-                    description: "This IS the deal's figure — a forecast, never settled twice.",
+                    description: "This IS the deal's figure. A forecast, never settled twice.",
                   },
                   {
                     value: `${ATTRIBUTED_PREFIX}${deal.id}`,
                     label: deal.name,
-                    description: "A real cost reported under it — still lowers the pool.",
+                    description: "A real cost reported under it: still lowers the pool.",
                   },
                 ]),
               ]}
@@ -657,7 +657,7 @@ export function DealAssignmentNote({ link, dealName }: { link: CostDealLink; dea
   return (
     <NoteLine icon="link">
       {link.kind === "deal_figure"
-        ? `Forecast only — this IS the figure in “${dealName}”. The settlement takes it from the deal, so it is never counted twice and never charged to the event.`
+        ? `Forecast only: this IS the figure in “${dealName}”. The settlement takes it from the deal, so it is never counted twice and never charged to the event.`
         : `A real cost of the event, reported under “${dealName}”. It still lowers the settlement pool, exactly like an untagged cost.`}
     </NoteLine>
   );

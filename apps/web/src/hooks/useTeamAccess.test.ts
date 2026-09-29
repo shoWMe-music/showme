@@ -48,7 +48,7 @@ describe("seatRefusalHint", () => {
 
   it("reads as one sentence per half, with the roles listed properly", () => {
     expect(seatRefusalHint()).toBe(
-      "Editor and Admin each consume one of the account's seats. Viewer and Crew are included on every plan — pick one of those, or upgrade this account's plan.",
+      "Editor and Admin each consume one of the account's seats. Viewer and Crew are included on every plan. Pick one of those, or upgrade this account's plan.",
     );
   });
 });

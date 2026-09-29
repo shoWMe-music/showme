@@ -124,7 +124,7 @@ export function useProfileRooms(profileId: string): ProfileRoomsView {
         toast.success(
           unassigned === 0
             ? "Room removed"
-            : `Room removed — ${unassigned} ${unassigned === 1 ? "event" : "events"} kept their date and lost their room`,
+            : `Room removed: ${unassigned} ${unassigned === 1 ? "event" : "events"} kept their date and lost their room`,
         );
         void refresh();
       },

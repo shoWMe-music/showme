@@ -880,7 +880,7 @@ export function useEventSettlement(
            */
           rule:
             party.rules.length > 1
-              ? `${party.rules[0]?.label ?? ""} — and ${party.rules.length - 1} more, itemised on the Settlement tab`
+              ? `${party.rules[0]?.label ?? ""}, and ${party.rules.length - 1} more, itemised on the Settlement tab`
               : (party.rules[0]?.label ?? null),
           isYours: party.isYours,
           sortKey: minor,
