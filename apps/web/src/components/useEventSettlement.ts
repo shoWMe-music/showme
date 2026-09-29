@@ -1375,12 +1375,14 @@ export function useEventSettlement(
     flagDispute: () => moveTo("dispute", "Flagged as disputed."),
     comments: (commentThread.data ?? []).map((row) => ({
       id: row.id,
-      // Resolved from the participant, not from a name stored on the row — one
-      // source for who somebody is. A remark with no party is either the
-      // operator speaking for the event or somebody off-platform, and only the
-      // second kind carries `authorName` — so attributing it to the operator
-      // when a name IS on the row would put a stranger's words in the venue's
-      // mouth.
+      // Resolved from the participant, not from a name stored on the row — one source for who
+      // somebody is. A remark with no party is either an operator speaking for the event or somebody
+      // off-platform, and `authorName` carries the right name for both: the API serves an
+      // off-platform commenter's own, and an operator's PROFILE name resolved live from
+      // `author_profile_id` with "(you)" where it is the reader's (QA sweep run 16 — both operators
+      // on a co-promoted night used to read "Operator", so the host could not tell its own claim
+      // about a cost figure from the co-promoter's). "Operator" survives only for a remark written
+      // before that column existed, which is what it has always said.
       author: row.partyParticipantId
         ? nameOf(row.partyParticipantId)
         : (row.authorName ?? "Operator"),

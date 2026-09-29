@@ -33,6 +33,9 @@ const FILTERS = [
   { key: "all", label: "All" },
   { key: "open", label: "Pending review" },
   { key: "comments_received", label: "Comments" },
+  // A disputed settlement was reachable only under "All" (QA sweep run 16) — and it is the one state
+  // an operator most needs to find, since it is the one somebody is waiting on them about.
+  { key: "dispute", label: "Disputed" },
   { key: "finalized", label: "Finalized" },
   { key: "partly_paid", label: "Partly paid" },
   { key: "paid", label: "Paid" },

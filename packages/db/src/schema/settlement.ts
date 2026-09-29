@@ -244,6 +244,24 @@ export const settlementComments = pgTable("settlement_comments", {
     .notNull()
     .references(() => events.id, { onDelete: "cascade" }),
   partyParticipantId: uuid("party_participant_id").references(() => eventParticipants.id),
+  /**
+   * WHICH OPERATOR SPOKE, when the remark is the event side's (migration 0050, QA sweep run 16).
+   *
+   * An operator comments as the EVENT rather than as a party — `party_participant_id` is null, and
+   * that is right: it is what makes the remark visible to everybody it is being reviewed by. The cost
+   * is that on a co-promoted night BOTH operators' remarks rendered as an avatar **O** over the word
+   * **Operator**, with no *(you)* marker either. Measured: the host could not tell whether it had made
+   * a claim about a cost figure, or whether the co-promoter had.
+   *
+   * The ID and not the name. `author_name` exists for OFF-PLATFORM commenters who have no row to
+   * resolve from, and the route's own comment gives the reason it is not used for anybody else —
+   * *"copying the name in here would be a second source for it, free to drift the moment somebody
+   * renames a profile"*. That reasoning is kept intact: the name is still resolved from the profile at
+   * read time, and only the pointer is stored.
+   *
+   * Null for an off-platform remark, and for every row written before this column existed.
+   */
+  authorProfileId: uuid("author_profile_id").references(() => profiles.id),
   authorEmail: text("author_email"),
   authorName: text("author_name"),
   /**

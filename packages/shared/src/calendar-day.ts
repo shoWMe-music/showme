@@ -81,3 +81,30 @@ export function formatClockTime(value: string | null | undefined): string {
   const [hour, minute] = match[1].split(":");
   return `${(hour ?? "").padStart(2, "0")}:${minute}`;
 }
+
+/**
+ * `1 item`, `2 items`, `0 items` — the plural rule this app had written by hand 43 times.
+ *
+ * Named as a follow-up in part 28 and planned in part 39 §2; built here because QA sweep run 16 read
+ * *"Event Schedule · 1 items"* on a screen and that is the 44th site rather than a new kind of defect.
+ *
+ * COUNT FIRST, because every call site prints the number: `pluralise(1, "item")` is `"1 item"`. The
+ * bare noun is a separate question and nothing has asked it.
+ *
+ * `plural` is optional and defaults to `singular + "s"`, which covers the overwhelming majority;
+ * `pluralise(3, "entry", "entries")` is for the rest. It is NOT a rules engine — English spelling is
+ * not derivable and a table of exceptions would be a second place to be wrong.
+ *
+ * A NEGATIVE COUNT IS PLURAL. Nothing produces one today, but a count can go negative through a bug,
+ * and "-1 ticket" reads as a deliberate singular while "-1 tickets" reads as the arithmetic it is.
+ * `Math.abs(count) === 1` would hide it.
+ *
+ * IT DOES NOT FORMAT THE NUMBER. The first draft used `toLocaleString()` and the test machine's locale
+ * turned 1200 into "1 200" with a non-breaking space and -1 into "\u22121" — so the helper's output
+ * depended on where it ran, which a plural rule has no business doing. The 43 hand-rolled sites this
+ * replaces all interpolated the number bare, and a caller that wants grouping formats it before
+ * handing it over.
+ */
+export function pluralise(count: number, singular: string, plural?: string): string {
+  return `${count} ${count === 1 ? singular : (plural ?? `${singular}s`)}`;
+}

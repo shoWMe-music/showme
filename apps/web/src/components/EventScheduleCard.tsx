@@ -1,4 +1,5 @@
 import { Button, Icon, Modal, Select, TextField } from "@showme/design-system";
+import { pluralise } from "@showme/shared";
 import { useState } from "react";
 import { DateTimeField } from "./DateTimeField";
 import styles from "./eventDetailsFields.module.css";
@@ -59,7 +60,8 @@ export function EventScheduleCard({ eventId, eventDate, canEdit, times }: EventS
         icon={<Icon name="clock" size={17} />}
         iconColor="var(--brand-amber)"
         title="Event Schedule"
-        action={<MonoPill>{schedule.items.length} items</MonoPill>}
+        // "1 items" (QA sweep run 16) — `pluralise`, the helper part 39 §2 planned.
+        action={<MonoPill>{pluralise(schedule.items.length, "item")}</MonoPill>}
       />
 
       {canEdit && <ScheduleTemplateBar templates={templates} />}
@@ -230,7 +232,7 @@ function ScheduleTemplateBar({ templates }: { templates: ScheduleTemplates }) {
               {/* What pressing it will do, before it is pressed. A template saved on an
                   event with no date applies nothing, and saying "0 items" is the honest
                   version of a button that would look broken. */}
-              <MonoPill>{template.itemCount} items</MonoPill>
+              <MonoPill>{pluralise(template.itemCount, "item")}</MonoPill>
             </button>
           ))}
         </div>

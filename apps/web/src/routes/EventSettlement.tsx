@@ -1651,7 +1651,11 @@ function FinancialsTab({
 
       {rows.length > 0 && (
         <Card padding="lg" style={CARD_COLUMN}>
-          <CardTitle subtitle="Every line that moved, and by how much. These add up to the net-revenue variance above.">
+          {/* THE SIGN CONVENTION IT NEVER STATED (QA sweep run 16). Raising a cost by SEK 1,500 gives
+              "+ SEK 1,500" here and "− SEK 1,500" on Net revenue above, and "these add up to" was
+              read against those two numbers. Both are right; the sentence between them was the one
+              missing the word cost. */}
+          <CardTitle subtitle="Every line that moved, and by how much. A cost that went up moves the net revenue above down by the same amount.">
             Line by line
           </CardTitle>
           <div

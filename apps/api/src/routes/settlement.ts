@@ -2701,6 +2701,33 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         .where(eq(schema.settlementComments.eventId, id))
         .orderBy(asc(schema.settlementComments.createdAt));
 
+      /*
+       * WHICH OPERATOR SPOKE — resolved from the profile, never copied onto the row (QA sweep run 16).
+       *
+       * An operator's remark carries no participant, so the reader had nothing to name and rendered
+       * every one of them as "Operator": on a co-promoted night the host could not tell its own claim
+       * about a cost figure from the co-promoter's. `author_profile_id` is the pointer; the NAME comes
+       * from here, so a renamed profile renames its old remarks too.
+       */
+      const authorProfileIds = [
+        ...new Set(
+          rows
+            .map((row) => row.authorProfileId)
+            .filter((profileId): profileId is string => profileId != null),
+        ),
+      ];
+      const authorNames = new Map(
+        authorProfileIds.length === 0
+          ? []
+          : (
+              await database
+                .select({ id: schema.profiles.id, name: schema.profiles.name })
+                .from(schema.profiles)
+                .where(inArray(schema.profiles.id, authorProfileIds))
+            ).map((row) => [row.id, row.name] as const),
+      );
+      const myProfileIds = new Set(profileIds);
+
       const readsWholeThread = capabilities.has("settlement.edit");
       return rows
         .filter(
@@ -2710,7 +2737,15 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         .map((row) => ({
           id: row.id,
           partyParticipantId: row.partyParticipantId,
-          authorName: row.authorName,
+          // The off-platform name if there is one, else the operator's own profile — and `(you)` where
+          // it is the reader's, which the Approval roster six inches below already takes care to draw.
+          authorName:
+            row.authorName ??
+            (row.authorProfileId != null
+              ? `${authorNames.get(row.authorProfileId) ?? "Operator"}${
+                  myProfileIds.has(row.authorProfileId) ? " (you)" : ""
+                }`
+              : null),
           section: row.section,
           settlementLineId: row.settlementLineId,
           message: row.message,
@@ -2777,6 +2812,9 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           .values({
             eventId: id,
             partyParticipantId: asParty,
+            // WHICH operator spoke, when the remark is the event side's (QA sweep run 16). Stored for
+            // every signed-in author; only the event-side read has nothing else to resolve from.
+            authorProfileId: principal.actingProfileId ?? null,
             // NULL on purpose. `author_name` exists for OFF-PLATFORM commenters,
             // who have no participant row to be looked up from. A signed-in author
             // is identified by `party_participant_id`, and the reader already turns

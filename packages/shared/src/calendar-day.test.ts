@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCalendarDay, formatClockTime } from "./calendar-day";
+import { formatCalendarDay, formatClockTime, pluralise } from "./calendar-day";
 
 describe("a stored calendar day as a reader reads it", () => {
   it("turns the stored shape into the one every other surface shows", () => {
@@ -81,5 +81,35 @@ describe("formatClockTime", () => {
     expect(formatClockTime("")).toBe("");
     // Somebody else's to explain — blanking it would hide it.
     expect(formatClockTime("doors at nine")).toBe("doors at nine");
+  });
+});
+
+describe("pluralise", () => {
+  it("agrees with its count", () => {
+    expect(pluralise(1, "item")).toBe("1 item");
+    expect(pluralise(2, "item")).toBe("2 items");
+    expect(pluralise(0, "item")).toBe("0 items");
+  });
+
+  it("takes an irregular plural rather than guessing one", () => {
+    expect(pluralise(1, "entry", "entries")).toBe("1 entry");
+    expect(pluralise(3, "entry", "entries")).toBe("3 entries");
+  });
+
+  /*
+   * IT DOES NOT FORMAT THE NUMBER. The first draft used `toLocaleString()` and this machine's locale
+   * made it "1 200 tickets" with a non-breaking space — a plural rule whose output depends on where it
+   * runs. A caller that wants grouping formats the number before handing it over.
+   */
+  it("leaves the number exactly as given, whatever the locale", () => {
+    expect(pluralise(1200, "ticket")).toBe("1200 tickets");
+  });
+
+  /*
+   * A NEGATIVE COUNT IS PLURAL. Nothing produces one today, but a count can go negative through a bug
+   * and "−1 ticket" reads as a deliberate singular — `Math.abs(count) === 1` would hide exactly that.
+   */
+  it("keeps a negative count plural", () => {
+    expect(pluralise(-1, "ticket")).toBe("-1 tickets");
   });
 });

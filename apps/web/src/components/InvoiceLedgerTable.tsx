@@ -121,6 +121,7 @@ export function InvoiceLedgerTable({
           key={invoice.id}
           invoice={invoice}
           onOpenInvoice={onOpenInvoice}
+          direction={direction}
           onIssueInvoice={onIssueInvoice}
           isIssuing={isIssuing}
         />
@@ -134,7 +135,8 @@ function InvoiceLedgerRow({
   onOpenInvoice,
   onIssueInvoice,
   isIssuing,
-}: { invoice: InvoiceRecord } & Omit<InvoiceLedgerTableProps, "rows" | "direction">) {
+  direction,
+}: { invoice: InvoiceRecord } & Omit<InvoiceLedgerTableProps, "rows">) {
   // `direction` is the HEADER's business, not the row's: a row names its
   // counterparty from the invoice's own `direction` (`invoiceCounterparty`).
   const reference = invoiceReference(invoice);
@@ -220,8 +222,19 @@ function InvoiceLedgerRow({
       </span>
 
       <span className={styles.cellState}>
+        {/*
+          A BILL YOU OWE IS NOT ONE YOU SENT (QA sweep run 16).
+          `invoiceStateLabel` names the ISSUER's act — "Sent" — which is the right word on a
+          receivable and describes the vendor rather than the reader on a payable. Read on a
+          SEK 2,500 bill whose only action was "Issue" and which then said "Sent". The money was
+          right throughout; the two words were the vendor's.
+        */}
         <Badge status={status} dot>
-          {overdue ? "Overdue" : invoiceStateLabel(invoice.state)}
+          {overdue
+            ? "Overdue"
+            : direction === "received" && invoice.state === "sent"
+              ? "Received"
+              : invoiceStateLabel(invoice.state)}
         </Badge>
       </span>
 
@@ -236,7 +249,10 @@ function InvoiceLedgerRow({
             }}
             disabled={isIssuing}
           >
-            Issue
+            {/* "Issue" is what the SENDER does. On a bill the reader owes, the same route records
+                that the vendor's invoice has arrived and is now outstanding — so the word is theirs
+                (QA sweep run 16). */}
+            {direction === "received" ? "Mark received" : "Issue"}
           </Button>
         )}
       </span>

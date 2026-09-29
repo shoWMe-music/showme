@@ -1,0 +1,25 @@
+-- AN OPERATOR'S REMARK SAYS WHICH OPERATOR.
+--
+-- QA sweep run 16: on the co-promoted Album Release, both operators' settlement remarks rendered as an
+-- avatar **O** over the word **Operator**, with no *(you)* marker — so the host could not tell whether
+-- it had made a claim about a cost figure, or whether the co-promoter had. A party's remark names the
+-- party; only the operators were anonymous.
+--
+-- The cause is not a bug. An operator comments as the EVENT rather than as a party, so
+-- `party_participant_id` is null, and that is what makes the remark visible to everybody the
+-- settlement is being reviewed by (`GET /settlement/comments`). Nothing on the row said who wrote it.
+--
+-- THE ID, NOT THE NAME. `author_name` already exists for off-platform commenters, who have no row to
+-- resolve from, and the write path's own comment explains why it is not used for anybody else:
+-- "copying the name in here would be a second source for it, free to drift the moment somebody renames
+-- a profile". That reasoning is kept — the name is resolved from `profiles` at read time and only the
+-- pointer is stored.
+--
+-- NOT BACKFILLED, and nullable for that reason. There is no record anywhere of which operator wrote an
+-- existing event-side remark: `audit_log` carries `actor_user_id` for the write, but a user may act for
+-- more than one profile and guessing which would put a name on somebody else's words. An unattributed
+-- old remark keeps reading "Operator", which is exactly what it says today.
+--
+-- NO INDEX. It is read only alongside the row itself, which is already fetched by `event_id`.
+ALTER TABLE "settlement_comments"
+  ADD COLUMN IF NOT EXISTS "author_profile_id" uuid REFERENCES "profiles"("id");

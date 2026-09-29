@@ -1091,9 +1091,23 @@ function BudgetTab({
       </div>
       {editor.readOnlyReason && <Eyebrow>{editor.readOnlyReason}</Eyebrow>}
       <BudgetPlanner
+        /*
+         * TRUE OF THE BOOK IT IS PRINTED ON (QA sweep run 16).
+         *
+         * The private book carried the shared ledger's sentence — *"the settlement kept its own copy of
+         * this budget"* — and `lib/budget-provisioning.ts` says plainly that `copyBudgetOnce` *"copies
+         * the shared budget and only the shared budget"*. `budget_snapshots` holds two rows for the
+         * seeded event, both of the shared ledger. The BEHAVIOUR is right either way and run 16
+         * verified it; only the explanation was somebody else's.
+         *
+         * A private book on a settled night is still read-only-ish news worth saying — the night is
+         * done — so it keeps a sentence, and the sentence is about the book in front of the reader.
+         */
         sealedNote={
           budgetIsSealed
-            ? "This night is settled. The settlement kept its own copy of this budget the first time it ran, so anything changed here now revises the plan without moving the reconciliation. A cost that arrived late belongs in the settlement's own figures, on the Financials tab."
+            ? budgetScope === "mine"
+              ? "This night is settled. Your private book is yours alone and never reached the reconciliation, so anything changed here is your own record of the night rather than a revision of it."
+              : "This night is settled. The settlement kept its own copy of this budget the first time it ran, so anything changed here now revises the plan without moving the reconciliation. A cost that arrived late belongs in the settlement's own figures, on the Financials tab."
             : undefined
         }
         currencySymbol={currencySymbol(currency)}

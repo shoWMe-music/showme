@@ -829,7 +829,14 @@ export function entitlementRules(
           // paid 30,000 and 20,000 (QA sweep, 2026-09-27). A settlement snapshotted
           // before the engine carried it says "your share" as it always did, which is
           // true and vague rather than precise and wrong.
-          `${describeBasis(line.basis, currency, formatAmount)} — ${
+          //
+          // "THE DEAL TAKES" — the two clauses name two different subjects, and run 16 read the
+          // sentence as a contradiction at a glance: *"100% of the adjusted net SEK 50,000 — Marlo
+          // Vance's 60% of the deal's SEK 50,000"* beside **SEK 30,000**. Both halves are right (the
+          // agreement takes the whole adjusted net; this party's share of the agreement is 60%) and
+          // nothing said the first half was about the AGREEMENT. Six words fix it, and it is the first
+          // thing a performer reads about their own money.
+          `The deal takes ${describeBasis(line.basis, currency, formatAmount)} — ${
             line.partyBasisPoints != null
               ? `${whose} ${basisPointsToPercent(line.partyBasisPoints)}% of`
               : `${whose} share of`

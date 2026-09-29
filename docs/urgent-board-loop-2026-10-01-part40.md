@@ -307,3 +307,51 @@ already apply it — withhold the derived figure AND say why. So both: *Tickets 
 **"Not stated"**, per-guest goes to a dash, the break-even curve is withheld, and a third sibling
 sentence says what is missing and — uniquely among the three — what the reader can do about it right
 now. Three mutations killed, including an empty row counting as an unknown count.
+
+---
+
+## The six COSMETICs
+
+**C1 · both operators signed their remarks "Operator"** — so on a co-promoted night the host could not
+tell its own claim about a cost figure from the co-promoter's, and there was no *(you)* marker either.
+An operator comments as the EVENT (`party_participant_id` null) and that is right: it is what makes the
+remark visible to everybody it is being reviewed by. Nothing on the row said who wrote it.
+
+**Migration 0050** adds `author_profile_id` — the ID and **not** the name, which keeps the write path's
+own reasoning intact (*"copying the name in here would be a second source for it, free to drift the
+moment somebody renames a profile"*): the name resolves from `profiles` at read time, so a renamed
+profile renames its old remarks too. Not backfilled, deliberately: `audit_log` carries the actor's USER
+and a user may act for more than one profile, so guessing would put a name on somebody else's words.
+
+**C2 · the private book carried the shared ledger's sentence** — *"the settlement kept its own copy of
+this budget"*, while `copyBudgetOnce` *"copies the shared budget and only the shared budget"* and
+`budget_snapshots` holds two rows for the seeded event, both shared. The behaviour was right; the
+explanation was somebody else's. A private book now gets its own sentence.
+
+**C3 · "these add up to the net-revenue variance"** over `+1,500` and `−1,500`. Both figures right, the
+sentence between them missing the word *cost*.
+
+**C4 · the four small ones.**
+- *"1 items"* — and it is the 44th hand-rolled plural, so `pluralise` landed in `@showme/shared`
+  (part 39 §2's task) with its first two call sites. **Its first draft used `toLocaleString()` and the
+  test machine's Swedish locale turned 1200 into `1 200` and −1 into `−1`** — a plural rule whose output
+  depends on where it runs. It formats nothing now; a caller that wants grouping does it first.
+- *a bill you owe actioned with "Issue" and then reading "Sent"* — both words the vendor's. A payable
+  now reads **Mark received** and **Received**.
+- *no filter chip for a disputed settlement* — reachable only under "All", and it is the one state
+  somebody is waiting on the operator about.
+- *"100% of the adjusted net SEK 50,000 — Marlo Vance's 60% of the deal's SEK 50,000"* beside
+  **SEK 30,000** — two clauses, two subjects, and nothing saying the first was about the AGREEMENT.
+  It opens **"The deal takes …"** now.
+
+## The three NOTEs
+
+- **A floor-only co-host has no Budget Planner** — the documented ruling, and run 16 says so. But its
+  CONSEQUENCE is a new §25.6 row: `PLAN.md:215` defines the private book as *"the extra an operator MAY
+  ALSO keep, existing only once there is a co-host to keep it from"*, so the book exists **for** that
+  seat while the chooser that opens it sits behind the capability the ruling withholds. Recommendation
+  recorded; not taken.
+- **§25.6's payer question, a third time** — now with a 70/30 split, so the arithmetic is unambiguous:
+  Northlight bears **SEK 1,200** of a SEK 4,000 guarantee it is a party to in no role. Appended to the
+  row rather than filed again.
+- **`apps/marketing` is not running on :5173** — already recorded in run 15, and run 16 says so itself.
