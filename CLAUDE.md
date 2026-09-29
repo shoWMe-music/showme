@@ -202,6 +202,33 @@ the server restarted to be true.
   readable from the running process (`ps eww -p <pid>`) if you need to relaunch it alone.
 - A green **vitest** run says nothing about this: API tests spin up their own app.
 
+## Two tools that lie about the code, and one that lies about Docker
+Measured 2026-09-29, each costing time that looked like a code problem:
+- **`npx tsc -b apps/api` EMITS JavaScript into `apps/api/src`.** 182 untracked `.js`
+  files appeared beside their sources and one `git add -A` away from being committed.
+  The repo's own script is `pnpm --filter @showme/api run typecheck` (`tsc --noEmit`),
+  same for `@showme/web`. Use it; `-b` is for building, and nothing here builds that way.
+- **A querystring ARRAY is spelled three different ways and nothing in this repo uses
+  one.** Fastify's parser gives a lone value as a *string*, not a one-element array;
+  axios serializes `name[]=`; orval reads the OpenAPI schema. A comma-separated string
+  needs no agreement between the three — that is why `GET /activity`'s `typePrefix` is
+  one. Before adding an array query parameter, check whether any exists yet.
+- **Docker's port allocator can wedge, and Testcontainers reports it as a test failure.**
+  *"Timed out after 10000ms while waiting for container ports to be bound to the host"* —
+  first on the ryuk reaper, then on Postgres itself, with `NetworkSettings.Ports` empty
+  against a `HostPort: "0"` request. Not load and not the suite: restarting Docker Desktop
+  fixed it and nothing else did (`TESTCONTAINERS_RYUK_DISABLED=true` moved the failure to
+  the next container rather than removing it). Recognise it by the ports being unbound in
+  `docker inspect`, and do not go looking for a flaky test.
+
+## A mutation harness that asserts "the run happened" must not mean "something passed"
+The `Tests 58 skipped (58)` lesson below has an inverse, measured 2026-09-29: under a
+`-t` filter that selects ONE test, a successfully killed mutation reports
+`1 failed | 86 skipped` with nothing passing — and a guard reading "nothing passed, so
+the suite never executed" throws away a correct KILLED result. Ask whether any test
+**executed** (passed + failed > 0), require green only of the BASELINE, and pin the
+number executed so a filter that stops matching errors instead of reporting survivors.
+
 ## Run the whole check, not the part you touched
 Two lint/test scopes bit in one session. `npx biome check apps/web/src` passes while
 CI runs `biome check .` over 658 files; `pnpm --filter @showme/web exec vitest run`
