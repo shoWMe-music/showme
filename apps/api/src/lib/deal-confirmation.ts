@@ -98,10 +98,30 @@ function isSignatory(party: DealPartyRow): boolean {
  * The frozen record of the terms and who signed them, as it is stored in
  * `deals.confirmed_snapshot` (jsonb). Money crosses as a STRING (money.md: minor
  * units past 2^53 are unsafe as a number).
+ *
+ * `frozenAt` IS THE FIRST SIGNATURE, not this moment (QA sweep run 14).
+ *
+ * This said `new Date()`, and the only caller is `confirmDealIfComplete`, which runs when the LAST
+ * signatory stamps — so on a deal signed at 11:10:45 and 11:10:51 the field claimed the terms froze
+ * at 11:10:51. They froze at 11:10:45: part 29 moved the seal to the first signature, `PATCH
+ * {"agreementBodyText"}` is refused from that moment on, and Event History already prints "Terms
+ * frozen at this confirmation" against the FIRST one. The snapshot's content was right either way —
+ * nothing can change in between, which is the point of the seal — so this is the field disagreeing
+ * with the rule and with the other two surfaces that state it.
+ *
+ * Read off the parties rather than passed in, because they are the record of when it happened and
+ * they are already here. `now` only stands in for a deal with no stamped signatory, which
+ * `allSignatoriesConfirmed` makes unreachable from the one caller — it is here so the function is
+ * total rather than as a safeguard.
  */
-export function freezeDealSnapshot(deal: DealRow, parties: DealPartyRow[]) {
+export function freezeDealSnapshot(deal: DealRow, parties: DealPartyRow[], now: Date = new Date()) {
+  const signedAt = parties
+    .filter(isSignatory)
+    .map((party) => party.confirmedAt)
+    .filter((at): at is Date => at != null)
+    .map((at) => at.getTime());
   return {
-    frozenAt: new Date().toISOString(),
+    frozenAt: new Date(signedAt.length > 0 ? Math.min(...signedAt) : now.getTime()).toISOString(),
     terms: {
       type: deal.type,
       structure: deal.structure,
@@ -263,7 +283,7 @@ export async function confirmDealIfComplete(
       // agreement still freezes: the terms somebody signed are a record worth
       // keeping even when the deal they belonged to is gone.
       status: deal.status === "cancelled" ? "cancelled" : "confirmed",
-      confirmedSnapshot: freezeDealSnapshot(deal, parties),
+      confirmedSnapshot: freezeDealSnapshot(deal, parties, now),
       version: deal.version + 1,
       updatedAt: now,
     })

@@ -861,9 +861,46 @@ describe("when the deployment has no Google credentials", () => {
         headers: auth("connector"),
       });
       expect(calendar.statusCode).toBe(200);
+
+      /*
+       * AND THE SCREEN CAN ASK BEFORE IT OFFERS A BUTTON (QA sweep run 14).
+       *
+       * Listing works without credentials, which is exactly why the Integrations screen used to
+       * load happily, show "Not connected" and offer a Connect that could only 503. The question
+       * "can anything be connected here" is its own route because the list answers a different one.
+       */
+      const availability = await bare.inject({
+        method: "GET",
+        url: "/api/v1/integrations/calendar/availability",
+        headers: auth("connector"),
+      });
+      expect(availability.statusCode).toBe(200);
+      expect(availability.json()).toEqual({ google: false });
     } finally {
       await bare.close();
     }
+  });
+
+  it("says the opposite on a deployment that HAS them", async () => {
+    // The positive control. An availability route that always answered `false` would pass the
+    // assertion above and leave the screen permanently claiming the feature is off.
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/integrations/calendar/availability",
+      headers: auth("connector"),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ google: true });
+  });
+
+  // The gate is the app's authentication preHandler, not anything this route does — asserted here
+  // because "no user data, so no gate" would be a reasonable-sounding wrong reading of it.
+  it("needs a signed-in caller like every other route in this file", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/v1/integrations/calendar/availability",
+    });
+    expect(response.statusCode).toBe(401);
   });
 });
 

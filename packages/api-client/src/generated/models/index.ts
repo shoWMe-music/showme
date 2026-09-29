@@ -195,6 +195,7 @@ export * from './getApiV1InsightsProfilesIdRevenue200';
 export * from './getApiV1InsightsProfilesIdSummary200';
 export * from './getApiV1InsightsProfilesIdSummary200EventsByStatus';
 export * from './getApiV1IntegrationsCalendar200Item';
+export * from './getApiV1IntegrationsCalendarAvailability200';
 export * from './getApiV1InvitationsToken200';
 export * from './getApiV1InvitationsToken200Source';
 export * from './getApiV1InvitationsToken200Status';

@@ -83,6 +83,26 @@ export function Integrations() {
 }
 
 function NotConnectedCard({ view }: { view: CalendarConnectionsView }) {
+  /*
+   * NOTHING TO OFFER ON A DEPLOYMENT WITH NO GOOGLE CREDENTIALS (QA sweep run 14).
+   *
+   * The three secrets are optional by design and `requireIntegration` answers 503 — but the
+   * connections LIST does not require them, so this card would load happily and offer a button that
+   * can only fail. Never offer what the API will refuse: the card says what is true instead, which
+   * is also the only honest thing to say to somebody who cannot fix it from here.
+   */
+  if (!view.googleAvailable) {
+    return (
+      <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Eyebrow>Google Calendar</Eyebrow>
+        <h3 style={{ margin: 0, fontSize: 17, color: "var(--text)" }}>Not available here</h3>
+        <p style={{ margin: 0, fontSize: 13.5, color: "var(--muted)", lineHeight: 1.55 }}>
+          Calendar connections are not switched on for this shoWMe deployment, so there is nothing
+          to connect yet. Nothing on your account is missing or broken.
+        </p>
+      </Card>
+    );
+  }
   return (
     <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <Eyebrow>Google Calendar</Eyebrow>

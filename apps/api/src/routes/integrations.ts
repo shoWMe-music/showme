@@ -125,6 +125,9 @@ const ConnectionResponse = z.object({
   createdAt: z.string(),
 });
 
+/** Whether this deployment has the credentials a connection needs at all. */
+const AvailabilityResponse = z.object({ google: z.boolean() });
+
 const SyncResponse = z.object({
   connection: ConnectionResponse,
   full: z.boolean(),
@@ -356,6 +359,32 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
         .orderBy(asc(schema.calendarConnections.createdAt));
 
       return rows.map((row) => forViewer(row, request));
+    },
+  );
+
+  /**
+   * CAN ANYTHING BE CONNECTED ON THIS DEPLOYMENT — asked before a button is offered.
+   *
+   * The three Google variables are optional by design (`lib/calendar-integration.ts`: *"the app
+   * BOOTS WITHOUT THEM"*) and `requireIntegration` answers 503. But the list above does not require
+   * the integration, so a screen built from it alone loads happily, shows "Not connected" and offers
+   * a Connect button that can only fail — breaking the rule this codebase applies everywhere else:
+   * never offer what the API will refuse (QA sweep run 14).
+   *
+   * A ROUTE rather than a field on the connections list. The list answers *"what is connected"*;
+   * this answers *"can anything be"*, and widening a list that is asked two questions is the mistake
+   * recorded repeatedly in these sweeps.
+   *
+   * It discloses ONE deployment fact and no user data, so the app's own authentication preHandler is
+   * the whole of its gate — the first draft called `principalOf(request)` for the 401 and a mutation
+   * deleting that line survived, because the 401 was never this route's to make. The spec still
+   * asserts it: the gate is real, it just lives one layer up.
+   */
+  app.get(
+    "/integrations/calendar/availability",
+    { schema: { response: { 200: AvailabilityResponse } } },
+    async (request) => {
+      return { google: request.server.calendarIntegration != null };
     },
   );
 

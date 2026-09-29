@@ -100,6 +100,7 @@ import type {
   GetApiV1InsightsProfilesIdRevenue200,
   GetApiV1InsightsProfilesIdSummary200,
   GetApiV1IntegrationsCalendar200Item,
+  GetApiV1IntegrationsCalendarAvailability200,
   GetApiV1InvitationsToken200,
   GetApiV1InvoicesIid200,
   GetApiV1Me200,
@@ -10817,6 +10818,92 @@ export function useGetApiV1IntegrationsCalendar<TData = Awaited<ReturnType<typeo
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetApiV1IntegrationsCalendarQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const getApiV1IntegrationsCalendarAvailability = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1IntegrationsCalendarAvailability200>(
+      {url: `/api/v1/integrations/calendar/availability`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1IntegrationsCalendarAvailabilityQueryKey = () => {
+    return [
+    `/api/v1/integrations/calendar/availability`
+    ] as const;
+    }
+
+    
+export const getGetApiV1IntegrationsCalendarAvailabilityQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1IntegrationsCalendarAvailabilityQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>> = ({ signal }) => getApiV1IntegrationsCalendarAvailability(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1IntegrationsCalendarAvailabilityQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>>
+export type GetApiV1IntegrationsCalendarAvailabilityQueryError = unknown
+
+
+export function useGetApiV1IntegrationsCalendarAvailability<TData = Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1IntegrationsCalendarAvailability<TData = Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1IntegrationsCalendarAvailability<TData = Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1IntegrationsCalendarAvailability<TData = Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1IntegrationsCalendarAvailability>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1IntegrationsCalendarAvailabilityQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

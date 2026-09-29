@@ -4,6 +4,7 @@ import {
   getGetApiV1IntegrationsCalendarQueryKey,
   useDeleteApiV1IntegrationsCalendarId,
   useGetApiV1IntegrationsCalendar,
+  useGetApiV1IntegrationsCalendarAvailability,
   usePostApiV1IntegrationsCalendarGoogleAuthorizationUrl,
   usePostApiV1IntegrationsCalendarIdSync,
 } from "@showme/api-client";
@@ -60,6 +61,15 @@ export function takeRememberedOAuthState(): string | null {
 
 export interface CalendarConnectionsView {
   connections: CalendarConnection[];
+  /**
+   * Whether this deployment can connect a Google Calendar AT ALL — the three secrets are optional
+   * and `requireIntegration` answers 503 without them. Asked so the screen can say so instead of
+   * offering a Connect button that can only fail (QA sweep run 14).
+   *
+   * Starts FALSE while the answer is in flight, which is why `isLoading` below covers it too: a
+   * button that appears and then vanishes is worse than one that arrives a moment late.
+   */
+  googleAvailable: boolean;
   isLoading: boolean;
   loadError: unknown;
   /** True while a connect / sync / disconnect is in flight. */
@@ -79,6 +89,7 @@ export function useCalendarConnections(): CalendarConnectionsView {
   const [isStarting, setIsStarting] = useState(false);
 
   const list = useGetApiV1IntegrationsCalendar();
+  const availability = useGetApiV1IntegrationsCalendarAvailability();
 
   // A sync changes `calendar_items`, so the calendar screen's cache is stale the
   // moment one lands. Invalidated together rather than left for a page reload.
@@ -122,7 +133,8 @@ export function useCalendarConnections(): CalendarConnectionsView {
   return useMemo<CalendarConnectionsView>(
     () => ({
       connections: list.data ?? [],
-      isLoading: list.isPending,
+      googleAvailable: availability.data?.google === true,
+      isLoading: list.isPending || availability.isPending,
       loadError: list.isError ? list.error : null,
       isBusy: isStarting || sync.isPending || disconnect.isPending,
       busyConnectionId,
@@ -161,6 +173,8 @@ export function useCalendarConnections(): CalendarConnectionsView {
       list.isPending,
       list.isError,
       list.error,
+      availability.data,
+      availability.isPending,
       isStarting,
       sync.isPending,
       disconnect.isPending,

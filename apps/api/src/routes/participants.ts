@@ -885,12 +885,25 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
    * a 409 rather than a silent no-op: an operator watching the collaborators tab
    * should not see a decline quietly overwrite an accept.
    */
-  const AnswerBody = z.object({
-    /** Ran asked for this on decline: *"so that the decliner can say if it is a
-     * date issue or if they simply don't want to be booked by this operator"*.
-     * Optional — a refusal nobody explains is still a refusal. */
-    note: z.string().trim().max(2000).optional(),
-  });
+  /**
+   * Answering takes one optional field, and THE WHOLE BODY IS OPTIONAL TOO.
+   *
+   * `note` is Ran's, on decline: *"so that the decliner can say if it is a date issue or if they
+   * simply don't want to be booked by this operator"*. Optional — a refusal nobody explains is
+   * still a refusal.
+   *
+   * And so is the object around it. With no body at all this answered
+   * `400 "body/ Expected object, received null"` (QA sweep run 14), which is a refusal to accept a
+   * booking on the grounds of punctuation: every field is optional, so "no body" and "{}" are the
+   * same request. The web client always sends an object, so nobody hit it from a screen — the next
+   * caller to reach for `curl` or an SDK would have.
+   */
+  const AnswerBody = z
+    .object({
+      note: z.string().trim().max(2000).optional(),
+    })
+    .nullish()
+    .transform((body) => body ?? {});
 
   const AnswerResponse = z.object({
     eventId: z.string(),

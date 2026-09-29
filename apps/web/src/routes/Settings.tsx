@@ -23,7 +23,7 @@ import {
   useToast,
 } from "@showme/design-system";
 import { humanizeEnumValue } from "@showme/shared";
-import { useRouterState } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { TeamAccessPanel } from "../components/TeamAccessPanel";
@@ -647,14 +647,35 @@ function AppearancePanel() {
 }
 
 // ── Integrations ─────────────────────────────────────────────────────────────
+/**
+ * THE DOOR TO THE INTEGRATIONS SCREEN, which this panel used to deny existed.
+ *
+ * It said *"Connect payment, accounting and calendar services here once integrations ship"* while
+ * `routes/Integrations.tsx` was a finished screen, the API was registered, and the Calendar was
+ * already drawing the entries it imports — the whole feature was built and reachable by nothing
+ * (QA sweep run 14). The screen's own docstring explains why it is not a tab: *"an operational
+ * surface with live state… a tab that grows a sync log has outgrown the tab."*
+ *
+ * So this stays a panel and becomes a pointer. It deliberately claims NOTHING about what is
+ * connected or whether the deployment can connect anything — the screen asks the API both questions
+ * and answers them there, and a second opinion here is a second thing to keep true.
+ */
 function IntegrationsPanel() {
   return (
     <PanelCard>
       <Eyebrow>Integrations</Eyebrow>
       <EmptyState
         icon={<Icon name="link" />}
-        title="No integrations connected"
-        description="Connect payment, accounting and calendar services here once integrations ship."
+        title="Connections live on their own screen"
+        description="Google Calendar is there now; payment and accounting connections land beside it."
+        action={
+          <Link to="/integrations">
+            <Button variant="secondary">
+              <Icon name="link" size={14} />
+              Open Integrations
+            </Button>
+          </Link>
+        }
       />
     </PanelCard>
   );

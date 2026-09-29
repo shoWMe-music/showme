@@ -558,3 +558,102 @@ pattern `placeHoldInQueue` in the same file already documents, in the same words
 pinning them."*
 
 biome 756 · holds 37 (up from 33) · hold-queue + the five event suites 199, 0 skipped.
+
+## Group E — the Integrations screen, and why this is a miss rather than a decision
+
+The STATUS block flagged this as possibly a routing DECISION for Daniel. Reading it, it is not.
+
+- `apps/web/src/routes/Integrations.tsx` is finished, and its docstring states where it belongs:
+  *"ITS OWN SCREEN, not a Settings tab… a tab that grows a sync log has outgrown the tab."* Somebody
+  decided; the router was never told.
+- `apps/api/src/routes/integrations.ts` is registered in `app.ts` and exposes the whole surface.
+- `/oauth/google/callback` **is** routed — and `router.tsx` carries this note against it: *"The
+  component existed and was reachable by nothing: after consent Google sent the user to a path the
+  router did not know… It is a nav destination in the routing sense only — no sidebar entry — which
+  is why it went unnoticed."* **The same half-fix happened twice in the same feature.** The callback
+  was rescued; the screen it returns to was not.
+- The Calendar screen already renders imported entries (`useExternalCalendarEntries`), so the READ
+  half is live against a feature with no way in.
+- And `Settings.tsx:656` makes a claim that is false: *"once integrations ship"*.
+
+### The one thing that has to be built rather than wired
+
+Routing it alone would put a **Connect Google Calendar** button in front of every user on a
+deployment with no Google credentials. The three env vars are optional by design
+(`lib/calendar-integration.ts`: *"the app BOOTS WITHOUT THEM"*), and `requireIntegration` answers
+**503** — *"Calendar connections are not available on this deployment: no Google credentials are
+configured"*. But the LIST route does not require the integration, so the screen would load happily,
+show "Not connected", and offer a button that toasts a 503. That breaks the rule this stretch has
+applied five times: **never offer what the API will refuse.**
+
+So the screen has to be able to ask. `GET /integrations/calendar/availability` → `{ google: boolean }`
+— a ROUTE rather than a field on the connections list, because the list answers "what is connected"
+and this answers "can anything be", and widening a list that is asked two questions is the mistake
+this file has now recorded six times. It discloses one deployment fact and no user data.
+
+### Scope
+
+1. `GET /integrations/calendar/availability`, and `googleAvailable` through `useCalendarConnections`.
+2. The not-connected card says the integration is unavailable, with no button, when it is.
+3. `child("/integrations", Integrations)` in the router.
+4. The Settings panel stops saying integrations have not shipped and points at the screen.
+
+No sidebar entry: where Integrations belongs in the nav IS a design question, and Settings → a link
+is the answer that adds nothing to the design's chrome while making the screen reachable.
+
+### Group E built
+
+`GET /integrations/calendar/availability` → `{ google: boolean }`; `googleAvailable` through
+`useCalendarConnections`; the not-connected card says *"Not available here — Calendar connections are
+not switched on for this shoWMe deployment, so there is nothing to connect yet. Nothing on your
+account is missing or broken."* with no button; `child("/integrations", Integrations)`; and the
+Settings panel now reads *"Connections live on their own screen"* with an **Open Integrations** link.
+
+Live, as `operator@` on a stack with no Google credentials:
+
+```
+GET /integrations/calendar/availability            → {"google": false}
+Settings → Integrations                            → "Connections live on their own screen" · Open Integrations
+/integrations                                      → the screen, "Not available here", NO Connect button
+"once integrations ship" anywhere on the page      → gone
+sidebar items marked aria-current on /integrations → 0, as with the OAuth callback beside it
+```
+
+Three mutations, two killed. The third **survived and should have**: I had called
+`principalOf(request)` for the 401, and the app's own authentication preHandler already answers it —
+the 401 was never this route's to make. Deleted; the spec still asserts the gate, because *"no user
+data, so no gate"* is a reasonable-sounding wrong reading of a route like this.
+
+Coverage is a **Playwright spec** (`apps/web/tests/integrations-reachable.spec.ts`) rather than a unit
+test, because there was nothing to unit test: an absent route and a false sentence are only visible to
+something that drives the app. It asserts both halves — Settings points at the screen and no longer
+denies it, and the screen loads and offers nothing it cannot deliver.
+
+### The three NOTEs
+
+**`confirmed_snapshot.frozenAt` — fixed rather than renamed.** It was `new Date()` inside
+`freezeDealSnapshot`, whose only caller runs when the LAST signatory stamps, so a deal signed at
+11:10:45 and 11:10:51 claimed its terms froze at 11:10:51. They froze at 11:10:45: part 29 moved the
+seal to the first signature, the PATCH is refused from that moment on, and Event History already
+prints *"Terms frozen at this confirmation"* against the first. Renaming the field would have
+preserved a THIRD statement of a rule already written twice; the field now says what the rule says.
+Read off the parties, since they are the record of when it happened. Both mutations killed — `now`,
+and `Math.max` for `Math.min`, which is the one a test asserting "equals the earliest stamp" on a
+single-signature deal could not tell apart.
+
+**A body-less accept is accepted.** `AnswerBody` is `.nullish().transform(body => body ?? {})`. Every
+field in it is optional, so *"no body"* and *"{}"* are the same request, and answering
+`400 "body/ Expected object, received null"` is refusing a booking over punctuation. Mutation killed.
+
+**A directly-added participant is left exactly as it is.** The 404 from `GET /events/:id` for an
+`invited` row is the security property, not a bug — an unaccepted invitation must not confirm that
+the event exists — and `POST /events/:id/participation/accept` is the intended way through. Recorded
+because it reads as broken from the API, which is what run 14 recorded it for.
+
+### One harness repair
+
+My mutation runner refused a legitimate result: under a `-t` filter that selects ONE test, a killed
+mutation reports `1 failed | 86 skipped` with nothing passing, and the "assert the run actually ran"
+guard read that as the `Tests 58 skipped (58)` failure it was written for. The guard now asks whether
+any test EXECUTED (passed + failed > 0) and requires green only of the BASELINE — which still catches
+the original case, where zero executed.

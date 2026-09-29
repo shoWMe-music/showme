@@ -7,6 +7,7 @@ import { Dashboard } from "./routes/Dashboard";
 import { EventDetail } from "./routes/EventDetail";
 import { EventSettlement } from "./routes/EventSettlement";
 import { Events } from "./routes/Events";
+import { Integrations } from "./routes/Integrations";
 import { Invoices } from "./routes/Invoices";
 import { OAuthGoogleCallback } from "./routes/OAuthGoogleCallback";
 import { Profiles } from "./routes/Profiles";
@@ -84,6 +85,21 @@ const routeTree = rootRoute.addChildren([
   child("/audience", Audience),
   child("/profiles", Profiles),
   child("/settings", Settings),
+  /*
+   * THE SAME MISS, TWICE IN ONE FEATURE (QA sweep run 14).
+   *
+   * The note below was written when Google's redirect URI turned out to be routed by nothing. The
+   * screen the user has to reach FIRST was in the same state: `routes/Integrations.tsx` is a
+   * finished three-state screen whose own docstring says "ITS OWN SCREEN, not a Settings tab", the
+   * API is registered in `app.ts`, the Calendar screen already renders the entries it imports — and
+   * `grep` found no reference to it anywhere outside the file. Meanwhile Settings told the user
+   * integrations had not shipped.
+   *
+   * Reached from Settings rather than the sidebar: where it belongs in the nav is a design question,
+   * and a link from the panel that used to deny its existence makes it reachable without answering
+   * one.
+   */
+  child("/integrations", Integrations),
   // Google's registered redirect URI. The component existed and was reachable
   // by nothing: after consent Google sent the user to a path the router did not
   // know, so the code was never exchanged and no calendar could ever finish

@@ -1480,6 +1480,35 @@ describe("participants — an invitation must be answered", () => {
    * Both fields asserted, and both DIRECTIONS of the answer, because a title that named the
    * person only on the accept path would pass a test written for the accept path.
    */
+  /*
+   * AND IT ACCEPTS A REQUEST WITH NO BODY AT ALL (QA sweep run 14).
+   *
+   * `400 "body/ Expected object, received null"` — a booking refused on the grounds of punctuation.
+   * Every field of the body is optional, so "no body" and "{}" are the same request. The web client
+   * always sends an object, which is why no screen ever hit it.
+   */
+  it("accepts an invitation with no body at all, not only with {}", async () => {
+    const { performer, event } = await seedEventWithHost("nobody");
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${event.id}/participants`,
+          headers: auth("nobody-op"),
+          payload: { profileId: performer.profileId, role: "performer" },
+        })
+      ).statusCode,
+    ).toBe(201);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("nobody-perf"),
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json().status).toBe("accepted");
+  });
+
   it("names the party who answered and the person who pressed it", async () => {
     const { performer, event } = await seedEventWithHost("notifyname");
     const { db } = harness;

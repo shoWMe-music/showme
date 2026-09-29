@@ -19965,6 +19965,29 @@
         }
       }
     },
+    "/api/v1/integrations/calendar/availability": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "google": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["google"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/integrations/calendar/google/authorization-url": {
       "post": {
         "requestBody": {

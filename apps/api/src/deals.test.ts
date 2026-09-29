@@ -777,6 +777,23 @@ describe("deals — per-party confirm (decisions #1)", () => {
       .where(eq(schema.deals.id, deal.dealId));
     expect(row?.agreementStatus).toBe("confirmed");
     expect(row?.confirmedSnapshot).not.toBeNull();
+
+    /*
+     * AND `frozenAt` IS THE FIRST SIGNATURE, not the last (QA sweep run 14).
+     *
+     * The snapshot is written when the LAST signatory stamps, so `new Date()` there named the wrong
+     * moment: part 29 moved the seal to the FIRST signature, which is when the terms actually stopped
+     * moving and what Event History already prints against. Both halves asserted — equal to the
+     * earliest stamp, and NOT the latest — because a field that always took the earliest of one
+     * signature is indistinguishable from one that took the latest.
+     */
+    const stamps = parties
+      .map((party) => party.confirmedAt)
+      .filter((at): at is Date => at != null)
+      .map((at) => at.getTime());
+    const { frozenAt } = row?.confirmedSnapshot as { frozenAt: string };
+    expect(new Date(frozenAt).getTime()).toBe(Math.min(...stamps));
+    expect(Math.max(...stamps)).toBeGreaterThan(Math.min(...stamps));
   });
 
   it("rejects a confirm from someone who is not a party to the deal", async () => {
