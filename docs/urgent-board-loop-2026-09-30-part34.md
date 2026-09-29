@@ -275,3 +275,66 @@ prose 2/2, including the alternates `.map`, which had no coverage of any kind be
 
 **Committed as `3e22395`.**
 
+---
+
+## 3. Run 13's two NOTEs
+
+### (430) `sameBreakdown` skipped SEVEN fields, not the two reported — fixed
+
+> With the residual at 0, moving `operatorCostSplit` from an implicit 50/50 to 70/30 produced a
+> compute response carrying `residualBasisPoints: 7000 / 3000` while the stored row kept
+> `5000 / 5000` and `updated_at` did not move.
+
+The route compared `entitlement / collected / paid / held / net / lines / ladder`.
+`SerializedBreakdown` has **fourteen** fields: the missing ones are `commissionEarned`,
+`deductibles`, `residual`, `residualBasisPoints`, `prepaid`, `prepaidCounterpartyIds` and
+`deductibleLines`. The report named two.
+
+**The root cause is the location, not the list.** A comparison kept away from the shape it compares
+is a list of field names that goes stale the next time the shape grows one. So `sameBreakdown` moved
+out of `routes/settlement.ts` into `packages/settlement/src/snapshot.ts` as **`sameStoredBreakdown`**,
+beside `StoredBreakdown` and `storeBreakdown` — which is where that file's own docstring already
+argues this kind of thing belongs (*"the route and the seeds both write this column, and audit A-13
+is what a second hand-written copy of the shape costs"*). The route lost 23 lines and an import.
+
+**NOT a raw `isDeepStrictEqual` on the whole object, and that is the load-bearing part.** Every
+optional field documents itself as absent-means-none, because *a settlement finalized before the
+field existed is a legal record and is never rewritten to add one*. Finalize asks this same question
+(`figuresMatch`), so a raw deep-equal would report every pre-existing row as changed and **refuse to
+finalize all of them**. The comparison normalises first — absent optional money reads as `"0"`,
+`prepaidCounterpartyIds` compares as a SET (who the early money came from is the fact; the order two
+reconciles list them in is not), and `residualBasisPoints` normalises to `null` rather than `0`
+because it is not money: a solo operator's share is the whole thing and has no fraction to report.
+
+New `packages/settlement/src/snapshot.test.ts`, 6 tests — one assertion per previously-invisible
+field, a CONTROL over the seven it always saw, the legacy-row case, the set comparison and the
+unwritten-row case.
+
+**Mutations — seven, all killed**, including normalising absent basis points to `0` (which would
+make a real 0 indistinguishable from absent) and dropping the optional-money normalisation (the
+legacy-row hazard).
+
+**Proved on the running stack, and the normalisation is the half that shows:**
+
+| Action | Result |
+| --- | --- |
+| recompute with nothing changed | versions `2,2,2,1,1,2` — **unmoved** |
+| split → 60/40, recompute | the two operators bump to **3** with `6000 / 4000`; the performers' rows stay at 2 |
+| split → 70/30, recompute | back to `7000 / 3000` — the seed is as run 13 left it |
+
+The first row is the real evidence: the performers' stored rows carry **no**
+`residualBasisPoints` key at all, so a raw deep-equal would have rewritten every one of them. They
+did not move.
+
+### (447) `users.date_format` / `users.time_format` — left unbuilt, on purpose
+
+Confirmed: `packages/db/src/schema/identity.ts:47-48`, referenced by no route, hook, component or
+test, and Settings offers currency, timezone and theme only. **Nothing claims otherwise to a
+reader**, so there is no untrue sentence to fix — which is what separates this from (353).
+
+Not built here, and not deleted either. Building it is a FEATURE (which formats, per locale or per
+account, and what it does to the ICS and email writers that currently pin their own shapes); dropping
+the columns is a migration on a table two other unbuilt preferences may want. Either is Daniel's
+call, and neither is a defect on the urgent board. `docs/codebase-reuse-audit.md` now records it
+beside the `initials()` note, since `users.initials` is the same species of unread column.
+

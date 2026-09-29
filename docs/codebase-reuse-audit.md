@@ -646,3 +646,20 @@ parenthetical rule — `users.name` really does store `Priya Sound (FOH engineer
 should start from that module**, and should check each caller's fallback chain against its own
 tests before adopting it. `users.initials` exists as a column and is read by nothing, which is a
 third option nobody has costed (see run 13's NOTE on `users.date_format`).
+
+## Three columns nothing reads — left in place (2026-09-30)
+
+`users.date_format`, `users.time_format` (`packages/db/src/schema/identity.ts:47-48`) and
+`users.initials`. No route, hook, component or test references any of them; Settings offers currency,
+timezone and theme only (QA sweep run 13's second NOTE).
+
+**Deliberately neither built nor dropped.** Reading them is a FEATURE with unanswered questions —
+which formats are offered, per locale or per account, and what happens to the ICS writer
+(`packages/shared/src/ics.ts`) and the email templates, which pin their own date shapes for reasons
+of their own. Dropping them is a migration on a table that two other unbuilt preferences may want.
+Either is the product owner's call; neither is a defect, because **no surface tells a reader they can
+set a date format**, which is what would have made it one.
+
+`users.initials` is the same species and has a third option: it could replace the ten hand-rolled
+`initials()` derivations above. Nobody has costed that — an account-level override is not the same
+thing as a per-name derivation, and the group chips label rows that have no user at all.

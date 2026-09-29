@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { EntitlementBasis, EntitlementLine, PartyBreakdown, PoolLadder } from "./types";
 
 /**
@@ -312,4 +313,64 @@ export interface StoredBreakdown extends SerializedBreakdown {
 /** A party's breakdown plus the ladder, as a snapshot writer persists it. */
 export function storeBreakdown(breakdown: PartyBreakdown, ladder: PoolLadder): StoredBreakdown {
   return { ...serializeBreakdown(breakdown), ladder: serializeLadder(ladder) };
+}
+
+/**
+ * HAVE THESE TWO SNAPSHOTS OF ONE PARTY ANYTHING DIFFERENT TO SAY?
+ *
+ * The question a recompute asks before it writes (`routes/settlement.ts`: skip the UPDATE when
+ * nothing moved) and the question finalize asks before it freezes (are the stored figures still what
+ * a fresh reconcile produces).
+ *
+ * It lives HERE, beside `StoredBreakdown` and `storeBreakdown`, because it is a statement about that
+ * shape: a comparison kept away from the shape it compares is a list of field names that goes stale
+ * the next time the shape grows a field — which is exactly what happened. The route's copy checked
+ * `entitlement / collected / paid / held / net / lines / ladder` and **seven** of the interface's
+ * fields were invisible to it, so a change to the operator cost split produced a response carrying
+ * `residualBasisPoints: 7000 / 3000` over a stored row that kept `5000 / 5000` and an `updated_at`
+ * that never moved (QA sweep run 13 reported two of the seven).
+ *
+ * ── Absent means its zero, and that is not a new rule ────────────────────────────────────────────
+ * Every optional field above documents itself as absent-means-none, because a settlement finalized
+ * before the field existed is a legal record and is never rewritten to add one. So the comparison
+ * normalises before it compares, and a legacy row still matches a fresh compute that has nothing new
+ * to say about it. Comparing the raw objects instead would report every pre-existing row as changed
+ * and refuse to finalize any of them.
+ *
+ * `prepaidCounterpartyIds` is compared as a SET (sorted): it names who the early money came from,
+ * and the order two reconciles happen to list them in is not a change to the settlement.
+ *
+ * Structural, and NOT `JSON.stringify` — `computed` comes back out of a `jsonb` column, which does
+ * not preserve key order. Stringifying would report every stored row as changed on the first read
+ * after Postgres reordered its keys, which is an infinite "the figures moved" and a settlement that
+ * can never be finalized.
+ */
+function comparableBreakdown(value: StoredBreakdown) {
+  return {
+    participantId: value.participantId,
+    entitlement: value.entitlement,
+    collected: value.collected,
+    paid: value.paid,
+    held: value.held,
+    net: value.net,
+    commissionEarned: value.commissionEarned ?? "0",
+    deductibles: value.deductibles ?? "0",
+    residual: value.residual ?? "0",
+    // Not money, so its absence is not a zero — a solo operator's share is the whole thing and has
+    // no fraction to report. `null` is the honest normal form.
+    residualBasisPoints: value.residualBasisPoints ?? null,
+    prepaid: value.prepaid ?? "0",
+    prepaidCounterpartyIds: [...(value.prepaidCounterpartyIds ?? [])].sort(),
+    deductibleLines: value.deductibleLines ?? [],
+    // The composition as well as the total. Moving a guarantee that still loses to the door share
+    // leaves every figure above identical and changes what the settlement SAYS — and a row skipped
+    // here is a row that keeps explaining itself with last week's terms.
+    lines: value.lines ?? null,
+    ladder: value.ladder ?? null,
+  };
+}
+
+/** `false` when `left` is absent — an unwritten row has nothing in common with a computed one. */
+export function sameStoredBreakdown(left: StoredBreakdown | null, right: StoredBreakdown): boolean {
+  return left != null && isDeepStrictEqual(comparableBreakdown(left), comparableBreakdown(right));
 }

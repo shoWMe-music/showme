@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from "node:util";
 import {
   type EventRole,
   NON_STANDING_PARTICIPANT_STATUSES,
@@ -29,6 +28,7 @@ import {
   assertBalanced,
   prepaidAmountOf,
   reconcile,
+  sameStoredBreakdown,
   serializeLadder,
 } from "@showme/settlement";
 import {
@@ -1447,30 +1447,6 @@ const PAYMENT_TRACKING_STATUSES: ReadonlySet<string> = new Set([
   "paid",
 ]);
 
-/** Compare two serialized breakdowns field by field (all six are string money). */
-function sameBreakdown(left: StoredBreakdown | null, right: StoredBreakdown): boolean {
-  return (
-    left != null &&
-    left.participantId === right.participantId &&
-    left.entitlement === right.entitlement &&
-    left.collected === right.collected &&
-    left.paid === right.paid &&
-    left.held === right.held &&
-    left.net === right.net &&
-    // The composition as well as the total. Moving a guarantee that still loses to
-    // the door share leaves every figure above identical and changes what the
-    // settlement SAYS — and a row skipped here is a row that keeps explaining
-    // itself with last week's terms.
-    // Structural, and NOT `JSON.stringify` — `computed` comes back out of a `jsonb`
-    // column, which does not preserve key order. Stringifying would report every
-    // stored row as changed on the first read after Postgres reordered its keys,
-    // which is an infinite "the figures moved" and a settlement that can never be
-    // finalized. `isDeepStrictEqual` compares by value.
-    isDeepStrictEqual(left.lines ?? null, right.lines ?? null) &&
-    isDeepStrictEqual(left.ladder ?? null, right.ladder ?? null)
-  );
-}
-
 export async function settlementRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -1601,7 +1577,7 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
                 continue;
               }
               unmatched.delete(breakdown.participantId);
-              if (sameBreakdown(prior.computed as StoredBreakdown | null, computed)) continue;
+              if (sameStoredBreakdown(prior.computed as StoredBreakdown | null, computed)) continue;
               await tx
                 .update(schema.settlements)
                 .set({ computed, version: prior.version + 1, updatedAt: new Date() })
@@ -3752,7 +3728,8 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
               participantRows.every((row) => {
                 const fresh = freshByParticipant.get(row.participantId as string);
                 return (
-                  fresh != null && sameBreakdown(row.computed as StoredBreakdown | null, fresh)
+                  fresh != null &&
+                  sameStoredBreakdown(row.computed as StoredBreakdown | null, fresh)
                 );
               });
 

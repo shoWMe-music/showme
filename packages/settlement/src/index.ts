@@ -26,6 +26,7 @@ export {
   type SerializedEntitlementLine,
   type SerializedLadder,
   type StoredLadder,
+  sameStoredBreakdown,
   type StoredBreakdown,
 } from "./snapshot";
 export { type TicketingSource, type TicketingSync, manualTicketing } from "./ticketing";
