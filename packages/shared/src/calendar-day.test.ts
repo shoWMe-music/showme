@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCalendarDay } from "./calendar-day";
+import { formatCalendarDay, formatClockTime } from "./calendar-day";
 
 describe("a stored calendar day as a reader reads it", () => {
   it("turns the stored shape into the one every other surface shows", () => {
@@ -47,5 +47,39 @@ describe("a stored calendar day as a reader reads it", () => {
     expect(formatCalendarDay("")).toBe("");
     expect(formatCalendarDay(null)).toBe("");
     expect(formatCalendarDay(undefined)).toBe("");
+  });
+});
+
+describe("formatClockTime", () => {
+  it("drops the seconds Postgres serves", () => {
+    expect(formatClockTime("19:00:00")).toBe("19:00");
+    expect(formatClockTime("20:30:00")).toBe("20:30");
+  });
+
+  it("leaves a time that is already minute-precise alone", () => {
+    expect(formatClockTime("19:00")).toBe("19:00");
+  });
+
+  it("pads a single-digit hour so a column of times lines up", () => {
+    expect(formatClockTime("9:05:00")).toBe("09:05");
+  });
+
+  /*
+   * NOT PARSED. A wall clock has no zone (decisions #10), so this must be the same string for every
+   * reader — which a `Date` round-trip is not. Asserted by the one property a zone conversion could
+   * not keep: the hour never moves.
+   */
+  it("returns the same hour whatever zone the reader is in", () => {
+    for (const value of ["00:15:00", "23:45:00", "12:00:00"]) {
+      expect(formatClockTime(value).slice(0, 2)).toBe(value.slice(0, 2));
+    }
+  });
+
+  it("returns nothing for an absent time, and the value itself for one it cannot read", () => {
+    expect(formatClockTime(null)).toBe("");
+    expect(formatClockTime(undefined)).toBe("");
+    expect(formatClockTime("")).toBe("");
+    // Somebody else's to explain — blanking it would hide it.
+    expect(formatClockTime("doors at nine")).toBe("doors at nine");
   });
 });

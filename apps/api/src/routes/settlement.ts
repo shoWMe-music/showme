@@ -1934,8 +1934,11 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             approvedByYou:
               row.participantId != null && (signedByMe.get(row.participantId)?.approved ?? false),
             // §25.8.2: the row's OWN role, so a crew member is offered the line that is theirs.
+            // AND NOT ONCE THE FIGURES ARE FINAL (QA sweep run 15) — see the per-event read's own
+            // copy of this clause for why both had to gain it.
             signableByYou:
               row.participantId != null &&
+              !LOCKED_SETTLEMENT_STATUSES.has(row.status) &&
               maySignOwnSettlement(
                 capabilitiesByEvent.get(row.eventId as string) ?? new Set(),
                 row.participantRole,
@@ -2365,14 +2368,24 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             signable.has(row.participantId as string) &&
             (roster.get(row.participantId as string)?.approved ?? false),
           /*
-           * OWNERSHIP **AND** THE CAPABILITY, which this line asked for a day without (run 14).
+           * OWNERSHIP **AND** THE CAPABILITY **AND** FIGURES THAT CAN STILL MOVE — the first was
+           * missing for a day (run 14), the third for a week (run 15), and both were mine.
+           *
            * `signable` is ownership plus delegation — an agent reaching their act's line — and on its
            * own it offered Approve to a delegated performer whose signature is her agent's to give.
+           *
+           * `ca08a8e` then taught the confirm route to refuse a locked settlement with its own
+           * sentence and left this line answering `true`, so the roster drew a button that could only
+           * ever 409: measured on the seeded Spring Warmup, `signableByYou: true` on a `finalized`
+           * row for both the performer and the operator. Half a ruling is the shape this stretch has
+           * now hit nine times, and closing the route without the screen is exactly it.
+           *
            * The route's promise two comments up is that "the screen never offers a signature the
-           * route will refuse"; this is what keeps it.
+           * route will refuse"; all three clauses are what keep it.
            */
           signableByYou:
             signable.has(row.participantId as string) &&
+            !LOCKED_SETTLEMENT_STATUSES.has(row.status) &&
             maySignOwnSettlement(capabilities, roleByParticipant.get(row.participantId as string)),
         })),
         transfers: transferRows

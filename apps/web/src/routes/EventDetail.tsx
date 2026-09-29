@@ -1101,6 +1101,7 @@ function BudgetTab({
         kpis={view.kpis}
         results={view.results}
         costsIncompleteNote={view.costsIncompleteNote}
+        feeOffTheBillNote={view.feeOffTheBillNote}
         breakEven={view.breakEven}
         revenueSources={view.revenueSources}
         costBreakdown={view.costBreakdown}

@@ -1,5 +1,5 @@
 import { Avatar, type AvatarTone, Card, Icon } from "@showme/design-system";
-import { parseVideoLink, socialPlatformLabel } from "@showme/shared";
+import { formatClockTime, parseVideoLink, socialPlatformLabel } from "@showme/shared";
 import { formatDay } from "../lib/format";
 import styles from "./ProfilePublicPreview.module.css";
 import { VenueSpecsCard } from "./VenueSpecsCard";
@@ -280,8 +280,10 @@ export function ProfilePublicPreview({
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
             {comingEvents.map((event) => {
               const times = [
-                event.doorTime ? `Doors ${event.doorTime}` : null,
-                event.startTime ? `Show ${event.startTime}` : null,
+                // Sliced, not parsed — `formatClockTime` and decisions #10. This printed
+                // "Doors 19:00:00" on the screen that promises it is exactly what a visitor sees.
+                event.doorTime ? `Doors ${formatClockTime(event.doorTime)}` : null,
+                event.startTime ? `Show ${formatClockTime(event.startTime)}` : null,
               ].filter(Boolean);
               return (
                 <div

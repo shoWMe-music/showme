@@ -215,6 +215,117 @@ async function seedWorkedExample(prefix: string) {
  * written all along: a test that inspected the table would have passed over the whole defect. What
  * broke was who could reach them.
  */
+/**
+ * THE SCREEN NEVER OFFERS A SIGNATURE THE ROUTE WILL REFUSE — QA sweep run 15.
+ *
+ * `ca08a8e` taught the confirm route to refuse a locked settlement with its own sentence and left
+ * both `signableByYou` answers saying `true`, so the roster drew an Approve button that could only
+ * ever 409. §25.7.2's standing rule is the same for a signature as for a delete.
+ *
+ * Both halves, because a flag that always answered `false` would close the defect and take the whole
+ * review step with it.
+ */
+describe("settlement — a locked settlement is not offered a signature", () => {
+  async function reviewable(prefix: string) {
+    const seed = await seedWorkedExample(prefix);
+    await signEveryAgreement(harness.db, seed.event.id);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+    return seed;
+  }
+
+  const ownLine = async (eventId: string, uid: string) => {
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/settlements`,
+      headers: auth(uid),
+    });
+    expect(response.statusCode).toBe(200);
+    const rows = response.json().settlements as {
+      id: string;
+      status: string;
+      isYours?: boolean;
+      signableByYou: boolean;
+    }[];
+    return rows.find((row) => row.signableByYou || row.isYours) ?? rows[0];
+  };
+
+  it("offers the signature while the figures can still move, and withdraws it once they cannot", async () => {
+    const seed = await reviewable("lockedsign");
+
+    // Half one: an open settlement IS signable. Delete the new clause and this stays green, which is
+    // why it is here.
+    const before = await ownLine(seed.event.id, seed.band.userId);
+    expect(before?.signableByYou).toBe(true);
+
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    // Half two: once locked, neither the party nor the operator is offered it...
+    const after = await ownLine(seed.event.id, seed.band.userId);
+    expect(after?.status).toBe("finalized");
+    expect(after?.signableByYou).toBe(false);
+    expect((await ownLine(seed.event.id, seed.operator.userId))?.signableByYou).toBe(false);
+
+    // ...and the route it would have called still refuses, which is the sentence the button used to
+    // be the only way to reach.
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlements/${after?.id}/confirm`,
+      headers: auth(seed.band.userId),
+      payload: {},
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.message).toContain("already final");
+  });
+
+  // The per-event read and the LIST read answer the same question and had to gain the clause
+  // separately — one surface fixed is none fixed, nine times over in this stretch.
+  it("withdraws it on the settlements list too, not only on the event's own read", async () => {
+    const seed = await reviewable("lockedlist");
+    const listed = async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/settlements",
+        headers: auth(seed.band.userId),
+      });
+      expect(response.statusCode).toBe(200);
+      const rows = (response.json().items ?? response.json()) as {
+        event?: { id?: string };
+        status: string;
+        signableByYou: boolean;
+      }[];
+      return rows.find((row) => row.event?.id === seed.event.id);
+    };
+    expect((await listed())?.signableByYou).toBe(true);
+
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await listed())?.signableByYou).toBe(false);
+  });
+});
+
 describe("settlement — the stage rows reach the party whose settlement moved", () => {
   const feedFor = (uid: string, eventId: string) =>
     app.inject({

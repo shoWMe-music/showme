@@ -27,6 +27,7 @@ import {
   carryRevealedHeading,
   costsAreIncomplete,
   costsIncompleteNoteFor,
+  feeOffTheBillNoteFor,
   roundToDisplayUnit,
   splitCostRows,
   ticketSplitDisplay,
@@ -233,6 +234,36 @@ describe("costsAreIncomplete — and which book is asking", () => {
     // The positive control on both sides: the rule only ever fired on a hidden deal.
     expect(costsAreIncomplete(0, false)).toBe(false);
     expect(costsAreIncomplete(0, true)).toBe(false);
+  });
+});
+
+describe("feeOffTheBillNoteFor — the deal this sheet can read and cannot place", () => {
+  it("says nothing when every agreement pays somebody on the bill", () => {
+    expect(feeOffTheBillNoteFor(0)).toBeNull();
+  });
+
+  /*
+   * QA sweep run 15: a signed SEK 1,000 guarantee from the host to Priya Sound reached TOTAL COSTS at
+   * no deal state, while the settlement paid it. The sheet cannot print the figure until §25.6's payer
+   * question is answered — it can and must print the gap.
+   */
+  it("names the gap, points at the Deals tab, and does not claim the deal is hidden", () => {
+    const note = feeOffTheBillNoteFor(1);
+    expect(note).toContain("One of this event's agreements pays");
+    expect(note).toContain("lower than what the settlement will pay out");
+    expect(note).toContain("Deals tab");
+    // The sibling sentence's words, which are untrue here: nothing is withheld from this reader.
+    expect(note).not.toContain("not shown to you");
+  });
+
+  it("agrees with itself in the plural", () => {
+    expect(feeOffTheBillNoteFor(2)).toContain("2 of this event's agreements pay");
+  });
+
+  // It is a SEPARATE sentence from the hidden-deal one, and both can be true at once — a sheet that
+  // cannot see one deal and cannot place another has two different things to say.
+  it("does not replace the hidden-deal note", () => {
+    expect(feeOffTheBillNoteFor(1)).not.toBe(costsIncompleteNoteFor(1, false));
   });
 });
 

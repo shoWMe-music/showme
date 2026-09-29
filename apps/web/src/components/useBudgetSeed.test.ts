@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   type BudgetLineForDoor,
   type Deal,
+  dealsPayingOffTheBill,
   doorForecastFrom,
   performerFeeOf,
   rentalOf,
@@ -34,6 +35,64 @@ const dealWith = (over: Partial<Deal>): Deal => ({
   status: "confirmed",
   parties: [{ participantId: "PERF", roleInDeal: "payee" }],
   ...over,
+});
+
+describe("dealsPayingOffTheBill — the money this sheet can see and cannot place", () => {
+  const crewDeal = (over: Partial<Deal> = {}) =>
+    dealWith({
+      id: "crew",
+      name: "Sound engineer fee",
+      parties: [
+        { participantId: "HOST", roleInDeal: "payer" },
+        { participantId: "CREW", roleInDeal: "payee" },
+      ],
+      ...over,
+    });
+
+  /*
+   * QA sweep run 15: a signed guarantee from the host to Priya Sound never reached TOTAL COSTS,
+   * because `performerFeeOf` returns null when no entitled party is on the bill — correctly, since
+   * "Performer fee" is false of a crew member. This counts what that drops.
+   */
+  it("counts a live deal whose only payee is off the bill", () => {
+    expect(dealsPayingOffTheBill([crewDeal()], ON_THE_BILL)).toBe(1);
+    // …and `performerFeeOf` really does drop it, which is the premise. Asserted rather than assumed:
+    // a count of deals nothing was dropping would be a count of nothing.
+    expect(performerFeeOf(crewDeal(), ON_THE_BILL, DOOR)).toBeNull();
+  });
+
+  it("does not count a deal that pays somebody on the bill", () => {
+    expect(dealsPayingOffTheBill([dealWith({})], ON_THE_BILL)).toBe(0);
+  });
+
+  // A split that pays BOTH is placed under the on-the-bill payee, so it is not a gap.
+  it("does not count a deal that pays one of each", () => {
+    const both = dealWith({
+      parties: [
+        { participantId: "PERF", roleInDeal: "payee" },
+        { participantId: "CREW", roleInDeal: "payee" },
+      ],
+    });
+    expect(dealsPayingOffTheBill([both], ON_THE_BILL)).toBe(0);
+  });
+
+  /*
+   * THE SAME TWO EXCLUSIONS `performerFeeOf` MAKES, for the same reasons — a room hire is the venue's
+   * row and a withdrawn deal pays nobody. Counting either would put a sentence on the sheet about
+   * money that is already accounted for or is not owed at all.
+   */
+  it("excludes a rental and a cancelled deal", () => {
+    expect(dealsPayingOffTheBill([crewDeal({ type: "rental" })], ON_THE_BILL)).toBe(0);
+    expect(dealsPayingOffTheBill([crewDeal({ status: "cancelled" })], ON_THE_BILL)).toBe(0);
+  });
+
+  // A deal that entitles nobody — all observers — is not a fee going anywhere.
+  it("excludes a deal with no entitled party at all", () => {
+    const observersOnly = crewDeal({
+      parties: [{ participantId: "CREW", roleInDeal: "observer" }],
+    });
+    expect(dealsPayingOffTheBill([observersOnly], ON_THE_BILL)).toBe(0);
+  });
 });
 
 describe("the planner's performer fee", () => {

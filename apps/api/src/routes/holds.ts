@@ -201,6 +201,29 @@ export async function holdRoutes(fastify: FastifyInstance): Promise<void> {
       const [event] = await database.select().from(schema.events).where(eq(schema.events.id, id));
       if (!event) throw notFound("Event not found");
 
+      /*
+       * A RANK IS A POSITION IN A QUEUE, AND ONLY A HOLD IS IN ONE (QA sweep run 15).
+       *
+       * `holdSiblingsOf` defines the queue as `status = 'on_hold'` — "an event that is not a hold is
+       * not in the queue, it has the night" — and `rankForHoldJoiningQueue` short-circuits on the
+       * same fact. This route was the only one that never asked, so a DRAFT event took 2nd place on
+       * 5 December and demoted a genuine 2nd hold to 3rd, which the hold panel then printed as
+       * "3rd hold · 2 HOLDS ON THIS DATE". Permanently: cancelling the draft does not clear a rank.
+       *
+       * Both of the report's consequences close here rather than needing their own fixes. The
+       * response could only omit the row it had just written because that row was absent from the
+       * queue it re-reads, and a rank this route refuses to write cannot be left behind afterwards.
+       *
+       * 409, not 403: the caller may absolutely edit this event — it is the event's own state that
+       * has no position to take, which is what `assertNotFinalized` and "Only a sent agreement can
+       * be confirmed" both mean by a conflict.
+       */
+      if (event.status !== "on_hold") {
+        throw conflict(
+          "Only a hold can be given a place in the queue. This event is not on hold, so it has the night rather than a number in the line for it.",
+        );
+      }
+
       const siblingRows = await loadSiblings(request, event, true);
       const updates = computeRankShift({
         siblings: toHoldSiblings(siblingRows),

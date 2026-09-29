@@ -1,5 +1,5 @@
 import { getGetApiV1EventsIdSetlistsQueryOptions } from "@showme/api-client";
-import { Button, EmptyState, Icon, SectionHeader } from "@showme/design-system";
+import { Badge, Button, EmptyState, Icon, SectionHeader } from "@showme/design-system";
 import { formatDurationClock, parseSetlistWorks, totalDurationSeconds } from "@showme/shared";
 import { useQueries } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
@@ -144,9 +144,30 @@ function ShowRow({
             }}
           >
             {event.title || "Untitled show"}
+            {/*
+              A CALLED-OFF NIGHT SAYS SO HERE TOO (QA sweep run 15). This row invited a performer to
+              "Write setlist" for a cancelled show with nothing to tell it from a live one — the same
+              reason the Events list badges `cancelled`, two clicks away, for the same event.
+            */}
+            {event.status === "cancelled" && (
+              <>
+                {" "}
+                <Badge status="cancelled" dot>
+                  Cancelled
+                </Badge>
+              </>
+            )}
           </h3>
           <div style={{ color: "var(--muted)", fontSize: 12.5 }}>
-            {[formatDay(event.eventDate), event.venueName].filter(Boolean).join(" · ")}
+            {[
+              formatDay(event.eventDate),
+              event.venueName,
+              // Said in words as well as in the badge: the badge is the label, this is the
+              // consequence, which is what a reader about to spend ten minutes on a set needs.
+              event.status === "cancelled" ? "this show is off" : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </div>
         </div>
 

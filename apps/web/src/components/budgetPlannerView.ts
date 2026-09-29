@@ -108,6 +108,12 @@ export interface BudgetPlannerView {
    * can see every deal on the night. See `costsIncomplete`.
    */
   costsIncompleteNote: string | null;
+  /**
+   * …and the one for a deal this sheet CAN read and has no row for (`feeOffTheBillNoteFor`). Two
+   * sentences rather than one because the causes differ and so does what the reader can do about it:
+   * a hidden deal is somebody else's to show them, an off-the-bill fee is on the Deals tab right now.
+   */
+  feeOffTheBillNote: string | null;
   ticketRevenueTotal: string;
   /**
    * Each tier's own `price × quantity`, formatted, keyed by tier id — the TOTAL
@@ -549,6 +555,28 @@ export function costsIncompleteNoteFor(
   return `${subject} not shown to you, so what the night costs is higher than the total above. Profit, margin and break-even are left out rather than calculated without ${object}.`;
 }
 
+/**
+ * A DEAL THIS SHEET CAN READ AND STILL HAS NO ROW FOR — QA sweep run 15.
+ *
+ * The sibling of `costsIncompleteNoteFor`, and deliberately a SEPARATE sentence: that one says the
+ * costs are higher because a deal is *"not shown to you"*, which is untrue here. These deals are in
+ * plain sight on the Deals tab; what the planner lacks is a row to put them in, because "Performer
+ * fee" is false of a crew member and §25.6's open payer question decides how much of the fee lands on
+ * the operators at all (the whole of it as a transfer, or a share through the pool). A figure cannot
+ * be printed before that is answered; the absence can be, and must be.
+ *
+ * Says PAYEE-neutrally "somebody who is not on the bill", because the payee may be crew, a supplier or
+ * an off-platform party, and the sheet is not the place to name them — the Deals tab does.
+ */
+export function feeOffTheBillNoteFor(offTheBillDealCount: number): string | null {
+  if (offTheBillDealCount <= 0) return null;
+  const subject =
+    offTheBillDealCount === 1
+      ? "One of this event's agreements pays"
+      : `${offTheBillDealCount} of this event's agreements pay`;
+  return `${subject} somebody who is not on the bill — crew, a supplier — and this sheet has no row for that yet, so the total above is lower than what the settlement will pay out. The agreements themselves are on the Deals tab.`;
+}
+
 export function budgetPlannerViewFrom(
   editor: BudgetEditor,
   currency: string,
@@ -589,6 +617,8 @@ export function budgetPlannerViewFrom(
    * them depends on a deal.
    */
   const costsIncomplete = costsAreIncomplete(editor.hiddenDealCount, editor.isPrivateBook);
+  // Its sibling, for the deals this sheet CAN see and has nowhere to put — see `feeOffTheBillNoteFor`.
+  const feeOffTheBillNote = feeOffTheBillNoteFor(editor.offTheBillDealCount);
   const money = (minor: bigint) =>
     formatFigure ? formatFigure(minor.toString()) : formatMoney(minor.toString(), currency);
 
@@ -846,6 +876,7 @@ export function budgetPlannerViewFrom(
           ]),
     ],
     costsIncompleteNote: costsIncompleteNoteFor(editor.hiddenDealCount, editor.isPrivateBook),
+    feeOffTheBillNote,
     ticketRevenueTotal: money(projection.ticketRevenue),
     ticketSplit: ticketSplitDisplay(
       editor.seedTicketSplit,

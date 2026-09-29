@@ -275,3 +275,157 @@ party could see the rows to notice. Screenshot:
 `docs/screenshots/qa-2026-10-01-run15/fixed-performer-sees-all-four-stages.png`.
 
 biome 757 · settlement + activity + shares 198 passed, 0 failures.
+
+## The six MINORs — verdict and scope each
+
+### M1 · a finalized settlement still draws Approve — MY OWN HALF-FIX
+
+`apps/api/src/routes/settlement.ts`. `ca08a8e` built the refusal (`LOCKED_SETTLEMENT_STATUSES` → 409
+*"These figures are already final…"*) and left `signableByYou` answering `true`, so the roster draws a
+control that can only 409. Run 14 reported the mirror image of this — the button existed and the API
+said 200 — and I fixed the API surface and not the screen's. **A ruling implemented on one of its two
+surfaces, ninth instance, and this time both surfaces were in one commit of mine.**
+
+Scope: both `signableByYou` sites (`:1937` on the list read, `:2250`'s per-event one) gain the same
+`LOCKED_SETTLEMENT_STATUSES` clause the confirm route already applies. §25.7.2's own standing rule,
+quoted in `useEventAgreements.ts`: *"the UI must not offer a delete the API will refuse"* — a
+signature is the same. Both halves asserted: a locked line is not signable, an open one still is.
+
+### M4 · `POST /hold/rank` will rank an event that is not a hold
+
+`apps/api/src/routes/holds.ts:196`. `holdSiblingsOf` defines the queue as `status = 'on_hold'`, and
+`rankForHoldJoiningQueue` short-circuits on it — this route is the only one that does not ask. A draft
+took 2nd place on 5 Dec and demoted a genuine 2nd hold to 3rd, permanently: cancelling the draft does
+not clear its rank.
+
+Verdict: refuse, 409, because the caller may edit this event — it is the event's state that has no
+position to take, the same reasoning `assertNotFinalized` uses. The report's two extra consequences
+both close at the root with it: the response can only omit the ranked row when the row is not in the
+queue it reads, and a rank the route refuses to write cannot be left behind by a cancellation.
+
+Scope: API-only today (the rank control only exists on an `on_hold` event's panel, and the wizard
+PATCHes `status` before it ranks), which is why it is a MINOR — but an unguarded route that rewrites
+other operators' numbers is worth the four lines.
+
+### M6 · posting a comment does not refresh the Revision history beside it
+
+`apps/web/src/components/useEventSettlement.ts`. `postComment` invalidates the comments query and not
+`GET /activity`, so the two halves of one tab disagree until something else refetches. It matters more
+after the MAJOR above: a party's comment now HAS a row in that panel, and the reader who wrote it is
+the one who sees the stale version.
+
+Scope: one `invalidateQueries` beside the one already there, keyed as `SettlementRail` and
+`RevisionHistory` key it.
+
+### M3 · an invitation to a cancelled night says "You are in"
+
+`apps/api/src/routes/invitations.ts` and the Requests inbox. Nothing on the landing page, the
+Dashboard card or the inbox says the show is off; accepting answers *"You are in — Nordic Synth
+Showcase is on your shoWMe account now."*
+
+**Two halves, and only one is mine.** DISCLOSING it is unambiguous — `inboxStatusFor` already crosses
+a participation's state with the **event's** status for exactly this reason, and the Events list
+badges `cancelled` *"because in this list it sat directly above a live show in identical styling"*. So
+the invitation surfaces say it, in the vocabulary those two already use.
+
+REFUSING the accept is a product call and is **not** taken: a cancelled night can be reinstated, and
+an acceptance standing against it is arguably what the operator wants when it is. Recorded as a
+§25.6 row rather than guessed.
+
+### M2 · the Budget Planner's silence about a deal payable by the operator — PRODUCT QUESTION
+
+The report says so itself and gives the two defensible answers. It is right that this is the
+**un-contingent** half of §25.6's open payer row in one sense — on either ruling the money lands on
+the host — but **not** in the sense that matters to the planner: the two rulings differ on HOW MUCH
+(the whole fee as a transfer, or a share of it through the pool), and a planner row has to print a
+figure. So (a) *"show every deal whose payee is a party and whose payer is an operator"* still needs
+the ruling.
+
+(b) is available now and forecloses nothing: **the planner says what it does not include**, which is
+what this codebase already does three times for exactly this class of gap — Projections carries the
+mirror sentence about the planner. Built; (a) recorded as the contingent half on the existing §25.6
+payer row rather than as a tenth row.
+
+### M5 · the reason a draft cannot be deleted is still not true of it
+
+`packages/shared`'s `dealDeletability`, via `routes/deals.ts:512` and `:1519`. `hasSettlement` is
+`Boolean(any settlements row on the event)` — an event-level fact making a per-deal claim: *"…so
+\"QA15 unsigned probe\" is part of what has already been computed and read"*, about a deal the engine
+has never seen and, at that moment, is refusing to run because of.
+
+**Two halves again.** The SENTENCE is unambiguously false and is fixed: it says what is actually true
+— this night has a settlement, so its deals are kept rather than erased — without claiming the engine
+read this one.
+
+WIDENING the permission is the product half, and a delete is irreversible, so it goes to Daniel with
+the invariant that makes it safe already established: **a `draft` deal cannot have been reconciled.**
+Compute refuses to run while any deal with a signatory is unsigned, and a deal with only observers
+entitles nobody — so on both branches a draft deal has no `settlement_lines` row and no entitlement,
+which is precisely what §25.7.2's rationale protects. That is a recommendation, not a decision taken.
+
+### The six MINORs and five COSMETICs built — and one deliberately not
+
+**M1** (`signableByYou` on locked figures) — both reads gained the clause the confirm route already
+applies. Three mutations killed, including *"nothing is ever signable"*, which is how this closes
+badly. Live on the probe once finalized: `signableByYou = False` where run 15 measured `True`.
+
+**M4** (`/hold/rank` on a non-hold) — 409 with its own sentence. Two mutations killed, the second
+being *"refuse every event"*, which would have taken the operator's only queue control with it. Live:
+the draft is refused and its `hold_rank` stays NULL.
+
+**M6** (the stale Revision history) — the event feed is now invalidated with the other three
+settlement queries in `refresh()`, not just on the comment path, because every action there writes to
+it. Matched on `eventId` by predicate rather than by a key prefix, because the rail and the history
+mount different `typePrefix` values and a prefix match cannot know which. Live, with **no reload**:
+the remark appears in the thread and *"A remark was added to the review"* appears at the top of the
+history beside it.
+
+**M3** (an invitation to a called-off night) — `targetEventStatus` on the landing read and
+`eventStatus` on the inbox list, and the Requests row badges `Cancelled`. The ANSWER stays offered:
+recorded as a §25.6 row, since a cancelled night can be reinstated and refusing would also stop the
+act from DECLINING it. Live: *"Event · Nordic Synth Showcase — this show has been called off"*.
+
+> And the browser corrected the first version of the fix, for the fifth time this stretch: I put the
+> notice inside the "Do you accept?" panel, and the page renders **five** branches — the reader who
+> arrives on the wrong account saw nothing at all. It is on the summary now, which is the one part
+> every branch shows.
+
+**M2** (the planner's silence) — `dealsPayingOffTheBill` counts the deals it can read and cannot
+place, and `feeOffTheBillNoteFor` says so under the total. Deliberately a SEPARATE sentence from the
+hidden-deal one: that one says the cost is higher because a deal is *"not shown to you"*, which is
+untrue here — these are in plain sight on the Deals tab. Three mutations killed. §25.6's payer row
+amended: the disclosure is built, the ROW still waits on the ruling.
+
+**M5** (the untrue delete reason) — the sentence states the rule now instead of inventing a history
+for the deal. The widening is a §25.6 row with the invariant that would make it safe: **a `draft` deal
+cannot have been reconciled**, because compute refuses to run while a deal with a signatory is unsigned
+and a deal with only observers entitles nobody.
+
+**C1** (raw times with seconds) — `formatClockTime` in `@showme/shared`, and the two PRIVATE copies in
+`apps/marketing` (`clockTime` in `profile.ts`, `formatTime` in `event.ts`) now delegate to it. Three
+call sites for one rule, which is the review gate's own threshold — and the rule is *slice, never
+parse*: these are offset-free wall clocks (#10), so a `Date` round-trip moves a Stockholm door time for
+a reader in London. Six tests including the zone property. Live: *"Doors 19:00 · Show 20:00"*, no
+seconds anywhere on the page.
+
+**C2** (the Collaborators caption) — it named the adjusted net; `shares` divides the sum of the
+positive entitlements the reader can see, and its own comment says that is *"the only honest
+denominator"*. The caption says what the percentages do.
+
+**C3** (a cancelled show inviting a setlist) — badged, and said in words beside the date, because a
+badge is the label and *"this show is off"* is the consequence a performer about to spend ten minutes
+needs.
+
+**C4** (a raw email in the bell) — the accepting profile's name, resolved after the commit for the
+same reason the whole notify block is a try/catch. The invited name still wins where the operator typed
+one; the address is the last resort it always was.
+
+**C5** (the settlement sub-tab is not in the URL) — **tried and reverted**, with the reason left in
+the code so the next attempt is cheaper. Copying the event workspace's `?tab=` is four lines, but with
+a THIRD search-bearing route in the tree TanStack's `useSearch({ from })` stops narrowing and resolves
+to a union of every route's search type — so `Calendar.tsx`'s `.date` and `EventDetail.tsx`'s `.tab`
+and `.budgetScope`, all untouched, stop compiling. It is the route TREE's typing: the `child()` helper
+produces routes whose search is unmodelled, and mixing them with typed ones tips the inference over.
+The proper fix exports typed route objects and reads `route.useSearch()`, inverting the import
+direction `router.tsx` is built on — a router refactor, not a cosmetic fix, so it is not bought inside
+one.

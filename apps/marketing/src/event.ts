@@ -39,6 +39,7 @@
  * nothing — and a published event is a page its host asked to be linkable.
  */
 
+import { formatClockTime } from "@showme/shared";
 import { element } from "./element";
 import { createRsvpForm } from "./event-rsvp";
 
@@ -82,9 +83,8 @@ function formatEventDate(isoDate: string): string {
  * venue (decisions #10) — printed as given, never converted, because converting
  * them into the visitor's zone would put the wrong time on the poster.
  */
-function formatTime(time: string): string {
-  return time.slice(0, 5);
-}
+// One rule, three call sites — this was the third private copy of it (QA sweep run 15).
+const formatTime = formatClockTime;
 
 /** True once the show's own day is over — the past-show state. */
 function hasAlreadyHappened(isoDate: string | null): boolean {

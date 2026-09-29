@@ -107,9 +107,20 @@ function OfferCard({ offer }: { offer: InvitationOffer }) {
     <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={fieldGridStyle}>
         <KeyValueRow label="From" value={offer.inviterName ?? "A shoWMe account"} />
+        {/*
+          THE NIGHT'S OWN STATE, ON THE SUMMARY AND NOT ONLY ON THE ANSWER (QA sweep run 15).
+          The first version of this put the notice inside the "Do you accept?" panel, which is one of
+          five branches this page renders — so a reader who arrives on the wrong account, or whose
+          address is not verified yet, was still told nothing. The summary is the one part every
+          branch shows.
+        */}
         <KeyValueRow
           label={offer.targetKind === "event" ? "Event" : "Account"}
-          value={offer.targetName ?? "—"}
+          value={
+            offer.targetEventStatus === "cancelled"
+              ? `${offer.targetName ?? "—"} — this show has been called off`
+              : (offer.targetName ?? "—")
+          }
         />
         <KeyValueRow
           label="Role"
@@ -361,8 +372,35 @@ function AnswerCard({
           </Panel>
         );
       }
+      /*
+       * THE NIGHT MAY BE OFF, AND THIS PAGE WAS THE LAST PLACE NOT SAYING SO (QA sweep run 15).
+       *
+       * An invitation outstanding when the event is cancelled read exactly like any other: Accept,
+       * over "Accepting adds you to it straight away", and then "You are in". The Requests inbox
+       * crosses a participation's state with the event's for this reason, and the Events list badges
+       * a cancelled show because "in this list it sat directly above a live show in identical
+       * styling". This is the same fact one step earlier.
+       *
+       * The answer stays OFFERED rather than refused: a cancelled night can be reinstated, and
+       * whether an acceptance should be accepted against one is a product call that is not this
+       * page's to take (recorded for Daniel). What changes is that the reader is told before they
+       * answer.
+       */
       return (
-        <Panel title="Do you accept?">
+        <Panel
+          title={
+            offer?.targetEventStatus === "cancelled"
+              ? "This show has been called off"
+              : "Do you accept?"
+          }
+        >
+          {offer?.targetEventStatus === "cancelled" && (
+            <p role="alert" style={{ ...bodyStyle, color: "var(--brand-red)" }}>
+              {offer?.targetName ?? "This event"} was cancelled after the invitation was sent, so
+              there is nothing to play. You can still answer — if the night is reinstated your
+              answer stands — but nothing is booked by it today.
+            </p>
+          )}
           <p style={bodyStyle}>
             Accepting adds you to it straight away. Declining is a real answer too, and closes the
             invitation.

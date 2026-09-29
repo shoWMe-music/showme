@@ -665,6 +665,8 @@ export interface BudgetEditor {
    * cost-derived total on this sheet is a floor. See `BudgetSeed.hiddenDealCount`.
    */
   hiddenDealCount: number;
+  /** Live deals this sheet can read but has no row for — see `dealsPayingOffTheBill`. */
+  offTheBillDealCount: number;
   costs: CostDraft[];
   /** Every row a percentage deduction may be taken of, as the draft stands. */
   deductionBases: DeductionBaseOption[];
@@ -795,6 +797,7 @@ export interface BudgetEditor {
 const NO_SEED: BudgetSeed = {
   capacity: null,
   hiddenDealCount: 0,
+  offTheBillDealCount: 0,
   performerFees: [],
   venueCost: null,
   ticketTiers: [],
@@ -2500,6 +2503,7 @@ export function useBudgetEditor(
      */
     seedTicketSplit: isPrivateBook ? NO_SEED.ticketSplit : seedSource.ticketSplit,
     hiddenDealCount: seedSource.hiddenDealCount,
+    offTheBillDealCount: seedSource.offTheBillDealCount,
     costs: resolvedCosts,
     deductionBases,
     capacity,

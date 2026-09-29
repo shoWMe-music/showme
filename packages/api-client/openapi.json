@@ -3613,14 +3613,22 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "note": {
-                    "type": "string",
-                    "maxLength": 2000
+                "anyOf": [
+                  {
+                    "not": {}
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "note": {
+                        "type": "string",
+                        "maxLength": 2000
+                      }
+                    },
+                    "additionalProperties": false,
+                    "nullable": true
                   }
-                },
-                "additionalProperties": false
+                ]
               }
             }
           }
@@ -3671,14 +3679,22 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "note": {
-                    "type": "string",
-                    "maxLength": 2000
+                "anyOf": [
+                  {
+                    "not": {}
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "note": {
+                        "type": "string",
+                        "maxLength": 2000
+                      }
+                    },
+                    "additionalProperties": false,
+                    "nullable": true
                   }
-                },
-                "additionalProperties": false
+                ]
               }
             }
           }
@@ -17992,6 +18008,9 @@
                         "type": "string",
                         "nullable": true
                       },
+                      "eventStatus": {
+                        "type": "string"
+                      },
                       "hostName": {
                         "type": "string",
                         "nullable": true
@@ -18011,6 +18030,7 @@
                       "eventId",
                       "eventTitle",
                       "eventDate",
+                      "eventStatus",
                       "hostName",
                       "invitedAt",
                       "expiresAt"
@@ -18238,6 +18258,10 @@
                       "type": "string",
                       "nullable": true
                     },
+                    "targetEventStatus": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "inviterName": {
                       "type": "string",
                       "nullable": true
@@ -18281,6 +18305,7 @@
                     "targetKind",
                     "targetName",
                     "targetEventId",
+                    "targetEventStatus",
                     "inviterName",
                     "recipientName",
                     "recipientEmail",

@@ -15,6 +15,7 @@ export type GetApiV1MeInvitations200Item = {
   eventTitle: string;
   /** @nullable */
   eventDate: string | null;
+  eventStatus: string;
   /** @nullable */
   hostName: string | null;
   invitedAt: string;

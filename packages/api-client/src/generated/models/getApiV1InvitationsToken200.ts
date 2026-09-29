@@ -23,6 +23,8 @@ export type GetApiV1InvitationsToken200 = {
   /** @nullable */
   targetEventId: string | null;
   /** @nullable */
+  targetEventStatus: string | null;
+  /** @nullable */
   inviterName: string | null;
   /** @nullable */
   recipientName: string | null;

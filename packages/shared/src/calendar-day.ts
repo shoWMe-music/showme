@@ -50,3 +50,34 @@ export function formatCalendarDay(value: string | null | undefined): string {
   if (!monthName) return value;
   return `${Number(day)} ${monthName} ${year}`;
 }
+
+/**
+ * A WALL-CLOCK TIME AS A PERSON READS IT — `"19:00:00"` → `"19:00"` (QA sweep run 15).
+ *
+ * Postgres serves a `time` column with its seconds, and the public profile preview printed them
+ * verbatim: *"Doors 19:00:00 · Show 20:00:00"* on the screen that promises *"This is exactly what
+ * anyone visiting /… sees"*.
+ *
+ * SLICED, NEVER PARSED, and that is the whole reason this is three lines rather than a
+ * `toLocaleTimeString`. These are offset-free wall clocks (decisions #10): the door opens at 19:00
+ * where the room is, and handing the string to a `Date` re-interprets it in the READER's zone, which
+ * moves a Stockholm door time for anybody looking from London. `eventHistory.ts` already slices for
+ * exactly this reason, and web's own `formatTime` — which does parse — returns "—" for a bare time
+ * because `parseDayLocal` cannot read one.
+ *
+ * Here rather than in either app because `apps/marketing` had grown TWO private copies (`clockTime`
+ * in `profile.ts`, `formatTime` in `event.ts`) and the web preview had none, which is three call
+ * sites for one rule: the review gate's own threshold.
+ *
+ * Anything that is not a recognisable clock comes back UNCHANGED rather than as a dash — a value this
+ * cannot read is somebody else's to explain, and blanking it would hide it.
+ */
+export function formatClockTime(value: string | null | undefined): string {
+  if (!value) return "";
+  const match = /^(\d{1,2}:\d{2})/.exec(value);
+  if (!match?.[1]) return value;
+  // A single-digit hour from a hand-written value reads as "9:00"; pad it so a column of times lines
+  // up, which is the one thing seconds were not doing wrong.
+  const [hour, minute] = match[1].split(":");
+  return `${(hour ?? "").padStart(2, "0")}:${minute}`;
+}

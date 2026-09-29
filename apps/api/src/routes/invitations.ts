@@ -166,6 +166,20 @@ const InvitationOfferResponse = z.object({
   targetKind: z.enum(["event", "profile"]).nullable(),
   targetName: z.string().nullable(),
   targetEventId: z.string().nullable(),
+  /**
+   * THE NIGHT'S OWN STATUS, so the page can say the show is off (QA sweep run 15).
+   *
+   * An invitation outstanding when the event is cancelled said nothing at all: the landing page
+   * offered **Accept** over *"Accepting adds you to it straight away"* and answered *"You are in —
+   * Nordic Synth Showcase is on your shoWMe account now."* The participation path already crosses the
+   * two facts for exactly this reason (`inboxStatusFor` returns `cancelled` ahead of everything else)
+   * and the Events list badges it *"because in this list it sat directly above a live show in
+   * identical styling"* — a token invitation is the same fact one step earlier, and it was the one
+   * surface that could not see it.
+   *
+   * Null for a profile invitation, which has no night.
+   */
+  targetEventStatus: z.string().nullable(),
   inviterName: z.string().nullable(),
   recipientName: z.string().nullable(),
   /** Masked unless it is the viewer's own address. Null when no address was named. */
@@ -804,6 +818,8 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
     eventId: z.string(),
     eventTitle: z.string(),
     eventDate: z.string().nullable(),
+    /** The night's own status, so a cancelled show is not listed as an ordinary ask (run 15). */
+    eventStatus: z.string(),
     hostName: z.string().nullable(),
     invitedAt: z.string(),
     expiresAt: z.string().nullable(),
@@ -842,6 +858,9 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
           eventId: schema.events.id,
           eventTitle: schema.events.title,
           eventDate: schema.events.eventDate,
+          // The same fact the landing page now carries, for the same reason: this list sat an
+          // invitation to a cancelled night under "Pending" with nothing to distinguish it.
+          eventStatus: schema.events.status,
           hostName: host.name,
         })
         .from(schema.invitations)
@@ -873,6 +892,7 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
         eventId: row.eventId,
         eventTitle: row.eventTitle,
         eventDate: row.eventDate ?? null,
+        eventStatus: row.eventStatus,
         hostName: row.hostName ?? null,
         invitedAt: row.createdAt.toISOString(),
         expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
@@ -1082,6 +1102,14 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
             : null,
         targetName: (await loadInvitationTargetName(database, invitation)) ?? null,
         targetEventId: invitation.targetEventId,
+        targetEventStatus: invitation.targetEventId
+          ? ((
+              await database
+                .select({ status: schema.events.status })
+                .from(schema.events)
+                .where(eq(schema.events.id, invitation.targetEventId))
+            )[0]?.status ?? null)
+          : null,
         inviterName: inviter?.name ?? null,
         recipientName: invitation.recipientName,
         // Their own address back, or a mask. Never a stranger's address in full.
@@ -1278,13 +1306,36 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
         throw error;
       }
 
+      // WHO ACCEPTED, as a name. Read after the commit and outside it: a notification failing must
+      // not roll back an answer already given, which is the same reason the whole block is a
+      // try/catch, and a name is not worth a query inside the transaction.
+      const acceptedByName = principal.actingProfileId
+        ? ((
+            await database
+              .select({ name: schema.profiles.name })
+              .from(schema.profiles)
+              .where(eq(schema.profiles.id, principal.actingProfileId))
+          )[0]?.name ?? null)
+        : null;
+
       // Realtime + feed: the person who sent the invite is the one waiting on it.
       // (`POST /invitations` notifies the invitee, when the address it was sent to
       // already belongs to an account; this is the answer coming back.)
       try {
         await notifyUsers(database, [updated.createdByUser], principal.userId, {
           type: "invitation.accepted",
-          title: `${updated.recipientName ?? updated.recipientEmail ?? "Your invitee"} accepted`,
+          /*
+           * THE PERSON'S NAME, NOT THEIR ADDRESS (QA sweep run 15).
+           *
+           * The invite form leaves `recipientName` optional ("Optional — it only addresses the
+           * invitation email"), so the bell read "performer.b@e2e.showme.test accepted" — while the
+           * name of the profile that just accepted was in scope and already going out as
+           * `actorDisplay` on the next line. An address is how we reached them, not who they are.
+           *
+           * The invited NAME still wins where there is one: it is what the operator typed and what
+           * they will recognise. The address is the last resort it always was.
+           */
+          title: `${updated.recipientName ?? acceptedByName ?? updated.recipientEmail ?? "Your invitee"} accepted`,
           body: "They now have access.",
           eventId: updated.targetEventId ?? undefined,
           actorDisplay: request.firebaseUser?.name ?? undefined,

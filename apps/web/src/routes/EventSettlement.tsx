@@ -86,6 +86,26 @@ import styles from "./EventSettlement.module.css";
  */
 export function EventSettlement() {
   const { eventId } = useParams({ from: "/events/$eventId/settlement" });
+  /*
+   * THE SUB-TAB IS NOT IN THE URL, AND PUTTING IT THERE IS A ROUTER CHANGE (QA sweep run 15).
+   *
+   * Run 15 is right that it should be: these seven live in component state, so a reload of
+   * `/events/:id/settlement` — the screen a money conversation reloads most — always returns to
+   * Overview, and the panel in front of a reader cannot be sent to anybody. The event workspace next
+   * door solves exactly this with `?tab=` and `replace: true`, and copying it is four lines here.
+   *
+   * IT WAS TRIED AND REVERTED, and the reason is worth leaving so the next attempt is cheaper: with a
+   * THIRD search-bearing route in the tree, TanStack's `useSearch({ from })` stops narrowing and
+   * resolves to a UNION of every route's search type — so `Calendar.tsx`'s `.date` and
+   * `EventDetail.tsx`'s `.tab` and `.budgetScope`, all untouched and correct, stop compiling. It is
+   * the route TREE's typing, not this screen's: the `child()` helper produces routes whose search is
+   * unmodelled, and mixing them with typed ones is what tips the inference over. Fixing it properly
+   * means exporting typed route objects from `router.tsx` and reading `route.useSearch()` instead of
+   * a `from:` string, which inverts the import direction the whole file is built on.
+   *
+   * So the tab stays in state and the cost stays measured, rather than being bought with a router
+   * refactor inside a cosmetic fix.
+   */
   const [tab, setTab] = useState("overview");
   // Seeded from the reader's account preference (`users.currency`), which until
   // 2026-09-04 was stored and read by nothing — see `useDisplayCurrency`. An

@@ -158,6 +158,8 @@ export interface BudgetPlannerProps {
    * grid — that grid divides evenly by design, so a gap needs a stated reason.
    */
   costsIncompleteNote?: string | null;
+  /** …and for a deal this sheet CAN read and has no row for — `feeOffTheBillNoteFor` (run 15). */
+  feeOffTheBillNote?: string | null;
   /** Null for a reader whose costs are incomplete — the section is not drawn (QA4-5). */
   breakEven: BreakEvenDisplay | null;
   revenueSources: BreakdownDisplayRow[];
@@ -300,6 +302,7 @@ export function BudgetPlanner({
   processingFlatPerTicket,
   results,
   costsIncompleteNote,
+  feeOffTheBillNote,
   breakEven,
   revenueSources,
   costBreakdown,
@@ -1068,6 +1071,20 @@ export function BudgetPlanner({
           >
             <Icon name="eye-off" size={14} style={{ marginTop: 2, flexShrink: 0 }} />
             {costsIncompleteNote}
+          </span>
+        )}
+
+        {/* The sibling case, under the same total and in the same voice: a deal this sheet CAN read
+            and has no row for. A DIFFERENT icon, because the reason is different — nothing is hidden
+            from this reader, the agreement is on the Deals tab and the planner simply cannot place it
+            until §25.6's payer question is answered (QA sweep run 15). */}
+        {feeOffTheBillNote && (
+          <span
+            className="muted"
+            style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 12.5 }}
+          >
+            <Icon name="file" size={14} style={{ marginTop: 2, flexShrink: 0 }} />
+            {feeOffTheBillNote}
           </span>
         )}
 

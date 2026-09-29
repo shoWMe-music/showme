@@ -251,12 +251,26 @@ export function EventInvitationsCard({
                   }}
                 >
                   {invitation.eventTitle}
+                  {/*
+                    A CANCELLED NIGHT SAYS SO, HERE TOO (QA sweep run 15).
+                    This list put an invitation to a called-off show under "Pending" with nothing to
+                    tell it from a live one — the same reason the Events list badges `cancelled`, and
+                    the same crossing of two facts `inboxStatusFor` already does for a participation.
+                  */}
+                  {invitation.eventStatus === "cancelled" && (
+                    <Badge status="cancelled" dot>
+                      Cancelled
+                    </Badge>
+                  )}
                 </div>
                 <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
                   {/* Same reasoning as the rows above: nothing to link to until it is accepted. */}
                   <DateText value={invitation.eventDate} weekday link={false} />
                   {invitation.role ? ` · as ${eventParticipantRoleLabel(invitation.role)}` : ""}
                   {invitation.hostName ? ` · from ${invitation.hostName}` : ""}
+                  {invitation.eventStatus === "cancelled"
+                    ? " · the show is off, so accepting books nothing"
+                    : ""}
                 </div>
               </div>
               {/*

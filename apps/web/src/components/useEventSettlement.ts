@@ -593,6 +593,25 @@ export function useEventSettlement(
     ]) {
       queryClient.invalidateQueries({ queryKey });
     }
+    /*
+     * AND THE EVENT FEED, because two widgets on this screen are built from it (QA sweep run 15).
+     *
+     * Posting a comment showed the remark in the thread instantly and left the Revision history
+     * beside it reading the version from before — the two halves of one tab disagreeing until
+     * something else refetched. It is every action here, not only the comment: the progress rail and
+     * the history are both `GET /activity`, and compute, a status move, a transfer and finalize all
+     * write to it. So the feed is invalidated where the other three already are, once.
+     *
+     * Matched on `eventId` rather than on a key built from params, because the two widgets mount
+     * DIFFERENT `typePrefix` values and a key-prefix match would have to guess which. The predicate
+     * leaves other events' feeds alone, which a bare `["/api/v1/activity"]` prefix would not.
+     */
+    queryClient.invalidateQueries({
+      predicate: (query) => {
+        const [path, params] = query.queryKey as [string, { eventId?: string } | undefined];
+        return path === "/api/v1/activity" && params?.eventId === eventId;
+      },
+    });
   }, [queryClient, eventId]);
 
   const computeSettlement = usePostApiV1EventsIdSettlementCompute();
@@ -737,8 +756,9 @@ export function useEventSettlement(
             void queryClient.invalidateQueries({
               queryKey: getGetApiV1EventsIdSettlementCommentsQueryKey(eventId),
             });
-            // Posting can move the settlement to `comments_received`, so the
-            // status on screen has to be re-read too.
+            // Posting can move the settlement to `comments_received`, so the status on screen has
+            // to be re-read — and `refresh` now takes the event feed with it, which is what the
+            // Revision history and the progress rail beside this thread are built from.
             refresh();
           },
           onError: (error) => toast.error(errorMessage(error, "Couldn't post your comment.")),

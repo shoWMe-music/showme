@@ -60,7 +60,7 @@ export {
   PRO_CODES,
   type ProCode,
 } from "./performing-rights";
-export { formatCalendarDay } from "./calendar-day";
+export { formatCalendarDay, formatClockTime } from "./calendar-day";
 export { type ProSociety, societyForCountry } from "./pro-societies";
 export {
   formatDurationClock,

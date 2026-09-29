@@ -166,7 +166,17 @@ export function PartyPositionsCard({ settlement }: { settlement: EventSettlement
   if (settlement.shares.length === 0) return null;
   return (
     <Card padding="lg" style={CARD_COLUMN}>
-      <CardTitle subtitle="Who is owed what, and how it splits out of the adjusted net.">
+      {/*
+        THE DENOMINATOR THE PERCENTAGES ACTUALLY DIVIDE (QA sweep run 15).
+        This said "out of the adjusted net", and `shares` in `useEventSettlement` divides the sum of
+        the POSITIVE entitlements the reader can see — its own comment says so: "These are shares of
+        the entitlements THIS READER CAN SEE, which is the only honest denominator". The two differ on
+        any night where a deal pays out more than the pool leaves, which is when the operators'
+        residual goes negative: on the seeded Album Release the caption named SEK 50,000 while the
+        rows divided 51,000, so the first row read 58.8% where the stated base gives 60%.
+        The percentages were never wrong — the sentence over them was.
+      */}
+      <CardTitle subtitle="Who is owed what, and each party's share of the entitlements shown.">
         Each party's position
       </CardTitle>
       {settlement.shares.map((share) => (

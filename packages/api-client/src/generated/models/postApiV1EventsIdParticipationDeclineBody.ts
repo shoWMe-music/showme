@@ -4,8 +4,6 @@
  * shoWMe API
  * OpenAPI spec version: 0.0.0
  */
+import type { PostApiV1EventsIdParticipationDeclineBodyAnyOf } from './postApiV1EventsIdParticipationDeclineBodyAnyOf';
 
-export type PostApiV1EventsIdParticipationDeclineBody = {
-  /** @maxLength 2000 */
-  note?: string;
-};
+export type PostApiV1EventsIdParticipationDeclineBody = unknown | PostApiV1EventsIdParticipationDeclineBodyAnyOf;

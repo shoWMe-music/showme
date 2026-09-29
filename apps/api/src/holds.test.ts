@@ -991,6 +991,99 @@ describe("holds — auto-promote (operator only)", () => {
  * fixture above deliberately no longer states `hold_auto_promote`: pinning it is what hid the first
  * of these.
  */
+/**
+ * ONLY A HOLD HAS A PLACE IN THE QUEUE — QA sweep run 15.
+ *
+ * `POST /hold/rank` was the one route that never asked whether the event it was ranking was a hold.
+ * `holdSiblingsOf` defines the queue as `status = 'on_hold'` and `rankForHoldJoiningQueue`
+ * short-circuits on the same fact; this one rewrote the numbers around a row that was not in it, so a
+ * DRAFT took 2nd place on 5 December and demoted a genuine 2nd hold to 3rd — permanently, since
+ * cancelling the draft does not clear a rank.
+ */
+describe("holds — a rank is a position in a queue, and only a hold is in one", () => {
+  it("refuses to rank a draft, and leaves every real hold where it was", async () => {
+    const operator = await seedMemberWithSet(
+      "rankguard-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "rankguard-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first, second] = await seedHoldPool("rankguard", "rankguard-op", operator, performer, 2);
+    if (!first || !second) throw new Error("seed failed");
+    const held = await readEvent(first);
+
+    // An ordinary event on the same night, in the same room. Born `draft`.
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/events",
+      headers: { ...auth("rankguard-op"), "x-profile-id": operator.profileId },
+      payload: {
+        title: "Not a hold",
+        baseCurrency: "SEK",
+        eventDate: held.eventDate ?? undefined,
+        venueProfileId: held.venueProfileId ?? undefined,
+        stageId: held.stageId ?? undefined,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const draftId = created.json().id as string;
+    expect((await readEvent(draftId)).status).toBe("draft");
+
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${draftId}/hold/rank`,
+      headers: auth("rankguard-op"),
+      payload: { holdRank: 2 },
+    });
+    // 409, not 403: the operator may edit this event — its state is what has no number to take.
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.message).toContain("Only a hold can be given a place in the queue");
+
+    // Nothing moved. The draft took no rank, and the real 2nd hold is still 2nd.
+    expect((await readEvent(draftId)).holdRank).toBeNull();
+    expect((await readEvent(first)).holdRank).toBe(1);
+    expect((await readEvent(second)).holdRank).toBe(2);
+  });
+
+  /*
+   * AND IT STILL RANKS A HOLD. A guard that refused everything would close the defect and take the
+   * one control an operator has over their queue with it — the shape that has passed a naive test
+   * twice in this stretch.
+   */
+  it("still moves a real hold to the rank asked for", async () => {
+    const operator = await seedMemberWithSet(
+      "rankok-op",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const performer = await seedMemberWithSet(
+      "rankok-perf",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [first, second] = await seedHoldPool("rankok", "rankok-op", operator, performer, 2);
+    if (!first || !second) throw new Error("seed failed");
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${second}/hold/rank`,
+      headers: auth("rankok-op"),
+      payload: { holdRank: 1 },
+    });
+    expect(response.statusCode).toBe(200);
+    expect((await readEvent(second)).holdRank).toBe(1);
+    expect((await readEvent(first)).holdRank).toBe(2);
+    // The response carries the row it just wrote — it could only omit it while that row was absent
+    // from the queue this re-reads, which is the same defect from the other end.
+    const ranks = response.json().ranks as { id: string; holdRank: number | null }[];
+    expect(ranks.find((entry) => entry.id === second)?.holdRank).toBe(1);
+  });
+});
+
 describe("holds — the queue closes behind a hold however it ends", () => {
   /** The wizard's own path: create the event, then move it to `on_hold`. Sends no flag. */
   async function placeHoldThroughTheApp(

@@ -63,7 +63,12 @@
  * disclosure gets re-opened.
  */
 
-import { type VideoLink, parseVideoLink, socialPlatformLabel } from "@showme/shared";
+import {
+  type VideoLink,
+  formatClockTime,
+  parseVideoLink,
+  socialPlatformLabel,
+} from "@showme/shared";
 import {
   BOOKING_REQUEST_LABEL,
   type DateRequestPanel,
@@ -515,10 +520,8 @@ function stampLine(show: PublicShow): string {
  * second in any real venue. Trimmed to hours and minutes, which is how a door
  * time is written on every poster ever printed.
  */
-function clockTime(value: string): string {
-  const match = /^(\d{2}:\d{2})/.exec(value);
-  return match?.[1] ?? value;
-}
+// One rule, three call sites — this was the second private copy of it (QA sweep run 15).
+const clockTime = formatClockTime;
 
 function timePills(show: PublicShow): string[] {
   const pills: string[] = [];

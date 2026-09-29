@@ -155,6 +155,12 @@ export interface BudgetSeed {
    */
   hiddenDealCount: number;
   /**
+   * Live deals this sheet CAN read whose entitled parties are none of them on the bill — a fee to
+   * crew, say. See `dealsPayingOffTheBill`: counted so the sheet can say it does not include them,
+   * not seeded, because which row they become is §25.6's open payer question.
+   */
+  offTheBillDealCount: number;
+  /**
    * Every deal STILL ON THE TABLE that pays somebody on the bill and states a
    * figure — draft or confirmed alike, cancelled never — a LIST, because a bill
    * with a support act has more than one and the Costs card shows one "Performer
@@ -378,6 +384,34 @@ function isRental(deal: Deal): boolean {
  * every entitled party is on the bill, because otherwise the row would book the
  * whole fee under a fraction of the people earning it.
  */
+/**
+ * DEALS THIS SHEET CAN SEE AND STILL HAS NOWHERE TO PUT — QA sweep run 15.
+ *
+ * `performerFeeOf` returns null when no entitled party is on the bill, which is right: a "Performer
+ * fee" row naming a crew member would be a lie, and the row has no other home. But the money is real
+ * and the OPERATOR is usually the one paying it — measured on the Album Release, a signed SEK 1,000
+ * guarantee from the host to Priya Sound never reached TOTAL COSTS at any deal state, while the
+ * settlement paid it.
+ *
+ * Counted rather than seeded, because WHICH row it should become is the open §25.6 payer question: the
+ * two candidate rulings put a different amount of it on the operators (the whole fee as a transfer, or
+ * a share of it through the pool), and a planner row has to print one figure. So the sheet says what
+ * it does not include — the same thing it already does for a deal it cannot read, and the same thing
+ * Projections says about the planner.
+ *
+ * `isRental` and `cancelled` are excluded exactly as `performerFeeOf` excludes them: a room hire is
+ * the venue's row and a withdrawn deal pays nobody.
+ */
+export function dealsPayingOffTheBill(deals: Deal[], performers: Set<string>): number {
+  return deals.filter((deal) => {
+    if (deal.status === "cancelled" || isRental(deal)) return false;
+    const entitled = (deal.parties ?? []).filter((party) =>
+      ENTITLED_DEAL_ROLES.has(party.roleInDeal),
+    );
+    return entitled.length > 0 && !entitled.some((party) => performers.has(party.participantId));
+  }).length;
+}
+
 export function performerFeeOf(
   deal: Deal,
   performers: Set<string>,
@@ -1000,6 +1034,7 @@ export function useBudgetSeed(eventId: string, sources: BudgetSeedSources): Budg
     return {
       capacity: sources.capacity,
       hiddenDealCount: dealsQuery.data?.hiddenCount ?? 0,
+      offTheBillDealCount: dealsPayingOffTheBill(deals, performers),
       ticketTiers: sources.ticketTiers,
       // Every deal still on the table that pays somebody on the bill and states a
       // figure, whether it states it as a fee or as a share (`performerFeeOf`) and

@@ -1009,12 +1009,29 @@ export function dealDeletability(
       reason: `${named} is cancelled. It pays nobody, and it stays as the record that it was offered.`,
     };
   }
+  /*
+   * THE NIGHT IS SETTLED, AND THE SENTENCE NO LONGER CLAIMS THIS DEAL WAS IN IT (QA sweep runs 14
+   * and 15, both).
+   *
+   * It read *"…is part of what has already been computed and read"* — an EVENT-level fact
+   * (`hasSettlement` is "any settlement row on this event") dressed as a claim about this deal. Of a
+   * draft created AFTER the compute it is simply false: the engine has never seen it, and
+   * `POST …/settlement/compute` is at that moment refusing to run because of it. Run 14 reported the
+   * untrue reason; run 15 found it unchanged and said so.
+   *
+   * So the sentence now states the rule (§25.7.2: a settled night keeps its agreements) instead of
+   * inventing a history for the deal. WHETHER the rule should narrow to deals the engine has actually
+   * reconciled is a product question and a delete is irreversible, so it goes to Daniel rather than
+   * being taken here — with the invariant that makes it safe already established: a `draft` deal
+   * cannot have been reconciled, because compute refuses to run while a deal with a signatory is
+   * unsigned and a deal with only observers entitles nobody.
+   */
   if (event.hasSettlement) {
     return {
       deletable: false,
-      reason: `This night has a settlement on it, so ${
-        deal.name ? named : "this agreement"
-      } is part of what has already been computed and read. Cancel it instead — that stops it paying without erasing that it existed.`,
+      reason: `This night has a settlement on it, so its agreements are kept rather than erased — ${
+        deal.name ? named : "this one"
+      } included. Cancel it instead: that stops it paying and leaves the record that it was offered.`,
     };
   }
   if (deal.agreementStatus !== "draft") {
