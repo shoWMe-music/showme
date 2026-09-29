@@ -470,6 +470,27 @@ function derivedFeeMinor(editor: BudgetEditor): bigint | null {
  * without it"* and drew a break-even directly underneath. Both readers of the rule
  * now call this, and `budgetPlannerView.test.ts` asserts they agree.
  */
+/**
+ * WHAT THE BREAK-EVEN TILE READS, given the chart's answer about this room.
+ *
+ * Exported, like the other decisions in this module, because it is the part that can be wrong:
+ * `budgetPlannerViewFrom` takes a whole `BudgetEditor` and this file's header explains why
+ * standing one up to re-assert somebody else's arithmetic is not worth it. The arithmetic is
+ * `@showme/shared`'s and tested there; the CHOICE between a number and a sentence is this
+ * module's, and it was wrong (QA sweep run 11) — so it is a function rather than an expression
+ * buried in a tile.
+ */
+export function breakEvenKpi(
+  coverage: "on_chart" | "covered_before_doors" | "beyond_this_room",
+  breakEvenTickets: number,
+): number | string {
+  // A crossing the room cannot reach is not a target; the chart beneath already says so.
+  if (coverage === "beyond_this_room") return "No break-even";
+  // …and zero here means "covered before the doors opened", which is QA5-7's ruling and the
+  // one case where the figure 0 is a count rather than an absence.
+  return breakEvenTickets;
+}
+
 export function costsAreIncomplete(hiddenDealCount: number, isPrivateBook = false): boolean {
   /*
    * …AND IT IS THE SHARED LEDGER'S CONDITION, not every book's (QA sweep run 9 QA9-5, restated as
@@ -704,7 +725,25 @@ export function budgetPlannerViewFrom(
             // saying which of the two zeros this is.
             {
               label: "Break-even tickets",
-              value: projection.breakEvenReachable ? projection.breakEvenTickets : "No break-even",
+              /*
+               * …AND "REACHABLE" IS NOT THE SAME QUESTION AS "IN THIS ROOM" (QA sweep run 11).
+               *
+               * `breakEvenReachable` is `breakEvenTickets > 0 || uncovered <= 0`, and the scan
+               * that produces those tickets runs to FOUR TIMES capacity so the figure is found
+               * at all. So a 400-seat room whose costs cross at 407 printed **407** here,
+               * directly above the chart's own caption *"Revenue never passes total cost inside
+               * 400 capacity"*. Two definitions of reachable, one screen — and
+               * `break-even-chart.ts` had warned about this exact reading in a comment.
+               *
+               * The chart's OWN ANSWER rather than a second call to the same predicate: the
+               * chart is already computed above, and it normalises capacity (a zero falls back
+               * to the planned tickets, then to an assumed room). Recomputing here would give
+               * the two a way to part again, which is the whole defect.
+               *
+               * `covered_before_doors` still shows `0`, which is what QA5-7 established that
+               * zero means when the standing revenue already pays the costs.
+               */
+              value: breakEvenKpi(chart.coverage, projection.breakEvenTickets),
             },
           ]),
     ],

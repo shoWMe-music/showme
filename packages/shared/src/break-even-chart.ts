@@ -130,6 +130,41 @@ export interface BreakEvenChart {
   readonly plannedX: number | null;
 }
 
+/**
+ * WHERE THE BREAK-EVEN SITS RELATIVE TO THE ROOM — the one definition, for the chart and for
+ * the KPI band above it.
+ *
+ * The chart has asked this question correctly since QA4-5 and the KPI asked a different one:
+ * `breakEvenReachable` alone, which is `breakEvenTickets > 0 || uncovered <= 0` and is therefore
+ * true for a crossing the room cannot reach. The comment inside this very function warned about
+ * exactly that — *"reading it alone would describe a night needing 500 tickets in a 400-seat
+ * house as already covered"* — and the band one screen-inch above printed **BREAK-EVEN TICKETS
+ * 407** in a 400-capacity room, directly over a caption reading *"Revenue never passes total
+ * cost inside 400 capacity"* (QA sweep run 11).
+ *
+ * Two definitions of "reachable" on one screen, and the scan's bound is where they parted:
+ * `budget-planning.ts` searches to `capacity * 4` so the FIGURE is found, while the chart draws
+ * to capacity. Keeping the wider scan is right — the number is real and the export uses it — but
+ * only this function decides whether it is a number anybody in this room can sell.
+ */
+export function breakEvenCoverage(
+  projection: Pick<BudgetProjection, "breakEvenReachable" | "breakEvenTickets">,
+  capacity: number,
+): "on_chart" | "covered_before_doors" | "beyond_this_room" {
+  const crossing = projection.breakEvenTickets;
+  if (crossing > 0 && crossing < capacity) return "on_chart";
+  /*
+   * BOTH HALVES, and a surviving mutation is what established which case the second one
+   * guards — the original comment first claimed the wrong one.
+   *
+   * `=== 0` is what pins this branch to the zero-tickets case. An unreachable break-even
+   * reports zero tickets too, but `breakEvenReachable` is false there, so that case never
+   * reaches this test.
+   */
+  if (projection.breakEvenReachable && crossing === 0) return "covered_before_doors";
+  return "beyond_this_room";
+}
+
 export function computeBreakEvenChart(inputs: BreakEvenChartInputs): BreakEvenChart {
   const { projection } = inputs;
   const capacity = Math.max(
@@ -237,23 +272,10 @@ export function computeBreakEvenChart(inputs: BreakEvenChartInputs): BreakEvenCh
     guideTop: PADDING_TOP,
     guideBottom: HEIGHT - PADDING_BOTTOM,
     hasBreakEven: breakEvenAt > 0 && breakEvenAt < capacity,
-    coverage:
-      breakEvenAt > 0 && breakEvenAt < capacity
-        ? "on_chart"
-        : /*
-           * BOTH HALVES, and a surviving mutation is what established which case the second
-           * one guards — this comment first claimed the wrong one.
-           *
-           * `breakEvenReachable` is `breakEvenTickets > 0 || uncovered <= 0`, so it is ALSO
-           * true when the crossing lies beyond the room: reading it alone would describe a
-           * night needing 500 tickets in a 400-seat house as "already covered". `=== 0` is
-           * what pins this branch to the zero-tickets case. An unreachable break-even
-           * reports zero tickets too, but `breakEvenReachable` is false there, so that case
-           * never reaches this test.
-           */
-          projection.breakEvenReachable && projection.breakEvenTickets === 0
-          ? "covered_before_doors"
-          : "beyond_this_room",
+    // `breakEvenAt` is this module's own rounding of the crossing and `breakEvenTickets` is the
+    // engine's; they agree, and the shared predicate reads the engine's so the KPI and the
+    // chart cannot answer differently.
+    coverage: breakEvenCoverage(projection, capacity),
     // The KPI band's figure, not a second rounding of the same crossing: two
     // numbers for one thing on one screen is how a screen loses an operator's
     // trust. `breakEvenTickets` rounds a part ticket UP, because half a ticket

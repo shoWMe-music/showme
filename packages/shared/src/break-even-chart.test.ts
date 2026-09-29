@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeBreakEvenChart } from "./break-even-chart";
+import { breakEvenCoverage, computeBreakEvenChart } from "./break-even-chart";
 import { computeBudgetProjection } from "./budget-planning";
 
 const major = (value: number) => BigInt(Math.round(value * 100));
@@ -319,6 +319,54 @@ describe("the wedges between the two lines", () => {
 describe("why there is no marker — three cases, not two", () => {
   const chartFor = (inputs: Parameters<typeof computeBudgetProjection>[0], capacity: number) =>
     computeBreakEvenChart({ projection: computeBudgetProjection(inputs), capacity });
+
+  /**
+   * THE KPI BAND ASKS THIS, TOO (QA sweep run 11).
+   *
+   * `breakEvenReachable` is `breakEvenTickets > 0 || uncovered <= 0` and the scan that finds
+   * those tickets runs to FOUR TIMES capacity, so it is true for a crossing the room cannot
+   * reach: a 400-seat house crossing at 407 printed **BREAK-EVEN TICKETS 407** above this
+   * chart's own *"Revenue never passes total cost inside 400 capacity"*. The predicate is
+   * exported now and the band reads the chart's answer, so the two cannot part again.
+   */
+  it("calls a crossing just beyond the room what it is, while the engine still reports it", () => {
+    const inputs = {
+      ticketTiers: [{ unitAmount: major(250), quantity: 320 }],
+      averageBarSpend: 0n,
+      capacity: 400,
+      otherRevenue: 0n,
+      costs: [major(110000)],
+    };
+    const projection = computeBudgetProjection(inputs);
+    // The engine finds it — that scan is deliberately wider than the room, and the CSV uses it.
+    // 110 000 over 250 a ticket is 440, past the last seat in the house.
+    expect(projection.breakEvenTickets).toBe(440);
+    expect(projection.breakEvenReachable).toBe(true);
+    // …and the room's answer is the one both surfaces read.
+    expect(breakEvenCoverage(projection, 400)).toBe("beyond_this_room");
+    expect(chartFor(inputs, 400).coverage).toBe("beyond_this_room");
+  });
+
+  it("keeps a crossing exactly AT capacity out of the room — the last seat is not a margin", () => {
+    /*
+     * `< capacity`, not `<=`, and the first half is a REAL fixture rather than a hand-built
+     * one: SEK 100,000 of cost over SEK 250 a ticket crosses at exactly 400 in a 400-seat
+     * house. A night that breaks even only if the final seat sells is not one anybody plans
+     * around, and the chart cannot draw a marker on its own right edge.
+     */
+    const atTheEdge = computeBudgetProjection({
+      ticketTiers: [{ unitAmount: major(250), quantity: 320 }],
+      averageBarSpend: 0n,
+      capacity: 400,
+      otherRevenue: 0n,
+      costs: [major(100000)],
+    });
+    expect(atTheEdge.breakEvenTickets).toBe(400);
+    expect(breakEvenCoverage(atTheEdge, 400)).toBe("beyond_this_room");
+    expect(breakEvenCoverage({ breakEvenReachable: true, breakEvenTickets: 399 }, 400)).toBe(
+      "on_chart",
+    );
+  });
 
   it("draws the crossing when it is inside the room", () => {
     const chart = chartFor(

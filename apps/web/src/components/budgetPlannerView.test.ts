@@ -23,6 +23,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type PartitionableCostRow,
+  breakEvenKpi,
   carryRevealedHeading,
   costsAreIncomplete,
   costsIncompleteNoteFor,
@@ -501,5 +502,36 @@ describe("costsAreIncomplete — the note and the withholding are one decision",
       expect(note !== null).toBe(costsAreIncomplete(hidden));
       if (note) expect(note).toContain("break-even");
     }
+  });
+});
+
+/**
+ * A CROSSING THE ROOM CANNOT REACH IS NOT A TARGET (QA sweep run 11).
+ *
+ * The tile read `breakEvenReachable`, which is `breakEvenTickets > 0 || uncovered <= 0` — and
+ * the scan that produces those tickets deliberately runs to FOUR TIMES capacity so the figure
+ * exists at all. So a 400-seat room crossing at 407 printed **BREAK-EVEN TICKETS 407** directly
+ * above the chart's own caption *"Revenue never passes total cost inside 400 capacity"*. Two
+ * definitions of reachable on one screen, and `break-even-chart.ts` had warned about this exact
+ * reading in a comment.
+ */
+describe("breakEvenKpi", () => {
+  it("says No break-even when the crossing lies beyond this room", () => {
+    expect(breakEvenKpi("beyond_this_room", 407)).toBe("No break-even");
+  });
+
+  it("prints the count when the crossing is inside it", () => {
+    expect(breakEvenKpi("on_chart", 131)).toBe(131);
+  });
+
+  it("prints ZERO when the standing revenue already paid — the one count that looks like none", () => {
+    // QA5-7's ruling, and the reason this is not simply "hide any zero".
+    expect(breakEvenKpi("covered_before_doors", 0)).toBe(0);
+  });
+
+  it("does not second-guess the chart's answer with the ticket count", () => {
+    // The figure is real even when the room cannot reach it — the CSV exports it — so the
+    // coverage is what decides, never the number. A tile reading the number would be the bug.
+    expect(breakEvenKpi("beyond_this_room", 1)).toBe("No break-even");
   });
 });

@@ -298,3 +298,38 @@ code, and this one was wrong before the code was.**
 The attribution menu's copy goes through the same helper and compiles, but its chooser would not
 open under a synthetic click, so it is covered by the unit test and the shared call rather than by a
 second live read. Said plainly rather than implied.
+
+### QA11-7 — BREAK-EVEN 407 in a 400-capacity room
+
+**Which file settles it:** `packages/shared/src/break-even-chart.ts` — and the finding is that the
+answer was already written there.
+
+**The verdict: two definitions of "reachable" on one screen, and the chart's own comment had warned
+about the one the KPI used.** The band asked `breakEvenReachable`, which is
+`breakEvenTickets > 0 || uncovered <= 0`, and the scan producing those tickets runs to **four times
+capacity** so the figure exists at all. The chart asks a three-way question — `on_chart`,
+`covered_before_doors`, `beyond_this_room` — and its comment says, in as many words:
+
+> `breakEvenReachable` … is ALSO true when the crossing lies beyond the room: reading it alone would
+> describe a night needing 500 tickets in a 400-seat house as "already covered".
+
+One screen-inch above, the band was doing exactly that. **Instance twenty-four, and the first where
+the comment warns about a mistake the NEIGHBOURING surface is already making.**
+
+`breakEvenCoverage` is exported now, the chart uses it, and the band reads the chart's own computed
+answer rather than calling it again — recomputing would give the two a way to part a second time,
+which is the whole defect. The wide scan stays: the figure is real and the CSV exports it; only
+this predicate decides whether it is a number anybody in this room can sell.
+
+**Two mutations killed and one deliberately left standing.** The predicate forgetting the room, and
+the tile ignoring the coverage, both fail tests. The remaining one — deleting the call from the tile
+— survives, and `budgetPlannerView.test.ts`'s own header is the reason: *"standing up a fake editor
+to re-assert somebody else's maths is not worth it."* Its proof is the live read, where the tile and
+the caption now move together (`BREAK-EVEN TICKETS 169` over *"Revenue passes total cost at 169
+tickets of 400 capacity"*), driven by one value. Recorded as standing, the way QA9-5's was.
+
+**What I could not do:** reproduce a beyond-the-room crossing in the browser. The seeded sheets
+cross early, and the cost lines I added to push it out produced a per-head contribution I could not
+account for — so I removed them rather than build a conclusion on a fixture I did not understand.
+The unit tests carry that case (a real 440-ticket crossing in a 400-seat room, and the exactly-400
+boundary); the browser carries the agreement.

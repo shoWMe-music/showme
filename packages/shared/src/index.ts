@@ -46,6 +46,7 @@ export {
   type BreakEvenChart,
   type BreakEvenChartInputs,
   computeBreakEvenChart,
+  breakEvenCoverage,
 } from "./break-even-chart";
 export {
   estimatePerformingRightsFee,
