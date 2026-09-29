@@ -495,6 +495,57 @@ export function dealPartyBaselineCapabilities(
   return DEAL_SIGNATORY_FLOOR;
 }
 
+/** What standing as a PARTY to one settlement confers — on that settlement line alone. */
+const SETTLEMENT_SIGNATORY_FLOOR: readonly Capability[] = ["settlement.confirm"];
+
+/**
+ * The roles whose settlement sign-off is LINE-scoped rather than event-scoped.
+ *
+ * decisions §25.8.2, Daniel's ruling: *a party may sign the settlement line that is theirs and
+ * nothing else.* `CREW_FLOOR` stays thin and the capability is deliberately not added to it, for the
+ * reason story.md gives about crew — *"the schedule and their own deal, never the budget"* — and this
+ * is the same shape `DEAL_SIGNATORY_FLOOR` above has for `agreement.confirm`, for the same reason:
+ * without it a whole conversation is a dead end.
+ *
+ * Three surfaces asked crew for a signature the fourth forbade. They are served their own figures,
+ * they get the *"Check your figures and sign off when they match your books"* email that
+ * `POST …/settlement/status` sends to every party, they open a settlement screen with no control, and
+ * the route answered `403 Missing capability: settlement.confirm` — measured as `professional@`.
+ *
+ * ── WHY ONLY THESE TWO, measured against every floor rather than assumed ─────────────────────────
+ * `host`, `co_host`, `performer` and `support` already carry `settlement.confirm`, so a grant here
+ * would be inert. This is exactly where the deal precedent differs, and the difference is a
+ * measurement: `DEAL_SIGNATORY_FLOOR` had to include `co_host` because `OPERATOR_FLOOR` genuinely
+ * lacks `agreement.confirm`. It does not lack this one.
+ *
+ * A DELEGATED performer is excluded BY CONSTRUCTION, and that is the point of keying on the role.
+ * Their role is `performer`, which is not in the set, so they fall back to the delegated floor —
+ * which deliberately carries nothing, because their AGENT signs (#14, §25.7.3). Handing it back here
+ * would revoke the delegation the agent's whole authority rests on, which is why
+ * `DEAL_SIGNATORY_FLOOR` leaves performers out altogether.
+ *
+ * An `agent` is excluded because its own participation line is entitled to nothing (#14 — the
+ * agency's cut is a separate representation-scoped settlement), and because its preset already grants
+ * the capability event-scoped where an operator chose it, which is how an agency signs for its act. A
+ * floor-level grant would hand every agency confirm on its own zero line with no preset at all.
+ */
+const SETTLEMENT_SCOPED_CONFIRM_EVENT_ROLES: ReadonlySet<EventRole> = new Set<EventRole>([
+  "crew",
+  "crew_lead",
+]);
+
+/**
+ * The SETTLEMENT-scoped floor: what the caller may do to ONE settlement purely by its being theirs.
+ * Composed by the route as `may_sign = event_scoped ∪ settlement_party_scoped(own line)`, so it can
+ * only ever widen what the caller may do to the very line they stand behind.
+ *
+ * Below the ceiling by construction — `settlement.confirm` is in none of the three `isGrantable`
+ * sets, which `authorize.test.ts` asserts rather than leaving to reading.
+ */
+export function settlementPartyBaselineCapabilities(role: EventRole): readonly Capability[] {
+  return SETTLEMENT_SCOPED_CONFIRM_EVENT_ROLES.has(role) ? SETTLEMENT_SIGNATORY_FLOOR : [];
+}
+
 /**
  * Pool/budget financials — never grantable to an arm's-length party.
  *

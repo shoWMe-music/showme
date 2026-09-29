@@ -18,6 +18,7 @@ export {
   type EventRole,
   type DealPartyRole,
   roleFilter,
+  settlementPartyBaselineCapabilities,
   baselineCapabilities,
   dealPartyBaselineCapabilities,
   isGrantable,

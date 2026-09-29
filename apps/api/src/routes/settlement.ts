@@ -6,6 +6,7 @@ import {
   isGrantable,
   liveEventDelegations,
   liveEventDelegationsForEvents,
+  settlementPartyBaselineCapabilities,
 } from "@showme/auth";
 import type { Database } from "@showme/db";
 import { schema } from "@showme/db";
@@ -1449,6 +1450,35 @@ const PAYMENT_TRACKING_STATUSES: ReadonlySet<string> = new Set([
   "paid",
 ]);
 
+/**
+ * MAY THIS CALLER SIGN A LINE THAT IS THEIRS — the one question, asked in four places.
+ *
+ * `event_scoped ∪ settlement_party_scoped(the line's own role)`, which is decisions §25.8.2: a party
+ * may sign the settlement line that is theirs and nothing else. The second half is what reaches
+ * `crew` and `crew_lead`, whose floor deliberately carries `settlement.view.own` and not
+ * `settlement.confirm` — they were served their own figures, emailed *"sign off when they match your
+ * books"*, given a screen with no control, and refused by the route.
+ *
+ * ONE FUNCTION because four callers ask it: the confirm route, `GET /settlements`'s `signableByYou`,
+ * `GET /settlements/awaiting-signature`'s filter, and the approval roster's denominator. That is
+ * `routes/deals.ts::maySignOwnLines`'s own argument for existing — *"a second copy of this is how a
+ * dashboard starts offering a row the confirm route then refuses"* — and this route has already been
+ * on the wrong end of it (QA6-1).
+ *
+ * IT DOES NOT ASK WHOSE LINE IT IS. Ownership is a different question with a different answer
+ * (`signable`, which also covers an agent signing for their act), and every caller resolves it
+ * separately. Merging them would make this the authority on delegation as well, which is precisely
+ * the conflation the roster's `signatureExpected` had to be untangled from in part 33.
+ */
+function maySignOwnSettlement(
+  capabilities: ReadonlySet<Capability>,
+  role: string | null | undefined,
+): boolean {
+  if (capabilities.has("settlement.confirm")) return true;
+  if (role == null) return false;
+  return settlementPartyBaselineCapabilities(role as EventRole).includes("settlement.confirm");
+}
+
 export async function settlementRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -1816,9 +1846,13 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
             participantId: row.participantId,
             approvedByYou:
               row.participantId != null && (signedByMe.get(row.participantId)?.approved ?? false),
+            // §25.8.2: the row's OWN role, so a crew member is offered the line that is theirs.
             signableByYou:
               row.participantId != null &&
-              (capabilitiesByEvent.get(row.eventId as string)?.has("settlement.confirm") ?? false),
+              maySignOwnSettlement(
+                capabilitiesByEvent.get(row.eventId as string) ?? new Set(),
+                row.participantRole,
+              ),
             // The viewer's own figures — this row is theirs by construction above.
             entitlement: ownFigure ?? computed?.entitlement ?? null,
             net: ownFigure ?? computed?.net ?? null,
@@ -1912,6 +1946,8 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           status: schema.settlements.status,
           participantId: schema.settlements.participantId,
           participantProfileId: schema.eventParticipants.profileId,
+          // The line's own role — `maySignOwnSettlement` needs it since §25.8.2.
+          participantRole: schema.eventParticipants.role,
           partyName: schema.profiles.name,
           eventId: schema.events.id,
           eventTitle: schema.events.title,
@@ -1954,7 +1990,14 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         .filter((row) => {
           if (row.participantId == null) return false;
           if (signed.get(row.participantId)?.approved) return false;
-          if (!capabilitiesByEvent.get(row.eventId)?.has("settlement.confirm")) return false;
+          if (
+            !maySignOwnSettlement(
+              capabilitiesByEvent.get(row.eventId) ?? new Set(),
+              row.participantRole,
+            )
+          ) {
+            return false;
+          }
           if (row.participantProfileId != null && myProfileIds.has(row.participantProfileId)) {
             return true;
           }
@@ -2137,6 +2180,15 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         maySign.set(
           row.id,
           baselineCapabilities(role).includes("settlement.confirm") ||
+            /*
+             * THE THIRD SOURCE, and §25.8.2's own note about it is out of date. It predicted the
+             * denominator would follow "automatically", because the derivation read the floor — and
+             * part 33 replaced that with floor ∪ band to close run 13's moving badge. A
+             * settlement-scoped grant is in NEITHER: it is not a role floor and not a permission set.
+             * Without this line the roster would go on printing "Not required" over a crew member who
+             * can now sign, which is the defect the ruling exists to fix, surviving its own fix.
+             */
+            settlementPartyBaselineCapabilities(role).includes("settlement.confirm") ||
             (granted.includes("settlement.confirm") && isGrantable("settlement.confirm", role)),
         );
       }
@@ -3504,7 +3556,14 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       const principal = request.principal;
       if (!principal) throw new Error("principal missing after authentication");
 
-      await requireEventCapability(request, id, "settlement.confirm");
+      /*
+       * `event.view` and not `settlement.confirm` — the capability question moves BELOW, because
+       * since decisions §25.8.2 its answer depends on the role of the line being signed and so cannot
+       * be asked before we know which line that is. The gate here still refuses a stranger with the
+       * 404 `requireEventCapability` gives anybody without `event.view`, and the ownership check and
+       * `maySignOwnSettlement` below both have to pass.
+       */
+      const capabilities = await requireEventCapability(request, id, "event.view");
 
       const [settlement] = await database
         .select()
@@ -3543,6 +3602,18 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       }
       if (!signable.has(settlement.participantId)) {
         throw forbidden("You can only confirm your own settlement");
+      }
+      /*
+       * AND THE LINE'S OWN ROLE DECIDES WHETHER A SIGNATURE IS THEIRS TO GIVE (§25.8.2). Asked after
+       * ownership so the message is the true one: a party who owns no line here is told that, and a
+       * party who owns this one but may not sign it is told the other thing.
+       */
+      const [lineParticipant] = await database
+        .select({ role: schema.eventParticipants.role })
+        .from(schema.eventParticipants)
+        .where(eq(schema.eventParticipants.id, settlement.participantId));
+      if (!maySignOwnSettlement(capabilities, lineParticipant?.role)) {
+        throw forbidden("Missing capability: settlement.confirm");
       }
 
       // Idempotent. A signature given twice is still one signature, and the route

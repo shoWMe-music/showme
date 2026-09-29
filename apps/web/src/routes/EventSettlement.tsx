@@ -753,9 +753,18 @@ function SettlementTab({
               </Button>
             </>
           )}
-          {/* A party's own objection — the same authority that signs a settlement
-              off, inverted. Available even once frozen, because that is when it
-              matters most and saying so moves no money. */}
+          {/*
+            A party's own objection. Available even once frozen, because that is when it matters most
+            and saying so moves no money.
+ 
+            STILL EVENT-SCOPED, and it is no longer "the same authority that signs a settlement off,
+            inverted" — which is what this comment used to claim. Since §25.8.2 a crew member may sign
+            their own LINE, and a dispute is not line-scoped: it moves the whole settlement's status,
+            which is everybody's. So the two came apart, and the gate is deliberately left as the
+            event capability. The consequence is a real gap and it is DANIEL's to close, not mine —
+            recorded as a §25.6 row: the same email that now truthfully asks crew to sign also says
+            "if something looks wrong, say so there", and that half they still cannot do.
+          */}
           {settlement.authority.canConfirm &&
             settlement.isComputed &&
             settlement.status !== "dispute" && (
@@ -969,17 +978,28 @@ function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
                   ? "Pending"
                   : "Not required"}
             </Badge>
-            {settlement.authority.canConfirm &&
-              approval.signableSettlementId != null &&
-              !approval.approved && (
-                <Button
-                  variant="secondary"
-                  disabled={settlement.isBusy}
-                  onClick={() => settlement.confirmOwn(approval.signableSettlementId as string)}
-                >
-                  Approve
-                </Button>
-              )}
+            {/*
+              THE PER-LINE ANSWER IS THE WHOLE GATE — `settlement.authority.canConfirm` used to be
+              ANDed in front of it and is gone (decisions §25.8.2).
+ 
+              `signableSettlementId` is built from the API's own `signableByYou`, which resolves
+              ownership AND capability for that one line. `canConfirm` asks the event-wide capability,
+              so it was a second copy of a rule the API owns — and the moment the settlement-scoped
+              grant landed it became the wrong copy: a crew member's own line came back signable, the
+              roster said "Pending" over it, and the screen still drew no button. Exactly what the
+              sibling hook already learned (`useEventAgreements`: `canConfirm || signsAsDealParty`),
+              and what `routes/deals.ts::maySignOwnLines` warns about — a screen withholding a
+              signature the route would accept is the same defect as offering one it refuses.
+            */}
+            {approval.signableSettlementId != null && !approval.approved && (
+              <Button
+                variant="secondary"
+                disabled={settlement.isBusy}
+                onClick={() => settlement.confirmOwn(approval.signableSettlementId as string)}
+              >
+                Approve
+              </Button>
+            )}
           </div>
         </div>
       ))}

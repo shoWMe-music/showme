@@ -367,17 +367,21 @@ describe("the list says whether YOU have signed your own line", () => {
 });
 
 describe("the list says whether you MAY sign it", () => {
-  it("refuses the signature to crew, and the list says so instead of implying otherwise", async () => {
+  it("OFFERS the signature to crew on their own line, and the route accepts it", async () => {
     /*
-     * FOUND IN THE BROWSER, not reasoned out. `CREW_FLOOR` carries
-     * `settlement.view.own` and deliberately not `settlement.confirm` — story.md's
-     * crew boundary is *"the schedule and their own deal, never the budget"* — so a
-     * crew member is shown their figures and has no control to sign them. Measured
-     * as `professional@` on the running stack: POST …/confirm answered 403 while the
-     * Dashboard's attention card was telling them to sign off.
+     * THE ASSERTION IS INVERTED, AND THE REASON IS A RULING RATHER THAN A DRIFT.
      *
-     * The route's refusal is the authority; `signableByYou` is that refusal made
-     * readable, so no screen offers a signature the route will decline.
+     * This test used to assert `signableByYou: false` and a 403, on the stated grounds that
+     * `CREW_FLOOR` carries `settlement.view.own` and deliberately not `settlement.confirm`. That was
+     * the code's behaviour and it was also the open question in decisions §25.6: three surfaces asked
+     * crew for a signature the fourth forbade — served their own figures, emailed *"sign off when
+     * they match your books"*, given a screen with no control, refused by the route.
+     *
+     * **decisions §25.8.2 answers it: yes, and scoped to the line.** `CREW_FLOOR` is unchanged and
+     * still carries nothing; the grant is settlement-scoped, exactly as `DEAL_SIGNATORY_FLOOR` does
+     * for `agreement.confirm`. So the field and the route both flip, together, which is the property
+     * this test was written to hold — `signableByYou` is the route's answer made readable, and it
+     * stays that whichever way the answer goes.
      */
     const host = await seedOperator("crewsign-host", "Host", PRESET_PERMISSION_SETS.operator_full);
     const coHost = await seedOperator("crewsign-co", "Co-promoter", []);
@@ -423,20 +427,40 @@ describe("the list says whether you MAY sign it", () => {
       approvedByYou: boolean;
     }[];
     expect(crewRows).toHaveLength(1);
-    // They can READ it — that is the whole reason the row is in the list at all.
     expect(crewRows[0]?.status).toBe("pending_review");
-    expect(crewRows[0]?.signableByYou).toBe(false);
+    expect(crewRows[0]?.signableByYou).toBe(true);
     expect(crewRows[0]?.approvedByYou).toBe(false);
 
-    // And the field is not a guess: the route it describes refuses them, for the
-    // capability the field is reporting.
-    const refused = await app.inject({
+    // And the field is not a guess: the route it describes ACCEPTS them now.
+    const accepted = await app.inject({
       method: "POST",
       url: `/api/v1/events/${event.id}/settlements/${crewRows[0]?.id}/confirm`,
       headers: auth(crew.userId),
     });
-    expect(refused.statusCode).toBe(403);
-    expect(refused.json().error.message).toContain("settlement.confirm");
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json().approved).toBe(true);
+
+    /*
+     * AND NOTHING ELSE ON THE NIGHT — "scoped to the line" is the half of the ruling a grant is most
+     * likely to overshoot. The crew member may sign their own settlement and no other party's, so the
+     * co-promoter's line is still refused to them.
+     */
+    const eventRead = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/settlements`,
+      headers: auth(host.userId),
+    });
+    const otherLine = (
+      eventRead.json().settlements as { id: string; participantId: string }[]
+    ).find((row) => row.participantId !== crewPart.id);
+    expect(otherLine, "another party's line to try").toBeDefined();
+    const refusedOther = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlements/${otherLine?.id}/confirm`,
+      headers: auth(crew.userId),
+    });
+    expect(refusedOther.statusCode).toBe(403);
+    expect(refusedOther.json().error.message).toContain("your own settlement");
 
     // THE CONTROL: on the same night, the co-promoter may. So the false above is
     // this reader's floor, not the field being wired to a constant.
@@ -451,15 +475,18 @@ describe("the list says whether you MAY sign it", () => {
 });
 
 describe("the approval roster counts who is being WAITED ON", () => {
-  it("does not expect a signature from crew, and does expect one from an operator", async () => {
+  it("expects a signature from crew too, since §25.8.2 — and from an operator", async () => {
     /*
      * "Approval Status 0/6" badged all six parties Pending, crew included — and `CREW_FLOOR`
      * carries no `settlement.confirm`, so the counter could never reach its own denominator and
      * the word claimed something outstanding from somebody with no control to give it (run 12).
      *
-     * DERIVED from the party's floor, because whether crew may sign at all is an open ruling
-     * (decisions §25.6). This test pins the derivation, not a number: if `CREW_FLOOR` ever gains
-     * the capability, the assertion below flips with it and that is the correct outcome.
+     * DERIVED and not written down — which is what let this assertion flip cleanly when the ruling
+     * landed. **decisions §25.8.2: a crew member MAY sign, scoped to their own line.** `CREW_FLOOR`
+     * is still thin; the grant is settlement-scoped, so the derivation had to be told about that
+     * third source explicitly — §25.8.2's own note predicted it would "follow automatically" from the
+     * floor, and part 33 had since replaced the floor with floor ∪ band. Neither sees a line-scoped
+     * grant.
      */
     const host = await seedOperator("expect-host", "Host", PRESET_PERMISSION_SETS.operator_full);
     const coHost = await seedOperator("expect-co", "Co-promoter", []);
@@ -499,21 +526,20 @@ describe("the approval roster counts who is being WAITED ON", () => {
 
     const crewRow = approvals.find((row) => row.participantId === crewPart.id);
     expect(crewRow, "the crew party is on the roster").toBeDefined();
-    // On the roster — the operator still has to be told who is on the night — and not waited on.
-    expect(crewRow?.signatureExpected).toBe(false);
+    // Waited on now, and with no permission set at all — so this is the settlement-scoped floor and
+    // not a grant somebody happened to make.
+    expect(crewRow?.signatureExpected).toBe(true);
     expect(crewRow?.approved).toBe(false);
 
-    // THE CONTROL, and it is what makes the false above the FLOOR rather than the field being
-    // wired to a constant: the operators on the same night are expected to sign.
     const operatorRows = approvals.filter((row) => row.participantId !== crewPart.id);
     expect(operatorRows.length).toBeGreaterThan(0);
     for (const row of operatorRows) {
       expect(row.signatureExpected, `participant ${row.participantId}`).toBe(true);
     }
 
-    // And the whole point of the derivation: the counter can be satisfied. Every party the roster
-    // waits on can actually sign, so approved === expected is reachable.
-    expect(approvals.filter((row) => row.signatureExpected).length).toBe(operatorRows.length);
+    // The whole point of the derivation: the counter can be satisfied. Every party it waits on can
+    // actually sign, so approved === expected is reachable — which is now EVERY party on the night.
+    expect(approvals.filter((row) => row.signatureExpected).length).toBe(approvals.length);
   });
 
   it("STILL EXPECTS a delegated act's signature — their agent gives it", async () => {
@@ -894,7 +920,7 @@ describe("GET /settlements/awaiting-signature — where a signature is owed", ()
     }[];
   };
 
-  it("lists the reader's own line, and NOT crew's — who cannot sign", async () => {
+  it("lists the reader's own line, crew's included since §25.8.2", async () => {
     const night = await nightSentForReview("owed-basic");
 
     const forCoHost = await owed(night.coHost.userId);
@@ -903,9 +929,20 @@ describe("GET /settlements/awaiting-signature — where a signature is owed", ()
     expect(forCoHost[0]?.status).toBe("pending_review");
     expect(forCoHost[0]?.partyName).toBe("Co-promoter");
 
-    // `CREW_FLOOR` carries `settlement.view.own` and deliberately not `settlement.confirm`, so
-    // nobody is waiting on them and the card must not say otherwise.
-    expect(await owed(night.crew.userId)).toEqual([]);
+    /*
+     * THIS ASSERTION USED TO BE `[]`, on the stated grounds that `CREW_FLOOR` carries
+     * `settlement.view.own` and deliberately not `settlement.confirm` — so *"nobody is waiting on
+     * them and the card must not say otherwise"*. The rule was right about the code and was the open
+     * §25.6 question; **decisions §25.8.2 answers it yes, scoped to the line.** `CREW_FLOOR` is
+     * unchanged, so what reaches them is the settlement-scoped floor.
+     *
+     * The card's contract is the one that did not change: it lists what this reader may actually
+     * sign, so it follows the route rather than a copy of the rule (QA sweep run 12 — the agency
+     * could sign a line the card never offered).
+     */
+    const forCrew = await owed(night.crew.userId);
+    expect(forCrew).toHaveLength(1);
+    expect(forCrew[0]?.isYours, "their own line, not somebody else's").toBe(true);
   });
 
   it("STOPS LISTING once the signature has been given", async () => {

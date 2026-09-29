@@ -9,6 +9,7 @@ import {
   dealPartyBaselineCapabilities,
   isGrantable,
   roleFilter,
+  settlementPartyBaselineCapabilities,
 } from "./presets";
 import { resolvePrincipal } from "./principal";
 
@@ -238,6 +239,54 @@ describe("settlement.confirm sits under no ceiling — which a second reader rel
     ] as const) {
       expect(isGrantable("settlement.confirm", role), `role ${role}`).toBe(true);
     }
+  });
+});
+
+describe("the settlement-scoped confirm — crew sign the figures that are theirs (§25.8.2)", () => {
+  it("stays out of the crew floor and out of every crew preset", () => {
+    // Daniel's ruling is explicit that CREW_FLOOR stays thin: the grant is line-scoped, not a floor.
+    expect(baselineCapabilities("crew")).not.toContain("settlement.confirm");
+    expect(baselineCapabilities("crew_lead")).not.toContain("settlement.confirm");
+    expect(PRESET_PERMISSION_SETS.crew_schedule_only).not.toContain("settlement.confirm");
+    expect(PRESET_PERMISSION_SETS.crew_technical).not.toContain("settlement.confirm");
+  });
+
+  it("gives crew the confirm on their OWN settlement line", () => {
+    expect(settlementPartyBaselineCapabilities("crew")).toContain("settlement.confirm");
+    expect(settlementPartyBaselineCapabilities("crew_lead")).toContain("settlement.confirm");
+  });
+
+  it("gives it to NOBODY ELSE, because everybody else already has it or must not", () => {
+    /*
+     * Measured against every floor rather than reasoned about, and this is where the deal precedent
+     * DIFFERS: `DEAL_SIGNATORY_FLOOR` had to include `co_host` because `OPERATOR_FLOOR` genuinely
+     * lacks `agreement.confirm`. It does not lack this one, so a grant here would be inert — and an
+     * inert grant is indistinguishable from a widening the next reader will trust.
+     *
+     * `agent` is the one that must not: its own participation line is entitled to nothing (#14), and
+     * its PRESET grants the capability event-scoped where an operator chose it, which is how an
+     * agency signs for its act. A floor-level grant would reach every agency with no preset at all.
+     */
+    for (const role of ["host", "co_host", "performer", "support", "agent"] as const) {
+      expect(settlementPartyBaselineCapabilities(role), `role ${role}`).toEqual([]);
+    }
+    // And the four that already carry it do, so "inert" is a measurement and not a claim.
+    for (const role of ["host", "co_host", "performer", "support"] as const) {
+      expect(baselineCapabilities(role), `role ${role}`).toContain("settlement.confirm");
+    }
+  });
+
+  it("cannot reach a DELEGATED performer, which is why it keys on the role", () => {
+    /*
+     * A delegated performer keeps only the view floor — their AGENT signs (#14, §25.7.3). Their role
+     * is still `performer`, which is not in the set, so nothing here hands the capability back and
+     * revokes the delegation the agent's authority rests on. `DEAL_SIGNATORY_FLOOR` leaves performers
+     * out entirely for exactly this reason; here the role set does it by construction.
+     */
+    expect(baselineCapabilities("performer", true)).not.toContain("settlement.confirm");
+    expect(settlementPartyBaselineCapabilities("performer")).toEqual([]);
+    expect(baselineCapabilities("support", true)).not.toContain("settlement.confirm");
+    expect(settlementPartyBaselineCapabilities("support")).toEqual([]);
   });
 });
 
