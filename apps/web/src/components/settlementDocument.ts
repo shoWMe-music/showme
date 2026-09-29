@@ -292,6 +292,17 @@ export function entitlementGapSentence(input: {
   adjustedNetMinor: bigint;
   /** Σ owed to parties paid by transfer whose settlement is withheld — `withheldPayees`. */
   withheldMinor: bigint;
+  /**
+   * HOW MANY PARTIES ARE ON THIS NIGHT WHOSE SETTLEMENT THIS READER CANNOT READ —
+   * `withheldPartyCount` below, from the `approvals` roster the response already serves.
+   *
+   * `withheldMinor` above covers only the ones this reader PAYS, because it is derived from
+   * transfers. A co-operator with a negative net pays IN, so it finds nothing and the gap fell
+   * through to the cash-and-deductions branch, which blamed a cause the figures do not support
+   * (QA sweep run 11, QA11-2: the host read *"…come to SEK 85,000"* with Northlight's
+   * −SEK 15,000 nowhere on the page).
+   */
+  withheldPartyCount: number;
   /** What left the pool before the adjusted net was struck (`ladder.offTheTop`). */
   offTheTopMinor: bigint;
   /** Σ cash collected by the visible parties. */
@@ -320,13 +331,47 @@ export function entitlementGapSentence(input: {
     return `${opening}. ${format(input.offTheTopMinor.toString())} was settled off the top — it is in a party's entitlement and not in the net the percentages divide. ${shares}`;
   }
 
-  // 3. The original cause, now stated only when the rows actually carry it.
+  /*
+   * 3. A PARTY IS MISSING FROM THE LIST, which dominates any arithmetic explanation of the
+   *    same gap: the rows shown cannot add up to the pool when the pool was divided among
+   *    more parties than are on screen. Named as a count, never a figure — #4 withholds the
+   *    money and the `approvals` roster already names who is on the night.
+   */
+  if (input.withheldPartyCount > 0) {
+    const parties =
+      input.withheldPartyCount === 1
+        ? "one party on this night whose settlement is not shared with you"
+        : `${input.withheldPartyCount} parties on this night whose settlements are not shared with you`;
+    return `${opening}. The list leaves out ${parties}, so it does not sum to the pool. ${shares}`;
+  }
+
+  // 4. The original cause, now stated only when the rows actually carry it.
   if (input.collectedMinor !== 0n || input.deductiblesMinor !== 0n) {
     return `${opening}: each line also carries the cash that party collected and the deductions taken off them. ${shares}`;
   }
 
-  // 4. Nothing here explains it, so nothing is claimed.
+  // 5. Nothing here explains it, so nothing is claimed.
   return `${opening}. ${shares}`;
+}
+
+/**
+ * HOW MANY PARTIES ON THIS NIGHT THIS READER HAS NO SETTLEMENT FOR.
+ *
+ * The answer was already in the payload and no screen asked it. `approvals` is built from
+ * `addressableSettlements` — every party with a settlement row — because the route decided long
+ * ago that *"addressing somebody is not reading their money"*; it is what the Approval Status
+ * roster counts `0/5` from. `settlements` is the scoped subset. The difference is exactly the
+ * parties #4 withholds, and a COUNT of them discloses nothing the roster does not already print.
+ *
+ * Deliberately not a list of names here: the sentence this feeds says how many, and the roster
+ * beside it says who. Two renderings of one set, and the one that carries money stays scoped.
+ */
+export function withheldPartyCount(
+  approvals: readonly { participantId: string }[],
+  visibleParticipantIds: readonly (string | null | undefined)[],
+): number {
+  const visible = new Set(visibleParticipantIds.filter((id): id is string => id != null));
+  return approvals.filter((approval) => !visible.has(approval.participantId)).length;
 }
 
 /**

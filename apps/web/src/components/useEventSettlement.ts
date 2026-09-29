@@ -37,6 +37,7 @@ import {
   netToneOf,
   payoutAdjustments,
   transferStateOf,
+  withheldPartyCount,
   withheldPayees,
 } from "./settlementDocument";
 
@@ -943,6 +944,16 @@ export function useEventSettlement(
     // cause the same screen's own data contradicts (QA5-1, then QA6-4).
     const visible = rows.map((row) => row.computed).filter((computed) => computed != null);
     return entitlementGapSentence({
+      /*
+       * The parties on the night this reader has no settlement for — from the `approvals`
+       * roster the same response already serves, which is every party (QA11-2). Without it a
+       * co-operator's missing row fell through to the cash-and-deductions branch, and the host
+       * read a cause its own figures do not support.
+       */
+      withheldPartyCount: withheldPartyCount(
+        settlements.data?.approvals ?? [],
+        rows.map((row) => row.participantId),
+      ),
       entitlementsMinor: entitlements,
       adjustedNetMinor: BigInt(adjustedNetMinor),
       withheldMinor: withheldTotalMinor,

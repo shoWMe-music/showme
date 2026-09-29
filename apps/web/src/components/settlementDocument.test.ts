@@ -9,6 +9,7 @@ import {
   ownFigureLabel,
   payoutAdjustments,
   settlementTotals,
+  withheldPartyCount,
   withheldPayees,
 } from "./settlementDocument";
 
@@ -467,6 +468,7 @@ describe("entitlementGapSentence", () => {
   const format = (minor: string) => `SEK ${(Number(minor) / 100).toLocaleString("en-US")}`;
   const base = {
     withheldMinor: 0n,
+    withheldPartyCount: 0,
     offTheTopMinor: 0n,
     collectedMinor: 0n,
     deductiblesMinor: 0n,
@@ -531,6 +533,55 @@ describe("entitlementGapSentence", () => {
       collectedMinor: 150_000n,
     });
     expect(sentence).toContain("each line also carries the cash that party collected");
+  });
+
+  /**
+   * A MISSING PARTY EXPLAINS THE GAP BETTER THAN ARITHMETIC DOES (QA sweep run 11, QA11-2).
+   *
+   * The host of a co-promotion read *"…come to SEK 85,000, more than the adjusted net: each line
+   * also carries the cash that party collected and the deductions taken off them"* while the
+   * co-operator's −SEK 15,000 was nowhere on the page. Branch 1 could not catch it: it fires on
+   * `withheldPayees`, which is parties this reader PAYS, and a co-operator with a negative net
+   * pays IN. The rule was right and its trigger covered one direction.
+   */
+  it("names a withheld PARTY when the list is structurally short, not the cash and deductions", () => {
+    const sentence = entitlementGapSentence({
+      ...base,
+      entitlementsMinor: 8_500_000n,
+      adjustedNetMinor: 7_000_000n,
+      withheldPartyCount: 1,
+      // Both non-zero, so the old branch would happily have fired and did.
+      collectedMinor: 9_000_000n,
+      deductiblesMinor: 500_000n,
+    });
+    expect(sentence).toContain("one party on this night whose settlement is not shared with you");
+    expect(sentence).toContain("does not sum to the pool");
+    // And NOT the cause it used to claim.
+    expect(sentence).not.toContain("the cash that party collected");
+  });
+
+  it("counts more than one, and says so in the plural", () => {
+    const sentence = entitlementGapSentence({
+      ...base,
+      entitlementsMinor: 8_500_000n,
+      adjustedNetMinor: 7_000_000n,
+      withheldPartyCount: 3,
+    });
+    expect(sentence).toContain("3 parties on this night whose settlements are not shared with you");
+  });
+
+  it("still lets a withheld PAYEE speak first — it names an amount, this only names a count", () => {
+    // Both true at once is the ordinary co-promotion: a party owed money and unreadable. The
+    // more specific sentence wins, which is the order the branches were already in.
+    const sentence = entitlementGapSentence({
+      ...base,
+      entitlementsMinor: 4_400_000n,
+      adjustedNetMinor: 5_000_000n,
+      withheldMinor: 600_000n,
+      withheldPartyCount: 2,
+    });
+    expect(sentence).toContain("At least SEK 6,000");
+    expect(sentence).not.toContain("does not sum to the pool");
   });
 
   it("claims NO cause when the figures support none — the whole lesson", () => {
@@ -761,5 +812,39 @@ describe("negativeAmount", () => {
   it("does not care what the amount looks like", () => {
     // It is handed already-formatted money by every caller, including a converted "≈ €1,554".
     expect(negativeAmount("≈ €1,554")).toBe("− ≈ €1,554");
+  });
+});
+
+/**
+ * THE COUNT ITSELF — `approvals` minus the settlements this reader was served.
+ *
+ * The answer was in the payload all along: `approvals` is built from every party with a
+ * settlement row, because the route decided that addressing somebody is not reading their money.
+ * No screen asked it until QA11-2.
+ */
+describe("withheldPartyCount", () => {
+  const approvals = [
+    { participantId: "host" },
+    { participantId: "cohost" },
+    { participantId: "act" },
+    { participantId: "crew" },
+  ];
+
+  it("counts the parties on the night this reader has no settlement for", () => {
+    expect(withheldPartyCount(approvals, ["host", "act"])).toBe(2);
+  });
+
+  it("is zero when the reader can read them all", () => {
+    expect(withheldPartyCount(approvals, ["host", "cohost", "act", "crew"])).toBe(0);
+  });
+
+  it("ignores a settlement row with no participant — a representation is not a party", () => {
+    // The agent's private commission row is representation-scoped and carries no
+    // `participantId`; counting it as "visible" would hide a genuinely withheld party.
+    expect(withheldPartyCount(approvals, ["host", null, undefined, "act"])).toBe(2);
+  });
+
+  it("answers zero for an empty roster rather than guessing", () => {
+    expect(withheldPartyCount([], ["host"])).toBe(0);
   });
 });

@@ -103,3 +103,78 @@ included, so an agent can still dispute for the act it signs for. Mutation kille
 answers **404** — `requireEventCapability` refuses `event.view` first, because an event you are on
 no participant row for does not exist to you. The test pins 404 with that reason, so the next reader
 does not go hunting for the scoping in the wrong place.
+
+---
+
+## 2. QA11-2 — the plan, before building
+
+**Which file settles it:** `apps/web/src/components/settlementDocument.ts`, and **no API change at
+all** — which is the finding's real shape.
+
+**What was measured.** A co-promotion at 25/75. Postgres holds six settlement rows summing to zero;
+`GET /events/:id/settlements` as the **host** returns two. The host reads:
+
+> ENTITLEMENT BY PARTY — *"The entitlements below come to SEK 85,000, more than the adjusted net:
+> each line also carries the cash that party collected and the deductions taken off them."*
+> Marlo Vance — SEK 90,000 · The Lantern Hall (you) — −SEK 5,000 — *"Your 25% of what is left…"*
+
+Northlight's −SEK 15,000 is nowhere: no card, no line, no note. The co-host with Full access reads
+the complete, balanced document.
+
+**The verdict: the withholding is right, the sentence is wrong, and the data to fix it is already in
+the payload.** `partiesVisibleTo` excluding a co-operator is deliberate (#4, and QA10-2 is what
+loosening it costs) — the FIGURES stay scoped. But the same response already carries **`approvals`**,
+built from `addressableSettlements`, which is *every* party on the night; it is what the roster
+reads `0/5` from. The route's own comment already settles the principle: *"Addressing somebody is not
+reading their money."* So the screen has always known a fifth party exists and simply never asked.
+
+**And the mechanism for saying so already exists, one case too narrow.** `entitlementGapSentence`
+branch 1 says *"At least X of it belongs to a party whose settlement is not shared with you"* — but
+it fires on `withheldPayees`, parties this reader **pays** by transfer. A co-operator with a negative
+net is a payer, not a payee, so it finds nothing and the sentence falls through to branch 3, which
+blames cash and deductions for a gap they do not explain. **The rule was right and its trigger only
+covered one direction** — the same shape as QA10-2's *"direction is not the protection"*, one screen
+along.
+
+**The scope.** A pure `withheldPartyCount` derived from `approvals` minus the visible settlements, a
+new branch in `entitlementGapSentence` placed **before** the cash-and-deductions one (a structurally
+incomplete list dominates any arithmetic explanation of the same gap), and the wiring. No new field,
+no widened disclosure: a COUNT of parties, from a list the reader is already served.
+
+**The decision it hides: does naming a count leak anything?** No, and the route already decided it —
+`approvals` names those participants by id to every caller with `settlement.edit`, and the roster
+prints them. What stays withheld is every figure, which is what #4 protects. **Not taken:** the
+sweep's other suggestion, letting `partiesVisibleTo` admit the co-operator's NET to the host. It is
+defensible — the host can already derive it from the pool they may read — but it is a disclosure
+rule, and disclosure rules on this screen have gone wrong twice (QA10-2, QA5-1). A count is not a
+figure, and it closes the finding.
+
+### QA11-2 — what landed
+
+No API change. `withheldPartyCount(approvals, visibleParticipantIds)` reads the roster the response
+already serves, and `entitlementGapSentence` gains a branch for it — placed after the two that name
+an AMOUNT and before the one that blames arithmetic. Read live as the host, on a co-promotion where
+the co-operator's net is negative (so the old payee branch cannot fire):
+
+```
+ENTITLEMENT BY PARTY
+The entitlements below come to SEK 59,000, less than the adjusted net. The list leaves out
+3 parties on this night whose settlements are not shared with you, so it does not sum to the
+pool. The percentages are shares of the entitlements shown.
+```
+
+Three of six parties on screen, and the sentence now names why instead of blaming cash and
+deductions. Three mutations killed: the branch never firing, the count ignoring what the reader can
+see, and the more specific payee sentence losing its place in the order.
+
+**The trigger covered one direction, not the rule.** Branch 1 has said *"a party whose settlement is
+not shared with you"* since QA5-1 — but it is derived from `withheldPayees`, parties this reader
+**pays**, and a co-operator with a negative net pays IN. Same shape as QA10-2's *"direction is not
+the protection"*, one screen along: a correct rule reached through a predicate that only sees one
+end of the relationship.
+
+**What was NOT taken:** the sweep's other suggestion, admitting the co-operator's NET to the host.
+Defensible — the host can derive it from a pool they may read — but it is a disclosure rule, and
+disclosure rules on this screen have gone wrong twice (QA5-1, QA10-2). A count is not a figure, the
+route already publishes the roster on the ground that *"addressing somebody is not reading their
+money"*, and it closes the finding without touching #4.
