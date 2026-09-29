@@ -286,6 +286,29 @@ const OPERATOR_FLOOR: readonly Capability[] = [
    * both independently. This grants only "you may speak where you can already read".
    */
   "message.post",
+  /*
+   * A PARTY SERVED A SETTLEMENT CAN ANSWER IT (QA sweep run 11).
+   *
+   * Measured: the host sends the settlement for review to the co-operator with Full
+   * settlement access on; the co-host's row reads **Pending**, the Approval Status roster
+   * counts them in **0/5**, and `POST /settlements/:sid/confirm` answers *"Missing
+   * capability: settlement.confirm"*. The screen correctly offered no button, which is why
+   * this looked like nothing at all.
+   *
+   * The asymmetry is the argument: `PERFORMER_FLOOR` below carries this, and
+   * `routes/settlement.ts` hands it to a SHARE-LINK RECIPIENT — somebody with no account —
+   * so a stranger could sign a settlement off and the co-promoter named on the bill could
+   * not. #24.2 makes send-for-review the way a settlement is opened to a party, and this was
+   * the one party unable to answer.
+   *
+   * NOT the deal-scoped treatment QA6-1 gave `agreement.confirm`, and the difference is the
+   * route rather than the seat: that capability on a floor would be authority over ANY
+   * agreement on the event, while `POST /settlements/:sid/confirm` already refuses anything
+   * but the caller's own row — *"You can only confirm your own settlement"*, resolved through
+   * `participantIdsOf` and the live representations. Here the floor grants exactly what the
+   * floor already says.
+   */
+  "settlement.confirm",
 ];
 
 /** A performer's inviolable floor — own slice + confirms; the operator cannot revoke it. */

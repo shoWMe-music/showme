@@ -2306,6 +2306,8 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
     async (request) => {
       const { database } = request.server;
       const { id } = request.params;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
       const { status, note, fullAccess } = request.body;
 
       await requireEventCapability(request, id, REVIEW_STATUS_CAPABILITY[status]);
@@ -2332,25 +2334,60 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         throw badRequest("One of the parties named is not on this settlement, so nothing was sent");
       }
 
+      /*
+       * A DISPUTE IS A STATEMENT ABOUT YOUR OWN FIGURES — so it lands on your own rows.
+       *
+       * Found while granting `settlement.confirm` to `OPERATOR_FLOOR` for QA11-3, and measured
+       * on the running stack before it was believed: `performer.b@`, naming nobody, moved **all
+       * six** of an event's settlements to `dispute` — the host's, the co-host's, the crew's and
+       * the agent's included. `participantIds` is optional and defaults to every party, which is
+       * right for the two OPERATOR transitions (sending a settlement out is a fan-out by nature)
+       * and wrong for this one.
+       *
+       * It is not a hole this change opened — `PERFORMER_FLOOR` has carried `settlement.confirm`
+       * all along — but it is one the change would widen, and the route's own comment above
+       * already draws the line: *"DISPUTE is the party's … a performer who may say 'these
+       * figures match my books' must be able to say the opposite."* Their books. Not the
+       * operator's.
+       *
+       * The caller's own rows are resolved exactly as the confirm route resolves them, live
+       * representations included, so an agent can still dispute for the act it signs for.
+       */
+      let scopedRows = partyRows;
+      if (status === "dispute") {
+        const profileIds = principal.memberships.map((membership) => membership.profileId);
+        const mine = new Set(await participantIdsOf(database, id, profileIds));
+        const myProfileIds = new Set(profileIds);
+        for (const delegation of await liveEventDelegations(database, id)) {
+          if (myProfileIds.has(delegation.agentProfileId)) {
+            mine.add(delegation.performerParticipantId);
+          }
+        }
+        scopedRows = partyRows.filter((row) => mine.has(row.participantId ?? ""));
+        if (scopedRows.length === 0) {
+          throw forbidden("You can only dispute your own settlement");
+        }
+      }
+
       // A DISPUTE may be raised over frozen figures — that is precisely when a
       // party most needs to say the number is wrong, and flagging it changes no
       // money. The two operator states may not: re-issuing figures that are locked
       // would claim an adjustment the engine will refuse to make.
       if (
         status !== "dispute" &&
-        partyRows.some((row) => LOCKED_SETTLEMENT_STATUSES.has(row.status))
+        scopedRows.some((row) => LOCKED_SETTLEMENT_STATUSES.has(row.status))
       ) {
         throw conflict("This settlement is finalized; its figures can no longer be re-issued");
       }
       // Nothing follows being paid in full. Re-opening a closed settlement is a
       // credit note, not a status change.
-      if (partyRows.some((row) => row.status === "paid")) {
+      if (scopedRows.some((row) => row.status === "paid")) {
         throw conflict("This settlement is fully paid");
       }
 
       const updated = await database.transaction(async (tx) => {
         let count = 0;
-        for (const row of partyRows) {
+        for (const row of scopedRows) {
           // The GRANT can change even when the status does not — an operator
           // re-sending to a party already under review, having decided to open the
           // books. Skipping on status alone would silently drop it.

@@ -942,6 +942,135 @@ describe("settlement — visibility (decisions #4)", () => {
   });
 
   /**
+   * A CO-OPERATOR SERVED A SETTLEMENT CAN ANSWER IT (QA sweep run 11, QA11-3).
+   *
+   * The host sent the settlement for review to the co-operator with Full settlement access on;
+   * the co-host's row read **Pending**, the roster counted them in **0/5**, and confirm
+   * answered *"Missing capability: settlement.confirm"* — `OPERATOR_FLOOR` carried none while
+   * `PERFORMER_FLOOR` did and a share-link recipient with no account was handed one.
+   *
+   * Driven through the ROUTES rather than by setting columns, because the claim is that the
+   * whole journey works: send for review, then sign off, then the approval row exists.
+   */
+  it("lets a co-operator on Standard access sign off the settlement it was served", async () => {
+    const seed = await seedWorkedExample("confirm-cohost");
+    const coHost = await seedMemberWithSet(
+      "confirm-cohost-co",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const [coHostPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: seed.event.id,
+        profileId: coHost.profileId,
+        role: "co_host",
+        // Standard for the role — the invite dialog's own default, and the seat the sweep used.
+        // A co-host given Full control holds `operator_full`, which has always carried the
+        // confirm, and this test would then be measuring the preset rather than the floor.
+        permissionSetId: null,
+        status: "confirmed",
+      })
+      .returning();
+    if (!coHostPart) throw new Error("co-host seed failed");
+
+    const computed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(computed.statusCode).toBe(200);
+
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.operator.userId),
+      payload: {
+        status: "pending_review",
+        participantIds: [coHostPart.id],
+        fullAccess: true,
+      },
+    });
+    expect(sent.statusCode).toBe(200);
+
+    const [row] = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(
+        and(
+          eq(schema.settlements.eventId, seed.event.id),
+          eq(schema.settlements.participantId, coHostPart.id),
+        ),
+      );
+    if (!row) throw new Error("no settlement for the co-host");
+
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlements/${row.id}/confirm`,
+      headers: auth(coHost.userId),
+    });
+    expect(confirmed.statusCode).toBe(200);
+
+    // The approval is recorded against the PARTY, not the settlement row — one approval per
+    // participant per event, which is what makes signing twice still one signature.
+    const approvals = await harness.db
+      .select()
+      .from(schema.settlementApprovals)
+      .where(eq(schema.settlementApprovals.partyParticipantId, coHostPart.id));
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0]?.approved).toBe(true);
+  });
+
+  /**
+   * …AND NOBODY ELSE'S, which is the whole reason the grant above is safe on a floor.
+   *
+   * The capability cannot reach another party's row: the route resolves the caller's own
+   * participations and refuses anything outside them. Without this the floor entry would be a
+   * co-host able to sign the act's settlement off on their behalf.
+   */
+  it("still refuses a co-operator another party's settlement — the route is own-row only", async () => {
+    const seed = await seedWorkedExample("confirm-cohost-other");
+    const coHost = await seedMemberWithSet(
+      "confirm-cohost-other-co",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: seed.event.id,
+      profileId: coHost.profileId,
+      role: "co_host",
+      permissionSetId: null,
+      status: "confirmed",
+    });
+    const computed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(computed.statusCode).toBe(200);
+
+    // The BAND's settlement, served to the band — valid in every way except who is signing.
+    const [bandRow] = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(
+        and(
+          eq(schema.settlements.eventId, seed.event.id),
+          eq(schema.settlements.participantId, seed.bPart),
+        ),
+      );
+    if (!bandRow) throw new Error("no settlement for the band");
+
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlements/${bandRow.id}/confirm`,
+      headers: auth(coHost.userId),
+    });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error.message).toContain("your own settlement");
+  });
+
+  /**
    * DIRECTION IS NOT THE PROTECTION (QA sweep run 10, QA10-2).
    *
    * `partiesVisibleTo` said the payer sees the deal and named what it was protecting: *"a payee
@@ -1757,6 +1886,87 @@ describe("settlement — the review conversation and derived payment", () => {
       payload: { status: "paid" },
     });
     expect(told.statusCode).toBe(400);
+  });
+
+  /**
+   * A DISPUTE LANDS ON YOUR OWN ROWS, AND NOBODY ELSE'S.
+   *
+   * Found while granting `settlement.confirm` to `OPERATOR_FLOOR` (QA11-3) and MEASURED on the
+   * running stack before it was believed: `performer.b@`, naming nobody, moved **all six** of an
+   * event's settlements to `dispute` — the host's, the co-host's, the crew's and the agent's
+   * included. `participantIds` defaults to every party, which is right for the two operator
+   * transitions and wrong for the one an arm's-length party can make.
+   *
+   * The negative half is what proves it, exactly as in the test below: "the band is disputed" is
+   * true whether the scoping works or not.
+   */
+  it("scopes a party's dispute to their own settlement, leaving every other row alone", async () => {
+    const seed = await seedWorkedExample("dispute-scope");
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    // Naming nobody — the request that moved all six.
+    const disputed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.band.userId),
+      payload: { status: "dispute" },
+    });
+    expect(disputed.statusCode).toBe(200);
+
+    const rows = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.eventId, seed.event.id));
+    const statusOf = (participantId: string) =>
+      rows.find((row) => row.participantId === participantId)?.status;
+    expect(statusOf(seed.bPart)).toBe("dispute");
+    // THE NEGATIVE HALF: the operator's own settlement, and the venue's, are untouched.
+    expect(statusOf(seed.pPart)).toBe("open");
+    expect(statusOf(seed.vPart)).toBe("open");
+  });
+
+  it("refuses a dispute from somebody who is a party to nothing on the event", async () => {
+    // Valid in every way except the one under test: the status is one the route takes, and the
+    // caller holds `settlement.confirm` — from their own floor, on another event entirely.
+    const seed = await seedWorkedExample("dispute-stranger");
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const stranger = await seedMemberWithSet(
+      "dispute-stranger-out",
+      "performer",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(stranger.userId),
+      payload: { status: "dispute" },
+    });
+    /*
+     * 404, NOT 403, and that is the app's own answer rather than a surprise: an event the
+     * caller is on no participant row for does not exist to them (`requireEventCapability`
+     * throws `notFound` before it ever asks about a capability), which leaks less than
+     * confirming the night is real. The scoping added for the dispute sits BEHIND that door;
+     * the test pins where the refusal actually comes from so the next reader does not go
+     * looking for it in the wrong place.
+     */
+    expect(refused.statusCode).toBe(404);
   });
 
   /**

@@ -256,6 +256,31 @@ describe("the deal-scoped confirm — crew sign the agreement that is with them"
     expect(dealPartyBaselineCapabilities("co_host", "observer")).toEqual([]);
   });
 
+  /**
+   * A PARTY SERVED A SETTLEMENT CAN ANSWER IT (QA sweep run 11).
+   *
+   * The block above is the DEAL half of this seat's story and was fixed deal-scoped, on the
+   * ground that a co-host on Standard access should not hold an event-scoped confirm. The
+   * settlement half goes on the floor instead, and the reason is the route rather than the
+   * seat: `POST /settlements/:sid/confirm` refuses anything but the caller's own row, so the
+   * capability cannot reach another party's settlement however it was granted.
+   */
+  it("gives a co-promoter on Standard access the confirm on their OWN settlement", () => {
+    expect(baselineCapabilities("co_host")).toContain("settlement.confirm");
+    // The same floor a performer has had all along — and, until this, less than a share-link
+    // recipient with no account at all.
+    expect(baselineCapabilities("performer")).toContain("settlement.confirm");
+    // Still not the deal-level confirm: that stays deal-scoped, per the block above.
+    expect(baselineCapabilities("co_host")).not.toContain("agreement.confirm");
+    // And still nothing that decides the night: the floor carries no event.edit/delete.
+    expect(baselineCapabilities("co_host")).not.toContain("event.edit");
+    expect(baselineCapabilities("co_host")).not.toContain("event.delete");
+    // Nor the pool: reading the whole night's money is `budget.view`, which the floor
+    // deliberately withholds (QA10-2 was the cost of letting a pool fact reach this seat).
+    expect(baselineCapabilities("co_host")).not.toContain("budget.view");
+    expect(baselineCapabilities("co_host")).not.toContain("settlement.edit");
+  });
+
   it("gives no OTHER event role anything — the event floor already answers for them", () => {
     // The load-bearing case is `performer`: a DELEGATED performer's floor deliberately
     // drops the capability (decisions #14), and they are still the payee on their own
