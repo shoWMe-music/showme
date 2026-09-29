@@ -11,4 +11,5 @@ export type GetApiV1EventsIdSettlements200ApprovalsItem = {
   /** @nullable */
   approvedAt: string | null;
   signatureExpected: boolean;
+  figuresMovedSince: boolean;
 };

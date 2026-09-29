@@ -924,6 +924,97 @@ describe("the approval roster counts who is being WAITED ON", () => {
     ).toBe(false);
   });
 
+  it("says a signature is STALE when the figures moved after it, and stays quiet once finalized", async () => {
+    /*
+     * QA sweep run 14. Five parties signed, a walk-up-sales line went SEK 18,000 → 36,000, and every
+     * row still read "Signed off" — a regex over the whole roster for `changed since|moved since|
+     * re-?sign|stale` matched nothing, and no path in the API clears an approval, so the operator
+     * could finalize on 5/6 against figures that no longer existed.
+     *
+     * WHETHER A SIGNATURE SHOULD CLEAR is not decided here (decisions §25.6). This is the disclosure.
+     *
+     * THE FINALIZE CONTROL IS THE POINT OF THE SECOND HALF. The report's suggested comparison —
+     * `updated_at > approved_at` — is true of every finalized night, because finalize bumps
+     * `updated_at` itself, as do `syncPaymentStatus` and the review-status route. Confining it to the
+     * review window is what makes it a disclosure rather than a false alarm, and only a test that
+     * finalizes can tell the two apart.
+     */
+    const host = await seedOperator("stale-host", "Host", PRESET_PERMISSION_SETS.operator_full);
+    const coHost = await seedOperator("stale-co", "Co-promoter", []);
+    const { event } = await seedNightFor(host, coHost, "accepted");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/status`,
+      headers: auth(host.userId),
+      payload: { status: "pending_review" },
+    });
+
+    const own = await app.inject({
+      method: "GET",
+      url: "/api/v1/settlements",
+      headers: auth(coHost.userId),
+    });
+    const mine = (own.json().items as { id: string }[])[0];
+    if (!mine) throw new Error("the co-promoter has no settlement to sign");
+    const signed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlements/${mine.id}/confirm`,
+      headers: auth(coHost.userId),
+    });
+    expect(signed.statusCode).toBe(200);
+
+    const rosterFor = async () => {
+      const read = await app.inject({
+        method: "GET",
+        url: `/api/v1/events/${event.id}/settlements`,
+        headers: auth(host.userId),
+      });
+      return read.json().approvals as {
+        approved: boolean;
+        figuresMovedSince: boolean;
+      }[];
+    };
+
+    // Freshly signed, nothing has moved.
+    expect((await rosterFor()).some((row) => row.figuresMovedSince)).toBe(false);
+
+    /*
+     * Move the FIGURES. A manual override is the narrowest way to do it — it bumps `updated_at` on one
+     * row without touching any status — and it is one of the four causes the field is about.
+     */
+    const [row] = await harness.db
+      .select()
+      .from(schema.settlements)
+      .where(eq(schema.settlements.id, mine.id));
+    if (!row) throw new Error("settlement row missing");
+    await harness.db
+      .update(schema.settlements)
+      .set({ updatedAt: new Date(Date.now() + 60_000) })
+      .where(eq(schema.settlements.id, mine.id));
+
+    const afterMove = await rosterFor();
+    const stale = afterMove.filter((entry) => entry.figuresMovedSince);
+    expect(stale, "the signed row says its figures moved").toHaveLength(1);
+    expect(stale[0]?.approved).toBe(true);
+
+    /*
+     * AND IT GOES QUIET ONCE FINALIZED — the assertion the naive comparison fails. Finalize bumps
+     * `updated_at` on every row, so a bare `updated_at > approved_at` would light this up on a night
+     * whose figures have by definition stopped moving.
+     */
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/finalize`,
+      headers: auth(host.userId),
+    });
+    expect((await rosterFor()).some((entry) => entry.figuresMovedSince)).toBe(false);
+  });
+
   it("keeps counting a signature whose grant was REVOKED afterwards — the `|| approved` clause", async () => {
     /*
      * The one case the union genuinely cannot predict, and the only remaining reason that clause

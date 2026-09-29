@@ -252,6 +252,12 @@ export interface SettlementApprovalRow {
    * `signableSettlementId`, which asks whether the signature is the READER's to give.
    */
   signatureExpected: boolean;
+  /**
+   * Did this party's figures move AFTER they signed? See the API field's own note: the comparison is
+   * confined to the review window, because `updated_at` also moves on finalize and on payment, and a
+   * warning on a closed night would be a false alarm rather than a disclosure.
+   */
+  figuresMovedSince: boolean;
   /** The settlement to sign, or null when this signature is not the reader's to give. */
   signableSettlementId: string | null;
 }
@@ -1147,6 +1153,7 @@ export function useEventSettlement(
        * give and the counter could never reach its denominator.
        */
       signatureExpected: approval.signatureExpected,
+      figuresMovedSince: approval.figuresMovedSince,
       // The settlement id to sign, or null when this line is not the reader's to
       // sign. Carried on the roster row because the roster IS where somebody
       // looks to find out who still owes a signature.

@@ -8838,13 +8838,17 @@
                           },
                           "signatureExpected": {
                             "type": "boolean"
+                          },
+                          "figuresMovedSince": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
                           "participantId",
                           "approved",
                           "approvedAt",
-                          "signatureExpected"
+                          "signatureExpected",
+                          "figuresMovedSince"
                         ],
                         "additionalProperties": false
                       }

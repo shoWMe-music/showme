@@ -979,6 +979,20 @@ function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
                   : "Not required"}
             </Badge>
             {/*
+              THE SIGNATURE IS STILL THERE AND THE FIGURES ARE NOT (QA sweep run 14).
+ 
+              Nothing on any screen said so: five parties signed, a walk-up line doubled, entitlements
+              moved by thousands, and every row still read "Signed off". Whether a signature should
+              CLEAR is a product question (decisions §25.6) — the confirm route keeps no snapshot on
+              purpose and the audit trail holds the figures as they stood — but the operator deciding
+              whether to finalize has to be able to see that the consent is stale.
+            */}
+            {approval.figuresMovedSince && (
+              <Badge status="pending" dot>
+                Figures changed since
+              </Badge>
+            )}
+            {/*
               THE PER-LINE ANSWER IS THE WHOLE GATE — `settlement.authority.canConfirm` used to be
               ANDed in front of it and is gone (decisions §25.8.2).
  

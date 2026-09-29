@@ -231,6 +231,35 @@ const ApprovalResponse = z.object({
    * after a signature would otherwise drop the denominator below the numerator and read 1/0.
    */
   signatureExpected: z.boolean(),
+  /**
+   * HAVE THIS PARTY'S FIGURES MOVED SINCE THEY SIGNED (QA sweep run 14)?
+   *
+   * Five parties signed, a walk-up-sales line went SEK 18,000 → 36,000, and Marlo's entitlement went
+   * 30,000 → 40,800 with her 10:54 signature still reading "Signed off". A regex over the whole
+   * rendered roster for `changed since|moved since|re-?sign|stale` matched nothing, and no path in the
+   * API clears an approval — so the operator could finalize on 5/6 with five of those signatures given
+   * against figures that no longer existed.
+   *
+   * WHETHER A SIGNATURE SHOULD CLEAR is a product question and is NOT decided here (decisions §25.6):
+   * the confirm route stores no `confirmed_snapshot` on purpose — *"the numbers stay editable right up
+   * to finalize"* — and writes the figures as they stood into `audit_log`, so the forensic record is
+   * intact either way. The screen's SILENCE is what is indefensible, and this is the sentence it was
+   * missing.
+   *
+   * ── CONFINED TO THE REVIEW WINDOW, and that is the whole precision of it ────────────────────────
+   * The obvious comparison — `updated_at > approved_at` — was the report's suggestion and it marks
+   * itself unverified. Measured, `updated_at` also moves on the review-status route, on **finalize**
+   * and on `syncPaymentStatus`, every one of which happens AFTER signatures as a matter of course, so
+   * a bare comparison would print "the figures moved" on every finalized, paid night. `version` is no
+   * better; finalize bumps that too.
+   *
+   * Inside `pending_review` / `revised` / `comments_received` there is no such cause: an `updated_at`
+   * later than a signature means the breakdown was recomputed and CHANGED (`sameStoredBreakdown`
+   * guards the write), overridden, a line was edited, or the settlement was re-issued to them. All
+   * four are things the signer should hear about, and finalize and payment are outside the window by
+   * construction, so this cannot cry wolf once the night is closed.
+   */
+  figuresMovedSince: z.boolean(),
 });
 
 /**
@@ -1472,6 +1501,19 @@ async function syncPaymentStatus(tx: Transaction, eventId: string): Promise<void
  * The statuses whose payment progress is tracked — everything downstream of
  * finalize. A settlement still under review has no payment state to report.
  */
+/**
+ * The statuses in which a party is being ASKED to agree — the only window where a figure moving under
+ * a signature is news. Deliberately excludes `dispute` (a party who objected is not being asked to
+ * re-read the figures they objected to, which is the same reason `/settlements/awaiting-signature`
+ * excludes it) and everything from `finalized` onward, where the figures have stopped moving and the
+ * status changes themselves would otherwise read as one.
+ */
+const SETTLEMENT_REVIEW_WINDOW: ReadonlySet<string> = new Set([
+  "pending_review",
+  "revised",
+  "comments_received",
+]);
+
 const PAYMENT_TRACKING_STATUSES: ReadonlySet<string> = new Set([
   "finalized",
   "partly_paid",
@@ -2368,10 +2410,28 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           const participantId = row.participantId as string;
           const signed = roster.get(participantId);
           const approved = signed?.approved ?? false;
+          // Both halves are already loaded — `roster` for the signature, the settlement row itself
+          // for when its figures last moved — so this adds no query. See the field's own note for
+          // why the status guard is the precision rather than a convenience.
+          const underReview = SETTLEMENT_REVIEW_WINDOW.has(row.status);
+          const movedAt = row.updatedAt;
+          const signedAt = signed?.approvedAt ?? null;
           return {
             participantId,
             approved,
             approvedAt: signed?.approvedAt?.toISOString() ?? null,
+            /*
+             * No `approved &&` here, and a surviving mutation is why: `approvedAt` IS the signature —
+             * the roster stores a timestamp only when one was given, and "approved once is approved"
+             * means no path writes `approved: false` beside a time. So the clause could not change the
+             * answer, which makes it a comment pretending to be code.
+             *
+             * It would stop being redundant if a DECLINED state ever landed on `settlement_approvals`
+             * carrying its own timestamp — which is exactly what the §25.6 objection row proposes. Add
+             * it back then, with a test that can see it.
+             */
+            figuresMovedSince:
+              underReview && signedAt != null && movedAt.getTime() > signedAt.getTime(),
             // Or they have already given one — which, now that the expectation is a standing
             // fact, only matters if the grant behind it was revoked afterwards. See the field.
             signatureExpected: (maySign.get(participantId) ?? false) || approved,
