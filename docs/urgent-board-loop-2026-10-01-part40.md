@@ -355,3 +355,84 @@ sentence between them missing the word *cost*.
   Northlight bears **SEK 1,200** of a SEK 4,000 guarantee it is a party to in no role. Appended to the
   row rather than filed again.
 - **`apps/marketing` is not running on :5173** — already recorded in run 15, and run 16 says so itself.
+
+## The full pass, and the one thing it caught
+
+Everything green except one, and the one is mine, landed the same hour:
+
+```
+biome  757 files, no fixes
+shared 23 files · 358 tests      auth 1 · 41      settlement 4 · 86      db 2 · 25
+web    43 files · 682 tests
+api    65 files · 1513 tests · 0 skipped   (✓ src/ lines counted AND skipped|todo grepped)
+e2e    117 passed · 1 FAILED
+```
+
+**The failure: `mobile-audit.spec.ts` › "Settlements does not scroll sideways at any width".**
+
+```
+Settlements (/settlements) does not fit — 4 break(s) across 9 widths:
+  360px — div._table_… clips its content: 343px of content in 330px, 13px unreachable
+          [{ "tag": "b", "text": "SEK 20,700", "right": 356 }]
+  390px — 368 in 360, 8px unreachable      414px — 388 in 384, 4px
+  430px — 402 in 400, 2px
+```
+
+### Which file settles it
+
+`design-system/src/components/organisms/DataTable/DataTable.tsx:63` — `shrinkableTrack`.
+
+### The verdict: A FIX CARRIES ITS OWN NEXT DEFECT, and this time the comment I wrote to
+### explain the fix states the exact thing that is false
+
+Run 16's C-list added `DataTableColumn.wrap: "nowrap"` so a settled figure would stop breaking
+between its thousands separator and its last digits (`SEK 3,60 / 5`). Both the CSS and the call
+site carry the same sentence justifying it:
+
+> `min-width: 0` stays inherited, so the grid shrinks the columns BESIDE this one rather than
+> pushing the page sideways — removing the floor rather than buying pixels.
+
+**That is not what `min-width: 0` does.** It lets the CELL shrink to nothing; it tells the grid
+nothing about what the cell needs. The track is `minmax(0, 1.1fr)` — `shrinkableTrack`'s own
+doing, and right for wrapping prose — so at 360px the track resolves to ~58px, the nowrap
+`<b>SEK 20,700</b>` overhangs it, and `.table { overflow: hidden }` amputates 13px of a settled
+amount. The previous defect was a number **broken**; this one is a number **cut off**, which is
+strictly worse, and the sideways-scroll check cannot see it because the document never widens —
+which is the same blind spot the audit was extended to cover in the first place.
+
+Two columns took `nowrap` in run 16: the Settlement badge (a one-word label broken mid-word) and
+the share figure. The overflow names only the figure.
+
+### The scope
+
+`shrinkableTrack` must take the COLUMN, not just its width, and floor a `nowrap` track at its
+content: `minmax(min-content, Nfr)`. `min-content` of a `white-space: nowrap` run is the whole
+run, so the track stops shrinking at the figure's width while every neighbouring
+`minmax(0, Nfr)` keeps giving room up — which is what the sentence above claimed and did not do.
+A `px` column stays passed through untouched.
+
+Then measure, do not reason: if two floored columns cannot both fit at 360px, the badge's
+`nowrap` is the one to drop — a label broken mid-word is legible and a figure cut off is not.
+The proof is the spec that caught it, at its own nine widths.
+
+### The decision it hides
+
+None. The ruling is the audit's own: *content must be reachable at 360px.*
+
+### Built, and how it was proven
+
+`shrinkableTrack` now takes the column and floors a `nowrap` track at `min-content`; the two
+comments that stated the false rule — the CSS class's and the call site's — now say which half does
+what, and that neither works alone.
+
+**The proof is the spec that caught it, red then green on the identical measurement**: the nine-width
+sweep of `/settlements` reported four breaks at d982da0 and zero after, with both nowrap columns
+floored and the three beside them absorbing the loss. That is also the whole mutation argument — the
+change from `0` to `min-content` is the only difference between the two runs — and it has to be,
+because **the design system has no test runner at all**: no vitest, no unit test can reach
+`shrinkableTrack`, and `mobile-audit.spec.ts` is the only assertion in this repo positioned to see a
+clipped cell. A defect class with exactly one witness is worth knowing about.
+
+```
+biome  757 files, no fixes      web 43 files · 682 tests      e2e 118 passed
+```

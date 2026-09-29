@@ -157,8 +157,11 @@
  * digits, while `scrollWidth === clientWidth` reported the page fine. A measurement cannot see a
  * number cut in half.
  *
- * `min-width: 0` stays inherited, so the grid shrinks the columns BESIDE this one rather than pushing
- * the page sideways — removing the floor rather than buying pixels, which is this file's own rule.
+ * A NOWRAP CELL CANNOT ANSWER A NARROW TRACK BY WRAPPING, so this class alone is not the fix — it
+ * overhangs the track instead and `.table { overflow: hidden }` cuts the figure off, which is what the
+ * first version of this shipped (13px off `SEK 20,700` at 360px). `shrinkableTrack` floors a nowrap
+ * column's track at `min-content` for exactly that reason; the room comes out of the columns beside it,
+ * which are still `minmax(0, Nfr)`. Read the two together — neither works alone.
  */
 .nowrap {
   white-space: nowrap;

@@ -172,9 +172,10 @@ function buildColumns(
            * must not do. Nothing overflowed: `scrollWidth === clientWidth` and a walk of every element
            * found zero offenders, which is the green-is-not-correct lesson exactly.
            *
-           * `nowrap` alone would push the overflow sideways; `min-width: 0` on the cell keeps the grid
-           * free to shrink the columns beside it instead, which is the same fix the CI-width lesson
-           * prescribes — remove the floor rather than buy pixels.
+           * `nowrap` alone DOES push the overflow sideways — this shipped believing the cell's
+           * `min-width: 0` stopped it, and the mobile audit then found 13px of `SEK 20,700` cut off
+           * at 360px. The TRACK has to carry the floor (`minmax(min-content, 1.1fr)`, see
+           * `shrinkableTrack`); the room comes out of the four columns beside this one.
            */
           <b style={{ whiteSpace: "nowrap" }}>
             {row.currency

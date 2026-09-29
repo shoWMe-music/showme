@@ -59,9 +59,28 @@ export interface DataTableProps<Row> {
  * already clears its min-content — which is every desktop layout in this app —
  * the two forms resolve to identical tracks, so nothing wide moves. A `px`
  * column is passed through untouched: a fixed track was a decision, not a floor.
+ *
+ * A `nowrap` COLUMN IS THE ONE EXCEPTION, AND IT TOOK A SECOND DEFECT TO FIND IT.
+ * Removing the floor is only safe where the cell can answer a narrow track by
+ * wrapping. A `nowrap` cell cannot: it overhangs the track instead, and the card
+ * clips it. The first version of this shipped with `minmax(0, Nfr)` for every fr
+ * column and a comment claiming the cell's inherited `min-width: 0` made the grid
+ * "shrink the columns BESIDE this one" — it does not. `min-width: 0` lets the CELL
+ * shrink; it tells the GRID nothing about what the cell needs. The Settlements
+ * list put 343px of row inside a 330px card at 360px and cut 13px off
+ * `SEK 20,700` — a settled figure amputated, where the defect being fixed was the
+ * same figure merely broken.
+ *
+ * `minmax(min-content, Nfr)` is the sentence made true. The min-content of a
+ * `white-space: nowrap` run is the whole run, so the track stops shrinking at the
+ * figure's own width while every neighbouring `minmax(0, Nfr)` goes on giving room
+ * up. Nothing wide moves here either: above the width where the figure fits, both
+ * forms resolve to the same track.
  */
-function shrinkableTrack(width: string): string {
-  return /^\s*[\d.]*fr\s*$/.test(width) ? `minmax(0, ${width.trim()})` : width;
+function shrinkableTrack<Row>(column: DataTableColumn<Row>): string {
+  if (!/^\s*[\d.]*fr\s*$/.test(column.width)) return column.width;
+  const floor = column.wrap === "nowrap" ? "min-content" : "0";
+  return `minmax(${floor}, ${column.width.trim()})`;
 }
 
 /**
@@ -72,7 +91,7 @@ function shrinkableTrack(width: string): string {
  */
 export function DataTable<Row>({ columns, rows, getRowKey, onRowClick, pagination, loading, skeletonRows, className }: DataTableProps<Row>) {
   const { visibleRows, loadMore, pages } = usePagination(rows, pagination);
-  const template = columns.map((column) => shrinkableTrack(column.width)).join(" ");
+  const template = columns.map(shrinkableTrack).join(" ");
   const cells = (row: Row) =>
     columns.map((column, index) => (
       <span key={index} className={classNames(
