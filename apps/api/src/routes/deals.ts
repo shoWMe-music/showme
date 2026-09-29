@@ -973,7 +973,7 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
           ? and(eq(schema.deals.id, before.id), eq(schema.deals.version, expectedVersion))
           : eq(schema.deals.id, before.id);
 
-      const updated = await database.transaction(async (tx) => {
+      const result = await database.transaction(async (tx) => {
         const [after] = await tx
           .update(schema.deals)
           .set({ ...fields, version: before.version + 1, updatedAt: new Date() })
@@ -1031,8 +1031,59 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
             },
           });
         }
-        return after;
+        return { after, cancelled, otherFields };
       });
+      const updated = result.after;
+
+      /*
+       * AND THE PARTIES ARE TOLD (QA sweep run 14's two-sided MAJOR).
+       *
+       * This handler wrote an audit row and an activity row and called `notifyUsers` NOWHERE, while
+       * `deal.sent`, `deal.confirmed` and `deal.reopened` all do. Run 14 instrumented a crew member's
+       * open Deals tab: `POST /send` moved the card in 6 s with zero focus events, so realtime works;
+       * `PATCH {status:cancelled}` left it reading "Sent — awaiting confirmations · Your line
+       * unsigned" for 22 s with **0 mutations** — inviting a signature `assertAgreementSignable`
+       * answers 409 to. `notifyUsers` both persists the row and publishes the frame
+       * `useRealtimeStream` invalidates on, so one call fixes the bell and the stale screen together.
+       *
+       * PARTY-scoped through `dealRecipients`, like its siblings: a performer must not learn that
+       * another party's terms moved (`deal.view.own`), and the agent that has to sign for an act is
+       * included because `dealPartyRecipients` structurally cannot reach them (#14). Best-effort and
+       * post-commit, also like its siblings — a notification that throws must not undo the write.
+       */
+      try {
+        const actorUserId = request.principal?.userId ?? null;
+        const recipients = await dealRecipients(request, updated);
+        if (result.cancelled) {
+          await notifyUsers(database, recipients, actorUserId, {
+            type: "deal.cancelled",
+            title: `Agreement cancelled: "${updated.name ?? "a deal"}"`,
+            body: "It pays nobody. Nothing more is needed from you.",
+            eventId: updated.eventId,
+            actorDisplay: request.firebaseUser?.name ?? undefined,
+            link: `/events/${updated.eventId}`,
+            metadata: { dealId: updated.id },
+          });
+        } else if (result.otherFields.length > 0 && updated.agreementStatus !== "draft") {
+          /*
+           * ONLY ONCE IT HAS BEEN SENT. An edit is reachable only before the first signature (the
+           * terms seal there), so nobody has signed either way — but before sending, nobody has SEEN
+           * it and there is nothing to correct. A notification per form-save on a draft would be
+           * noise the reader cannot act on.
+           */
+          await notifyUsers(database, recipients, actorUserId, {
+            type: "deal.updated",
+            title: `Agreement changed: "${updated.name ?? "a deal"}"`,
+            body: "The terms you were sent have moved. Read them before you confirm.",
+            eventId: updated.eventId,
+            actorDisplay: request.firebaseUser?.name ?? undefined,
+            link: `/events/${updated.eventId}`,
+            metadata: { dealId: updated.id, fields: result.otherFields },
+          });
+        }
+      } catch (error) {
+        request.log.error({ error, dealId: updated.id }, "deal PATCH notification failed");
+      }
 
       const parties = await loadDealParties(request, updated.id);
       return serializeDeal(updated, parties, viewer);

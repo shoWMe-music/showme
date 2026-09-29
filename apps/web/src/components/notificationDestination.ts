@@ -70,10 +70,20 @@ const STATIC_ROUTES = [
  * a link may name a panel freely and the screen decides whether it exists.
  */
 const TAB_BY_NOTIFICATION_TYPE: Record<string, string> = {
-  // An agreement — sent, confirmed or reopened — is read on the Deals tab.
+  /*
+   * An agreement is read on the Deals tab, whatever moved.
+   *
+   * `deal.cancelled` and `deal.updated` were added with the notifications themselves (QA sweep run
+   * 14): the PATCH handler wrote an audit row and an activity row and told nobody. Adding the two
+   * types here in the SAME change is the point — run 13's bell defect was a stored row whose type
+   * this map did not carry, which renders as an inert `<div>` rather than a link. `select distinct
+   * type from notifications` is what confirms the key is the STORED type and not an SSE frame's.
+   */
   "deal.sent": "deals",
   "deal.confirmed": "deals",
   "deal.reopened": "deals",
+  "deal.cancelled": "deals",
+  "deal.updated": "deals",
   // Somebody joined the bill. The roster is Team / Crew.
   "event.participant_added": "crew",
   // An invitation ANSWERED — accepted or declined. Collaborators is where an invited

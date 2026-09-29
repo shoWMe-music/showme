@@ -256,3 +256,104 @@ the state the fix was proved in.
 `npx biome check .` 756 clean · API `settlement` **126** (from 125), + `settlement-own-read` +
 `insights` **152** · `tsc` clean.
 
+---
+
+## 5. Run 14 MAJOR — cancelling an agreement tells nobody and pushes nothing
+
+Pre-existing. Run 14 proved it **two-sided**, which is what makes it worth this much care: a crew
+member's Deals tab, instrumented with a `MutationObserver` plus focus/visibility counters.
+`POST /send` moved the card in 6 s with `focus: 0` — so realtime works. `PATCH {status:cancelled}`
+left it reading *"Sent — awaiting confirmations · Your line unsigned"* for 22 s with **0 mutations**,
+inviting a signature `assertAgreementSignable` answers 409 to.
+
+### Which file settles it, and what is already there
+
+`apps/api/src/routes/deals.ts`, the `app.patch` handler. Everything needed exists:
+
+- **`dealRecipients(request, deal)`** — the parties, *plus* the agent that has to sign for one. Its
+  docstring records why: #14 refuses an agent any deal role but `observer`, so `dealPartyRecipients`
+  structurally cannot reach them, and the party that must ACT was the one not told.
+- **`deal.cancelled` already has its own ACTIVITY row** (added in run 12's pass, with its own
+  reasoning about not swallowing a fee that moved in the same call). Only the *notification* is
+  missing — and `notifyUsers` is what both persists the row and publishes the SSE frame
+  `useRealtimeStream` invalidates on, so one call fixes the bell and the stale screen together.
+
+### The scope, and the part I am narrowing on purpose
+
+The report notes *"the same gap covers every other field the PATCH moves"*. Two different cases:
+
+1. **Cancellation** — unambiguous. A party who signed must be told the agreement was withdrawn, and
+   the screen must stop inviting a refused signature. Build.
+2. **A field edit** — only reachable *before* the first signature (the terms seal at that point), so
+   nobody has signed. But if the deal has already been **sent**, the parties are looking at a figure
+   that has changed under them. Notify **only when `agreement_status` is past draft**: before
+   sending, nobody has seen it and there is nothing to correct. A notification per form-save on a
+   draft would be noise the reader cannot act on.
+
+### And the client map, or the row is inert
+
+`notificationDestination.ts` maps `deal.sent`, `deal.confirmed`, `deal.reopened` → `deals` and knows
+nothing of the two new types. **That is exactly run 13's bell defect** — a stored row whose type the
+map does not carry renders as a dead `<div>`. Both sides in the same commit, and `select distinct
+type from notifications` is the check that the key is the STORED type rather than an SSE frame's.
+
+### Built
+
+The PATCH transaction now hands back `{ after, cancelled, otherFields }`, and a post-commit
+`try/catch` notifies through `dealRecipients` — the same shape, scoping and best-effort treatment as
+`deal.sent` twenty lines above. `notifyUsers` persists the row **and** publishes the frame, so the
+bell and the stale screen are one fix.
+
+`notificationDestination.ts` gains `deal.cancelled` and `deal.updated` → `deals` **in the same
+commit**, because a stored row whose type the map does not carry renders as an inert `<div>` — run
+13's bell defect exactly.
+
+### Mutations — five, all killed, and the survivor taught me what the code does
+
+| Mutation | Result |
+| --- | --- |
+| no notification at all (the reported defect) | killed |
+| notify a DRAFT edit too | killed |
+| never notify a sent edit | killed |
+| **notify the ACTOR as well** | **survived, then closed** |
+| a stored query string in the link | killed |
+
+**Chasing M4 corrected something I believed.** I had assumed the third argument to `notifyUsers`
+excludes the actor from the recipients. It does not — `notifyUsers` only **stamps** it
+(`actorUserId: notification.actorUserId ?? actorUserId ?? null`), and the exclusion happens inside
+`dealRecipients` → `dealPartyRecipients(database, deal.id, actorUserId)`, which reads the actor from
+the request. So my *"the actor gets no bell"* assertion was passing for a different reason than I
+thought, and the stamp a party reads as **who cancelled it** was asserted nowhere. Now it is.
+
+**And a test of mine failed on its own false premise again**: `seedSplitDeal`'s option is
+`if (options.send !== false)`, so **omitting it sends** — only `{ send: false }` leaves a draft. Read
+the helper's default rather than inferring it from the option's name.
+
+### Proved two-sided on the running stack, with run 14's own instrumentation
+
+A probe deal with the crew member as payee, sent, then cancelled from the operator's seat while the
+crew member's Deals tab sat open with a `MutationObserver` on `main` plus focus/visibility counters:
+
+```
+before:  "Part37 cancel notice probe · Sent — awaiting confirmations · Your line unsigned · Confirm your line"
+after:   "Part37 cancel notice probe · Cancelled — withdrawn · Cancelled — these terms pay nobody"
+probe:   { changes: 1, focus: 0, vis: 0 }        ← run 14 measured 0 changes over 22 s
+```
+
+The Confirm affordance is gone (`stillInvitesASignature: false`), so nobody is being offered a
+signature `assertAgreementSignable` answers 409 to. The stored row alongside it:
+
+```
+deal.cancelled | Agreement cancelled: "Part37 cancel notice probe"
+               | It pays nobody. Nothing more is needed from you.
+               | /events/e2e…e1        ← bare
+               | actor_user_id: e2e-operator
+```
+
+**Seed note:** the probe deal is left cancelled on e1, beside the others.
+
+### Suites
+
+`npx biome check .` 756 clean · web **630** · API `deals` **87** (from 85), + `notifications` +
+`activity` **121** · `tsc` clean.
+

@@ -888,6 +888,96 @@ describe("deals — reopen (decisions #1)", () => {
     );
   });
 
+  it("TELLS THE PARTIES when an agreement is cancelled, and links them to the Deals tab", async () => {
+    /*
+     * QA sweep run 14's two-sided MAJOR. The PATCH handler wrote an audit row and an activity row and
+     * called `notifyUsers` NOWHERE, while `deal.sent`, `deal.confirmed` and `deal.reopened` all do.
+     * Run 14 instrumented a crew member's open Deals tab: send moved the card in 6 s, cancel left it
+     * reading "Sent — awaiting confirmations · Your line unsigned" for 22 s with ZERO mutations —
+     * inviting a signature `assertAgreementSignable` answers 409 to.
+     *
+     * `notifyUsers` both persists the row and publishes the frame `useRealtimeStream` invalidates on,
+     * so this assertion covers the bell and the stale screen at once.
+     */
+    const deal = await seedSplitDeal("dc-notify", { send: true });
+
+    const cancelled = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${deal.dealId}`,
+      headers: auth(deal.opUid),
+      payload: { status: "cancelled" },
+    });
+    expect(cancelled.statusCode).toBe(200);
+
+    for (const uid of [deal.aUid, deal.bUid]) {
+      const bells = await harness.db
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.userId, uid));
+      const bell = bells.find((row) => row.type === "deal.cancelled");
+      expect(bell, `party ${uid} was told`).toBeDefined();
+      expect(bell?.body).toContain("pays nobody");
+      // BARE, like every other writer on this route — the tab is the client's to decide from the
+      // type, and a stored query string is a stored value steering navigation (run 13).
+      expect(bell?.link).toBe(`/events/${deal.event.id}`);
+      /*
+       * AND IT RECORDS WHO DID IT. A mutation dropping the actor from `notifyUsers` survived every
+       * other assertion here, and chasing it showed the argument is not what excludes the actor from
+       * the recipients — `dealRecipients` does that, from the request — it is what STAMPS the row.
+       * So "the actor gets no bell" below was passing for a different reason than I had assumed, and
+       * the stamp a party reads as "cancelled by whom" was asserted nowhere.
+       */
+      expect(bell?.actorUserId).toBe(deal.opUid);
+    }
+
+    // AND NOT THE ACTOR. Every sibling excludes them; a promoter does not need telling what they
+    // just did.
+    const own = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, deal.opUid));
+    expect(own.some((row) => row.type === "deal.cancelled")).toBe(false);
+  });
+
+  it("tells the parties a SENT agreement's terms moved, and stays quiet on a draft", async () => {
+    /*
+     * The other half of the same gap, narrowed on purpose. An edit is reachable only before the first
+     * signature (the terms seal there), so nobody has signed either way — but before SENDING, nobody
+     * has seen it and there is nothing to correct. A notification per form-save on a draft would be
+     * noise the reader cannot act on, so the quiet case is asserted as its own control rather than
+     * left to reasoning.
+     */
+    const draft = await seedSplitDeal("dc-draft", { send: false });
+    const editedDraft = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${draft.dealId}`,
+      headers: auth(draft.opUid),
+      payload: { name: "Renamed while still a draft" },
+    });
+    expect(editedDraft.statusCode).toBe(200);
+    const draftBells = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, draft.aUid));
+    expect(draftBells.some((row) => row.type === "deal.updated")).toBe(false);
+
+    const sent = await seedSplitDeal("dc-sentedit", { send: true });
+    const editedSent = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/deals/${sent.dealId}`,
+      headers: auth(sent.opUid),
+      payload: { name: "Renamed after sending" },
+    });
+    expect(editedSent.statusCode).toBe(200);
+    const sentBells = await harness.db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.userId, sent.aUid));
+    const bell = sentBells.find((row) => row.type === "deal.updated");
+    expect(bell, "a party who was sent terms is told they moved").toBeDefined();
+    expect(bell?.body).toContain("before you confirm");
+  });
+
   it("refuses to reopen an agreement that is not confirmed (409)", async () => {
     const deal = await seedSplitDeal("dr2");
     const early = await reopen(deal.dealId, deal.opUid, "too soon");
