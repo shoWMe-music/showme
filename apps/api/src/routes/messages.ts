@@ -398,6 +398,9 @@ async function publishMessagePosted(
     title: `New message on "${event.title ?? "your event"}"`,
     eventId,
     actorDisplay,
-    link: `/events/${eventId}?tab=messages`,
+    // BARE, like every other writer and like this route's own realtime twin above. Which TAB a
+    // notification opens is `notificationDestination`'s map, keyed on this `type` — stating it in
+    // the link as well put the same fact in two places, and the two disagreed (run 13).
+    link: `/events/${eventId}`,
   });
 }

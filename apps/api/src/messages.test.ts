@@ -523,9 +523,22 @@ describe("messages — the bell", () => {
     const performer = await notificationsFor("bell-all-perf");
     expect(performer).toHaveLength(1);
     expect(performer[0]?.type).toBe("message.posted");
-    // The night, not the message — and the link opens the thread rather than the event.
+    /*
+     * THE NIGHT, NOT THE MESSAGE — and the link is BARE, which this assertion used to contradict.
+     *
+     * It read `/events/<id>?tab=messages`, with the comment "the link opens the thread rather than
+     * the event". That link never opened anything: `notificationDestination`'s allow-list is anchored
+     * before `?` ON PURPOSE — *"the tab is OURS to decide from the type — a stored one would be a
+     * stored value steering navigation, which is the thing this module exists to prevent"* — and its
+     * own test asserts a query-carrying link is refused.
+     *
+     * So TWO GREEN TESTS, one on each side of the wire, pinned incompatible shapes: this one said
+     * the link must carry the tab, the client's said such a link must be refused. Both passed, and
+     * the row rendered as dead text — the only entry in the bell nobody could click (run 13).
+     * Which tab a notification opens is the client's map, keyed on `type`.
+     */
     expect(performer[0]?.title).toContain(event.title ?? "");
-    expect(performer[0]?.link).toBe(`/events/${event.id}?tab=messages`);
+    expect(performer[0]?.link).toBe(`/events/${event.id}`);
     expect(performer[0]?.body ?? "").not.toContain("Doors at 19:00");
 
     // You are never told about your own post.

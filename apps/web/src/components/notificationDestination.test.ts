@@ -45,11 +45,26 @@ describe("notificationDestination", () => {
     });
 
     it("sends a message to the thread it was posted in", () => {
-      // Two deliveries of one event — the stored bell and the realtime twin — carry the
-      // same bare link, so the rule that reads the type covers both.
+      /*
+       * THE STORED TYPE, and this test used to assert the other one.
+       *
+       * Its fixture was `event.message_posted` — the realtime SSE FRAME's type — with the comment
+       * "two deliveries of one event … carry the same bare link, so the rule that reads the type
+       * covers both". Neither half was true: the stored row's type is `message.posted` and its link
+       * carried `?tab=messages`. So the test passed over a dead map entry while the only shape the
+       * bell can actually receive went uncovered, and the one row in the feed that was broken was the
+       * one nobody had written a fixture for (QA sweep run 13).
+       *
+       * Only `NotificationBell` calls this function and the bell reads stored rows, so the stored
+       * type is the whole of what needs keying.
+       */
+      expect(
+        notificationDestination({ link: `/events/${EVENT}`, type: "message.posted" }),
+      ).toMatchObject({ search: { tab: "messages" } });
+      // And the frame's type is not a destination at all — it never reaches the table.
       expect(
         notificationDestination({ link: `/events/${EVENT}`, type: "event.message_posted" }),
-      ).toMatchObject({ search: { tab: "messages" } });
+      ).toMatchObject({ search: {} });
     });
 
     it("sends an answered invitation to Collaborators, not to the crew roster", () => {

@@ -379,3 +379,96 @@ Mutations — three, all killed: the clause removed (the defect), the clause inv
 deals disclose), and the clause filtering `draft` instead.
 
 Suites: biome 748 files · API `settlement-own-read` **15** (was 14) · `settlement` 124.
+
+---
+
+## 7. [MINOR] The one "New message" row in the bell is dead text — run 13 §2 line 217
+
+**Which file settles it:** `apps/api/src/routes/messages.ts:401` and
+`apps/web/src/components/notificationDestination.ts` — and **a test that kept the whole thing green.**
+
+**What was measured.** Every row in the open bell is a `<button>` except *"New message on …"*, which
+renders as an inert `<div>` — no tab stop, no pointer, no navigation.
+
+**Two mismatches, and the comment on the code asserts both the other way round:**
+
+| | Written | Expected |
+|---|---|---|
+| the link | `` `/events/${eventId}?tab=messages` `` | `EVENT_LINK = /^\/events\/([^/?#]+)$/` — anchored **before** the query string, so it matches nothing → `null` → an unlinked row |
+| the type | stored row is **`message.posted`** | the map keys **`event.message_posted`**, which is the **SSE frame** type and never reaches the `notifications` table |
+
+`select distinct type from notifications` confirms it: thirteen types, `message.posted` among them,
+`event.message_posted` absent. And the comment above the map says *"Both deliveries of this type …
+carry the same **bare** event link, so one rule covers both"* — neither half is true.
+
+**AND A TEST PINNED IT.** `notificationDestination.test.ts:47`, *"sends a message to the thread it was
+posted in"*, asserts `{ link: '/events/<id>', type: 'event.message_posted' }` → `tab: messages`. It
+passes, and it has always passed, because **its fixture is the SSE frame** — a bare link and a type
+string the bell can never receive. The one row that was broken was the one shape nobody tested. Second
+instance in this codebase of a green test standing over a dead rule (`authorize.test.ts` was the
+first, and CLAUDE.md records it).
+
+**The verdict — and the report's suggested fix is half right.** It says *"relaxing the regex fixes the
+click … Dropping `?tab=messages` alone would not be enough — the type key is also wrong."* True, but
+it leaves **two mechanisms saying which tab**: the link's query string and the type map. Every other
+writer's link is bare and takes its tab from the map, *including this one's own SSE sibling twelve
+lines above it*. There is no email argument for keeping the query either — `notifyUsers` takes the
+mail as a separate `NotificationEmail` with its own message, so the stored `link` never reaches an
+inbox.
+
+**So one mechanism, and it is the map:**
+1. `messages.ts` writes the **bare** link, like every other writer and like its own realtime twin.
+2. The map keys **`message.posted`** — the type the table actually holds. `event.message_posted` is
+   deleted: only `NotificationBell` calls this function, and the bell reads stored rows.
+3. **`EVENT_LINK` is relaxed anyway** — `/^\/events\/([^/?#]+)(?:[?#].*)?$/` — not to fix this bug,
+   which (1) and (2) fix, but because the failure was **silent**: a link that does not match renders
+   as dead text with no error anywhere. That class should not be reachable by a future writer adding
+   a query string, and it gets its own test.
+4. The test's fixture moves to the stored type, and the misleading comment goes.
+
+### THE REPORT'S SUGGESTED FIX WOULD HAVE DEFEATED THE MODULE
+
+*"Relaxing the regex to `/^\/events\/([^/?#]+)(?:[?#].*)?$/` fixes the click for this and any future
+writer."* I built it, and **an existing test refused it** — with its reason attached:
+
+> *"The event pattern stops at `?` and `#` **on purpose**, so a link carrying its own query string
+> cannot reach the router. The tab is OURS to decide from the type — a stored one would be a stored
+> value steering navigation, which is the thing this module exists to prevent."*
+
+The anchoring is a **security boundary**: it stops a value in the database from steering the router.
+Relaxing it to fix a dead row would have traded the module's whole purpose for a click.
+
+**Fourth instance of "check what the line is load-bearing for", and the first where the suggestion
+would have weakened a security rule rather than merely broken tests.** The regex is unchanged and now
+says so in place, so the next reader does not try it again.
+
+### TWO GREEN TESTS, ONE ON EACH SIDE OF THE WIRE, PINNING INCOMPATIBLE SHAPES
+
+That is the real reason this row was dead, and neither side could see it alone:
+
+| | Asserted | Passed |
+|---|---|---|
+| `messages.test.ts:528` | the link **must** carry `?tab=messages` — *"the link opens the thread rather than the event"* | ✓ |
+| `notificationDestination.test.ts:180` | a link carrying a query string **must be refused** | ✓ |
+
+And a third test kept the type mismatch invisible: *"sends a message to the thread it was posted in"*
+used **`event.message_posted`** — the realtime SSE frame's type — as its fixture, so it asserted a map
+entry for a string the `notifications` table never holds. The only shape the bell can actually receive
+went uncovered, and that shape was the broken one.
+
+**So the fix is one mechanism, not a third:** the link goes **bare** like every other writer and like
+this route's own realtime twin twelve lines above it, and the map keys **`message.posted`**. Read live:
+
+```
+stored row   message.posted | /events/e2e…e1          ← was /events/…?tab=messages
+the bell     BUTTON "New message on "Marlo Vance — Album Release"" ← was an inert DIV
+clicking it  → /events/e2e…e1?tab=messages, Messages panel open
+```
+
+The tab is still `?tab=messages` in the URL — decided by the client from the type, which is the rule
+the module exists to keep.
+
+Mutations — three, all killed: the map keying the SSE type again (the defect), messages losing its tab
+entry, and **the report's own regex relaxation**.
+
+Suites: biome 748 files · web 602 · API `messages` 31.

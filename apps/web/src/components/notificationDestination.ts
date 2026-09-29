@@ -81,10 +81,21 @@ const TAB_BY_NOTIFICATION_TYPE: Record<string, string> = {
   // Crew lists the people already standing on the event, which is a different question.
   "event.invitation_accepted": "collaborators",
   "event.invitation_declined": "collaborators",
-  // A message is read in the thread it was posted to. Both deliveries of this type —
-  // the stored bell (`routes/messages.ts`) and the realtime one (`@showme/db/notify`)
-  // — carry the same bare event link, so one rule covers both.
-  "event.message_posted": "messages",
+  /*
+   * A message is read in the thread it was posted to.
+   *
+   * THE KEY IS THE STORED TYPE, which is `message.posted`. It read `event.message_posted` — the
+   * type of the realtime SSE FRAME (`routes/messages.ts`'s `publish`, `notify.ts`) — and that string
+   * never reaches the `notifications` table, so the entry was dead and the row landed on Event
+   * Details instead of Messages. `select distinct type from notifications` lists thirteen types and
+   * `event.message_posted` is not one of them.
+   *
+   * The comment here used to claim both deliveries carried the same bare link and that one rule
+   * covered both. Neither half was true, and a test kept it green by using the SSE frame's shape as
+   * its fixture. Only `NotificationBell` calls this function and the bell reads stored rows, so
+   * there is one type to key.
+   */
+  "message.posted": "messages",
   // The one settlement notification that does NOT already point at the dedicated
   // settlement workspace. Its stored link is a bare `/events/<id>`, so until now
   // the message that the money is final landed on the event's description.
@@ -101,7 +112,19 @@ export type NotificationDestination =
   | { to: "/events/$eventId/settlement"; params: { eventId: string } }
   | { to: (typeof STATIC_ROUTES)[number] };
 
-/** The two parameterised links the API's writers produce. */
+/**
+ * The two parameterised links the API's writers produce.
+ *
+ * ANCHORED BEFORE `?` AND `#`, AND THAT IS A SECURITY RULE — do not relax it. A stored link that
+ * carried its own query string could steer navigation from the database, which is the thing this
+ * allow-list exists to prevent: the tab is OURS to decide from the `type`. Its own test says so
+ * ("refuses an event link that brought its own query string").
+ *
+ * QA sweep run 13 reported the "New message" row as dead text and suggested relaxing this pattern,
+ * because `messages.ts` was writing `/events/<id>?tab=messages` and matching nothing. That would
+ * have defeated the module. The writer was the thing at fault and now sends a bare link like every
+ * other one, including its own realtime twin.
+ */
 const EVENT_LINK = /^\/events\/([^/?#]+)$/;
 // `/events/<id>/settlement` is the settlement WORKSPACE — a route of its own, not
 // a tab (`router.tsx`). Every settlement notification has always pointed at it
