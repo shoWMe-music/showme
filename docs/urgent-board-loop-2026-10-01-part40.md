@@ -436,3 +436,55 @@ clipped cell. A defect class with exactly one witness is worth knowing about.
 ```
 biome  757 files, no fixes      web 43 files · 682 tests      e2e 118 passed
 ```
+
+## While run 17 walks: part 39 §1's payload half is smaller than §1 thought
+
+No code may be edited until the sweep returns, so this is the read-only half of the work — checking
+the plan's premises before building on them. Two hold and one is wrong in a useful direction.
+
+**Hold.** `mergeTicketTierSeeds` is still at `useBudgetEditor.ts:184` with its four tests; the API's
+copy is still `settlement-lines.ts:142` (`statesItsOwnDoor`) plus `:241` (`alreadyStated`), matching
+`id:` then `name:` with the `|| "ticket tier"` fallback. The three cases and the two callers'
+different vocabularies are as §1 describes them, so the extracted signature stands.
+
+**Wrong, and cheaply.** §1 says *"Projections has no input today — `ticketTiers` is not served on the
+events list. `GET /events` must carry it"*, and weighs serving the tiers against serving a
+precomputed total. **The tiers are already served — and then thrown away.**
+
+- `serialize/event.ts:152` — `if (capabilities.has("event.edit")) { … base.extras = event.extras ?? null }`.
+  Every list row that the caller can edit already leaves the serializer carrying
+  `extras.ticketTiers`.
+- `routes/events-list.ts:117` — `EventResponse` never declares `extras`, so **Fastify strips it**.
+
+That is the fifth time this exact thing has happened in this one schema, and the file documents the
+other four itself: `hostProfileId` (the create wizard counted strangers into the operator's own hold
+queue), `venueName` (the Calendar advertised a search it could not perform), `capacity` (an em-dash
+under "Cap"), and `capabilities` (a menu offering what the API refuses). **A NAME THE API DOES SERVE
+THAT THE SCREEN IGNORES** — six instances now, four of them in the same twenty lines. The lesson has
+stopped being about any one field: *a response schema that must re-declare what the serializer
+already returns will keep silently dropping fields*, and nothing fails when it does.
+
+### So the scope changes
+
+Not "make `GET /events` carry the tiers" — **declare the leaf it already receives**, and declare only
+that leaf:
+
+```ts
+/** … the tiers only. `extras` also holds a GUEST LIST. */
+ticketTiers: z.array(TicketTier).optional(),
+```
+
+Declaring `extras` whole would be the smaller diff and the wrong one. Authorization is unchanged
+either way — the serializer has already gated the whole object on `event.edit`, the same gate the
+detail route uses — but `extras` carries `guestList`, `dealDraft`, `venueCarryOver` and the free-text
+venue leaves, and putting all of it on a **paged** list read is a payload and disclosure decision
+nobody asked for. One leaf, same gate, and `TicketTier` already exists at
+`serialize/event-extras.ts:83`.
+
+It also kills §1's own open choice. "The tiers, or a precomputed total?" only had force while the
+tiers cost a new payload; they cost a schema line, so the total — which would have put the merge
+rule in a fourth place — is decided against on its own terms.
+
+**The decision this does NOT take** is unchanged and still Daniel's: *should a tier on Event Details
+write a budget line the moment it is typed?* That would make all three callers agree at the source
+and is a product call, not a refactor.
