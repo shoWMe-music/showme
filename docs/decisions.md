@@ -1287,6 +1287,12 @@ comments and loop docs for the reason `123qy9rng6d` exists: *"the outcome has ne
 recorded anywhere that outranks a handoff note."* Each names where it is implemented, so
 overruling one is a change to a known line rather than an archaeology exercise.
 
+> **§25.6 IS NOW EMPTY — every row below has been ruled on.** The last twelve were answered
+> 2026-09-29 in one pass: see **§25.9**, which also overrules two of the calls listed here
+> (`event.publish` in the performer and agent presets, and the acceptability of an invitation to a
+> cancelled event) and replaces the settlement-granularity question with a broader rule. **§25.9
+> outranks every recommendation below.** The rows stay as the argument that produced the rulings.
+>
 > **FOUR OF THESE ARE NOW DANIEL'S, ANSWERED 2026-09-28 — see §25.7.** The rental's payer, the
 > deletability of a deal, the represented act's sight of its agent's pitches, and the co-host's
 > power over the host's show. §25.7 is the ruling; the rows below stay as the argument that
@@ -1533,6 +1539,173 @@ saying out loud rather than being left as a call taken while building. #12 survi
 sees another act's rider. What #12 never considered is a document whose only purpose is to be read
 **by** the acts, which is what Ran named — *"{Venue Name}: Technical info · Equipment list · Rules of
 Behavior"* — and what the share dialog had already promised in copy.
+
+### 25.9 Daniel's rulings, 2026-09-29 — the rest of §25.6, answered in one pass
+
+Asked as an interactive list and answered in one sitting. **These outrank every recommendation in
+§25.6, every comment in the code, and — where they say so — earlier decisions of Daniel's own.**
+§25.6 is now EMPTY: every row it held has been ruled on here, in §25.7 or in §25.8.
+
+Two went against the recommendation (25.9.2 and 25.9.9), one replaced the question with a better
+rule (25.9.5), and one deliberately reverses part of **#24.1** (25.9.12).
+
+#### 25.9.1 The idle-logout timeout is per DEVICE — confirmed
+
+**Ruling:** confirmed as built (`lib/idleLogout.ts`, `localStorage`). What is protected is an
+unattended screen, not an account-wide policy. Server-side later is one storage line.
+
+#### 25.9.2 ONLY THE HOST MAY PUBLISH AN EVENT — this OVERRULES §25.6
+
+**Ruling:** *"Only the host can publish an event."* §25.6 had `event.publish` in the **performer**
+preset **and** the **agent** preset, on the grounds that either side may announce an event and that
+a delegated performer has no band to do it for them. **Overruled.** Publishing is the host's.
+
+**What this obliges.** `packages/auth/src/presets.ts` loses `event.publish` from the performer and
+agent presets. And publishing joins the family §25.7.4 already defined for **cancelling and
+renaming** — the acts that belong to the event's creator rather than to whoever holds a capability —
+so it is gated on the **host profile**, with the same handover §25.7.4 provides, rather than on
+`event.publish` alone. That answers the co-host too: a co-host holds the operator preset, so a
+capability check alone would let them announce an event that is not theirs, which is the hole
+§25.7.4 was ruled on to close. **Following the shipped precedent rather than inventing a second
+shape for the same class of act.**
+
+#### 25.9.3 A change notice goes to everyone on the bill minus the actor — confirmed
+
+**Ruling:** confirmed as built (`lib/event-change-notice.ts`), the actor's own colleagues included.
+The cancellation and publication notices already behave this way, so all three agree. The noise
+argument belongs to the `events` switch in `notification_preferences`, where a person can act on it.
+
+#### 25.9.4 The calendar day popover follows the LATER ticket
+
+**Ruling:** *"Do whatever the later ticket said."* `86cbcn189` said the calendar is view-only;
+`123qy9rnk21`, three days later, asked that popover for **Publish/Unpublish and Invite**. The later
+one governs. Publish/Unpublish is built; **Invite is not, and is now owed** — it was left out under
+§25.6's reading that only a named one-press act belongs there. Print details stays out: it was never
+asked for. Publish here is subject to 25.9.2, so it shows for the host and nobody else.
+
+#### 25.9.5 YOU SEE WHAT WAS SHARED WITH YOU, AND NOTHING THE SHARER CANNOT SEE
+
+**Ruling, in Daniel's words:** *"If I share my deal / settlement, the person I share with should see
+what I shared. They should not see what was not shared or what I cannot see."*
+
+**This replaces the question rather than answering it.** §25.6 asked whether observing or funding ONE
+deal discloses a party's WHOLE settlement, and offered participant-granularity or deal-granularity.
+The ruling is a principle that decides that case and others: **visibility is what was deliberately
+shared, bounded above by the sharer's own sight.** It is the same rule Daniel gave for the share
+dialog on 2026-09-29 (*"The person who shares should only be able to share what they can see"*), and
+the two should be read as one rule with two surfaces.
+
+**What this obliges.** The measured defect stands and is the first thing it fixes: `partiesVisibleTo`
+returns participant ids and the route serves those participants' whole settlement rows, so a crew
+member named `observer` on a SEK 5,000 guarantee was served a performer's **SEK 30,800** entitlement,
+earned entirely under an agreement they are a party to in no role. Under this ruling they see the
+shared deal's lines and nothing else, with the scalar aggregates served as null rather than partly
+computed (*"name no figure rather than the wrong one"*). **The ceiling half is already built** —
+`narrowSharedCapabilities` will not put a capability on a share link that the sharer does not hold —
+so what is owed is the first half, on the deal-observer path. This reverses part of A-07 and QA10-2,
+which built participant-granularity deliberately; `settlement.test.ts` pins that a payer sees the
+payee's line, and that assertion is now wrong and must flip. The caller's OWN row is untouched.
+
+#### 25.9.6 A named payer on a NON-RENTAL deal pays it — as a transfer
+
+**Ruling:** *the recommendation.* A non-rental deal whose named `payer` is a party on the event
+settles as a **transfer between its two parties** and leaves the pool alone — mirroring §25.7.1's
+shape for rentals.
+
+**What it fixes.** `reconcile.ts` reads `payerParticipantId` only in the rental pass and the
+advance/prepaid pass, so a `performance`/`guarantee` deal had no branch that charged its payer: the
+pool funded it and the shortfall landed on the residual. Measured three times, three splits, one
+shape — the sharpest being a SEK 4,000 guarantee from The Lantern Hall to Priya Sound under a 70/30
+operator split, where **Northlight bears SEK 1,200 of a contract it is a party to in no role** and
+reads it on its own dashboard.
+
+**What this obliges.** The Budget Planner row that has been waiting on this answer (`performerFeeOf`
+returns null for a non-performer payee, so the planner shows no cost and disagrees with the
+settlement by the fee) is now un-blocked and owed: the payer bears it, so the planner shows the cost
+against the payer.
+
+#### 25.9.7 A SIGNATURE CLEARS when the figures it signed change
+
+**Ruling:** *the recommendation.* Clear the signature and ask again, matching the deal side, whose
+copy already says so (*"Reopen it to renegotiate. That clears every signature and asks the parties
+again."*). A signature against figures that changed is not consent to the new ones.
+
+**The risk, recorded because it was weighed:** a settlement is recomputed far more often than a deal
+is reopened, and clearing on every recompute could make a many-party event hard to close in practice.
+The clearing must therefore fire on a REAL change to that party's own figures — `samePartyFigures`
+and `figures_changed_at` already draw exactly that line and exist for the sibling disclosure.
+
+**Shares one migration with 25.9.8.** `settlement_approvals` wants the version or entitlement it was
+given against, which is also what lets the disclosure name the old figure rather than only the fact.
+
+#### 25.9.8 An objection is LINE-SCOPED — it marks the party's own row
+
+**Ruling:** *the recommendation.* An objection marks the objecting party's row rather than moving the
+whole event's settlement status. `settlement_approvals` already has a row per party and gains a
+declined state.
+
+**What it fixes.** Signing became settlement-scoped in §25.8.2 while `dispute` stayed event-scoped, so
+the two halves of one conversation came apart: the review email truthfully asks a crew member to sign
+off and in the same breath says *"if something looks wrong, say so there"*, which they cannot do. The
+asking-and-ability rule §25.8.2 was decided on is half-kept until this lands.
+
+**And it retires a workaround.** `eventHasBeenFinalized` exists because `dispute` overwrites
+`settlements.status` — the column that records the freeze. Once an objection is its own row, the
+status stops being overwritten and that whole class of defect (run 16's first MAJOR, run 17's QA17-2)
+disappears at the source. The guard stays as a belt, but it stops being load-bearing.
+
+#### 25.9.9 An invitation to a CANCELLED event may NOT be accepted — against the recommendation
+
+**Ruling:** *"Refuse the acceptance."* §25.6 recommended keeping it acceptable, on the grounds that a
+cancelled event can be reinstated. **Overruled.**
+
+**Read narrowly, and deliberately: ACCEPT is refused; DECLINE is not.** The cost §25.6 raised against
+refusing was that it also stops a performer putting a decline on record, which is the answer they are
+most likely to want. The ruling names the acceptance and only the acceptance, so declining stays
+open — that honours the ruling and avoids the cost it was warned about. If that reading is wrong, it
+is one condition to widen.
+
+**The disclosure half is already built** and is not affected: the landing page heads *"This event has
+been called off"* and the Requests inbox badges the row `Cancelled`, so nobody meets the refusal
+without having been told why.
+
+#### 25.9.10 A DRAFT deal may be deleted on a settled event
+
+**Ruling:** *the recommendation.* Allow it, scoped by the invariant rather than by a new column — **a
+draft deal cannot have been reconciled.** Compute refuses to run while any deal with a signatory is
+unsigned, and a deal with only observers entitles nobody, so on both branches a draft deal has no
+`settlement_lines` row and no entitlement, which is precisely what §25.7.2's rationale protects.
+
+**What it fixes.** §25.7.2's second clause is implemented as *any* settlement row on the event, so a
+draft created AFTER the compute cannot be deleted — and at that moment `POST …/settlement/compute` is
+refusing to run **because of it**. A deadlock with no way out on screen.
+
+#### 25.9.11 A private book stands on its OWN capability
+
+**Ruling:** *the recommendation.* The private book gets its own capability rather than riding on
+`budget.view`. They are different disclosures: one is the event's shared pool, the other is the
+reader's own arithmetic about their own money.
+
+**What it fixes.** `PLAN.md:215` defines the private book as *"the extra an operator MAY ALSO keep,
+existing only once there is a co-host to keep it from"* — so the book exists **for** that seat, while
+the chooser that opens it sits behind the capability the role floor withholds. A floor-only co-host
+could keep no private record of its own margin on an event it co-produces. **`PLAN.md:215` and the
+preset stop disagreeing.**
+
+#### 25.9.12 The rental rule applies BROADLY — this reverses part of #24.1
+
+**Ruling:** *"Apply it broadly."* §25.7.1 settled a rental as a transfer **when its payer is a party
+on the event**, and explicitly left #24.1's *promoter rents from the venue* case alone because
+#24.1 is Daniel's. It is now overruled by its author: the condition drops entirely, so **whoever
+signed the room hire bears it, always**, and a venue rental the promoter signed stops being shared by
+the performer.
+
+**Why:** the same principle throughout — *a party cannot be charged for an agreement they are not a
+party to* — and one rule is easier to explain than two.
+
+**What this obliges.** `theShowPaysForItsRoom` becomes just *"no payer named"* (the pool pays only
+when nobody is named), plus one fixture assertion in `settlement.test.ts`. **#24.1's sentence that
+the act shares the room is now superseded and should be marked so where it stands.**
 
 ### Still waiting on an input, not a decision
 
