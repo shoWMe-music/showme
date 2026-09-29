@@ -193,3 +193,66 @@ and the route answers `SEK / mixedCurrency: false` again.
 `npx biome check .` 756 clean · web **630** · API `insights` + `settlement` + `settlement-own-read`
 **150** · `tsc` clean on api and web.
 
+---
+
+## 4. Run 14 MAJOR — the agency's settlement read "paid" while the transfer paying it was owed
+
+Pre-existing. `syncPaymentStatus` read the event's transfers with `isNull(representationId)` and then
+applied the derived status to **every** payable row, the agency's own included — and `/settlements` is
+what the agency's **Paid** tile is computed from, so it was shown SEK 3,000 as money that had moved.
+
+### The report's suggestion was right about the diagnosis and would have been a half fix
+
+It said to narrow the **write** loop rather than the read, having checked the filter's comment first —
+and that comment is correct and load-bearing: *"a private agent commission is its two parties'
+business (#14) and the operator never sees it; letting it hold the event's settlement at
+`partly_paid` would leak its existence through the status."* True **of other parties' rows**, which is
+the distinction the finding turns on.
+
+**But narrowing the write loop alone leaves the agency's row at `finalized` for ever**, even after the
+commission is paid — quieter, and still wrong. So each settlement's status now comes from **its own**
+transfers: the `isNull` filter moves out of the WHERE and into the grouping, which preserves the
+privacy rule exactly (an event-scoped row still derives from event-scoped transfers alone) while
+letting a commission answer for itself.
+
+`tsc` caught the first attempt: the column is an enum and a `string` return is not assignable, so the
+helper is typed `"paid" | "partly_paid" | "finalized"`.
+
+### Mutations — four, all killed, and the fourth was a pre-existing untested rule
+
+| Mutation | Result |
+| --- | --- |
+| one status for every row (the reported defect) | 2 failed |
+| read only the event's transfers again, so a commission never advances | 1 failed |
+| group by nothing — every transfer counts for every row | 2 failed |
+| **an empty group is NOT paid** | **survived, then closed** |
+
+The survivor is the rule `syncPaymentStatus` has always carried in a comment and nothing tested:
+*"No transfers at all means nothing was owed… settled the moment it is finalized."* **Thirty-third
+instance of a comment that states a rule being a test that never runs** — and it matters more now
+than it did, because the status is derived per GROUP, so an empty group is a real case (a commission
+of zero) rather than an impossible one. Tested by deleting the commission transfer and re-deriving.
+
+### Proved on the running stack
+
+```
+transfers on e1:   paid (event) · paid (event) · owed (commission)
+
+settlements after re-deriving:
+  paid      × 6   (the event's own rows)
+  finalized × 1   (the commission — its transfer is still owed)
+
+then, as the AGENT, PATCH the commission transfer → paid:
+  the commission row reads paid, and GET /settlements as the agency agrees
+```
+
+The stored row was stale at first read (`syncPaymentStatus` runs only on a transfer PATCH), so the
+re-derivation had to be triggered before the check meant anything — `owed` then `paid` on one event
+transfer. **Seed note:** the commission transfer is now `paid` where run 14 left it `owed`, which is
+the state the fix was proved in.
+
+### Suites
+
+`npx biome check .` 756 clean · API `settlement` **126** (from 125), + `settlement-own-read` +
+`insights` **152** · `tsc` clean.
+

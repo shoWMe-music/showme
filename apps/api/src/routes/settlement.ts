@@ -1406,32 +1406,60 @@ function assertNotFinalized(rows: { status: string }[]): void {
  */
 async function syncPaymentStatus(tx: Transaction, eventId: string): Promise<void> {
   const rows = await tx
-    .select({ id: schema.settlements.id, status: schema.settlements.status })
+    .select({
+      id: schema.settlements.id,
+      status: schema.settlements.status,
+      representationId: schema.settlements.representationId,
+    })
     .from(schema.settlements)
     .where(eq(schema.settlements.eventId, eventId));
   const payable = rows.filter((row) => PAYMENT_TRACKING_STATUSES.has(row.status));
   if (payable.length === 0) return;
 
+  /*
+   * EVERY TRANSFER ON THE NIGHT, grouped below — and the `isNull(representationId)` filter that used
+   * to be in this WHERE has moved into the grouping rather than being dropped.
+   *
+   * QA sweep run 14: the agency's own settlement read **"paid"** while the only transfer that pays it
+   * — Marlo's SEK 3,000 commission — was still `owed`. The read excluded representation transfers and
+   * then the write loop applied the derived status to EVERY payable row, the agency's included, so the
+   * agency was shown money that had not moved. `/settlements` is what the **Paid** tile is computed
+   * from, so it was not a cosmetic mislabel.
+   *
+   * THE PRIVACY REASON FOR THAT FILTER IS INTACT, and it is the thing to be careful with: *"a private
+   * agent commission is its two parties' business (decisions #14) and the operator never sees it;
+   * letting it hold the event's settlement at `partly_paid` would leak its existence through the
+   * status."* True — of OTHER parties' rows. An event-scoped settlement still derives its status from
+   * event-scoped transfers alone, which is exactly what that sentence protects.
+   *
+   * The report suggested narrowing the write loop, and **narrowing it alone would have been a half
+   * fix**: the agency's row would then never advance at all, sitting at `finalized` for ever even
+   * after its commission was paid. So each settlement's status comes from ITS OWN transfers.
+   */
   const transfers = await tx
-    .select({ state: schema.settlementTransfers.state })
+    .select({
+      state: schema.settlementTransfers.state,
+      representationId: schema.settlementTransfers.representationId,
+    })
     .from(schema.settlementTransfers)
-    .where(
-      and(
-        eq(schema.settlementTransfers.eventId, eventId),
-        isNull(schema.settlementTransfers.representationId),
-      ),
-    );
-  // No transfers at all means nothing was owed between the parties — a settlement
-  // that nets to zero all round is settled the moment it is finalized.
-  const settled = transfers.filter((row) => row.state === "paid" || row.state === "handled");
-  const next =
-    transfers.length === 0 || settled.length === transfers.length
-      ? "paid"
-      : settled.length > 0
-        ? "partly_paid"
-        : "finalized";
+    .where(eq(schema.settlementTransfers.eventId, eventId));
+
+  /**
+   * The status one settlement's OWN transfers imply. No transfers at all means nothing was owed
+   * between its parties — a settlement that nets to zero all round is settled the moment it is
+   * finalized, and that rule is unchanged for both scopes.
+   */
+  const statusFromOwnTransfers = (
+    representationId: string | null,
+  ): "paid" | "partly_paid" | "finalized" => {
+    const own = transfers.filter((row) => row.representationId === representationId);
+    const settled = own.filter((row) => row.state === "paid" || row.state === "handled");
+    if (own.length === 0 || settled.length === own.length) return "paid";
+    return settled.length > 0 ? "partly_paid" : "finalized";
+  };
 
   for (const row of payable) {
+    const next = statusFromOwnTransfers(row.representationId);
     if (row.status === next) continue;
     await tx
       .update(schema.settlements)

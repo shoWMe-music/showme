@@ -2,7 +2,7 @@ import { PRESET_PERMISSION_SETS } from "@showme/auth";
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
 import { convertMinorUnits } from "@showme/shared";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { FastifyInstance } from "fastify";
@@ -1919,6 +1919,149 @@ describe("settlement — the review conversation and derived payment", () => {
       payload: { status: "paid" },
     });
     expect(told.statusCode).toBe(400);
+  });
+
+  it("does not call the AGENCY's settlement paid off the event's transfers (run 14)", async () => {
+    /*
+     * QA sweep run 14: with both event transfers marked paid, the agency's own settlement read
+     * **"paid"** while the only transfer that pays it — the act's commission — was still `owed`. And
+     * `/settlements` is what the agency's **Paid** tile is computed from, so it was shown money that
+     * had not moved.
+     *
+     * `syncPaymentStatus` read the event's transfers with `isNull(representationId)` and then wrote
+     * the derived status to EVERY payable row. The privacy reason for that filter is real and intact
+     * — a private commission must not hold the EVENT at `partly_paid`, because that would leak its
+     * existence through the status — but it says nothing about the agency's own row, which is the
+     * distinction this test pins.
+     *
+     * The report suggested narrowing the write loop; narrowing it alone would have left the agency's
+     * row at `finalized` for ever, so the third assertion below is the one that says the fix is
+     * complete rather than merely quieter.
+     */
+    const seed = await seedWorkedExample("repstatus");
+    const rep = await seedAgentRepresentation("repstatus", seed);
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+
+    const statusOf = async (representationId: string | null) => {
+      const rows = await harness.db
+        .select({ status: schema.settlements.status })
+        .from(schema.settlements)
+        .where(
+          and(
+            eq(schema.settlements.eventId, seed.event.id),
+            representationId === null
+              ? isNull(schema.settlements.representationId)
+              : eq(schema.settlements.representationId, representationId),
+          ),
+        );
+      return rows.map((row) => row.status);
+    };
+
+    const eventTransfers = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(
+        and(
+          eq(schema.settlementTransfers.eventId, seed.event.id),
+          isNull(schema.settlementTransfers.representationId),
+        ),
+      );
+    expect(eventTransfers.length).toBeGreaterThan(0);
+    for (const transfer of eventTransfers) {
+      await app.inject({
+        method: "PATCH",
+        url: `/api/v1/events/${seed.event.id}/transfers/${transfer.id}`,
+        headers: auth(seed.operator.userId),
+        payload: { state: "paid" },
+      });
+    }
+
+    // The EVENT's own rows are paid — every transfer between its parties has moved.
+    expect((await statusOf(null)).every((status) => status === "paid")).toBe(true);
+    // The COMMISSION has not, so the agency's row must not claim it has.
+    expect(await statusOf(rep.representation.id)).toEqual(["finalized"]);
+
+    // AND IT STILL ADVANCES when its own transfer is paid — the half a
+    // narrow-the-write-loop fix would have lost.
+    const [commissionTransfer] = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.representationId, rep.representation.id));
+    if (!commissionTransfer) throw new Error("commission transfer missing");
+    await harness.db
+      .update(schema.settlementTransfers)
+      .set({ state: "paid" })
+      .where(eq(schema.settlementTransfers.id, commissionTransfer.id));
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${eventTransfers[0]?.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { state: "paid" },
+    });
+    expect(await statusOf(rep.representation.id)).toEqual(["paid"]);
+  });
+
+  it("calls a settlement with NO transfer of its own paid — nothing was owed", async () => {
+    /*
+     * The rule `syncPaymentStatus` has always carried in a comment and nothing tested: *"No transfers
+     * at all means nothing was owed between the parties — a settlement that nets to zero all round is
+     * settled the moment it is finalized."* A mutation inverting it survived every other assertion in
+     * this file, which is the thirty-third instance of a comment that states a rule being a test that
+     * never runs.
+     *
+     * It matters more now than it did: the status is derived per GROUP, so an empty group is a real
+     * case rather than an impossible one — a commission of zero produces a settlement with no transfer
+     * behind it, and the honest answer is that there is nothing outstanding.
+     */
+    const seed = await seedWorkedExample("emptygroup");
+    const rep = await seedAgentRepresentation("emptygroup", seed);
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+      headers: auth(seed.operator.userId),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/finalize`,
+      headers: auth(seed.operator.userId),
+    });
+
+    // Stand in for a commission that owes nothing: the settlement exists, its transfer does not.
+    await harness.db
+      .delete(schema.settlementTransfers)
+      .where(eq(schema.settlementTransfers.representationId, rep.representation.id));
+
+    const eventTransfers = await harness.db
+      .select()
+      .from(schema.settlementTransfers)
+      .where(
+        and(
+          eq(schema.settlementTransfers.eventId, seed.event.id),
+          isNull(schema.settlementTransfers.representationId),
+        ),
+      );
+    // Any event transfer moving re-derives every row, which is how the branch is reached at all.
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/events/${seed.event.id}/transfers/${eventTransfers[0]?.id}`,
+      headers: auth(seed.operator.userId),
+      payload: { state: "paid" },
+    });
+
+    const [commission] = await harness.db
+      .select({ status: schema.settlements.status })
+      .from(schema.settlements)
+      .where(eq(schema.settlements.representationId, rep.representation.id));
+    expect(commission?.status).toBe("paid");
   });
 
   /**
