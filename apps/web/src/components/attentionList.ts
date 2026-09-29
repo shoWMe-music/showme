@@ -48,8 +48,37 @@ export type AttentionTarget =
 /** Events still waiting on an operator decision — the prototype's "needs a decision" set. */
 export const NEEDS_DECISION: ReadonlySet<string> = new Set(["pending", "suggested", "on_hold"]);
 
+/**
+ * THE CAPABILITY BEHIND THE WORD "CONFIRM" — `PATCH /events/:id` authorizes `event.edit`.
+ *
+ * The set above says of itself that it holds nights waiting on an *operator* decision, and for a
+ * while that sentence was the only thing enforcing it: the loop below tested the STATUS and nothing
+ * about the reader, so a performer on an `on_hold` night was told to "Confirm Nordic Synth
+ * Showcase" and landed on a page with no status control, over a route that answers
+ * `403 Missing capability: event.edit` (QA sweep run 13).
+ *
+ * Not the ACCOUNT KIND, which is the wrong question twice over: a co-promoting operator holds
+ * `event.edit` on the night they co-promote and must keep the row, and an `agent` holds `deal.edit`
+ * and `agreement.manage` (decisions #14) on a night they may not confirm. `capabilities` is the
+ * caller's own effective set on that specific event, which is the only answer that is true per row.
+ */
+const MAY_DECIDE_EVENT = "event.edit";
+
 export type AttentionSources = {
-  events: readonly { id: string; title: string; status: string; eventDate: string | null }[];
+  /**
+   * `GET /events` — and `capabilities` is the reader's own set ON THAT ROW, not a global one.
+   *
+   * The list route has computed it per event since QA4-9 (`routes/events-list.ts`, where the same
+   * omission had a performer offered "Cancel show…" and "Delete permanently…" on a night they had
+   * merely played). This card was the fifth place a name the API does serve went unread.
+   */
+  events: readonly {
+    id: string;
+    title: string;
+    status: string;
+    eventDate: string | null;
+    capabilities: readonly string[];
+  }[];
   requests: readonly {
     id: string;
     status: string;
@@ -167,6 +196,16 @@ export function buildAttentionList(sources: AttentionSources, limit = 5): Attent
 
   for (const event of sources.events) {
     if (!NEEDS_DECISION.has(event.status)) continue;
+    /*
+     * AND THE READER MUST BE THE ONE WHO DECIDES IT — see `MAY_DECIDE_EVENT`.
+     *
+     * Dropped rather than reworded: this card is "what somebody ELSE is waiting on", and on an
+     * unconfirmed night nobody is waiting on the performer — the operator is. Their own watching
+     * is not their work, which is the same line the module already draws against tasks. The two
+     * sibling gates were built for the same reason: `answerableByYou` below (the act sees, the
+     * agent acts) and `signableByYou`, which the settlement route now answers server-side.
+     */
+    if (!event.capabilities.includes(MAY_DECIDE_EVENT)) continue;
     items.push({
       id: `event-${event.id}`,
       kind: "event",

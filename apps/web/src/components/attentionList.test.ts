@@ -10,6 +10,22 @@ const empty: AttentionSources = {
   settlements: [],
 };
 
+/**
+ * An event the reader MAY decide — the operator's own board, which is the majority case.
+ *
+ * A factory and not an inline literal because `capabilities` is a gate: every fixture that omits it
+ * would silently stop qualifying, and a suite that goes green by all its rows disappearing is the
+ * shape this file exists to catch.
+ */
+const decidable = (over: Partial<AttentionSources["events"][number]> = {}) => ({
+  id: "a",
+  title: "On hold night",
+  status: "on_hold",
+  eventDate: "2026-10-01",
+  capabilities: ["event.view", "event.edit"],
+  ...over,
+});
+
 const invitation = (over: Partial<AttentionSources["eventInvitations"][number]> = {}) => ({
   participantId: "p1",
   eventId: "e1",
@@ -49,10 +65,15 @@ describe("what qualifies as needing attention", () => {
     const list = buildAttentionList({
       ...empty,
       events: [
-        { id: "a", title: "On hold night", status: "on_hold", eventDate: "2026-10-01" },
-        { id: "b", title: "Confirmed night", status: "confirmed", eventDate: "2026-10-02" },
-        { id: "c", title: "Draft night", status: "draft", eventDate: "2026-10-03" },
-        { id: "d", title: "Suggested night", status: "suggested", eventDate: "2026-10-04" },
+        decidable(),
+        decidable({ id: "b", title: "Confirmed night", status: "confirmed" }),
+        decidable({ id: "c", title: "Draft night", status: "draft" }),
+        decidable({
+          id: "d",
+          title: "Suggested night",
+          status: "suggested",
+          eventDate: "2026-10-04",
+        }),
       ],
     });
     expect(list.items.map((item) => item.title)).toEqual([
@@ -62,6 +83,55 @@ describe("what qualifies as needing attention", () => {
     // Its OWN status, not a word for the bucket — the defect the detail line records.
     expect(list.items[0]?.detail).toContain("On hold");
     expect(list.items[0]?.detail).not.toContain("Pending");
+  });
+
+  it("LEAVES a night the reader cannot decide — the operator decides, the bill waits", () => {
+    /*
+     * QA sweep run 13: a performer's Dashboard read "Confirm Nordic Synth Showcase · On hold ·
+     * needs a decision · Review", and the page behind it has no status control — the route answers
+     * `403 Missing capability: event.edit`. `NEEDS_DECISION` says "waiting on an OPERATOR decision"
+     * and the loop was testing only the status.
+     *
+     * Over every capability set a non-deciding reader actually holds, because "it happens to miss"
+     * and "it cannot match" are different claims: a performer, a crew member, and an AGENT — whose
+     * set is the trap, since `deal.edit` and `agreement.manage` (decisions #14) make them look
+     * authoritative on a night they may not confirm.
+     */
+    for (const capabilities of [
+      ["event.view"],
+      ["event.view", "rider.manage"],
+      ["event.view", "deal.edit", "agreement.manage"],
+      [],
+    ]) {
+      const list = buildAttentionList({
+        ...empty,
+        events: [decidable({ title: "Nordic Synth Showcase", capabilities })],
+      });
+      expect(list.items, `capabilities ${JSON.stringify(capabilities)}`).toEqual([]);
+    }
+  });
+
+  it("takes the SAME night for a reader who holds `event.edit` — the control on the clause above", () => {
+    // So the empty above is the capability and not the status, the date or the title.
+    const list = buildAttentionList({
+      ...empty,
+      events: [decidable({ title: "Nordic Synth Showcase" })],
+    });
+    expect(list.items.map((item) => item.title)).toEqual(["Confirm Nordic Synth Showcase"]);
+  });
+
+  it("asks both clauses of the guard, so neither alone admits a row", () => {
+    // A guard with two clauses needs a test per clause AND the pair: status without capability,
+    // capability without status, and both — one call, so the three cannot drift apart.
+    const list = buildAttentionList({
+      ...empty,
+      events: [
+        decidable({ id: "status-only", capabilities: ["event.view"] }),
+        decidable({ id: "capability-only", status: "confirmed" }),
+        decidable({ id: "both" }),
+      ],
+    });
+    expect(list.items.map((item) => item.id)).toEqual(["event-both"]);
   });
 
   it("takes a pending booking request and leaves an answered one", () => {
@@ -249,7 +319,7 @@ describe("a settlement waiting on your signature", () => {
 describe("the rank and the cut", () => {
   const spread: AttentionSources = {
     ...empty,
-    events: [{ id: "e", title: "Far night", status: "on_hold", eventDate: "2026-12-24" }],
+    events: [decidable({ id: "e", title: "Far night", eventDate: "2026-12-24" })],
     requests: [{ id: "r", status: "pending", wantedDate: "2026-10-05", contactName: "A promoter" }],
     dealsAwaitingSignature: [
       {
@@ -309,8 +379,8 @@ describe("the rank and the cut", () => {
     const list = buildAttentionList({
       ...empty,
       events: [
-        { id: "undated", title: "No date yet", status: "pending", eventDate: null },
-        { id: "dated", title: "Dated", status: "pending", eventDate: "2026-10-01" },
+        decidable({ id: "undated", title: "No date yet", status: "pending", eventDate: null }),
+        decidable({ id: "dated", title: "Dated", status: "pending" }),
       ],
     });
     expect(list.items.map((item) => item.title)).toEqual(["Confirm Dated", "Confirm No date yet"]);
@@ -321,20 +391,22 @@ describe("the rank and the cut", () => {
     const list = buildAttentionList({
       ...empty,
       events: [
-        { id: "zz", title: "Zed", status: "pending", eventDate: same },
-        { id: "aa", title: "Ay", status: "pending", eventDate: same },
+        decidable({ id: "zz", title: "Zed", status: "pending", eventDate: same }),
+        decidable({ id: "aa", title: "Ay", status: "pending", eventDate: same }),
       ],
     });
     expect(list.items.map((item) => item.id)).toEqual(["event-aa", "event-zz"]);
   });
 
   it("counts everything and shows the limit — the count is the TOTAL", () => {
-    const events = Array.from({ length: 7 }, (_, index) => ({
-      id: `e${index}`,
-      title: `Night ${index}`,
-      status: "pending",
-      eventDate: `2026-10-0${index + 1}`,
-    }));
+    const events = Array.from({ length: 7 }, (_, index) =>
+      decidable({
+        id: `e${index}`,
+        title: `Night ${index}`,
+        status: "pending",
+        eventDate: `2026-10-0${index + 1}`,
+      }),
+    );
     const list = buildAttentionList({ ...empty, events });
     expect(list.items).toHaveLength(7);
     expect(list.shown).toHaveLength(5);
