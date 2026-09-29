@@ -18,7 +18,12 @@ import { useAuth } from "../auth/AuthProvider";
 import { DateText, KpiRow, SegmentedToggle } from "../components";
 import { ErrorState, LoadingState } from "../components/states";
 import { type EventItem, useAllEvents } from "../hooks/useEventList";
-import { forecastsNothing, projectFromBudgets } from "../lib/eventProjection";
+import {
+  coPromotedCount,
+  coPromotedNote,
+  forecastsNothing,
+  projectFromBudgets,
+} from "../lib/eventProjection";
 import { formatMoney } from "../lib/format";
 import { isDestinationForKind } from "../shell/navigation";
 type BudgetList = Awaited<ReturnType<typeof getApiV1EventsIdBudgets>>;
@@ -146,6 +151,19 @@ function ProjectionsScreen() {
   const overallMargin = totalRevenueMinor > 0 ? totalBeforeDealsMinor / totalRevenueMinor : null;
   const avgBeforeDealsMinor = hasProjection ? totalBeforeDealsMinor / withBudget.length : null;
   const maxRevenueMinor = withBudget.reduce((max, row) => Math.max(max, row.revenueMinor), 0);
+
+  /*
+   * HOW MANY OF THESE NIGHTS THE READER SHARES — the second reason "Revenue − costs" is not their
+   * money, and the one the paragraph below never said (QA sweep run 12). Counted over the nights
+   * the figures actually cover, not every event in scope: a night with no ledger contributes
+   * nothing to the total and so has nothing to caveat.
+   */
+  const myProfileIds = session?.memberships.map((membership) => membership.profileId) ?? [];
+  const coPromoted = coPromotedCount(
+    withBudget.map((projection) => projection.event),
+    myProfileIds,
+  );
+  const sharedNote = coPromotedNote(coPromoted, withBudget.length);
 
   const coverage: BudgetCoverage = {
     matched: projections.length,
@@ -369,6 +387,14 @@ function ProjectionsScreen() {
             <strong>not</strong> added here until the planner or the settlement writes it in — and
             the planner, which reads those tiers directly, will show more.
           </div>
+          {/*
+            AND WHOSE MONEY IT IS. The paragraph above explains that the deals have not paid out;
+            this says the other half — on a co-promoted night the ledger is both operators'. A
+            co-host read SEK 50,000 at "60% of revenue" on a night that owed them SEK 7,500.
+          */}
+          {sharedNote && !budgetsPending && (
+            <div style={{ color: "var(--muted)", fontSize: 12.5 }}>{sharedNote}</div>
+          )}
           {coverage.isPartial && !budgetsPending && (
             <div style={{ color: "var(--muted)", fontSize: 12.5 }}>
               {partialCoverageNote(coverage)}

@@ -107,3 +107,51 @@ export function projectFromBudgets(
 export function forecastsNothing(status: string): boolean {
   return status.toLowerCase() === "cancelled";
 }
+
+/**
+ * HOW MANY OF THESE NIGHTS THE READER DOES NOT RUN ALONE (QA sweep run 12).
+ *
+ * `Revenue − costs` is the ledger's own figure, and on a co-promoted night the ledger belongs to
+ * both operators: `co.host@` read SEK 50,000 at "60% of revenue" on a night whose settlement owed
+ * them SEK 7,500. The screen's own paragraph explains the OTHER reason the number is not theirs —
+ * the deals have not paid out — and says nothing about the split, which is a second reason and was
+ * the only one nobody had written down.
+ *
+ * The test is the host: an event whose `hostProfileId` is not one of the reader's profiles is one
+ * they are on somebody else's terms. Both fields are already in hand (the events list serves the
+ * first, the session the second), so this asks no new question of the server.
+ *
+ * Not a REDACTION, unlike the Budget Planner's, and deliberately. The planner answers "what does
+ * this night leave me", which is unanswerable without the deals, so it withholds profit and margin.
+ * This screen answers "what is the shape of my pipeline", and revenue-minus-costs over a portfolio
+ * is a real answer to that for either operator — withholding it would remove the screen's only
+ * figure in order to fix a sentence.
+ */
+export function coPromotedCount(
+  events: readonly { hostProfileId?: string | null }[],
+  myProfileIds: readonly string[],
+): number {
+  const mine = new Set(myProfileIds);
+  // An event with no host on the wire is not evidence of anything — an absent field is the
+  // weakest evidence there is, and claiming a split off one would put a caveat on every row of a
+  // narrower payload.
+  return events.filter((event) => event.hostProfileId != null && !mine.has(event.hostProfileId))
+    .length;
+}
+
+/**
+ * The sentence that names the split, or null when there is nothing to name.
+ *
+ * Says how many and of how many, because "some of these are shared" reads as a disclaimer while
+ * "2 of these 5" reads as a fact the reader can go and check.
+ */
+export function coPromotedNote(coPromoted: number, inView: number): string | null {
+  if (coPromoted === 0) return null;
+  const nights =
+    coPromoted === inView
+      ? coPromoted === 1
+        ? "This night is"
+        : `All ${coPromoted} of these nights are`
+      : `${coPromoted} of these ${inView} nights are`;
+  return `${nights} run with another operator, so the ledger — and this figure — covers the whole night rather than your share of it. What you are owed is on the event's settlement.`;
+}

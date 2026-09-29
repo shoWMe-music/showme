@@ -6,7 +6,12 @@
  * ledger, said −SEK 1,245 and the settlement left the operator SEK 0.
  */
 import { describe, expect, it } from "vitest";
-import { forecastsNothing, projectFromBudgets } from "./eventProjection";
+import {
+  coPromotedCount,
+  coPromotedNote,
+  forecastsNothing,
+  projectFromBudgets,
+} from "./eventProjection";
 
 const line = (kind: string, amount: string) => ({ kind, amount });
 
@@ -90,5 +95,71 @@ describe("forecastsNothing", () => {
     for (const status of ["draft", "suggested", "pending", "confirmed", "on_hold", "concluded"]) {
       expect(forecastsNothing(status)).toBe(false);
     }
+  });
+});
+
+describe("coPromotedCount — which nights the reader does not run alone", () => {
+  const mine = ["a1", "a9"];
+
+  it("counts a night hosted by somebody else", () => {
+    expect(coPromotedCount([{ hostProfileId: "other" }], mine)).toBe(1);
+  });
+
+  it("does NOT count the reader's own nights — either of their profiles", () => {
+    // THE CONTROL: the 1 above is the host not matching, not the function counting rows.
+    expect(coPromotedCount([{ hostProfileId: "a1" }, { hostProfileId: "a9" }], mine)).toBe(0);
+  });
+
+  it("counts only the shared ones in a mixed portfolio", () => {
+    expect(
+      coPromotedCount(
+        [
+          { hostProfileId: "a1" },
+          { hostProfileId: "other" },
+          { hostProfileId: "a9" },
+          { hostProfileId: "another" },
+        ],
+        mine,
+      ),
+    ).toBe(2);
+  });
+
+  it("does not count a night with NO host on the wire — the UNSET case", () => {
+    // An absent field is the weakest evidence there is. Claiming a split off one would put the
+    // caveat on every row of a narrower payload.
+    expect(coPromotedCount([{ hostProfileId: null }, {}], mine)).toBe(0);
+  });
+
+  it("counts everything when the reader has no profiles at all", () => {
+    // The boundary the other way: a session with no membership cannot own any of these nights.
+    expect(coPromotedCount([{ hostProfileId: "a1" }, { hostProfileId: "other" }], [])).toBe(2);
+  });
+});
+
+describe("coPromotedNote — the sentence, and when there is none", () => {
+  it("says nothing when the reader runs every night alone", () => {
+    expect(coPromotedNote(0, 4)).toBeNull();
+  });
+
+  it("names how many of how many", () => {
+    expect(coPromotedNote(2, 5)).toBe(
+      "2 of these 5 nights are run with another operator, so the ledger — and this figure — covers the whole night rather than your share of it. What you are owed is on the event's settlement.",
+    );
+  });
+
+  it("reads naturally when EVERY night in view is shared", () => {
+    expect(coPromotedNote(3, 3)?.startsWith("All 3 of these nights are")).toBe(true);
+    // And in the singular, where "All 1 of these nights" would be the obvious wrong answer.
+    expect(coPromotedNote(1, 1)?.startsWith("This night is")).toBe(true);
+  });
+
+  it("still says `1 of these 2` when only one of several is shared", () => {
+    // The singular of the OTHER branch, which is a different sentence from the one above.
+    expect(coPromotedNote(1, 2)?.startsWith("1 of these 2 nights are")).toBe(true);
+  });
+
+  it("points the reader at the figure that IS theirs", () => {
+    // The caption's whole job: name the split, then say where the reader's own number lives.
+    expect(coPromotedNote(1, 3)).toContain("on the event's settlement");
   });
 });

@@ -90,3 +90,90 @@ work, with a test asserting the exclusion over **every** status the enum has: *"
 and *"it cannot match"* are different claims, and only the second is safe to build on.
 
 Suites: biome 748 files · web 585 (was 576).
+
+---
+
+## 2. [MINOR] Projections shows a co-promoter the whole night's margin — run 12 §2 line 248
+
+**Which file settles it:** `apps/web/src/lib/eventProjection.ts` for the rule, `Projections.tsx` for
+the sentence. Not new arithmetic — the sweep is explicit that the sum is right.
+
+**What was measured**, as `co.host@` (Northlight Presents), whose entitlement on that night was
+**SEK 7,500**:
+
+> PROJECTED REVENUE **SEK 83,000** · PROJECTED COSTS **SEK 33,000** ·
+> **REVENUE − COSTS SEK 50,000** — *60% of revenue, before deals* · AVG PER EVENT **SEK 50,000**
+
+**The verdict.** The label was already fixed once for a neighbouring reason — it says *"Revenue −
+costs"*, not *"Net Profit"*, and its comment records the SEK 50,000-over-a-SEK-1,245-loss case. But
+that fix was about **the deals**, and the paragraph beneath still only explains the deals. There are
+**two** reasons the figure is not the reader's, and only one of them is written down:
+
+1. the deals have not paid out yet — said, at length
+2. **the reader is not the only operator on the night** — not said at all
+
+The Budget Planner already draws this second line and says so out loud (*"N of this event's deals are
+not shown to you… Profit, margin and break-even are left out rather than calculated without them"*),
+which is the precedent the sweep is pointing at. Projections is the same figure on the same ledger one
+screen over.
+
+**The decision this hides, and it is why the answer is a caption and not a redaction.** The planner
+*withholds* profit and margin from a reader who cannot see every deal. Projections could do the same —
+but the two screens are not asking the same question. The planner answers *"what does this night
+leave me"*, which is unanswerable without the deals. Projections answers *"what is the shape of my
+pipeline"*, and revenue-minus-costs over a portfolio is a real answer to that whichever operator is
+reading it — the totals are the ledgers' own and the reader is entitled to them
+(`budget.view` gated them already). **Withholding here would remove the screen's only figure to fix a
+sentence.** So: say whose money it is, and how many of the nights in view are shared.
+
+**The rule, and it is a rule rather than a string:** an event is **co-promoted from the reader's point
+of view** when its `hostProfileId` is not one of the reader's own profiles. `hostProfileId` is already
+on the events list, the reader's profiles are already in the session, and no request is added.
+
+A performer never reaches this: `budget.view` is a pool capability refused to them, so
+`GET /events/:id/budgets` gives them nothing and every tile reads `—`. The caption is therefore an
+operator's sentence, which is the only reader it can be about.
+
+**The scope.** `coPromotedCount(events, myProfileIds)` in `lib/eventProjection.ts` with tests, and one
+conditional line under the existing paragraph naming the count. The tiles, the labels and the
+arithmetic are untouched.
+
+### What landed, read live on `co.host@` (Northlight Presents)
+
+```
+PROJECTED REVENUE  SEK 83,000   1 event budgeted
+PROJECTED COSTS    SEK 33,000   All-in
+REVENUE − COSTS    SEK 50,000   60% of revenue, before deals
+AVG PER EVENT      SEK 50,000   Per show, before deals
+
+Every figure here comes from the event's shared ledger. What the deals pay the acts is not a
+budget line, so it is not subtracted … [unchanged]
+
+This night is run with another operator, so the ledger — and this figure — covers the whole
+night rather than your share of it. What you are owed is on the event's settlement.   ← NEW
+```
+
+Every tile, label and figure is untouched, which is the point: the sweep is explicit that the
+arithmetic is right and the missing thing is the sentence.
+
+**The singular branch is the one that fired**, because this reader has one budgeted night in view —
+*"This night is"*, not *"All 1 of these nights are"*, which is the obvious wrong answer and has its
+own test.
+
+### Mutations — six, all killed
+
+| Mutation | Verdict |
+|---|---|
+| nothing is ever co-promoted — the defect | KILLED (3) |
+| the host test inverted (the reader's OWN nights counted) | KILLED (3) |
+| a missing `hostProfileId` counted as somebody else's | KILLED (1) |
+| the note never shown | KILLED (4) |
+| the note shown when nothing is shared | KILLED (1) |
+| the all-shared wording collapsed into the partial one | KILLED (1) |
+
+The third is the one worth naming: `!mine.has(event.hostProfileId ?? "")` looks equivalent and is
+not — it counts a night whose host the payload did not carry as somebody else's, putting the caveat
+on every row of a narrower response. **AN ABSENT THING IS THE WEAKEST EVIDENCE THERE IS**, and here
+it would have produced a confident sentence about a split nobody had established.
+
+Suites: biome 748 files · web 595 (was 585).
