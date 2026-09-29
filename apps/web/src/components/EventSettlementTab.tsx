@@ -40,7 +40,8 @@ export function EventSettlementTab({ eventId, currency, capabilities }: EventSet
     return <ErrorState error={settlement.error} title="Couldn't load the settlement" />;
   }
 
-  const status = settlementStatusToDisplay(settlement.status);
+  // The badge reads the freeze as well as the status — see `settlementStatusToDisplay`.
+  const status = settlementStatusToDisplay(settlement.status, settlement.isFinalized);
   /*
    * WHAT MOVES, not what was earned (QA7-28).
    *

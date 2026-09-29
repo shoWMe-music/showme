@@ -9,6 +9,7 @@ const empty: AttentionSources = {
   addressedInvitations: [],
   settlements: [],
   changeRequests: [],
+  disputedSettlements: [],
 };
 
 /**
@@ -547,5 +548,48 @@ describe("the change proposals waiting on an answer", () => {
         changeRequests: [proposal({ proposedByName: null })],
       }).items[0]?.detail,
     ).toContain("Somebody asked to change the date");
+  });
+});
+
+/*
+ * AN OBJECTION IS A THING NEEDING ATTENTION — QA sweep run 17's MAJOR.
+ *
+ * Two disputes were raised on two events and this card went on reading *"You have 4 things that need
+ * attention today"*, because nothing fed it disputes at all. The notification is the other half; this
+ * is the surface the operator actually reads in the morning.
+ */
+describe("a disputed settlement", () => {
+  const disputed = (wasFinalized: boolean) => ({
+    settlementId: `s-${wasFinalized}`,
+    eventId: "e1",
+    eventTitle: "Album Release",
+    eventDate: "2026-10-16",
+    partyName: "Neon Tide",
+    wasFinalized,
+  });
+
+  it("names who objected and which night", () => {
+    const list = buildAttentionList({ ...empty, disputedSettlements: [disputed(false)] });
+    expect(list.items).toHaveLength(1);
+    expect(list.items[0]?.title).toBe("Neon Tide disputed their figures on Album Release");
+  });
+
+  /*
+   * AND THE DETAIL SAYS WHAT THE OPERATOR CAN DO ABOUT IT, which is the whole difference the freeze
+   * makes: before it they can revise the figures, after it they can only talk. A single wording for
+   * both would be untrue of one of its two readers — the shape this repo has now hit sixteen times.
+   */
+  it("says whether the figures can still be revised", () => {
+    const open = buildAttentionList({ ...empty, disputedSettlements: [disputed(false)] });
+    expect(open.items[0]?.detail).toContain("can still be revised");
+
+    const frozen = buildAttentionList({ ...empty, disputedSettlements: [disputed(true)] });
+    expect(frozen.items[0]?.detail).toContain("on record against finalized figures");
+    expect(frozen.items[0]?.detail).not.toContain("can still be revised");
+  });
+
+  it("routes to the settlement workspace, where the objection is", () => {
+    const list = buildAttentionList({ ...empty, disputedSettlements: [disputed(true)] });
+    expect(list.items[0]?.target).toEqual({ to: "eventSettlement", eventId: "e1" });
   });
 });

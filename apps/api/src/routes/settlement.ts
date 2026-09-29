@@ -233,6 +233,14 @@ const ApprovalResponse = z.object({
    */
   signatureExpected: z.boolean(),
   /**
+   * HAS THIS PARTY OBJECTED — a refusal, not silence (QA sweep run 17).
+   *
+   * The roster printed `Pending` for an objecting party, which is the same word it prints for a party
+   * who has not answered at all. Those are opposite facts about the one thing the review step exists
+   * to settle, and the operator's roster is where the difference has to show.
+   */
+  objected: z.boolean(),
+  /**
    * HAVE THIS PARTY'S FIGURES MOVED SINCE THEY SIGNED (QA sweep run 14)?
    *
    * Five parties signed, a walk-up-sales line went SEK 18,000 → 36,000, and Marlo's entitlement went
@@ -283,6 +291,33 @@ const AwaitingSignatureSettlementsResponse = z.object({
        * party has no profile name on file (an off-platform party invited by address).
        */
       partyName: z.string().nullable(),
+    }),
+  ),
+});
+
+/**
+ * Settlements a party has OBJECTED to, on nights the reader can do something about — routing
+ * information, no figures, exactly like `AwaitingSignatureSettlementsResponse` above (QA sweep run
+ * 17's MAJOR).
+ *
+ * A SEPARATE ROUTE rather than a widening of `awaiting-signature`, because they are opposite
+ * questions: that one is *"whose signature is still mine to give"* and this one is *"who has refused
+ * something of mine"*. It excludes `dispute` on purpose and says so. WHEN A LIST IS ASKED TWO
+ * QUESTIONS, ADD A ROUTE — and `GET /events/change-requests/awaiting-answer` is the shipped shape
+ * this follows.
+ */
+const DisputedSettlementsResponse = z.object({
+  items: z.array(
+    z.object({
+      settlementId: z.string(),
+      participantId: z.string(),
+      eventId: z.string(),
+      eventTitle: z.string(),
+      eventDate: z.string().nullable(),
+      /** Who objected, so the card can name them. Null for an off-platform party. */
+      partyName: z.string().nullable(),
+      /** Whether the objection stands on figures that have already been frozen. */
+      wasFinalized: z.boolean(),
     }),
   ),
 });
@@ -352,6 +387,16 @@ const MySettlementsResponse = z.object({
        */
       approvedByYou: z.boolean(),
       signableByYou: z.boolean(),
+      /**
+       * WAS THIS NIGHT EVER FINALIZED — the same question, and the same field name, as
+       * `SettlementsResponse` further down (QA sweep run 17).
+       *
+       * The route has computed this for the whole page since run 16 and kept it to `signableByYou`,
+       * which left every other reader of this list inferring it from `status` — and `dispute`
+       * overwrites `status`. Two screens inferred it wrong the same way: the state badge and the
+       * FINALIZED tile.
+       */
+      wasFinalized: z.boolean(),
       /** The viewer's own figures; null until the event has been computed. */
       entitlement: z.string().nullable(),
       net: z.string().nullable(),
@@ -587,6 +632,23 @@ const LOCKED_SETTLEMENT_STATUSES: ReadonlySet<string> = new Set([
  * This does NOT decide whether `dispute` should overwrite the status at all. That is §25.6's open
  * objection row, which proposes carrying the objection in `settlement_approvals` instead. Whichever
  * way that goes, a settlement that has been finalized has been finalized.
+ *
+ * AND ONE DURABLE RECORD IS ONE POINT OF FAILURE (QA sweep run 17, QA17-2). The seeded Spring Warmup
+ * is `finalized` with NO snapshot, so on that night the fix above did nothing: the rail rewound and
+ * `confirm` answered 200 again. The report proposed widening this to the three other records it
+ * found, and two of the three would not have helped — the finalize route writes the snapshot, the
+ * `writeAudit` row and the `settlement.finalized` activity row inside ONE transaction, so a night the
+ * route finalized has all four and the seeded night has only its status.
+ *
+ * So the second clause is the status itself, on ANY party's row: **exactly `finalized`**, never
+ * `partly_paid` or `paid`. Those two drift per party as transfers are marked, so including them would
+ * let one party's payment refuse a different party's signature — a guard that refuses too much. No
+ * route but finalize writes `finalized` (`REVIEW_STATUSES` is `pending_review | revised | dispute`,
+ * and the schema comment says why), so this clause cannot claim a freeze that never happened.
+ *
+ * It is an OR, which means it can only ever lock more, never less — the safe direction for a fact
+ * about immutability. The seed has also been corrected to write the snapshot the route would have
+ * written; the clause stays because the shape must not be reachable by restoring a backup either.
  */
 async function eventHasBeenFinalized(database: Database | Transaction, eventId: string) {
   const [snapshot] = await database
@@ -594,7 +656,13 @@ async function eventHasBeenFinalized(database: Database | Transaction, eventId: 
     .from(schema.settlementSnapshots)
     .where(eq(schema.settlementSnapshots.eventId, eventId))
     .limit(1);
-  return snapshot != null;
+  if (snapshot != null) return true;
+  const [stillFinalized] = await database
+    .select({ id: schema.settlements.id })
+    .from(schema.settlements)
+    .where(and(eq(schema.settlements.eventId, eventId), eq(schema.settlements.status, "finalized")))
+    .limit(1);
+  return stillFinalized != null;
 }
 
 /**
@@ -1989,12 +2057,32 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
       const finalizedEventIds = new Set(
         eventIds.length === 0
           ? []
-          : (
-              await database
-                .selectDistinct({ eventId: schema.settlementSnapshots.eventId })
-                .from(schema.settlementSnapshots)
-                .where(inArray(schema.settlementSnapshots.eventId, eventIds))
-            ).map((row) => row.eventId),
+          : [
+              ...(
+                await database
+                  .selectDistinct({ eventId: schema.settlementSnapshots.eventId })
+                  .from(schema.settlementSnapshots)
+                  .where(inArray(schema.settlementSnapshots.eventId, eventIds))
+              ).map((row) => row.eventId),
+              /*
+               * BOTH CLAUSES, because this is `eventHasBeenFinalized` batched and A RULE WRITTEN
+               * TWICE WILL DISAGREE WITH ITSELF. That function gained a second source in run 17
+               * (a sibling row still at exactly `finalized`, never `partly_paid` or `paid` — see
+               * it for why), and a list that asked only the first would go on rewinding the badge
+               * and the tile on precisely the nights the per-event read now locks.
+               */
+              ...(
+                await database
+                  .selectDistinct({ eventId: schema.settlements.eventId })
+                  .from(schema.settlements)
+                  .where(
+                    and(
+                      inArray(schema.settlements.eventId, eventIds),
+                      eq(schema.settlements.status, "finalized"),
+                    ),
+                  )
+              ).map((row) => row.eventId),
+            ],
       );
 
       return {
@@ -2023,6 +2111,22 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
                 capabilitiesByEvent.get(row.eventId as string) ?? new Set(),
                 row.participantRole,
               ),
+            /*
+             * WAS THIS NIGHT EVER FINALIZED — served per row, and the reason is two defects
+             * (QA sweep run 17, QA17-3 and QA17-4).
+             *
+             * The set above has been computed here since run 16 and was kept to `signableByYou`,
+             * so every OTHER reader of this list had to guess the same fact out of `status` — and
+             * both guessed wrong the same way. The one-word state badge printed a red **Dispute**
+             * in the same viewport as the green *"Finalized — figures and rates locked"* caption,
+             * and the FINALIZED tile read **SEK 0** on the reader's only finalized night while
+             * `Outstanding` counted its SEK 20,000.
+             *
+             * One field, not two fixes: the answer was already on this server and simply never
+             * left it. It is the same field name the per-event read serves, so the client asks one
+             * question in one vocabulary.
+             */
+            wasFinalized: finalizedEventIds.has(row.eventId as string),
             // The viewer's own figures — this row is theirs by construction above.
             entitlement: ownFigure ?? computed?.entitlement ?? null,
             net: ownFigure ?? computed?.net ?? null,
@@ -2191,6 +2295,119 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
         }));
 
       return { items };
+    },
+  );
+
+  /**
+   * WHO HAS OBJECTED TO FIGURES THE READER CAN ANSWER FOR — QA sweep run 17's MAJOR, second surface.
+   *
+   * The notification now reaches the operator (see the status route). This is the other place they
+   * look: the Dashboard's attention card read *"You have 4 things that need attention today"* through
+   * two disputes, and the only surface carrying either was the Event History feed eleven rows down.
+   *
+   * `settlement.edit` PER EVENT, not membership: an objection asks whoever can move the figures, and
+   * that is the same authority that sent them out. A performer standing on the night learns nothing
+   * here — whose figures are refused is that party's business, which is the same boundary the
+   * notification keeps.
+   *
+   * Every dispute, frozen or not. A dispute on finalized figures is if anything the more urgent of
+   * the two: it is the only objection the operator cannot answer by editing a number.
+   */
+  app.get(
+    "/settlements/disputed",
+    { schema: { response: { 200: DisputedSettlementsResponse } } },
+    async (request) => {
+      const { database } = request.server;
+      const principal = request.principal;
+      if (!principal) throw new Error("principal missing after authentication");
+
+      const profileIds = principal.memberships.map((membership) => membership.profileId);
+      if (profileIds.length === 0) return { items: [] };
+
+      const standing = await database
+        .select({ eventId: schema.eventParticipants.eventId })
+        .from(schema.eventParticipants)
+        .where(
+          and(
+            inArray(schema.eventParticipants.profileId, profileIds),
+            ne(schema.eventParticipants.status, "removed"),
+          ),
+        );
+      const reachable = [...new Set(standing.map((row) => row.eventId))];
+      if (reachable.length === 0) return { items: [] };
+
+      const capabilitiesByEvent = await effectiveEventCapabilitiesForEvents(
+        database,
+        principal,
+        reachable,
+      );
+      const answerable = reachable.filter((eventId) =>
+        capabilitiesByEvent.get(eventId)?.has("settlement.edit"),
+      );
+      if (answerable.length === 0) return { items: [] };
+
+      const rows = await database
+        .select({
+          id: schema.settlements.id,
+          participantId: schema.settlements.participantId,
+          partyName: schema.profiles.name,
+          eventId: schema.events.id,
+          eventTitle: schema.events.title,
+          eventDate: schema.events.eventDate,
+        })
+        .from(schema.settlements)
+        .innerJoin(
+          schema.eventParticipants,
+          eq(schema.eventParticipants.id, schema.settlements.participantId),
+        )
+        .leftJoin(schema.profiles, eq(schema.profiles.id, schema.eventParticipants.profileId))
+        .innerJoin(schema.events, eq(schema.events.id, schema.settlements.eventId))
+        .where(
+          and(
+            inArray(schema.settlements.eventId, answerable),
+            // A commission line has no separate review conversation (#14).
+            isNull(schema.settlements.representationId),
+            eq(schema.settlements.status, "dispute"),
+            notInArray(schema.eventParticipants.status, [...NON_STANDING_PARTICIPANT_STATUSES]),
+          ),
+        )
+        .orderBy(asc(schema.events.eventDate));
+      if (rows.length === 0) return { items: [] };
+
+      // Whether each objection stands on frozen figures — batched, the same shape the settlements
+      // list uses, and `eventHasBeenFinalized`'s two sources are why it is not just the snapshot.
+      const eventIds = [...new Set(rows.map((row) => row.eventId))];
+      const frozen = new Set([
+        ...(
+          await database
+            .selectDistinct({ eventId: schema.settlementSnapshots.eventId })
+            .from(schema.settlementSnapshots)
+            .where(inArray(schema.settlementSnapshots.eventId, eventIds))
+        ).map((row) => row.eventId),
+        ...(
+          await database
+            .selectDistinct({ eventId: schema.settlements.eventId })
+            .from(schema.settlements)
+            .where(
+              and(
+                inArray(schema.settlements.eventId, eventIds),
+                eq(schema.settlements.status, "finalized"),
+              ),
+            )
+        ).map((row) => row.eventId),
+      ]);
+
+      return {
+        items: rows.map((row) => ({
+          settlementId: row.id,
+          participantId: row.participantId as string,
+          eventId: row.eventId,
+          eventTitle: row.eventTitle,
+          eventDate: row.eventDate,
+          partyName: row.partyName ?? null,
+          wasFinalized: frozen.has(row.eventId),
+        })),
+      };
     },
   );
 
@@ -2551,9 +2768,38 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
              */
             figuresMovedSince:
               underReview && signedAt != null && movedAt.getTime() > signedAt.getTime(),
-            // Or they have already given one — which, now that the expectation is a standing
-            // fact, only matters if the grant behind it was revoked afterwards. See the field.
-            signatureExpected: (maySign.get(participantId) ?? false) || approved,
+            /*
+             * THIS PARTY HAS REFUSED, WHICH IS NOT THE SAME AS NOT ANSWERING (QA sweep run 17,
+             * QA17-1).
+             *
+             * The operator's roster printed the objecting party as **Pending** — the same word as
+             * the four parties who had simply not answered yet — under a pill reading *"Finalized —
+             * figures and rates locked"* with no mention that anyone had objected. The roster is
+             * where an operator looks to answer "is this line waiting on somebody", and a refusal is
+             * the one answer that needs acting on.
+             *
+             * Read from `status`, which is where a dispute is recorded today. If §25.6's objection
+             * row moves an objection into `settlement_approvals` this field stays and its source
+             * changes — which is the point of serving the ANSWER rather than the status.
+             */
+            objected: row.status === "dispute",
+            /*
+             * Or they have already given one — which, now that the expectation is a standing fact,
+             * only matters if the grant behind it was revoked afterwards. See the field.
+             *
+             * AND NOTHING IS EXPECTED ONCE THE NIGHT IS FROZEN (QA sweep run 17, QA17-6). After a
+             * finalize the confirm route refuses every signature in words — *"there is nothing left
+             * to sign. Signatures given before they were finalized still stand."* — while this stayed
+             * `true` for all six parties, so the operator's roster read **0/6 Pending** for ever and
+             * each party's own read **0/1 Pending**, printing a pending signature beside no way to
+             * give it. `signableByYou` was correctly `false` the whole time; the roster's own
+             * documented job is "is this line waiting on somebody", and the answer is no.
+             *
+             * `|| approved` still wins, and now carries a second job: a signature GIVEN before the
+             * freeze stays counted, so a finalized night reads 2/2 rather than losing the two
+             * signatures it actually has.
+             */
+            signatureExpected: approved || (!wasFinalized && (maySign.get(participantId) ?? false)),
           };
         }),
       };
@@ -3260,6 +3506,54 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           }
         } catch (error) {
           request.log.error({ error, eventId: id }, "settlement review notification failed");
+        }
+      }
+
+      /*
+       * AN OBJECTION IS THE OPERATOR'S QUESTION ANSWERED "NO" (QA sweep run 17's MAJOR).
+       *
+       * The block above is the only `notifyUsers` in this route, and it is guarded on
+       * `pending_review` — so a party could refuse their figures and NOBODY was told. Measured twice,
+       * from two performer accounts on two events: the operator's bell held one notification
+       * (*"Marlo Vance signed off their settlement"*), the Dashboard attention list still read "4
+       * things that need attention today", and the only surface carrying the objection at all was the
+       * Event History feed, eleven rows down. The operator can be finished, paid out and gone.
+       *
+       * The comment on that guard is about E-MAIL, and it is right about it — *"a dispute is raised BY
+       * a party and mailing them their own objection helps nobody"*. It is not an argument about the
+       * operator, who is the one person an objection asks to act.
+       *
+       * So this is the CONFIRM route's mechanism, not a new one. Forty lines away, `POST
+       * …/settlements/:sid/confirm` notifies the operators only, and writes down why: *"'Has everyone
+       * signed off yet?' is the operator's question — it is what gates finalize."* An objection is
+       * that same question answered no, and it takes the same recipients (`operatorsOnly`), for the
+       * same reason: whether a different act has refused is not the rest of the bill's business.
+       *
+       * ONLY `dispute`. `pending_review` and `revised` are the operator's OWN acts — telling somebody
+       * what they just did is noise — and `comments_received` lands in a Comments thread the operator
+       * reads on the same screen. A dispute has no thread of its own; that is the whole problem.
+       *
+       * No e-mail. The in-app notification is the standing precedent for "a party answered" (the
+       * confirm route sends none either), and the settlements category already governs it.
+       */
+      if (status === "dispute") {
+        try {
+          const actorUserId = request.principal?.userId ?? null;
+          const recipients = await eventParticipantRecipients(database, id, actorUserId, {
+            operatorsOnly: true,
+          });
+          const objectorName = request.firebaseUser?.name ?? "A party";
+          await notifyUsers(database, recipients, actorUserId, {
+            type: "settlement.disputed",
+            title: `${objectorName} disputed their settlement`,
+            body: "They have objected to their figures — open the settlement to see what they said.",
+            eventId: id,
+            actorDisplay: request.firebaseUser?.name ?? undefined,
+            link: `/events/${id}/settlement`,
+            metadata: { eventId: id },
+          });
+        } catch (error) {
+          request.log.error({ error, eventId: id }, "settlement dispute notification failed");
         }
       }
 

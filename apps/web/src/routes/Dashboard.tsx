@@ -6,6 +6,7 @@ import {
   useGetApiV1InsightsProfilesIdSummary,
   useGetApiV1Settlements,
   useGetApiV1SettlementsAwaitingSignature,
+  useGetApiV1SettlementsDisputed,
   useGetApiV1Tasks,
 } from "@showme/api-client";
 import { Badge, Button, EmptyState, Icon, type IconName } from "@showme/design-system";
@@ -184,6 +185,7 @@ export function Dashboard() {
    * (QA sweep run 12). Its sibling `/deals/awaiting-signature` exists for exactly this reason.
    */
   const awaitingSettlementSignature = useGetApiV1SettlementsAwaitingSignature();
+  const disputedSettlements = useGetApiV1SettlementsDisputed();
   // Change proposals this reader still owes an answer on, across every night they stand on.
   const changeRequests = useGetApiV1EventsChangeRequestsAwaitingAnswer();
   /**
@@ -239,6 +241,9 @@ export function Dashboard() {
     // (QA sweep run 16) — see `changeRequests` in `attentionList.ts`.
     changeRequests: changeRequests.data?.items ?? [],
     settlements: awaitingSettlementSignature.data?.items ?? [],
+    // The SIXTH thing somebody can be waiting on, and it was on no surface at all before run 17 —
+    // see `disputedSettlements` in `attentionList.ts`.
+    disputedSettlements: disputedSettlements.data?.items ?? [],
   });
   const attentionShown = attentionList.shown;
   const sentence = attentionSentence(attentionList.items.length, attentionList.hidden);
@@ -662,7 +667,7 @@ export function Dashboard() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column" }}>
               {recentSettlements.map((row) => {
-                const display = settlementStatusToDisplay(row.status);
+                const display = settlementStatusToDisplay(row.status, row.wasFinalized);
                 return (
                   <button
                     key={row.id}

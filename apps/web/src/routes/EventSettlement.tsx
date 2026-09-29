@@ -137,7 +137,8 @@ export function EventSettlement() {
   if (event.isPending) return <LoadingState label="Loading settlement" />;
   if (event.isError) return <ErrorState error={event.error} title="Couldn't load this event" />;
 
-  const status = settlementStatusToDisplay(settlement.status);
+  // Both halves: a disputed-but-frozen night read `Dispute` here under a rail saying Finalized.
+  const status = settlementStatusToDisplay(settlement.status, settlement.isFinalized);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 1180 }}>
@@ -841,7 +842,9 @@ function SettlementTab({
           )}
       </div>
 
-      {settlement.authority.canCompute && <SettlementCurationCard eventId={eventId} />}
+      {settlement.authority.canCompute && (
+        <SettlementCurationCard eventId={eventId} locked={settlement.isFinalized} />
+      )}
 
       {settlement.parties.length === 0 ? (
         <NothingSettledYet settlement={settlement} />
@@ -955,12 +958,27 @@ function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
           UNION the band, so the number is the same before and after any signature. Derived and not
           written down, because whether crew sign at all is still an open ruling (decisions §25.6).
         */}
+        {/*
+          AND A DENOMINATOR OF NOTHING IS NOT A FRACTION (QA sweep run 17, caught in the browser).
+ 
+          Teaching `signatureExpected` that a frozen night waits on nobody (QA17-6) fixed
+          "0/6 Pending" and immediately produced **0/0**, which is honest and says nothing — the fix
+          carrying its own next defect, one surface further on. When nothing is expected the badge
+          says so in words, and keeps the count only where there IS one: a night that closed with two
+          signatures already given still reads 2/2.
+        */}
         <Badge
           status={
-            settlement.approvedCount === settlement.expectedApprovalCount ? "confirmed" : "pending"
+            settlement.expectedApprovalCount === 0
+              ? "draft"
+              : settlement.approvedCount === settlement.expectedApprovalCount
+                ? "confirmed"
+                : "pending"
           }
         >
-          {settlement.approvedCount}/{settlement.expectedApprovalCount}
+          {settlement.expectedApprovalCount === 0
+            ? "Signatures closed"
+            : `${settlement.approvedCount}/${settlement.expectedApprovalCount}`}
         </Badge>
       </div>
       {/*
@@ -1001,18 +1019,36 @@ function ApprovalRoster({ settlement }: { settlement: EventSettlementData }) {
             {/*
               "Pending" says a signature is outstanding. From a party who cannot give one it is a
               sentence untrue of its subject, so it says what is actually true of them instead.
+
+              AND A REFUSAL IS NOT SILENCE (QA sweep run 17). `objected` leads, because it is the one
+              answer on this roster that asks the operator to act: the sweep read **Pending** against
+              a party who had disputed their figures, indistinguishable from the four who had simply
+              not replied. It outranks `approved` deliberately — a party who signed and then objected
+              is objecting NOW, and the signature they gave is still in the audit trail either way.
+
+              "Not required" then covers the frozen night as well as the crew floor it was written
+              for: after a finalize the confirm route refuses every signature, so nothing is pending
+              and the roster used to say **0/6 Pending** for ever.
             */}
             <Badge
               status={
-                approval.approved ? "confirmed" : approval.signatureExpected ? "pending" : "draft"
+                approval.objected
+                  ? "cancelled"
+                  : approval.approved
+                    ? "confirmed"
+                    : approval.signatureExpected
+                      ? "pending"
+                      : "draft"
               }
               dot
             >
-              {approval.approved
-                ? "Signed off"
-                : approval.signatureExpected
-                  ? "Pending"
-                  : "Not required"}
+              {approval.objected
+                ? "Objected"
+                : approval.approved
+                  ? "Signed off"
+                  : approval.signatureExpected
+                    ? "Pending"
+                    : "Not required"}
             </Badge>
             {/*
               THE SIGNATURE IS STILL THERE AND THE FIGURES ARE NOT (QA sweep run 14).

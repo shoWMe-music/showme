@@ -255,6 +255,12 @@ export interface SettlementApprovalRow {
    */
   signatureExpected: boolean;
   /**
+   * Has this party OBJECTED — served by the API, and not the same question as "have they answered"
+   * (QA sweep run 17). The roster printed `Pending` for a party who had refused their figures, which
+   * is the word it prints for a party who has said nothing.
+   */
+  objected: boolean;
+  /**
    * Did this party's figures move AFTER they signed? See the API field's own note: the comparison is
    * confined to the review window, because `updated_at` also moves on finalize and on payment, and a
    * warning on a closed night would be a false alarm rather than a disclosure.
@@ -1203,6 +1209,7 @@ export function useEventSettlement(
        * give and the counter could never reach its denominator.
        */
       signatureExpected: approval.signatureExpected,
+      objected: approval.objected,
       figuresMovedSince: approval.figuresMovedSince,
       // The settlement id to sign, or null when this line is not the reader's to
       // sign. Carried on the roster row because the roster IS where somebody

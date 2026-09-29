@@ -10,6 +10,7 @@ import {
   payoutAdjustments,
   payoutRows,
   payoutsCaption,
+  settlementStatusToDisplay,
   settlementSteps,
   settlementTotals,
   unsignedAgreementsSentence,
@@ -315,7 +316,7 @@ describe("settlementTotals", () => {
   // Intl puts a NARROW NO-BREAK SPACE between symbol and figure; the assertions read
   // better with a plain one than with an escape in every expected string.
   const plain = (text: string) => text.replace(/\u00a0|\u202f/g, " ");
-  const item = (status: string, entitlement: string, currency = "SEK") => ({
+  const item = (status: string, entitlement: string, currency = "SEK", wasFinalized = false) => ({
     id: `${status}-${currency}`,
     version: 1,
     participantId: null,
@@ -325,7 +326,25 @@ describe("settlementTotals", () => {
     currency,
     approvedByYou: false,
     signableByYou: true,
+    wasFinalized,
     event: { id: status, status: "concluded", title: status, eventDate: null },
+  });
+
+  /*
+   * A FINALIZED NIGHT WHOSE STATUS MOVED IS STILL FINALIZED (QA sweep run 17, QA17-4).
+   *
+   * The sweep read **FINALIZED SEK 0** beside the reader's only finalized night: that party had
+   * disputed it, and `dispute` overwrites the status column the tile was summing.
+   *
+   * Both directions, because a tile that counted every disputed row would close the defect and start
+   * claiming a freeze that never happened — which is the more expensive mistake on a money tile.
+   */
+  it("counts a finalized night the reader has disputed, and does not count a dispute that was never finalized", () => {
+    const frozen = settlementTotals([item("dispute", "2000000", "SEK", true)]);
+    expect(plain(frozen.finalized)).toBe("SEK 20,000");
+
+    const open = settlementTotals([item("dispute", "2000000", "SEK", false)]);
+    expect(plain(open.finalized)).toBe("SEK 0");
   });
 
   it("counts paid money as paid and says nothing about it being settled", () => {
@@ -1288,5 +1307,46 @@ describe("payoutsCaption", () => {
       includesOthers: true,
     });
     expect(caption).not.toContain("retained");
+  });
+});
+
+/*
+ * THE BADGE READS THE FREEZE, NOT ONLY THE STATUS — QA sweep run 17, QA17-3.
+ *
+ * Run 16 taught the rail, the caption and the signature button that a finalized night stays
+ * finalized when a party disputes it; the one-word badge was the last surface still reading `status`
+ * alone, so a red **Dispute** pill sat in the same viewport as the green *"Finalized — figures and
+ * rates locked, with an objection on record"* caption.
+ */
+describe("settlementStatusToDisplay", () => {
+  it("badges a disputed night that was finalized as Finalized", () => {
+    expect(settlementStatusToDisplay("dispute", true)).toEqual({
+      status: "confirmed",
+      label: "Finalized",
+    });
+  });
+
+  /*
+   * AND IT IS NOT NEW-FOUND CERTAINTY. A dispute on a night nobody ever finalized still reads as a
+   * dispute — the half a test that only asserted the fix would have missed, and the same shape that
+   * has caught this file twice before.
+   */
+  it("still badges a dispute that was never finalized as a dispute", () => {
+    expect(settlementStatusToDisplay("dispute")).toEqual({
+      status: "cancelled",
+      label: "Disputed",
+    });
+    expect(settlementStatusToDisplay("dispute", false).label).toBe("Disputed");
+  });
+
+  /*
+   * AND A STATUS THAT COMES AFTER THE FREEZE KEEPS ITS OWN WORD. `paid` and `partly_paid` are only
+   * reachable through a finalize, so "Finalized" would read as a step backwards on money that has
+   * already moved — the clause that makes this a precedence rule rather than an override.
+   */
+  it("does not overwrite a status that comes after the finalize", () => {
+    expect(settlementStatusToDisplay("paid", true).label).toBe("Paid");
+    expect(settlementStatusToDisplay("partly_paid", true).label).toBe("Partly paid");
+    expect(settlementStatusToDisplay("finalized", true).label).toBe("Finalized");
   });
 });

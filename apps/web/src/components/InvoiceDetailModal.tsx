@@ -69,10 +69,21 @@ function InvoiceDocument({ invoice }: { invoice: InvoiceDetail }) {
   const currency = invoice.currency ?? "EUR";
   const lineItems = parseInvoiceLineItems(invoice.lineItems);
   const vat = parseInvoiceVat(invoice.vat);
+  /*
+   * LINKED RECORDS, BY NAME (QA sweep run 17, QA17-9).
+   *
+   * This printed `(link.id as string).slice(0, 8)` — `Event e2e00000`, `Budget line a7bcdf1b` — for
+   * records that have names, with a comment admitting the payload carried ids only. It does now, on
+   * the detail read this modal is the only reader of.
+   *
+   * The transfer keeps its short id: a settlement transfer has no name to serve, and the operator
+   * reconciling a bill against a payout does use the prefix to match the two. So the rule is
+   * per-row — a NAME where one exists, and an id only where the id IS the identifier.
+   */
   const links = [
-    { label: "Event", id: invoice.eventId },
-    { label: "Settlement transfer", id: invoice.transferId },
-    { label: "Budget line", id: invoice.budgetLineId },
+    { label: "Event", id: invoice.eventId, name: invoice.eventTitle ?? null },
+    { label: "Settlement transfer", id: invoice.transferId, name: null },
+    { label: "Budget line", id: invoice.budgetLineId, name: invoice.budgetLineLabel ?? null },
   ].filter((link) => Boolean(link.id));
 
   return (
@@ -114,14 +125,13 @@ function InvoiceDocument({ invoice }: { invoice: InvoiceDetail }) {
       {links.length > 0 && (
         <Card padding="lg" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <Eyebrow>Linked records</Eyebrow>
-          {/* The payload carries ids only — no event or budget-line NAME is served
-              here, so the short id is shown rather than a fabricated title. */}
           {links.map((link) => (
             <KeyValueRow
               key={link.label}
               label={link.label}
-              value={(link.id as string).slice(0, 8)}
-              mono
+              // A name reads as itself; an id is only ever a prefix to match against.
+              value={link.name ?? (link.id as string).slice(0, 8)}
+              mono={link.name == null}
             />
           ))}
         </Card>

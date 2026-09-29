@@ -33,4 +33,8 @@ export type GetApiV1InvoicesIid200 = {
   dueDate: string | null;
   state: string;
   documentSnapshot?: unknown;
+  /** @nullable */
+  eventTitle?: string | null;
+  /** @nullable */
+  budgetLineLabel?: string | null;
 };

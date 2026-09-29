@@ -24,8 +24,38 @@ import type { TransferState } from "./WhoOwesWhomBoard";
  * served, formatted and nothing else.
  */
 
-/** `settlement_status` → the design system's status vocabulary + a human label. */
-export function settlementStatusToDisplay(status: string): { status: Status; label: string } {
+/**
+ * The statuses that come AFTER a finalize and must keep their own word: money has moved since, so
+ * "Finalized" would read as a step backwards. Every other status on a finalized night — `dispute`
+ * above all — is one the freeze outranks.
+ */
+const LOCKED_STATUS_LABELS: ReadonlySet<string> = new Set(["finalized", "partly_paid", "paid"]);
+
+/**
+ * `settlement_status` → the design system's status vocabulary + a human label.
+ *
+ * `wasFinalized` IS THE SECOND HALF OF THE QUESTION, and the badge was the last surface still
+ * asking only the first (QA sweep run 17, QA17-3). A dispute is deliberately allowed on frozen
+ * figures and is implemented by overwriting `status`, so on a finalized night this function's
+ * answer was a red **Dispute** pill in the same viewport as the green *"Finalized — figures and
+ * rates locked, with an objection on record"* caption the rail had just been taught to draw.
+ *
+ * THE FREEZE WINS THE BADGE, because that is the fact a badge is for: one word for what state the
+ * settlement is in, and the settlement is final. The objection is not dropped — it belongs to the
+ * caption directly below, which says it in the words a party needs. A pill cannot carry both, and
+ * the screen already has somewhere for the second.
+ *
+ * Optional, because two of the four callers read a status off a list that does not serve the second
+ * half — the Events row reads `events.settlementStatus`. Those keep today's answer rather than a
+ * guessed one.
+ */
+export function settlementStatusToDisplay(
+  status: string,
+  wasFinalized = false,
+): { status: Status; label: string } {
+  if (wasFinalized && !LOCKED_STATUS_LABELS.has(status)) {
+    return { status: "confirmed", label: "Finalized" };
+  }
   switch (status) {
     case "finalized":
       return { status: "confirmed", label: "Finalized" };
@@ -37,8 +67,12 @@ export function settlementStatusToDisplay(status: string): { status: Status; lab
       return { status: "pending", label: "Comments" };
     case "revised":
       return { status: "pending", label: "Revised" };
+    // ONE WORD FOR ONE STATE (QA sweep run 17, QA17-8). This read "Dispute" while the filter chip
+    // four inches above it reads "Disputed", so clicking *Disputed* filtered to a row labelled
+    // *Dispute*. Every other status uses the same word in both places. The chip's is the better
+    // English — a settlement IS disputed; "Dispute" names the act, not the state.
     case "dispute":
-      return { status: "cancelled", label: "Dispute" };
+      return { status: "cancelled", label: "Disputed" };
     case "pending_review":
       return { status: "task", label: "Pending review" };
     // `open` is the default a settlement is BORN at, and it used to fall through
@@ -1180,7 +1214,18 @@ export function settlementTotals(settlements: SettlementListItem[]): SettlementT
     paid: format(sum((row) => row.status === "paid")),
     inReview: format(sum((row) => IN_REVIEW_STATUSES.has(row.status))),
     outstanding: format(sum((row) => row.status !== "paid")),
-    finalized: format(sum((row) => row.status === "finalized")),
+    /*
+     * A FINALIZED NIGHT WHOSE STATUS MOVED IS STILL FINALIZED (QA sweep run 17, QA17-4).
+     *
+     * This read `status === "finalized"` and printed **FINALIZED SEK 0** beside the reader's only
+     * finalized night, because that party had disputed it and `dispute` overwrites the column.
+     * `performer.a@` read `Finalized SEK 30,000` while holding SEK 46,500 of frozen money the tile
+     * did not count. The list route has known the answer since run 16 and now serves it.
+     *
+     * The documented overlap with `outstanding` is unchanged and its reason stays where it is: these
+     * are four questions about one ledger, not four buckets.
+     */
+    finalized: format(sum((row) => row.status === "finalized" || row.wasFinalized)),
     mixedCurrencyNote: mixed
       ? `These settlements are in ${currencies.sort().join(" and ")}, so they do not add up to one figure. Open a night to see its own money.`
       : null,

@@ -5,7 +5,7 @@ import { formatTaskDueDate } from "../hooks/useTaskBoard";
 import { ConfirmDialog, useConfirmDialog } from "./ConfirmDialog";
 import { TaskAssigneeTag } from "./TaskAssigneeTag";
 import { TaskFormModal } from "./TaskFormModal";
-import { describeActivity } from "./eventHistory";
+import { describeActivity, foldRepeatedActivity, repeatedActivityLabel } from "./eventHistory";
 import { GlyphButton, GradientButton, MonoPill, SectionCard, fieldStyle } from "./eventUi";
 import { ErrorState, LoadingState } from "./states";
 
@@ -296,9 +296,24 @@ export function EventHistoryTab({ eventId }: { eventId: string }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {items.map((item) => {
+      {/*
+        ONE PRESS OF A BUTTON IS ONE LINE, however many settlements it moved (QA sweep run 17,
+        QA17-10).
+
+        Run 16 fixed a real MAJOR by writing one feed row PER SETTLEMENT — which is why every
+        non-operator now reads their own stage — and the cost landed on the operator, who read six
+        consecutive, visually identical *"Figures sent out for review · Open → Pending review"* rows
+        for one click. The fold was built the same hour and applied to the settlement panel's own
+        feed only (`EventSettlement.tsx`), so this tab, which shows the same rows, kept them all.
+
+        A RULING IMPLEMENTED ON ONE OF ITS TWO SURFACES, and the second surface is a call to a tested
+        helper. It matters more than a cosmetic usually would: after run 17's MAJOR this timeline is
+        the only place an objection appears at all, and six copies of one press push it off the page.
+      */}
+      {foldRepeatedActivity(items).map(({ entry: item, repeated }) => {
         const meta = HISTORY_ICON[item.targetKind ?? ""] ?? DEFAULT_HISTORY_ICON;
         const { title, lines } = describeActivity(item.type, item.summary);
+        const repeatedLabel = repeatedActivityLabel(item.type, repeated);
         return (
           <div
             key={item.id}
@@ -327,7 +342,18 @@ export function EventHistoryTab({ eventId }: { eventId: string }) {
               <Icon name={meta.name} size={17} />
             </span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 500, color: "var(--text)", fontSize: 13.5 }}>{title}</div>
+              <div style={{ fontWeight: 500, color: "var(--text)", fontSize: 13.5 }}>
+                {title}
+                {/* Only where there IS a count, so a single act reads as itself — and the NOUN comes
+                    from the type, because "N parties" is true of a status move and false of N
+                    remarks by one person. */}
+                {repeatedLabel && (
+                  <span className="muted" style={{ fontSize: 11.5, fontWeight: 400 }}>
+                    {" · "}
+                    {repeatedLabel}
+                  </span>
+                )}
+              </div>
               {lines.length > 0 && (
                 <div
                   style={{

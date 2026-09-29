@@ -137,6 +137,7 @@ import type {
   GetApiV1RepresentationsIdDelegatableEvents200,
   GetApiV1Settlements200,
   GetApiV1SettlementsAwaitingSignature200,
+  GetApiV1SettlementsDisputed200,
   GetApiV1SharesToken200,
   GetApiV1SharesTokenDocument200,
   GetApiV1Tasks200,
@@ -4032,6 +4033,92 @@ export function useGetApiV1SettlementsAwaitingSignature<TData = Awaited<ReturnTy
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetApiV1SettlementsAwaitingSignatureQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+export const getApiV1SettlementsDisputed = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return customFetch<GetApiV1SettlementsDisputed200>(
+      {url: `/api/v1/settlements/disputed`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetApiV1SettlementsDisputedQueryKey = () => {
+    return [
+    `/api/v1/settlements/disputed`
+    ] as const;
+    }
+
+    
+export const getGetApiV1SettlementsDisputedQueryOptions = <TData = Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetApiV1SettlementsDisputedQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>> = ({ signal }) => getApiV1SettlementsDisputed(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetApiV1SettlementsDisputedQueryResult = NonNullable<Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>>
+export type GetApiV1SettlementsDisputedQueryError = unknown
+
+
+export function useGetApiV1SettlementsDisputed<TData = Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1SettlementsDisputed<TData = Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>,
+          TError,
+          Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetApiV1SettlementsDisputed<TData = Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+
+export function useGetApiV1SettlementsDisputed<TData = Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getApiV1SettlementsDisputed>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetApiV1SettlementsDisputedQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

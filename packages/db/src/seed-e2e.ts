@@ -1455,6 +1455,48 @@ async function main() {
       .returning({ id: schema.settlements.id });
     record("settlements", settlements);
 
+    /*
+     * AND THE SNAPSHOT THE FINALIZE ROUTE WOULD HAVE WRITTEN (QA sweep run 17, QA17-2).
+     *
+     * These two rows are `finalized`, and until now nothing else said so. `settlement_snapshots` is
+     * the durable record of a finalize and the API reads it to answer *"has this night ever been
+     * finalized"* — so this fixture encoded a state the app cannot produce, and a state that lies:
+     * the progress rail drew Finalized as an unvisited future stop, and
+     * `POST …/settlements/:sid/confirm` answered **200** after a dispute, writing a signature against
+     * figures the app had promised were immutable.
+     *
+     * A FIXTURE THAT PINS A STATE THE APP NEVER WRITES TESTS THE FIXTURE. The finalize route writes
+     * the snapshot, an `audit_log` row and a `settlement.finalized` activity row inside ONE
+     * transaction; `REVIEW_STATUSES` cannot write `finalized` at all. So the honest seed writes the
+     * snapshot too, in the same shape the route does — `settlements` full-fidelity with the pool, the
+     * transfers, and the rates that were locked (none here: one currency, so nothing was converted).
+     *
+     * `version: 1` because this is the night's first and only finalize.
+     */
+    record(
+      "settlement_snapshots",
+      await database
+        .insert(schema.settlementSnapshots)
+        .values({
+          eventId: EVENT_IDS.springWarmup,
+          version: 1,
+          data: {
+            settlements: [PART.springHost, PART.springPerformerA].map((participantId) => ({
+              ...breakdownFor(referenceResult, participantId),
+              participantId,
+            })),
+            transfers: referenceResult.transfers.map((transfer) => ({
+              fromParticipantId: transfer.fromParticipantId,
+              toParticipantId: transfer.toParticipantId,
+              amount: transfer.amount,
+              currency: SEK,
+            })),
+            lockedRates: {},
+          },
+        })
+        .returning({ id: schema.settlementSnapshots.id }),
+    );
+
     // The owed transfers the engine matched — one here: operator → performerA 46 500.
     const eventTransfers = await database
       .insert(schema.settlementTransfers)

@@ -227,6 +227,14 @@ Measured 2026-09-29, each costing time that looked like a code problem:
   fixed it and nothing else did (`TESTCONTAINERS_RYUK_DISABLED=true` moved the failure to
   the next container rather than removing it). Recognise it by the ports being unbound in
   `docker inspect`, and do not go looking for a flaky test.
+  **But that signature has a SECOND, self-inflicted cause, measured 2026-09-29: two
+  Testcontainers suites running AT THE SAME TIME.** Starting the package suites while
+  `pnpm --filter @showme/api exec vitest run` was still going produced the identical
+  message and `41 skipped` on `@showme/auth` plus five failed API FILES — and every one
+  of them passed on a re-run with nothing else going. **Before blaming Docker, check
+  whether you started something else.** Run the suites that need containers one at a
+  time; `41 skipped` and `Timed out … ports to be bound` are not evidence about the code
+  either way.
 
 ## A mutation harness that asserts "the run happened" must not mean "something passed"
 The `Tests 58 skipped (58)` lesson below has an inverse, measured 2026-09-29: under a

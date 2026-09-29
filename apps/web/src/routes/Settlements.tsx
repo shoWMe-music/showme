@@ -110,6 +110,21 @@ function buildColumns(
     {
       header: "Event status",
       width: "1.2fr",
+      /*
+       * A BADGE IS A NOWRAP CELL TOO (QA sweep run 17, QA17-7), and the Events list said so first.
+       *
+       * At 490 px the **Confirmed** pill ran 30 px past its track and the **Finalized** pill beside
+       * it — which has its own background — was painted on top of it. Not caused by the nowrap work
+       * below: the sweep put the old `minmax(0, Nfr)` tracks back in the live DOM and the pill still
+       * overhung by ~22 px. This column simply never declared what its content is.
+       *
+       * `Events.tsx:80` had already written the rule out by hand, in a literal grid template, before
+       * `DataTable` had a prop for it: *"The status track keeps its `min-content` floor because its
+       * content genuinely cannot wrap: the badge is `white-space: nowrap`, so a track narrower than
+       * the badge does not reflow it, it just pushes it out of the card again."* Same content, same
+       * floor — a shipped precedent, not an inference.
+       */
+      wrap: "nowrap",
       render: (row) => {
         const display = apiStatusToDisplay(row.event.status);
         return (
@@ -125,7 +140,7 @@ function buildColumns(
       wrap: "nowrap",
       width: "1.3fr",
       render: (row) => {
-        const display = settlementStatusToDisplay(row.status);
+        const display = settlementStatusToDisplay(row.status, row.wasFinalized);
         return (
           <Badge status={display.status} dot>
             {display.label}

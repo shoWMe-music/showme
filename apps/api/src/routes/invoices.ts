@@ -89,6 +89,21 @@ const InvoiceResponse = z.object({
   dueDate: z.string().nullable(),
   state: z.string(),
   documentSnapshot: z.unknown(),
+  /*
+   * WHAT THE LINKED RECORDS ARE CALLED (QA sweep run 17, QA17-9).
+   *
+   * The detail modal's LINKED RECORDS block printed `Event e2e00000` and `Budget line a7bcdf1b` —
+   * the first eight characters of two UUIDs, for records that have names (*Spring Warmup*, *Sound &
+   * production*) and are not links. A fragment of a UUID is not an identifier a person can use, and
+   * the block's own comment admitted it was showing the id because no name was served.
+   *
+   * OPTIONAL, and served by the DETAIL read alone. `serializeInvoice` shapes one `invoices` row and
+   * is shared by the create, issue, patch and delete routes; threading two joins through five write
+   * paths to name a record on one modal is the wrong trade. The reader of this block is looking at
+   * one invoice, so the join happens where the block is.
+   */
+  eventTitle: z.string().nullable().optional(),
+  budgetLineLabel: z.string().nullable().optional(),
 });
 
 type InvoiceRow = typeof schema.invoices.$inferSelect;
@@ -236,7 +251,27 @@ export async function invoiceRoutes(fastify: FastifyInstance): Promise<void> {
     async (request) => {
       const invoice = await loadInvoice(request, request.params.iid);
       requireProfileRole(request, invoice.ownerProfileId, [...READ_ROLES]);
-      return serializeInvoice(invoice);
+      // The names behind the two ids the modal used to print in hex — see the fields.
+      const { database } = request.server;
+      const [event] = invoice.eventId
+        ? await database
+            .select({ title: schema.events.title })
+            .from(schema.events)
+            .where(eq(schema.events.id, invoice.eventId))
+            .limit(1)
+        : [];
+      const [budgetLine] = invoice.budgetLineId
+        ? await database
+            .select({ label: schema.budgetLines.label })
+            .from(schema.budgetLines)
+            .where(eq(schema.budgetLines.id, invoice.budgetLineId))
+            .limit(1)
+        : [];
+      return {
+        ...serializeInvoice(invoice),
+        eventTitle: event?.title ?? null,
+        budgetLineLabel: budgetLine?.label ?? null,
+      };
     },
   );
 

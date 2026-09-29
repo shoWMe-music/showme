@@ -33,4 +33,8 @@ export type GetApiV1ProfilesIdInvoices200Item = {
   dueDate: string | null;
   state: string;
   documentSnapshot?: unknown;
+  /** @nullable */
+  eventTitle?: string | null;
+  /** @nullable */
+  budgetLineLabel?: string | null;
 };

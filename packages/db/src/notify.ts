@@ -68,7 +68,7 @@ export const NOTIFICATION_CATEGORIES = [
     key: "settlements",
     label: "Settlements and payouts",
     description:
-      "A settlement you are a party to is commented on, signed off or finalized. The review request itself always reaches you — it is the settlement being served, not news about it.",
+      "A settlement you are a party to is commented on, disputed, signed off or finalized. The review request itself always reaches you — it is the settlement being served, not news about it.",
     emailDefault: true,
   },
   {

@@ -8428,6 +8428,9 @@
                           "signableByYou": {
                             "type": "boolean"
                           },
+                          "wasFinalized": {
+                            "type": "boolean"
+                          },
                           "entitlement": {
                             "type": "string",
                             "nullable": true
@@ -8467,6 +8470,7 @@
                           "participantId",
                           "approvedByYou",
                           "signableByYou",
+                          "wasFinalized",
                           "entitlement",
                           "net",
                           "currency",
@@ -8536,6 +8540,67 @@
                           "status",
                           "isYours",
                           "partyName"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["items"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settlements/disputed": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "settlementId": {
+                            "type": "string"
+                          },
+                          "participantId": {
+                            "type": "string"
+                          },
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "eventTitle": {
+                            "type": "string"
+                          },
+                          "eventDate": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "partyName": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "wasFinalized": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "settlementId",
+                          "participantId",
+                          "eventId",
+                          "eventTitle",
+                          "eventDate",
+                          "partyName",
+                          "wasFinalized"
                         ],
                         "additionalProperties": false
                       }
@@ -8936,6 +9001,9 @@
                           "signatureExpected": {
                             "type": "boolean"
                           },
+                          "objected": {
+                            "type": "boolean"
+                          },
                           "figuresMovedSince": {
                             "type": "boolean"
                           }
@@ -8945,6 +9013,7 @@
                           "approved",
                           "approvedAt",
                           "signatureExpected",
+                          "objected",
                           "figuresMovedSince"
                         ],
                         "additionalProperties": false
@@ -24978,7 +25047,15 @@
                       "state": {
                         "type": "string"
                       },
-                      "documentSnapshot": {}
+                      "documentSnapshot": {},
+                      "eventTitle": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "budgetLineLabel": {
+                        "type": "string",
+                        "nullable": true
+                      }
                     },
                     "required": [
                       "id",
@@ -25124,7 +25201,15 @@
                     "state": {
                       "type": "string"
                     },
-                    "documentSnapshot": {}
+                    "documentSnapshot": {},
+                    "eventTitle": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "budgetLineLabel": {
+                      "type": "string",
+                      "nullable": true
+                    }
                   },
                   "required": [
                     "id",
@@ -25225,7 +25310,15 @@
                     "state": {
                       "type": "string"
                     },
-                    "documentSnapshot": {}
+                    "documentSnapshot": {},
+                    "eventTitle": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "budgetLineLabel": {
+                      "type": "string",
+                      "nullable": true
+                    }
                   },
                   "required": [
                     "id",
@@ -25359,7 +25452,15 @@
                     "state": {
                       "type": "string"
                     },
-                    "documentSnapshot": {}
+                    "documentSnapshot": {},
+                    "eventTitle": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "budgetLineLabel": {
+                      "type": "string",
+                      "nullable": true
+                    }
                   },
                   "required": [
                     "id",
@@ -25460,7 +25561,15 @@
                     "state": {
                       "type": "string"
                     },
-                    "documentSnapshot": {}
+                    "documentSnapshot": {},
+                    "eventTitle": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "budgetLineLabel": {
+                      "type": "string",
+                      "nullable": true
+                    }
                   },
                   "required": [
                     "id",

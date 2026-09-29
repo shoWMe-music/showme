@@ -163,6 +163,26 @@ export type AttentionSources = {
     isYours: boolean;
     partyName: string | null;
   }[];
+  /**
+   * SETTLEMENTS A PARTY HAS OBJECTED TO, on nights the reader can answer for — the sixth thing
+   * somebody can be waiting on, and it was on no surface at all (QA sweep run 17's MAJOR).
+   *
+   * Two disputes were raised on two events and this card went on reading *"You have 4 things that
+   * need attention today"*. An objection is the only thing in the review machine that asks the
+   * operator to act, and the operator can be finished and paid out before they scroll the feed.
+   *
+   * Its own source, off its own route (`GET /settlements/disputed`), because `settlements` above
+   * answers the opposite question — *"whose signature is still mine to give"* — and deliberately
+   * excludes `dispute`.
+   */
+  disputedSettlements: readonly {
+    settlementId: string;
+    eventId: string;
+    eventTitle: string;
+    eventDate: string | null;
+    partyName: string | null;
+    wasFinalized: boolean;
+  }[];
 };
 
 export type AttentionList = {
@@ -402,6 +422,28 @@ export function buildAttentionList(sources: AttentionSources, limit = 5): Attent
       detail: `${
         settlement.status === "revised" ? "Settlement re-issued" : "Settlement sent for review"
       } · sign off when they match your books · ${formatDay(settlement.eventDate)}`,
+      action: "Open",
+      target: { to: "eventSettlement", eventId: settlement.eventId },
+    });
+  }
+
+  /*
+   * AN OBJECTION ASKS THE OPERATOR TO ACT — QA sweep run 17's MAJOR, and the second of its two
+   * surfaces (the first is the notification the status route now sends).
+   *
+   * The detail says whether the figures are still moveable, because that decides what the operator
+   * can DO about it: before the freeze they can edit and re-issue, after it they can only talk. The
+   * app's own word for the frozen case is on the settlement screen — *"an objection on record"*.
+   */
+  for (const settlement of sources.disputedSettlements) {
+    items.push({
+      id: `dispute-${settlement.settlementId}`,
+      kind: "settlement",
+      date: settlement.eventDate,
+      title: `${settlement.partyName ?? "A party"} disputed their figures on ${settlement.eventTitle}`,
+      detail: settlement.wasFinalized
+        ? `An objection on record against finalized figures · ${formatDay(settlement.eventDate)}`
+        : `They have objected — the figures can still be revised · ${formatDay(settlement.eventDate)}`,
       action: "Open",
       target: { to: "eventSettlement", eventId: settlement.eventId },
     });

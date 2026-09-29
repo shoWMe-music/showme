@@ -288,6 +288,8 @@ export * from './getApiV1Settlements200ItemsItem';
 export * from './getApiV1Settlements200ItemsItemEvent';
 export * from './getApiV1SettlementsAwaitingSignature200';
 export * from './getApiV1SettlementsAwaitingSignature200ItemsItem';
+export * from './getApiV1SettlementsDisputed200';
+export * from './getApiV1SettlementsDisputed200ItemsItem';
 export * from './getApiV1SharesToken200';
 export * from './getApiV1SharesTokenDocument200';
 export * from './getApiV1SharesTokenDocument200Actions';

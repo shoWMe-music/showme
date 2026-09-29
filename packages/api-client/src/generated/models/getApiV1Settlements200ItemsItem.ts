@@ -14,6 +14,7 @@ export type GetApiV1Settlements200ItemsItem = {
   participantId: string | null;
   approvedByYou: boolean;
   signableByYou: boolean;
+  wasFinalized: boolean;
   /** @nullable */
   entitlement: string | null;
   /** @nullable */

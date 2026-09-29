@@ -368,6 +368,147 @@ describe("settlement — a dispute cannot re-open a finalized night to signature
     ).find((item) => item.event?.id === seed.event.id);
     expect(row?.signableByYou).toBe(false);
   });
+
+  /*
+   * AN OBJECTION REACHES THE OPERATOR — QA sweep run 17's MAJOR.
+   *
+   * The status route's only `notifyUsers` was guarded on `pending_review`, so a party could refuse
+   * their figures and nobody was told. Measured from two performer accounts on two events: the
+   * operator's bell held a signature and neither dispute. The confirm route forty lines away already
+   * notifies the operators and writes down why — *"'Has everyone signed off yet?' is the operator's
+   * question"* — and an objection is that question answered no.
+   *
+   * BOTH CLAUSES, because `operatorsOnly` is the half a naive test cannot see: a notification sent to
+   * the whole bill would satisfy "the operator was told" and leak one act's refusal to every other act
+   * standing on the night.
+   */
+  it("tells the operators when a party disputes, and tells nobody else on the bill", async () => {
+    const seed = await finalized("disputenotify");
+
+    const disputed = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlement/status`,
+      headers: auth(seed.band.userId),
+      payload: { status: "dispute", note: "the door count is short" },
+    });
+    expect(disputed.statusCode).toBe(200);
+
+    /*
+     * SCOPED TO THIS EVENT. The first draft queried by TYPE alone and came back with four rows —
+     * the three sibling tests in this describe also dispute, and every one of them is another
+     * operator's notification. A shared table plus a type filter is not an assertion about this
+     * test; it happened to prove the notification fires, and it could not have proved who got it.
+     */
+    const rows = await harness.db
+      .select({ userId: schema.notifications.userId, title: schema.notifications.title })
+      .from(schema.notifications)
+      .where(
+        and(
+          eq(schema.notifications.type, "settlement.disputed"),
+          eq(schema.notifications.eventId, seed.event.id),
+        ),
+      );
+
+    // The operator hears it…
+    expect(rows.map((row) => row.userId)).toEqual([seed.operator.userId]);
+    // …and it names who objected, because "a party disputed" sends the operator to read six rows.
+    expect(rows[0]?.title).toContain("disputed their settlement");
+    // …and the OTHER act on the bill does not: whose figures are refused is that party's business.
+    expect(rows.some((row) => row.userId === seed.venue.userId)).toBe(false);
+    // …nor does the objector get news of their own act.
+    expect(rows.some((row) => row.userId === seed.band.userId)).toBe(false);
+  });
+
+  /*
+   * AND IT IS ONLY THE DISPUTE. `pending_review` and `revised` are the operator's own acts, so
+   * telling them what they just pressed is noise — assert the trigger rather than trusting the guard
+   * to be narrow.
+   */
+  it("writes no dispute notification when the operator re-issues the figures", async () => {
+    const seed = await seedWorkedExample("revisenotify");
+    await signEveryAgreement(harness.db, seed.event.id);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+    for (const status of ["pending_review", "revised"]) {
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: `/api/v1/events/${seed.event.id}/settlement/status`,
+            headers: auth(seed.operator.userId),
+            payload: { status },
+          })
+        ).statusCode,
+      ).toBe(200);
+    }
+
+    // This event's own rows, for the reason the test above says: the siblings dispute too.
+    const rows = await harness.db
+      .select({ id: schema.notifications.id })
+      .from(schema.notifications)
+      .where(
+        and(
+          eq(schema.notifications.type, "settlement.disputed"),
+          eq(schema.notifications.eventId, seed.event.id),
+        ),
+      );
+    expect(rows).toHaveLength(0);
+  });
+
+  /*
+   * A FINALIZED ROW WITH NO SNAPSHOT IS STILL FINALIZED — QA sweep run 17, QA17-2.
+   *
+   * `eventHasBeenFinalized` read `settlement_snapshots` alone, and the seeded Spring Warmup is
+   * `finalized` with no snapshot: the rail rewound on screen and `confirm` answered **200**, writing
+   * an approval after the freeze.
+   *
+   * THE SEED IS THE ROOT CAUSE and is fixed separately — the finalize route writes the snapshot, the
+   * audit row and the activity row in one transaction, so production cannot produce this shape and
+   * `REVIEW_STATUSES` cannot write `finalized` either. This test is what stops the second clause
+   * being a branch nothing can reach: it builds the shape by hand, because that is the only way the
+   * shape now exists.
+   */
+  it("keeps the lock on a finalized settlement that has no snapshot row", async () => {
+    const seed = await finalized("disputenosnap");
+    // Delete the durable record the fix used to depend on — the seeded shape, made deliberately.
+    await harness.db
+      .delete(schema.settlementSnapshots)
+      .where(eq(schema.settlementSnapshots.eventId, seed.event.id));
+
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/status`,
+          headers: auth(seed.band.userId),
+          payload: { status: "dispute" },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const body = await ownRow(seed.event.id, seed.band.userId);
+    const mine = body.settlements[0];
+    expect(mine?.status).toBe("dispute");
+    // The other parties' rows are still `finalized`, and that is now the record consulted.
+    expect(body.wasFinalized).toBe(true);
+    expect(mine?.signableByYou).toBe(false);
+
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${seed.event.id}/settlements/${mine?.id}/confirm`,
+      headers: auth(seed.band.userId),
+      payload: {},
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.message).toContain("already final");
+  });
 });
 
 describe("settlement — a locked settlement is not offered a signature", () => {

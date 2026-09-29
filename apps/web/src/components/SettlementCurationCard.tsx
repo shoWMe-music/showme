@@ -21,7 +21,28 @@ import { type CurationChip, useSettlementCuration } from "./useSettlementCuratio
  * asserted in `settlement.test.ts`). A curated party never sees this card, and —
  * more to the point — never learns from their own settlement that it exists.
  */
-export function SettlementCurationCard({ eventId }: { eventId: string }) {
+export function SettlementCurationCard({
+  eventId,
+  locked = false,
+}: {
+  eventId: string;
+  /**
+   * THE NIGHT'S FIGURES ARE FROZEN, so there is nothing left to curate (QA sweep run 17, QA17-5).
+   *
+   * `PUT …/settlement/curation` calls `assertNotFinalized` unconditionally, so on a finalized
+   * settlement **every chip on this card 409s**. The sweep found the card fully interactive —
+   * four party tabs, six line chips, each captioned *"Include this line in their settlement"* —
+   * on the same screen where Recalculate, Finalize, Send for review and Add revision had all
+   * correctly withdrawn and a green *"Finalized — figures and rates locked"* pill stood in their
+   * place. The toast that came back was honest; NEVER OFFER WHAT THE API WILL REFUSE is the rule
+   * the rest of this screen was rebuilt around, and an honest refusal is not a substitute for it.
+   *
+   * A prop rather than a second read of the settlement inside this card: the caller already holds
+   * the answer (`settlement.isFinalized`, which is `wasFinalized` OR a frozen own row), and a
+   * component deriving a rule the screen above it has already decided is how two copies disagree.
+   */
+  locked?: boolean;
+}) {
   const curation = useSettlementCuration(eventId);
 
   // Nothing to curate is not an empty state to draw — it is a card with no job.
@@ -115,6 +136,15 @@ export function SettlementCurationCard({ eventId }: { eventId: string }) {
         </div>
       </div>
 
+      {/* IT SAYS WHY, rather than leaving six greyed chips to be read as a fault. The wording is the
+          screen's own — the pill above these lists says "Finalized — figures and rates locked". */}
+      {locked && (
+        <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+          These figures are finalized, so what each party sees is frozen with them. The settlement
+          each of them received is the one below.
+        </p>
+      )}
+
       <div
         style={{
           display: "grid",
@@ -129,6 +159,7 @@ export function SettlementCurationCard({ eventId }: { eventId: string }) {
           empty="Nothing yet: this party sees no figures at all."
           chips={included}
           isBusy={curation.isBusy}
+          locked={locked}
           onToggle={curation.toggle}
         />
         <ChipList
@@ -137,6 +168,7 @@ export function SettlementCurationCard({ eventId }: { eventId: string }) {
           empty="They can see every line on this settlement."
           chips={withheld}
           isBusy={curation.isBusy}
+          locked={locked}
           onToggle={curation.toggle}
         />
       </div>
@@ -150,6 +182,7 @@ function ChipList({
   empty,
   chips,
   isBusy,
+  locked,
   onToggle,
 }: {
   tone: "included" | "withheld";
@@ -157,6 +190,7 @@ function ChipList({
   empty: string;
   chips: CurationChip[];
   isBusy: boolean;
+  locked: boolean;
   onToggle: (lineId: string) => void;
 }) {
   const accent = tone === "included" ? "var(--brand-green, #3db88b)" : "var(--border-strong)";
@@ -188,16 +222,18 @@ function ChipList({
             <button
               key={chip.lineId}
               type="button"
-              disabled={isBusy}
+              disabled={isBusy || locked}
               onClick={() => onToggle(chip.lineId)}
               // The whole chip is the control, and its label says which way it
               // will move — a bare × on an "included" chip and a bare + on a
               // withheld one is the prototype's shorthand, and it reads as
               // "delete this line" to anyone who has not been told otherwise.
               title={
-                chip.included
-                  ? "Withhold this line from them"
-                  : "Include this line in their settlement"
+                locked
+                  ? "These figures are finalized — what each party sees is frozen with them."
+                  : chip.included
+                    ? "Withhold this line from them"
+                    : "Include this line in their settlement"
               }
               style={{
                 display: "inline-flex",
@@ -210,7 +246,8 @@ function ChipList({
                 color: "var(--text)",
                 font: "inherit",
                 fontSize: 12.5,
-                cursor: isBusy ? "progress" : "pointer",
+                cursor: locked ? "not-allowed" : isBusy ? "progress" : "pointer",
+                opacity: locked ? 0.55 : 1,
                 maxWidth: "100%",
               }}
             >
