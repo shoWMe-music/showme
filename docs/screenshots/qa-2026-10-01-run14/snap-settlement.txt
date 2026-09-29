@@ -1,0 +1,51 @@
+uid=307_0 RootWebArea "shoWMe" url="http://127.0.0.1:5180/events/e2e00000-0000-4000-8000-0000000000e1/settlement"
+  uid=307_1 complementary
+    uid=307_2 StaticText "shoWMe"
+    uid=307_3 button "Collapse sidebar" description="Collapse sidebar"
+    uid=307_4 navigation "Primary"
+      uid=307_5 button "Dashboard"
+      uid=307_6 button "Requests 5" description="Requests"
+      uid=307_7 button "Calendar"
+      uid=307_8 button "Events"
+      uid=307_9 button "Settlements"
+      uid=307_10 button "Performance Reports"
+      uid=307_11 button "Tasks"
+      uid=307_12 button "Team"
+      uid=307_13 button "Contacts"
+      uid=307_14 button "Audience"
+      uid=307_15 button "Financial Projections"
+      uid=307_16 button "Bills & Invoices"
+      uid=307_17 button "My Profiles"
+      uid=307_18 button "Settings"
+    uid=307_19 button "TH The Lantern Hall (operator) Operator" expandable haspopup="menu"
+  uid=307_20 banner
+    uid=307_21 StaticText "MONEY"
+    uid=307_22 heading "Settlement" level="1"
+    uid=307_23 textbox "Search" description="Searching across events and artists is not built yet." disableable disabled
+    uid=307_24 button "Switch to dark theme"
+    uid=307_25 button "Notifications" expandable
+    uid=307_26 button "New event"
+  uid=307_27 main
+    uid=307_28 link "Back to event" url="http://127.0.0.1:5180/events/e2e00000-0000-4000-8000-0000000000e1"
+      uid=307_29 StaticText "Back to event"
+    uid=307_30 StaticText "SETTLEMENT"
+    uid=307_31 heading "Marlo Vance — Album Release / The Lantern Hall" level="2"
+    uid=307_32 StaticText "The Lantern Hall"
+    uid=307_33 StaticText " ·"
+    uid=307_34 link "16 Oct 2026" description="Open the event manager for 16 Oct 2026" url="http://127.0.0.1:5180/events/e2e00000-0000-4000-8000-0000000000e1"
+      uid=307_35 StaticText "16 Oct 2026"
+    uid=307_36 StaticText "Open"
+    uid=307_37 button "Preview in another currency" expandable haspopup="listbox"
+    uid=307_38 tab "Overview" selectable
+    uid=307_39 tab "Deal structure" selectable
+    uid=307_40 tab "Financials" selectable
+    uid=307_41 tab "Settlement" selectable
+    uid=307_42 tab "Comments" selectable
+    uid=307_43 tab "Collaborators" selectable
+    uid=307_44 tab "Payout" selectable selected
+    uid=307_45 StaticText "Payouts are locked"
+    uid=307_46 StaticText "This settlement is "
+    uid=307_47 StaticText "open"
+    uid=307_48 StaticText ". Finalize it before processing payouts."
+    uid=307_49 button "Process payout" disableable disabled
+  uid=307_50 region "Notifications" live="polite" relevant="additions text"

@@ -288,6 +288,39 @@ describe("settlement — compute", () => {
     const body = response.json();
     expect(body.pool).toBe("850000");
 
+    /*
+     * AND NOBODY IS OFFERED SOMEBODY ELSE'S SIGNATURE (QA sweep run 14's MAJOR, the other half).
+     *
+     * The operator holds `settlement.confirm` event-wide and is a party to the deals here, so they
+     * SEE the band's and the venue's lines. `signableByYou` on those must stay false: the confirm
+     * route refuses them by name — *"an operator could record the performer's approval of the
+     * performer's own money"* — and this read's own promise is that the screen never offers a
+     * signature the route will refuse.
+     *
+     * Asserted here rather than in `settlement-own-read.test.ts` because that file's fixture seeds no
+     * deals, so every reader there sees only their own line and the question cannot arise. A mutation
+     * dropping the ownership half of the check survived BOTH files until this existed.
+     */
+    const asOperator = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(seed.operator.userId),
+    });
+    expect(asOperator.statusCode).toBe(200);
+    const visible = asOperator.json().settlements as {
+      participantId: string;
+      isYours: boolean;
+      signableByYou: boolean;
+    }[];
+    const others = visible.filter((row) => !row.isYours);
+    expect(others.length, "the operator sees the other parties' lines").toBeGreaterThan(0);
+    for (const row of others) {
+      expect(row.signableByYou, `participant ${row.participantId}`).toBe(false);
+    }
+    // THE CONTROL: their own line they may sign, so the false above is ownership and not the field
+    // having been wired off.
+    expect(visible.find((row) => row.isYours)?.signableByYou).toBe(true);
+
     const byId = new Map<string, string>(
       body.breakdowns.map((b: { participantId: string; net: string }) => [b.participantId, b.net]),
     );

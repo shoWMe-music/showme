@@ -1459,8 +1459,16 @@ const PAYMENT_TRACKING_STATUSES: ReadonlySet<string> = new Set([
  * `settlement.confirm` — they were served their own figures, emailed *"sign off when they match your
  * books"*, given a screen with no control, and refused by the route.
  *
- * ONE FUNCTION because four callers ask it: the confirm route, `GET /settlements`'s `signableByYou`,
- * `GET /settlements/awaiting-signature`'s filter, and the approval roster's denominator. That is
+ * ONE FUNCTION because FIVE callers ask it: the confirm route, `GET /settlements`'s `signableByYou`,
+ * `GET /settlements/awaiting-signature`'s filter, the approval roster's denominator, and
+ * `GET /events/:id/settlements`'s own `signableByYou`.
+ *
+ * **That list said FOUR for a day and the fifth is the one the SCREEN reads** (QA sweep run 14). The
+ * per-event route answered `signableByYou` from ownership alone, which was masked while the web ANDed
+ * an event-wide `authority.canConfirm` in front of it — and §25.8.2 removed that AND, correctly, so
+ * the ownership-only answer surfaced as a live Approve button on a DELEGATED performer's own line: a
+ * signature #14 and §25.7.3 place with her agent. Enumerating the callers is exactly how the drift
+ * this function exists to prevent got in. That is
  * `routes/deals.ts::maySignOwnLines`'s own argument for existing — *"a second copy of this is how a
  * dashboard starts offering a row the confirm route then refuses"* — and this route has already been
  * on the wrong end of it (QA6-1).
@@ -2173,6 +2181,8 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
        * route accepts it — both by asking the floor UNION the band, which is what this now asks.
        * The band at its upper bound, for the reason `ApprovalResponse.signatureExpected` gives.
        */
+      // The line's own role, for `signableByYou` below — the same rows `maySign` reads, so no query.
+      const roleByParticipant = new Map(participantRoles.map((row) => [row.id, row.role]));
       const maySign = new Map<string, boolean>();
       for (const row of participantRoles) {
         const role = row.role as EventRole;
@@ -2275,7 +2285,16 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           approvedByYou:
             signable.has(row.participantId as string) &&
             (roster.get(row.participantId as string)?.approved ?? false),
-          signableByYou: signable.has(row.participantId as string),
+          /*
+           * OWNERSHIP **AND** THE CAPABILITY, which this line asked for a day without (run 14).
+           * `signable` is ownership plus delegation — an agent reaching their act's line — and on its
+           * own it offered Approve to a delegated performer whose signature is her agent's to give.
+           * The route's promise two comments up is that "the screen never offers a signature the
+           * route will refuse"; this is what keeps it.
+           */
+          signableByYou:
+            signable.has(row.participantId as string) &&
+            maySignOwnSettlement(capabilities, roleByParticipant.get(row.participantId as string)),
         })),
         transfers: transferRows
           .filter((row) =>

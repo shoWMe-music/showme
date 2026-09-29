@@ -704,6 +704,149 @@ describe("the approval roster counts who is being WAITED ON", () => {
     expect(approved).toBeLessThanOrEqual(expected);
   });
 
+  it("does NOT offer a delegated act her own signature on the per-event read", async () => {
+    /*
+     * QA sweep run 14, and the defect was MINE: §25.8.2 removed the web's event-wide
+     * `authority.canConfirm` from the Approve gate — correctly, because it was a second copy of a
+     * rule the API owns — and that unmasked this route answering `signableByYou` from OWNERSHIP
+     * alone. A delegated performer got a live Approve on a line #14 and §25.7.3 place with her agent,
+     * and pressing it produced a 403 the web renders as "This part of the event isn't shared with
+     * you", which is untrue of her: it IS shared, she simply may not sign it.
+     *
+     * The function that answers this has a docstring listing its callers. It said FOUR. The fifth is
+     * this one, and it is the one the SCREEN reads (`useEventSettlement` builds its `signable` map
+     * from these rows). Enumerating callers is how the drift it exists to prevent got in.
+     *
+     * Delegation is resolved against a LIVE representation, never the stale flag (audit A-19), so the
+     * fixture needs both: the row AND the agent's participation.
+     */
+    const host = await seedOperator("delegsign-host", "Host", PRESET_PERMISSION_SETS.operator_full);
+    const coHost = await seedOperator("delegsign-co", "Co-promoter", []);
+    const { event } = await seedNightFor(host, coHost, "accepted");
+
+    const act = await seedOperator("delegsign-act", "Marlo", PRESET_PERMISSION_SETS.performer);
+    const agency = await seedOperator("delegsign-agent", "Astra", PRESET_PERMISSION_SETS.agent);
+    const [actPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: act.profileId,
+        role: "performer",
+        permissionSetId: act.permissionSetId,
+        status: "confirmed",
+        details: { delegatedToAgentProfileId: agency.profileId },
+      })
+      .returning();
+    await harness.db.insert(schema.eventParticipants).values({
+      eventId: event.id,
+      profileId: agency.profileId,
+      role: "agent",
+      permissionSetId: agency.permissionSetId,
+      status: "accepted",
+    });
+    await harness.db.insert(schema.representations).values({
+      agentProfileId: agency.profileId,
+      performerProfileId: act.profileId,
+      isWorldwide: true,
+      commissionRate: 2000,
+      agentCollects: false,
+      proposedBy: "agent",
+      status: "active",
+      confirmedByAgent: true,
+      confirmedByPerformer: true,
+    });
+    if (!actPart) throw new Error("act participant seed failed");
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+
+    const own = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/settlements`,
+      headers: auth(act.userId),
+    });
+    expect(own.statusCode).toBe(200);
+    const rows = own.json().settlements as {
+      participantId: string;
+      isYours: boolean;
+      signableByYou: boolean;
+    }[];
+    const mine = rows.find((row) => row.participantId === actPart.id);
+    expect(mine, "her own line is served to her").toBeDefined();
+    // It IS hers to READ — which is the half that makes the refusal's old wording untrue.
+    expect(mine?.isYours).toBe(true);
+    expect(mine?.signableByYou, "and it is NOT hers to sign").toBe(false);
+
+    // THE CONTROL: the same read for a performer with no agent offers the signature, so the false
+    // above is the delegation and not the per-event route having stopped answering.
+    const soloAct = await seedOperator(
+      "delegsign-solo",
+      "Neon Tide",
+      PRESET_PERMISSION_SETS.performer,
+    );
+    const [soloPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: soloAct.profileId,
+        role: "performer",
+        permissionSetId: soloAct.permissionSetId,
+        status: "confirmed",
+      })
+      .returning();
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+    const soloRead = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/settlements`,
+      headers: auth(soloAct.userId),
+    });
+    const soloRows = soloRead.json().settlements as {
+      participantId: string;
+      signableByYou: boolean;
+    }[];
+    expect(soloRows.find((row) => row.participantId === soloPart?.id)?.signableByYou).toBe(true);
+
+    /*
+     * AND THE ROLE IT IS ASKED WITH HAS TO BE THE LINE'S OWN. A crew member holds
+     * `settlement.confirm` nowhere event-wide and reaches it only through the settlement-scoped floor
+     * (§25.8.2), so their line is the one that distinguishes "asked with this row's role" from "asked
+     * with any role at all" — a mutation hard-coding `"host"` survived every other assertion here.
+     */
+    const crew = await seedCrew("delegsign-crew", "Priya Sound");
+    const [crewPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: event.id,
+        profileId: crew.profileId,
+        role: "crew",
+        permissionSetId: null,
+        status: "confirmed",
+      })
+      .returning();
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/settlement/compute`,
+      headers: auth(host.userId),
+    });
+    const crewRead = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${event.id}/settlements`,
+      headers: auth(crew.userId),
+    });
+    const crewRows = crewRead.json().settlements as {
+      participantId: string;
+      signableByYou: boolean;
+    }[];
+    expect(crewRows.find((row) => row.participantId === crewPart?.id)?.signableByYou).toBe(true);
+  });
+
   it("expects the AGENCY's line, whose preset carries the capability its floor does not", async () => {
     /*
      * THE PARTY THE REPORT WAS ACTUALLY ABOUT (QA sweep run 13). Measured in the seed: the

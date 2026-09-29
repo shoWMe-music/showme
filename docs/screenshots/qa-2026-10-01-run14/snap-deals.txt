@@ -1,0 +1,84 @@
+uid=305_0 RootWebArea "shoWMe" url="http://127.0.0.1:5180/events/e2e00000-0000-4000-8000-0000000000e1?tab=deals"
+  uid=305_1 complementary
+    uid=305_2 StaticText "shoWMe"
+    uid=305_3 button "Collapse sidebar" description="Collapse sidebar"
+    uid=305_4 navigation "Primary"
+      uid=305_5 button "Dashboard"
+      uid=305_6 button "Requests 5" description="Requests"
+      uid=305_7 button "Calendar"
+      uid=305_8 button "Events"
+      uid=305_9 button "Settlements"
+      uid=305_10 button "Performance Reports"
+      uid=305_11 button "Tasks"
+      uid=305_12 button "Team"
+      uid=305_13 button "Contacts"
+      uid=305_14 button "Audience"
+      uid=305_15 button "Financial Projections"
+      uid=305_16 button "Bills & Invoices"
+      uid=305_17 button "My Profiles"
+      uid=305_18 button "Settings"
+    uid=305_19 button "TH The Lantern Hall (operator) Operator" expandable haspopup="menu"
+  uid=305_20 banner
+    uid=305_21 StaticText "EVENT WORKSPACE"
+    uid=305_22 heading "Event" level="1"
+    uid=305_23 textbox "Search" description="Searching across events and artists is not built yet." disableable disabled
+    uid=305_24 button "Switch to dark theme"
+    uid=305_25 button "Notifications" expandable
+    uid=305_26 button "New event"
+  uid=305_27 main
+    uid=305_28 button "Events"
+    uid=305_29 StaticText "/"
+    uid=305_30 StaticText "Marlo Vance — Album Release"
+    uid=305_31 heading "Marlo Vance — Album Release" level="1"
+    uid=305_32 StaticText "EVT-E2E000"
+    uid=305_33 StaticText "Confirmed"
+    uid=305_34 StaticText "MV"
+    uid=305_35 StaticText "Marlo Vance"
+    uid=305_36 StaticText "·"
+    uid=305_37 StaticText "TH"
+    uid=305_38 StaticText "The Lantern Hall"
+    uid=305_39 StaticText "·"
+    uid=305_40 link "16 Oct 2026" description="Show 16 Oct 2026 on the calendar" url="http://127.0.0.1:5180/calendar?date=2026-10-16"
+      uid=305_41 StaticText "16 Oct 2026"
+    uid=305_42 button "Invite Collaborator"
+    uid=305_43 button "Share & Export"
+    uid=305_44 button "Actions for Marlo Vance — Album Release" expandable haspopup="menu"
+    uid=305_45 StaticText "Suggested"
+    uid=305_46 StaticText "Pending"
+    uid=305_47 StaticText "Confirmed"
+    uid=305_48 StaticText "Concluded"
+    uid=305_49 tab "To Do" selectable
+    uid=305_50 tab "Budget Planner" selectable
+    uid=305_51 tab "Event Details" selectable
+    uid=305_52 tab "Deals" selectable selected
+    uid=305_53 tab "Team / Crew" selectable
+    uid=305_54 tab "Setlist" selectable
+    uid=305_55 tab "Settlement" selectable
+    uid=305_56 tab "Messages" selectable
+    uid=305_57 tab "Collaborators" selectable
+    uid=305_58 tab "Event History" selectable
+    uid=305_59 StaticText "Deals you are a party to. Each party sees only its own line."
+    uid=305_60 button "New deal"
+    uid=305_61 button "Album Release — Door Split Confirmed — terms frozen 3 of 3 signed" expandable
+    uid=305_62 button "Reopen"
+    uid=305_63 StaticText "This night has a settlement on it, so "Album Release — Door Split" is part of what has already been computed and read. Cancel it instead — that stops it paying without erasing that it existed."
+    uid=305_64 button "Cancel agreement"
+    uid=305_65 button "QA14 author reach — Neon Tide pays Priya Sent — awaiting confirmations 0 of 2 signed" expandable
+    uid=305_66 button "Edit figures"
+    uid=305_67 StaticText "This night has a settlement on it, so "QA14 author reach — Neon Tide pays Priya" is part of what has already been computed and read. Cancel it instead — that stops it paying without erasing that it existed."
+    uid=305_68 button "Cancel agreement"
+    uid=305_69 heading "Accommodation & amenities" level="3"
+    uid=305_70 StaticText "What the room provides the parties on this event — rooms, parking, catering, backline."
+    uid=305_71 StaticText "Nothing recorded yet."
+    uid=305_72 textbox "New amenity"
+    uid=305_73 button "Add amenity" disableable disabled
+    uid=305_74 StaticText "THE ROOM"
+    uid=305_75 StaticText "HOUSE SOUND SYSTEM"
+    uid=305_76 textbox "HOUSE SOUND SYSTEM" multiline
+    uid=305_77 StaticText "CATERING"
+    uid=305_78 textbox "CATERING" multiline
+    uid=305_79 StaticText "ACCOMMODATION"
+    uid=305_80 textbox "ACCOMMODATION" multiline
+    uid=305_81 StaticText "ARTIST LOGISTICS"
+    uid=305_82 textbox "ARTIST LOGISTICS" multiline
+  uid=305_83 region "Notifications" live="polite" relevant="additions text"
