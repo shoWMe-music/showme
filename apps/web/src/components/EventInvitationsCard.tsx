@@ -184,8 +184,28 @@ export function EventInvitationsCard({
                   {invitation.venueName ? ` · ${invitation.venueName}` : ""}
                   {invitation.hostName ? ` · from ${invitation.hostName}` : ""}
                 </div>
+                {/*
+                  WHOSE INVITATION THIS IS, when somebody else is involved (QA sweep run 11).
+
+                  An AGENT's card read "QA11 Money Night · from The Lantern Hall" and never said
+                  it was Marlo Vance's — an agency with two acts on one night could not tell its
+                  cards apart, and accepting moves the ACT's participation row, not the agency's.
+                  The notification for the same event already gets this right ("You were added to
+                  the show as Marlo Vance's agent"), so the card was the one place it was missing.
+
+                  And on the ACT's own row the sentence runs the other way: they can see the night
+                  now (decisions §25.7.3 — "the act SEES; the actions stay with the agent") and
+                  what they need to know is that the answer is not theirs to give.
+                */}
+                {invitation.delegateName && (
+                  <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
+                    {invitation.answerableByYou
+                      ? `Answering for ${invitation.delegateName}`
+                      : `${invitation.delegateName} answers this for you`}
+                  </div>
+                )}
               </div>
-              {actionable && (
+              {actionable && invitation.answerableByYou && (
                 <div style={{ display: "flex", gap: 8, flex: "0 0 auto" }}>
                   <Button
                     variant="secondary"

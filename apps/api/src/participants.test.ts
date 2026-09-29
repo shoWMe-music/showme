@@ -2806,16 +2806,53 @@ describe("participants — every side of an invitation", () => {
   }
 
   const invitations = (uid: string) =>
-    app
-      .inject({ method: "GET", url: "/api/v1/me/event-invitations", headers: auth(uid) })
-      .then((response) => response.json() as Array<{ eventId: string }>);
+    app.inject({ method: "GET", url: "/api/v1/me/event-invitations", headers: auth(uid) }).then(
+      (response) =>
+        response.json() as Array<{
+          eventId: string;
+          answerableByYou: boolean;
+          delegateName: string | null;
+        }>,
+    );
 
-  it("sends a represented act's invitation to their AGENT, not to the act", async () => {
+  /**
+   * READ-ONLY IS NOT ABSENT (decisions §25.7.3, and QA sweep run 11 found the difference).
+   *
+   * This test's own stated reason has always been *"the act's screens are read-only on it"* and
+   * its assertion was that the act cannot see the event at all — the two are not the same, and
+   * Daniel's ruling chose the first: *"the act SEES; the ACTIONS stay with the agent."* It was
+   * already implemented that way for booking requests, where Marlo's Outgoing tab shows the
+   * offer Astra sent marked "via Astra Booking"; event invitations were the other surface.
+   *
+   * What the NAME says is unchanged and still asserted: the answer is the agent's.
+   */
+  it("sends a represented act's invitation to their AGENT, and lets the act SEE it", async () => {
     const { event } = await bookedThroughAnAgent("side-a");
-    // The agent negotiates and confirms; the act's screens are read-only on it
-    // (decisions #14). This was exactly backwards before.
-    expect((await invitations("side-a-agent")).map((one) => one.eventId)).toContain(event.id);
-    expect((await invitations("side-a-perf")).map((one) => one.eventId)).not.toContain(event.id);
+
+    const agentRow = (await invitations("side-a-agent")).find((one) => one.eventId === event.id);
+    expect(agentRow?.answerableByYou).toBe(true);
+    // …and names the act it is answering for, which the card never said.
+    expect(agentRow?.delegateName).toBe("side-a-perf");
+
+    const actRow = (await invitations("side-a-perf")).find((one) => one.eventId === event.id);
+    expect(actRow, "the act can see the night it was booked onto").toBeDefined();
+    expect(actRow?.answerableByYou).toBe(false);
+    expect(actRow?.delegateName).toBe("side-a-agent");
+  });
+
+  it("leaves an UNrepresented act answering for themselves, with nobody named", async () => {
+    // The control: the same list, the same route, and no delegation in it. Without this the
+    // assertions above would pass over a list that had simply stopped filtering anything.
+    const { event, performer } = await seedEventWithHost("side-solo");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("side-solo-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    const row = (await invitations("side-solo-perf")).find((one) => one.eventId === event.id);
+    expect(row?.answerableByYou).toBe(true);
+    expect(row?.delegateName).toBeNull();
   });
 
   it("lets the agent answer, and moves their own row with it", async () => {

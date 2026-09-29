@@ -1174,6 +1174,22 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
        * that would have to run to make the inbox truthful.
        */
       requestStatus: z.enum(["pending", "accepted", "declined", "expired", "cancelled"]),
+      /**
+       * IS THIS THE READER'S TO ANSWER (decisions §25.7.3).
+       *
+       * False on a delegated act's own invitation: they SEE it, and the Accept/Decline belongs
+       * to their agent. The row used to be filtered out of this list entirely, which is a
+       * different thing from read-only and is not what the ruling said (QA sweep run 11).
+       */
+      answerableByYou: z.boolean(),
+      /**
+       * THE OTHER PARTY IN THE DELEGATION, named — and it reads from both ends.
+       *
+       * On the AGENT's row it is the act they are answering for, which their card never said
+       * (an agency with two acts on one night could not tell its cards apart). On the ACT's own
+       * read-only row it is the agent answering. Null when nobody else is involved.
+       */
+      delegateName: z.string().nullable(),
     }),
   );
 
@@ -1274,26 +1290,82 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
         )
         .orderBy(asc(schema.events.eventDate));
 
-      // Whose answer each one is. A delegated act's invitation belongs to their
-      // agent, and disappears from the act's own list — their screens are
-      // read-only on it (decisions #14).
+      /*
+       * WHOSE ANSWER EACH ONE IS — and SEEING it is a different question (decisions §25.7.3).
+       *
+       * This comment used to say a delegated act's invitation *"disappears from the act's own
+       * list — their screens are read-only on it"*, and the filter below made the first half
+       * true and the second impossible. Daniel's ruling is *"the act SEES; the ACTIONS stay
+       * with the agent"*, and it was already implemented that way for booking requests: Marlo's
+       * Outgoing tab shows the offer Astra sent, marked *"via Astra Booking"*. Event invitations
+       * were the same rule's other surface, and the act saw nothing at all — no row here, no
+       * event in `GET /events`, nothing on the Dashboard (QA sweep run 11).
+       *
+       * So the list is everything this caller may SEE, and `answerableByYou` carries the half
+       * that is about acting. The slice itself is unchanged — who is asking, which night, where.
+       */
       const answerable = await answerableInvitations(
         request,
         candidates.map((row) => ({ ...row, id: row.participantId })),
         myProfileIds,
       );
-      const rows = candidates.filter((row) => answerable.has(row.participantId));
+      const rows = candidates.filter(
+        (row) =>
+          answerable.has(row.participantId) ||
+          (row.profileId != null && myProfileIds.has(row.profileId)),
+      );
+
+      /*
+       * THE OTHER PARTY IN THE DELEGATION, for both ends of it. Resolved once for the rows that
+       * need it rather than per row, and only for those — most invitations have no agent at all.
+       */
+      const delegationsByEvent = await liveEventDelegationsForEvents(
+        database,
+        [...new Set(rows.map((row) => row.eventId))],
+        new Date(),
+        ["invited", "accepted", "confirmed"],
+      );
+      const delegateNameFor = new Map<string, string | null>();
+      const profileNames = new Map<string, string | null>();
+      const wantedProfileIds = new Set<string>();
+      for (const row of rows) {
+        const delegated = (delegationsByEvent.get(row.eventId) ?? []).find(
+          (one) => one.performerParticipantId === row.participantId,
+        );
+        if (!delegated) continue;
+        // On the ACT's row name the agent; on the row the AGENT can answer, name the act.
+        const other =
+          row.profileId != null && myProfileIds.has(row.profileId)
+            ? delegated.agentProfileId
+            : delegated.performerProfileId;
+        if (other) {
+          wantedProfileIds.add(other);
+          delegateNameFor.set(row.participantId, other);
+        }
+      }
+      if (wantedProfileIds.size > 0) {
+        const named = await database
+          .select({ id: schema.profiles.id, name: schema.profiles.name })
+          .from(schema.profiles)
+          .where(inArray(schema.profiles.id, [...wantedProfileIds]));
+        for (const profile of named) profileNames.set(profile.id, profile.name);
+      }
 
       // One "today", read once: deriving expiry per row against a moving clock
       // could put two rows on opposite sides of midnight in the same response.
       const today = new Date().toISOString().slice(0, 10);
 
-      return rows.map(({ eventStatus, ...row }) => ({
-        ...row,
-        eventDate: row.eventDate ?? null,
-        invitedAt: row.invitedAt.toISOString(),
-        requestStatus: inboxStatusFor(row.status, row.eventDate ?? null, today, eventStatus),
-      }));
+      return rows.map(({ eventStatus, ...row }) => {
+        const otherProfileId = delegateNameFor.get(row.participantId);
+        return {
+          ...row,
+          eventDate: row.eventDate ?? null,
+          invitedAt: row.invitedAt.toISOString(),
+          requestStatus: inboxStatusFor(row.status, row.eventDate ?? null, today, eventStatus),
+          answerableByYou: answerable.has(row.participantId),
+          delegateName: otherProfileId ? (profileNames.get(otherProfileId) ?? null) : null,
+        };
+      });
     },
   );
 

@@ -202,3 +202,85 @@ Left as a named follow-up rather than half-done.
 **And the dead ternary is gone.** `useEventSettlement.ts` had
 `length === 1 ? "Sent for review." : "Sent for review."`. Whatever distinction it meant is not in
 the code, and both arms produced the same toast.
+
+---
+
+## 4. The invitation trio — one missing fact, three symptoms
+
+**Which file settles them:** `apps/api/src/routes/participants.ts`, `GET /me/event-invitations`.
+
+Three of run 11's MINORs are the same hole seen from three seats, and the third is a **ruling of
+Daniel's that was implemented on one of its two surfaces**:
+
+| Row | Who reads it | What is missing |
+|---|---|---|
+| QA11-12 | `agent@` | *"1 event invitation — QA11 Money Night · from The Lantern Hall"* — nothing says it is **Marlo Vance's** |
+| QA11-13 | `performer.a@` | Marlo sees **nothing at all**; `GET /me/event-invitations` → `[]` |
+| QA11-11 | `performer.a@` | An outgoing offer is headed by the reader, never the venue it went to |
+
+**The verdict on QA11-13: §25.7.3 is done for booking requests and not for event invitations.**
+Daniel ruled *"the act SEES; the **actions** stay with the agent, which is what #14 actually
+moved"*. Marlo's Outgoing tab correctly shows the offer Astra sent *"via Astra Booking"* — the same
+rule, the other surface, already right. Here the list filters on `answerableInvitations`, and the
+comment above it states the pre-ruling behaviour as though it were the rule:
+
+> *"A delegated act's invitation belongs to their agent, and **disappears from the act's own list**
+> — their screens are read-only on it (decisions #14)."*
+
+**Read-only and absent are different things, and §25.7.3 chose the first.** Instance twenty-six, and
+the second of the "correct when written, then a ruling moved underneath it" variant.
+
+**And QA11-12 falls out of the same fix.** The row that makes Marlo's invitation visible to Marlo is
+the row that knows Astra answers for it; turning that around, the row on Astra's screen is the one
+that knows it is Marlo's. One pair of fields — *is this mine to answer* and *whose is it* — closes
+both, from opposite ends.
+
+**The scope.** `GET /me/event-invitations` returns a delegated act's own invitation as well as the
+agent's, with `answerableByYou` and the other party's name; the Requests card renders a
+non-answerable one read-only, naming who is answering, and an answerable one naming the act it is
+for. The **notification** for this event already says both — *"You were added to the show as Marlo
+Vance's agent"* — so the wording has a precedent on the same event, and the card is the only place
+it is missing.
+
+**The decision it hides: does a read-only invitation let the act see MORE than before?** No. This
+route is deliberately the thin slice — *"who is asking, which night, where"*, no budget, no deal, no
+roster — and it stays that. What changes is whether the act can see that the night exists at all,
+which is exactly what §25.7.3 ruled on.
+
+**QA11-11 is a different shape and is NOT in this commit:** the API serves `targetProfileId` and no
+name, so naming the recipient needs a join in `GET /booking-requests`. Same screen, different
+change — recorded rather than bundled.
+
+### What landed
+
+`GET /me/event-invitations` returns everything the caller may SEE, with `answerableByYou` carrying
+the half that is about acting and `delegateName` naming the other end. Read off the live API, the
+same invitation from both seats:
+
+```
+agent       Nordic Synth Showcase | answerable True  | delegate Marlo Vance
+performerA  Nordic Synth Showcase | answerable False | delegate Astra Booking Agency
+```
+
+And read live in the browser as **Marlo Vance**, on a night they previously could not see at all:
+
+```
+1 event invitation
+Nordic Synth Showcase
+Sat, 5 Dec 2026 · The Lantern Hall · from The Lantern Hall
+Astra Booking Agency answers this for you
+```
+
+— with **no Accept or Decline anywhere on the page**. That is §25.7.3 exactly: the act sees, the
+actions stay with the agent.
+
+**The test that had to change said so itself.** *"sends a represented act's invitation to their
+AGENT, not to the act"* asserted the act could not see the event, under a comment reading *"the
+act's screens are **read-only** on it"*. Read-only and absent again — the reason and the assertion
+had never agreed, and the ruling settled which one was right. Its name is still true and still
+asserted; what changed is the second half. A control was added beside it for an UNrepresented act
+(`answerableByYou: true`, `delegateName: null`), because without one the new assertions would pass
+over a list that had simply stopped filtering.
+
+The agent's own line — *"Answering for Marlo Vance"* — is the same expression's other branch and is
+verified by the payload above rather than by a second seat switch. Said plainly.

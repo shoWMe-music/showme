@@ -3573,6 +3573,13 @@
                       "requestStatus": {
                         "type": "string",
                         "enum": ["pending", "accepted", "declined", "expired", "cancelled"]
+                      },
+                      "answerableByYou": {
+                        "type": "boolean"
+                      },
+                      "delegateName": {
+                        "type": "string",
+                        "nullable": true
                       }
                     },
                     "required": [
@@ -3586,7 +3593,9 @@
                       "hostName",
                       "invitedAt",
                       "status",
-                      "requestStatus"
+                      "requestStatus",
+                      "answerableByYou",
+                      "delegateName"
                     ],
                     "additionalProperties": false
                   }

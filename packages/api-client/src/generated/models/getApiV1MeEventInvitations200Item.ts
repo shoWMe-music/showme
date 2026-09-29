@@ -23,4 +23,7 @@ export type GetApiV1MeEventInvitations200Item = {
   invitedAt: string;
   status: string;
   requestStatus: GetApiV1MeEventInvitations200ItemRequestStatus;
+  answerableByYou: boolean;
+  /** @nullable */
+  delegateName: string | null;
 };

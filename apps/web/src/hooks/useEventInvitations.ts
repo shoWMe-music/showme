@@ -57,6 +57,20 @@ export interface EventInvitation {
    * itself: the notice goes to every participant, `invited` ones included.
    */
   requestStatus: "pending" | "accepted" | "declined" | "expired" | "cancelled";
+  /**
+   * IS THIS THE READER'S TO ANSWER (decisions §25.7.3).
+   *
+   * False on a represented act's own invitation: they SEE the night and the Accept/Decline
+   * belongs to their agent. Until QA sweep run 11 the row was filtered out of the API's list
+   * entirely, which is a different thing from read-only and is not what the ruling said.
+   */
+  answerableByYou: boolean;
+  /**
+   * THE OTHER PARTY IN THE DELEGATION, read from whichever end is looking: the act on the
+   * agent's card, the agent on the act's. Null when nobody else is involved, which is most
+   * invitations.
+   */
+  delegateName: string | null;
 }
 
 /**
