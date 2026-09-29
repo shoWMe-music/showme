@@ -169,6 +169,25 @@ Two more ways a check lies, both measured here:
   warm instance serves during the traffic shift. Wait for the rollout, or
   confirm which revision answered.
 
+**And some defects NO assertion in this repo is positioned to see.** Measured
+2026-09-30: a helper moved from `apps/api` into `packages/settlement` brought
+`import { isDeepStrictEqual } from "node:util"` with it. The web app reaches that
+module through `@showme/settlement`, Vite externalises a Node builtin for the
+browser, and **every screen rendered white** — while `tsc --noEmit` was clean on
+both apps and **2,588 unit tests passed**, because vitest runs in Node. It was
+caught within the hour only because a browser check was already scheduled for
+something else.
+- **A Node builtin in `packages/shared`, `packages/auth`, `packages/settlement`
+  or `packages/ui` is a white screen, not a type error.** Those four are bundled
+  for the browser. Spell the thing out in the package instead.
+- The same day, twice more: a fix was right in its own unit test and wrong at the
+  surface, because the defect was in *which value the caller passed* (a ledger
+  currency standing in for the currency of the rows being summed) and in *a
+  second copy of a rule the API already owned* (a screen gating a control on an
+  event-wide capability the API had already answered per row). Mutation-testing
+  the function said 4/4. **Check the surface, not the function** — and when the
+  fix is a widening, load the screen as the seat it widens for.
+
 ## The dev stack does NOT reload the API — the browser can be a day behind the code
 `pnpm dev` spawns the API with plain `tsx`, **no `watch`** (`scripts/stack.mjs:320`),
 while the web runs under Vite with HMR. So an API change — a Zod schema, a route, a
