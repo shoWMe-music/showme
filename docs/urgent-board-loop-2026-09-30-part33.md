@@ -345,3 +345,55 @@ look. Restored.
 `npx biome check .` 748 clean · web **605** · API `settlement-own-read` + `settlement` **141
 passed** · auth **37** · `tsc --noEmit` clean on api and web.
 
+---
+
+## 3. Run 13 MINOR (333) — the Terms editor forecasts the rule part 29 replaced
+
+> *"Plain text. Every party to this deal sees the same words, and they are frozen into the signed
+> record **once everyone has confirmed**."* — and on the same deal, minutes later, Save was refused
+> because ONE party had signed, with `agreement_body_text` still `NULL`.
+
+### Which file settles it, and it is not the one the report names
+
+`DealTermsModal.tsx:69` is where the sentence *was*, but the defect is that **the rule is written
+twice in two files** — the forecast in the dialog and the refusal in `lib/errors.ts` — and they
+disagreed about the one thing the operator reads them for: how long they have. `grep` says the
+forecast had no other copy, so this is not a shared-constant-for-its-own-sake move; it is putting
+the two halves of one rule where they can be held to each other.
+
+`SEALED_TERMS_FORECAST` now lives in `apps/web/src/lib/errors.ts`, beside `sealedTermsRefusal`:
+
+> "Plain text. Every party to this deal sees the same words, and they are frozen the moment the
+> **FIRST** party signs — after that only reopening the agreement can change them, which clears
+> every signature. shoWMe does not compute anything from them."
+
+Two moments, before and after, one rule. `errors.test.ts` holds them to the same **trigger** rather
+than to any wording, so either sentence can be rewritten and only a change of RULE fails it:
+
+- both name a single signature; **neither** may say "everyone has";
+- both name reopening AND what reopening costs — otherwise the forecast warns of a door closing
+  without saying there is another one, which matters because the editor is gone by the time the
+  refusal is reachable.
+
+### Proved on the running stack
+
+Every remaining deal on e1 is signed or cancelled, so a draft one was created to reach the editor
+at all, the dialog opened, and the hint read **from inside the dialog** (`insideDialog: true` —
+`querySelector('textarea')` matching in document order is how a previous check filled a box behind
+a dialog and believed a toast). Then the probe deal was cancelled; e1 is back to nine dead deals
+plus `d1`.
+
+### Mutations — three, all killed
+
+| Mutation | Result |
+| --- | --- |
+| restore the superseded wording verbatim | **2 failed** |
+| drop the way out (freeze, no mention of reopening) | 1 failed |
+| name reopening without saying it clears every signature | 1 failed |
+
+### Suites
+
+`npx biome check .` 748 clean · web **607** (from 605) · `tsc --noEmit` clean.
+
+**Committed as `e550142`.**
+

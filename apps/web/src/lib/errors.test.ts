@@ -2,6 +2,8 @@ import { ApiError } from "@showme/api-client";
 import { describe, expect, it } from "vitest";
 import {
   ENTITLEMENT_REQUIRED_CODE,
+  SEALED_TERMS_FORECAST,
+  TERMS_SEALED_CODE,
   errorMessage,
   isEntitlementError,
   isPermissionRefusal,
@@ -122,5 +124,44 @@ describe("a 409 written for an API caller, said to a person", () => {
     expect(
       errorMessage(new ApiError(403, "entitlement_required", "Free plan event limit reached")),
     ).toBe("Free plan event limit reached");
+  });
+});
+
+describe("the sealed-terms rule, stated twice — forecast and refusal", () => {
+  it("names the FIRST signature in both, and 'everyone' in neither", () => {
+    /*
+     * QA sweep run 13. The dialog's hint said the terms freeze "once everyone has confirmed" —
+     * part 29's superseded rule — while the refusal a minute later said a single signature had
+     * fixed them. Two sentences for one rule, in two files, disagreeing about the one thing the
+     * operator reads them for: how long they have.
+     *
+     * Asserted on the TRIGGER rather than on the wording, so either sentence can be rewritten and
+     * only a change of RULE fails this.
+     */
+    for (const [label, sentence] of [
+      ["forecast", SEALED_TERMS_FORECAST],
+      ["refusal", errorMessage(new ApiError(409, TERMS_SEALED_CODE, "agreementBodyText"))],
+    ] as const) {
+      expect(sentence.toLowerCase(), `${label} names one signature`).toMatch(
+        /first party signs|a party has already signed/,
+      );
+      expect(sentence.toLowerCase(), `${label} must not say everyone`).not.toContain(
+        "everyone has",
+      );
+    }
+  });
+
+  it("tells the reader the way OUT, since the editor is gone by the time they need it", () => {
+    // Both sentences name reopening, and both say what it costs — otherwise the forecast warns of
+    // a door closing without saying there is another one.
+    for (const [label, sentence] of [
+      ["forecast", SEALED_TERMS_FORECAST],
+      ["refusal", errorMessage(new ApiError(409, TERMS_SEALED_CODE, "agreementBodyText"))],
+    ] as const) {
+      expect(sentence.toLowerCase(), `${label} names reopening`).toContain("reopen");
+      expect(sentence.toLowerCase(), `${label} says what reopening costs`).toContain(
+        "every signature",
+      );
+    }
   });
 });

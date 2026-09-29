@@ -1,5 +1,6 @@
 import { Button, Input, Modal, Select } from "@showme/design-system";
 import { useState } from "react";
+import { SEALED_TERMS_FORECAST } from "../lib/errors";
 import { VenueNotesField } from "./VenueNotesField";
 import type { DealTermsEditor } from "./useDealTermsEditor";
 
@@ -66,7 +67,7 @@ export function DealTermsModal({ editor }: { editor: DealTermsEditor }) {
           onChange={editor.setText}
           rows={12}
           placeholder={"Cancellation, force majeure, hospitality, payment terms…"}
-          hint="Plain text. Every party to this deal sees the same words, and they are frozen into the signed record once everyone has confirmed. shoWMe does not compute anything from them."
+          hint={SEALED_TERMS_FORECAST}
         />
 
         {editor.isNamingTemplate && <TemplateNameRow editor={editor} />}

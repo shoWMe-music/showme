@@ -66,6 +66,22 @@ function sealedTermsRefusal(error: ApiError): string | null {
   return "A party has already signed this agreement, so its terms are fixed. Reopen it to renegotiate — that clears every signature and asks the parties again.";
 }
 
+/**
+ * THE SAME RULE, FORECAST RATHER THAN REFUSED — the terms editor's own hint.
+ *
+ * It lived in `DealTermsModal.tsx` and said the terms freeze *"once everyone has confirmed"*, which
+ * is the rule part 29 REPLACED: they seal at the FIRST signature, at the server
+ * (`@showme/shared::termsAreSealed`). So the operator read the superseded timing at the one surface
+ * where the timing decides what they do next — and then, on the same deal, had Save refused by
+ * `sealedTermsRefusal` below while `agreement_body_text` stayed NULL (QA sweep run 13).
+ *
+ * It sits BESIDE the refusal, not in the dialog, because the two sentences are one rule at two
+ * moments — before and after — and a rule written twice in two files is how this disagreed with
+ * itself in the first place. `errors.test.ts` holds them to the same trigger.
+ */
+export const SEALED_TERMS_FORECAST =
+  "Plain text. Every party to this deal sees the same words, and they are frozen the moment the FIRST party signs — after that only reopening the agreement can change them, which clears every signature. shoWMe does not compute anything from them.";
+
 /** Pull a human-friendly message out of an unknown query/mutation error. */
 export function errorMessage(error: unknown, fallback = "Something went wrong."): string {
   if (error instanceof ApiError) {
