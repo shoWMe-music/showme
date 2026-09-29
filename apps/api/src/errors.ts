@@ -15,7 +15,8 @@ export const unauthorized = (message = "Unauthorized") =>
 export const forbidden = (message = "Forbidden") => new HttpError(403, message, "forbidden");
 export const notFound = (message = "Not found") => new HttpError(404, message, "not_found");
 export const badRequest = (message = "Bad request") => new HttpError(400, message, "bad_request");
-export const conflict = (message = "Conflict") => new HttpError(409, message, "conflict");
+export const conflict = (message = "Conflict", code = "conflict") =>
+  new HttpError(409, message, code);
 export const tooManyRequests = (message = "Too many requests") =>
   new HttpError(429, message, "too_many_requests");
 /**
@@ -27,6 +28,23 @@ export const tooManyRequests = (message = "Too many requests") =>
  */
 export const serviceUnavailable = (message = "Service unavailable") =>
   new HttpError(503, message, "service_unavailable");
+
+/**
+ * The code for "these terms are sealed, reopen the agreement first".
+ *
+ * `apps/web/src/lib/errors.ts::TERMS_SEALED_CODE` reads exactly this, so ONE place turns it into a
+ * sentence a promoter can act on — the same arrangement `ENTITLEMENT_REQUIRED_CODE` has, and for the
+ * same reason. That refusal's own message names the FIELD that moved and the ROUTE to call next,
+ * which is right for the assistant/agent-native surface (decisions #16.14) and wrong on a toast: a
+ * venue operator was shown "so agreementBodyText cannot change … POST /deals/<uuid>/reopen"
+ * (QA sweep run 12).
+ *
+ * A code and not a text match, because the other 409s on that route are already plain English
+ * addressed to their reader — "Deal was changed by someone else; reload and retry", "Only a draft
+ * agreement can be sent" — and a blanket rewrite of `code === "conflict"` would have replaced four
+ * good sentences to fix one bad one.
+ */
+export const TERMS_SEALED_CODE = "terms_sealed";
 
 /**
  * Did Postgres refuse this write because it collided with a unique index?

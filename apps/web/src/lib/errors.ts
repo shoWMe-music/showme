@@ -14,6 +14,20 @@ import { ApiError } from "@showme/api-client";
 export const ENTITLEMENT_REQUIRED_CODE = "entitlement_required";
 
 /**
+ * The API's code for "these terms are sealed", mirroring `apps/api/src/errors.ts::TERMS_SEALED_CODE`.
+ *
+ * That refusal's message names the FIELD that moved and the ROUTE to call next — right for an API
+ * caller and for the agent-native surface (decisions #16.14), and wrong on a toast. A venue operator
+ * was shown *"so agreementBodyText cannot change … POST /deals/<uuid>/reopen"* (QA sweep run 12).
+ *
+ * A CODE and not a text match, for the reason the docstring above already gives — and here it matters
+ * twice over, because the other 409s this route throws are already addressed to their reader
+ * ("Deal was changed by someone else; reload and retry", "Only a draft agreement can be sent"). A
+ * blanket map on `code === "conflict"` would have replaced four good sentences to fix one bad one.
+ */
+export const TERMS_SEALED_CODE = "terms_sealed";
+
+/**
  * A PERMISSION REFUSAL IN WORDS, not in the vocabulary of the authorization engine.
  *
  * The API says `Missing capability: deal.view.own`, which is exactly right for a
@@ -40,9 +54,23 @@ function permissionRefusal(error: ApiError): string | null {
   return "This part of the event isn't shared with you. Ask the host if you need it.";
 }
 
+/**
+ * THE SEALED TERMS, IN WORDS — and naming the control that is already on the card.
+ *
+ * Reachable only in a race now (the terms editor is withdrawn at the first signature since the
+ * sealed-terms fix), which is exactly when a stranded reader most needs a sentence rather than an
+ * HTTP route: two tabs, the other one signed, and this one's Save arrives too late.
+ */
+function sealedTermsRefusal(error: ApiError): string | null {
+  if (error.code !== TERMS_SEALED_CODE) return null;
+  return "A party has already signed this agreement, so its terms are fixed. Reopen it to renegotiate — that clears every signature and asks the parties again.";
+}
+
 /** Pull a human-friendly message out of an unknown query/mutation error. */
 export function errorMessage(error: unknown, fallback = "Something went wrong."): string {
-  if (error instanceof ApiError) return permissionRefusal(error) ?? error.message ?? fallback;
+  if (error instanceof ApiError) {
+    return sealedTermsRefusal(error) ?? permissionRefusal(error) ?? error.message ?? fallback;
+  }
   if (error instanceof Error) return error.message || fallback;
   return fallback;
 }

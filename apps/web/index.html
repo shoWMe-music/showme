@@ -4,6 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>shoWMe</title>
+    <!-- The brand mark, and the SAME FILE the marketing site serves
+         (apps/marketing/public/favicon.svg) rather than a second drawing of it. Without this every
+         page load asked for the default /favicon.ico, got the SPA's 404, and logged the only
+         non-2xx request in a whole QA sweep (run 12). Copied rather than symlinked because two Vite
+         apps have two `public/` roots and a symlink there does not survive a container build. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <!-- Brand type — all four families self-hosted (woff2) in src/fonts.css:
          Clash Display (headings/wordmark), Inter Tight (UI/body), JetBrains
          Mono (labels/data), Instrument Serif (accent). Fully offline, no CDN. -->

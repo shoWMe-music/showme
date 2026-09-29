@@ -18,7 +18,7 @@ import { and, eq, inArray, ne } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { badRequest, conflict, forbidden, notFound } from "../errors";
+import { TERMS_SEALED_CODE, badRequest, conflict, forbidden, notFound } from "../errors";
 import { writeActivity } from "../lib/activity";
 import { type Transaction, writeAudit } from "../lib/audit";
 import { requireEventCapability } from "../lib/authorize";
@@ -936,10 +936,13 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
           .where(eq(schema.dealParties.dealId, before.id));
         const sealed = sealedTermsReason(before, signatories);
         if (sealed !== null) {
+          // The message stays as it is — it names the field and the route, which is what an API
+          // caller needs (#16.14). The CODE is what lets the browser say it differently.
           throw conflict(
             sealed === "confirmed"
               ? `These terms are frozen — ${moved.join(", ")} cannot change on a confirmed agreement. Reopen it for renegotiation first: POST /deals/${before.id}/reopen`
               : `A party has already signed this agreement, so ${moved.join(", ")} cannot change — their signature is on the figures as they stand. Reopen it for renegotiation first, which tears every signature up: POST /deals/${before.id}/reopen`,
+            TERMS_SEALED_CODE,
           );
         }
       }
