@@ -355,3 +355,65 @@ change itself.**
 3. And **my own comment, false ten minutes after I wrote it** — *"`frozen` … is the right question
    for Reopen"*. Instance twenty-two, self-inflicted, and the reason the rule now lives in one
    function instead of a sentence.
+
+---
+
+## 11. QA11-5 — the plan, before building
+
+**Which file settles it:** `apps/api/src/routes/invoices.ts`, and it is one file with two doors.
+
+**What was measured.** A draft bill with `total` NULL, and the ledger's **Issue** button: toast
+*"Invoice issued"*, the row moves to **Overdue**, `issued_at` is stamped and `documentSnapshot`
+freezes a money document with no money on it. The sibling route refuses the same transition:
+
+```
+PATCH /invoices/:iid {"state":"sent"}
+  → 400 "This invoice has no amount on it yet. Add the total before sending it — an invoice
+         without one reads as zero everywhere it is listed."
+```
+
+**The verdict: the guard I wrote for QA9-12 sits on the door the product does not use.**
+`POST /invoices/:iid/issue` is what `usePostApiV1InvoicesIidIssue` — the button — calls, and it makes
+the same `draft → sent` transition plus two things the PATCH cannot do: it assigns the gapless number
+(decisions #5) and freezes `documentSnapshot`. So the route that most needs the rule is the one that
+never had it. **The same shape as QA9-12's own render half and part 26 §2's CSV export: a rule
+enforced at one reader is enforced at one reader** — this is its third appearance in two days, which
+is why the fix is a function and not a second copy of the `if`.
+
+**The scope.** One exported predicate beside `freezeInvoice` — the function that turns a draft into a
+document — asked by both routes. Two call sites rather than the review gate's three, deliberately:
+this is not an extraction for reuse, it is the one rule about one nullable column, and the finding
+IS that a copy existed in only one place.
+
+**The decision it hides: is a zero invoice legal?** Yes, and that is untouched — `total: "0"` is a
+figure somebody wrote and still issues. NULL is the absence of one. Same distinction the ledger
+already draws by printing `SEK 0` against `—`.
+
+### QA11-5 — what landed
+
+`assertInvoiceNamesAnAmount` beside `freezeInvoice`, asked by both doors. Clicked live, as
+`operator@`, on the ledger's own **Issue** button against a draft with `total` NULL:
+
+```
+POST /api/v1/invoices/…/issue        400
+row afterwards:  draft | total — | number — | issued_at — | document_snapshot NULL
+toast:  "This invoice has no amount on it yet. Add the total before sending it — an invoice
+         without one reads as zero everywhere it is listed."
+```
+
+Nothing moved, and **no number was burned out of the gapless sequence** — which is the part that
+could not have been undone (decisions #5). Three mutations killed: either door losing the guard, and
+the predicate testing falsiness instead of null (a genuine `total: "0"` still issues, and there is a
+test that says so).
+
+**A test was standing on the gap.** *"a received bill keeps its external number"* built its fixture
+with no total and passed only because the issue route had no check — the second test this stretch
+using a missing guard as its fixture. The total is in the payload now, and what the test is ABOUT is
+untouched.
+
+**And I nearly filed a second defect off a sampling miss.** The screen appeared to say nothing at
+all — no toast, an empty live region, a row still reading Draft — which reads exactly like a silent
+refusal. It was the read that was wrong: arming a `requestAnimationFrame` recorder before the click
+caught the toast carrying the full sentence. Same shape as the animation pass three parts ago, and
+the same lesson: **an absent thing is the weakest evidence there is**, and a toast is gone before a
+round trip can ask for it.

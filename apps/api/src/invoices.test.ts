@@ -1,5 +1,6 @@
 import { schema } from "@showme/db";
 import { type TestDatabase, startTestDatabase } from "@showme/db/testing";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TokenVerifier } from "./auth/token-verifier";
@@ -124,6 +125,12 @@ describe("invoices — gapless numbering (decisions #5)", () => {
         direction: "received",
         number: "SUPPLIER-99",
         currency: "SEK",
+        // The total is not incidental: this bill is going to be ISSUED, and an invoice with
+        // no amount on it can no longer be (QA sweep run 11). The fixture omitted it and the
+        // test passed only because the issue route had no such check — a test standing on a
+        // missing guard, which is the second one of those this stretch. What it is ABOUT is
+        // the number, and that is untouched.
+        total: "450000",
       },
     });
     const issued = await issue("inv-recv", created.json().id);
@@ -258,6 +265,68 @@ describe("invoices — a plausible wrong key, and an amount that was never writt
         })
       ).statusCode,
     ).toBe(200);
+  });
+
+  /**
+   * THE DOOR THE BUTTON USES (QA sweep run 11).
+   *
+   * The test above pins the PATCH, which is the route the sweep of run 9 happened to drive.
+   * The ledger's **Issue** button calls `POST /invoices/:iid/issue` — the same draft → sent
+   * transition, plus the gapless number and the frozen `documentSnapshot` — and that route
+   * had no such check. Run 11 clicked it: *"Invoice issued"*, a row reading **Overdue** with
+   * AMOUNT `—`, and a money document frozen with no money on it.
+   */
+  it("refuses to ISSUE one with no amount — the route the ledger's button calls", async () => {
+    const issuer = await seedProfile("inv-issue-noamount");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invoices",
+      headers: auth("inv-issue-noamount"),
+      // Valid in every way except the one under test: an ordinary unfinished draft.
+      payload: {
+        ownerProfileId: issuer.profileId,
+        direction: "received",
+        currency: "SEK",
+        dueDate: "2026-01-15",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const issued = await issue("inv-issue-noamount", created.json().id);
+    expect(issued.statusCode).toBe(400);
+    expect(issued.json().error.message).toContain("no amount");
+
+    // And nothing moved — no number was burned out of the gapless sequence, and no snapshot
+    // was frozen. A refusal that half-issued would be worse than none.
+    const [row] = await harness.db
+      .select()
+      .from(schema.invoices)
+      .where(eq(schema.invoices.id, created.json().id));
+    expect(row?.state).toBe("draft");
+    expect(row?.number).toBeNull();
+    expect(row?.issuedAt).toBeNull();
+    expect(row?.documentSnapshot).toBeNull();
+  });
+
+  it("ISSUES a genuine zero — a figure somebody wrote is not a missing figure", async () => {
+    // The distinction the ledger already draws by printing `SEK 0` against `—`. Guarding on
+    // falsiness rather than on null would have swallowed this one.
+    const issuer = await seedProfile("inv-issue-zero");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/invoices",
+      headers: auth("inv-issue-zero"),
+      payload: {
+        ownerProfileId: issuer.profileId,
+        direction: "issued",
+        currency: "SEK",
+        total: "0",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const issued = await issue("inv-issue-zero", created.json().id);
+    expect(issued.statusCode).toBe(200);
+    expect(issued.json().total).toBe("0");
   });
 
   it("sends one that HAS an amount, including when the total arrives in the same request", async () => {

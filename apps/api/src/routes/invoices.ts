@@ -116,6 +116,31 @@ function serializeInvoice(invoice: InvoiceRow) {
 }
 
 /** The immutable document frozen on issue (decisions #5) — money as string. */
+/**
+ * A MONEY DOCUMENT THAT NAMES NO MONEY IS NOT AN INVOICE — on every door, not one.
+ *
+ * QA9-12 put this rule on `PATCH /invoices/:iid` and run 11 walked straight past it: the
+ * ledger's **Issue** button calls `POST /invoices/:iid/issue`, which makes the same
+ * `draft → sent` transition and also assigns the gapless number and freezes
+ * `documentSnapshot` — so the route that most needs the rule was the one without it. The
+ * sweep clicked it and got *"Invoice issued"*, a row reading **Overdue** with AMOUNT `—`,
+ * and a frozen snapshot of a document with no figure on it.
+ *
+ * A function rather than a second `if`, because this is the third time in two days that a
+ * rule kept at one reader turned out to be kept at one reader (QA9-12's own render half,
+ * and the budget CSV never getting QA7-26).
+ *
+ * `total: "0"` is untouched and still issues: a zero somebody wrote is a figure. NULL is the
+ * absence of one — the same distinction the ledger draws by printing `SEK 0` against `—`.
+ */
+function assertInvoiceNamesAnAmount(total: bigint | null): void {
+  if (total == null) {
+    throw badRequest(
+      "This invoice has no amount on it yet. Add the total before sending it — an invoice without one reads as zero everywhere it is listed.",
+    );
+  }
+}
+
 function freezeInvoice(invoice: InvoiceRow, number: string | null, issuedAt: Date) {
   return {
     number,
@@ -224,6 +249,8 @@ export async function invoiceRoutes(fastify: FastifyInstance): Promise<void> {
       const before = await loadInvoice(request, request.params.iid);
       requireProfileRole(request, before.ownerProfileId, [...WRITE_ROLES]);
       if (before.state !== "draft") throw conflict("Only a draft invoice can be issued");
+      // The same rule the PATCH keeps, and this is the door the ledger's button uses.
+      assertInvoiceNamesAnAmount(before.total);
 
       const issued = await database.transaction(async (tx) => {
         const issuedAt = new Date();
@@ -299,10 +326,8 @@ export async function invoiceRoutes(fastify: FastifyInstance): Promise<void> {
        * stored one still null. The freeze above means this can only ever be the draft's own total.
        */
       const totalAfter = total != null ? BigInt(total) : before.total;
-      if (state != null && state !== "draft" && state !== "void" && totalAfter == null) {
-        throw badRequest(
-          "This invoice has no amount on it yet. Add the total before sending it — an invoice without one reads as zero everywhere it is listed.",
-        );
+      if (state != null && state !== "draft" && state !== "void") {
+        assertInvoiceNamesAnAmount(totalAfter);
       }
 
       const updated = await database.transaction(async (tx) => {
