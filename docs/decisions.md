@@ -1723,8 +1723,17 @@ reader's own arithmetic about their own money.
 **What it fixes.** `PLAN.md:215` defines the private book as *"the extra an operator MAY ALSO keep,
 existing only once there is a co-host to keep it from"* — so the book exists **for** that seat, while
 the chooser that opens it sits behind the capability the role floor withholds. A floor-only co-host
-could keep no private record of its own margin on an event it co-produces. **`PLAN.md:215` and the
-preset stop disagreeing.**
+could keep no private record of its own margin on an event it co-produces.
+
+**Built 2026-09-30.** `budget.private` is a capability of its own, in `OPERATOR_FLOOR` — what an
+operator may never be stripped of — and `budget.view` stays out of that floor, so the pool remains
+withheld exactly as the documented ruling requires. The budget plugin's seven routes now ask one
+function (`budgetAccess`) whether the caller may read the SHARED ledger or only their own book, and
+one more (`requireBudgetWrite`) whether they may write the book in front of them. **No ceiling entry
+was added**, deliberately: the ruling asked for access, not for a new restriction, and
+`visibleBudgetFilter` already guarantees a private budget reaches nobody but its owner, so there is
+no disclosure a ceiling would guard. **`PLAN.md:215` now says all of this beside the sentence that
+started it, so the two stop disagreeing.**
 
 #### 25.9.12 The rental rule applies BROADLY — this reverses part of #24.1
 

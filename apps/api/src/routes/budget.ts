@@ -1,5 +1,5 @@
 import { schema } from "@showme/db";
-import { type SQL, and, eq, inArray, or } from "drizzle-orm";
+import { type SQL, and, eq, inArray, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -307,16 +307,81 @@ function callerProfileIds(request: FastifyRequest): string[] {
  * with no `owner_profile_id` belongs to nobody and is therefore visible to
  * nobody (fail closed rather than leak an unattributed row).
  */
-function visibleBudgetFilter(profileIds: string[]): SQL {
+function visibleBudgetFilter(profileIds: string[], maySeeShared: boolean): SQL {
   const shared = eq(schema.budgets.scope, "shared");
-  if (profileIds.length === 0) return shared;
-  const ownPrivate = and(
-    eq(schema.budgets.scope, "private"),
-    inArray(schema.budgets.ownerProfileId, profileIds),
-  );
+  const ownPrivate =
+    profileIds.length === 0
+      ? null
+      : and(
+          eq(schema.budgets.scope, "private"),
+          inArray(schema.budgets.ownerProfileId, profileIds),
+        );
+  /*
+   * A READER MAY HAVE THE PRIVATE BOOK AND NOT THE POOL — decisions §25.9.11, Daniel 2026-09-29.
+   *
+   * `budget.private` is in `OPERATOR_FLOOR` and `budget.view` deliberately is not, so a floor-only
+   * co-host reaches this function with `maySeeShared: false`: their own book and nothing else. That
+   * is the whole ruling — `PLAN.md:215` says the private budget exists "only once there is a
+   * co-host to keep it from", so the seat it exists FOR was the one getting nothing, while the pool
+   * stays withheld exactly as the documented ruling requires.
+   *
+   * Fail closed on the impossible combination: no profiles AND no shared access is nothing at all,
+   * not everything.
+   */
+  if (!maySeeShared) {
+    return ownPrivate ?? sql`false`;
+  }
+  if (!ownPrivate) return shared;
   const filter = or(shared, ownPrivate);
   if (!filter) throw new Error("budget visibility filter failed to build");
   return filter;
+}
+
+/**
+ * WHAT THIS CALLER MAY REACH IN THE BUDGET PLUGIN — one question, asked once (decisions §25.9.11).
+ *
+ * Every route here used to open with `requireEventCapability(… "budget.view" | "budget.edit")`, and
+ * that single capability was answering two different questions: may you read the event's SHARED
+ * pool, and may you keep a book of your own. §25.9.11 separated them, so the gate has to ask both
+ * and report which — a per-route `||` would be the same rule written seven times, which is the
+ * shape this repo has spent a week removing.
+ *
+ * Refuses outright only when the caller holds neither.
+ */
+async function budgetAccess(request: FastifyRequest, eventId: string) {
+  // `event.view` is the "can you see this event at all" gate and answers 404 rather than 403, which
+  // is the refusal this plugin has always given a stranger. Asking for it keeps that, and the pair
+  // below is then a real either/or rather than two sequential refusals.
+  const capabilities = await requireEventCapability(request, eventId, "event.view");
+  if (!capabilities.has("budget.view") && !capabilities.has("budget.private")) {
+    throw forbidden("Missing capability: budget.view");
+  }
+  return {
+    profileIds: callerProfileIds(request),
+    maySeeShared: capabilities.has("budget.view"),
+    mayEditShared: capabilities.has("budget.edit"),
+  };
+}
+
+/**
+ * MAY THIS CALLER WRITE THIS BUDGET — `budget.edit` for the shared ledger, or `budget.private` for
+ * a private book that is the caller's own (§25.9.11).
+ *
+ * The budget is loaded through `loadVisibleBudget`, which already refuses anything the caller may
+ * not SEE — so a private-only reader asking about the shared ledger gets "not found" before this
+ * runs, and this only has to answer the write question.
+ */
+async function requireBudgetWrite(request: FastifyRequest, eventId: string, budgetId: string) {
+  const access = await budgetAccess(request, eventId);
+  const budget = await loadVisibleBudget(request, eventId, budgetId, access);
+  const ownPrivate =
+    budget.scope === "private" &&
+    budget.ownerProfileId != null &&
+    access.profileIds.includes(budget.ownerProfileId);
+  if (!access.mayEditShared && !ownPrivate) {
+    throw forbidden("Missing capability: budget.edit");
+  }
+  return budget;
 }
 
 /**
@@ -404,6 +469,7 @@ async function loadVisibleBudget(
   request: FastifyRequest,
   eventId: string,
   budgetId: string,
+  access: { profileIds: string[]; maySeeShared: boolean },
 ): Promise<typeof schema.budgets.$inferSelect> {
   const [budget] = await request.server.database
     .select()
@@ -412,7 +478,7 @@ async function loadVisibleBudget(
       and(
         eq(schema.budgets.id, budgetId),
         eq(schema.budgets.eventId, eventId),
-        visibleBudgetFilter(callerProfileIds(request)),
+        visibleBudgetFilter(access.profileIds, access.maySeeShared),
       ),
     );
   if (!budget) throw notFound("Budget not found");
@@ -658,21 +724,27 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const { id } = request.params;
 
-      await requireEventCapability(request, id, "budget.view");
+      const access = await budgetAccess(request, id);
 
       // Give the caller's operating profile its budget if it has not got one.
-      // `budget.view` above already established they operate this event, and
+      // `budgetAccess` above already established they operate this event, and
       // provisioning is idempotent, so this is a no-op on every read but the
       // first. Without it a newly created event has no budget row and the
-      // planner has nothing to open.
-      await ensureEventBudgets(database, id, callerProfileIds(request));
+      // planner has nothing to open — which now includes the PRIVATE book of a
+      // floor-only co-host (§25.9.11), whose seat had neither.
+      await ensureEventBudgets(database, id, access.profileIds);
 
       // The access predicate lives in the WHERE: shared budgets for every
-      // co-operator, private ones only for their owner.
+      // co-operator who may read the pool, private ones only for their owner.
       const budgets = await database
         .select()
         .from(schema.budgets)
-        .where(and(eq(schema.budgets.eventId, id), visibleBudgetFilter(callerProfileIds(request))));
+        .where(
+          and(
+            eq(schema.budgets.eventId, id),
+            visibleBudgetFilter(access.profileIds, access.maySeeShared),
+          ),
+        );
 
       if (budgets.length === 0) return [];
 
@@ -707,9 +779,17 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const { id } = request.params;
 
-      await requireEventCapability(request, id, "budget.edit");
+      const access = await budgetAccess(request, id);
 
       const { scope, ownerProfileId } = request.body;
+      /*
+       * OPENING A BOOK: `budget.edit` for the shared ledger, `budget.private` for your own
+       * (§25.9.11). The owner check below is what makes the second safe — it already refuses a
+       * profile the caller is not a member of, so "their own" is enforced rather than asserted.
+       */
+      if (scope === "shared" && !access.mayEditShared) {
+        throw forbidden("Missing capability: budget.edit");
+      }
       if (scope === "private" && !ownerProfileId) {
         throw badRequest("A private budget requires ownerProfileId");
       }
@@ -767,8 +847,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const { id, bid } = request.params;
 
-      await requireEventCapability(request, id, "budget.edit");
-      const before = await loadVisibleBudget(request, id, bid);
+      const before = await requireBudgetWrite(request, id, bid);
 
       const { planningAssumptions, expectedVersion } = request.body;
       await assertSplitNamesParticipants(database, id, planningAssumptions?.operatorCostSplit);
@@ -829,8 +908,9 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const { id, bid } = request.params;
 
-      await requireEventCapability(request, id, "budget.view");
-      await loadVisibleBudget(request, id, bid);
+      // A READ of one budget: the private book's owner reaches their own, and nobody else's,
+      // because `loadVisibleBudget` applies the same WHERE the list does (§25.9.11).
+      await loadVisibleBudget(request, id, bid, await budgetAccess(request, id));
 
       const lines = await database
         .select()
@@ -850,8 +930,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const { id, bid } = request.params;
 
-      await requireEventCapability(request, id, "budget.edit");
-      const budget = await loadVisibleBudget(request, id, bid);
+      const budget = await requireBudgetWrite(request, id, bid);
 
       const body = request.body;
       // Every participant/deal reference must point inside this event, and the cash
@@ -928,8 +1007,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const { id, bid, lid } = request.params;
 
-      await requireEventCapability(request, id, "budget.edit");
-      const budget = await loadVisibleBudget(request, id, bid);
+      const budget = await requireBudgetWrite(request, id, bid);
 
       const [before] = await database
         .select()
@@ -1034,8 +1112,7 @@ export async function budgetRoutes(fastify: FastifyInstance): Promise<void> {
       const { database } = request.server;
       const { id, bid, lid } = request.params;
 
-      await requireEventCapability(request, id, "budget.edit");
-      const budget = await loadVisibleBudget(request, id, bid);
+      const budget = await requireBudgetWrite(request, id, bid);
 
       const [before] = await database
         .select()

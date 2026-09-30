@@ -213,6 +213,12 @@ budget_lines(id, budget_id, kind[revenue|cost], label, amount, currency,   -- cu
              deal_id → deals nullable)                      -- assign to a deal (accountability; later: crew deal)
 ```
 - Co-promoters share **one** budget (full transparency); each operator may also keep a **private** budget. Templates for recurring same-promoter events.
+  **The two are different disclosures and stand on different capabilities** (decisions §25.9.11):
+  the shared ledger is `budget.view`, which an arm's-length party can never be granted
+  (`POOL_CAPABILITIES`); the private book is `budget.private`, which sits in `OPERATOR_FLOOR` so a
+  co-host added with no permission set still has one. That matters because the private budget
+  "exists only once there is a co-host to keep it from" — so the seat it is FOR was, until then,
+  the one seat that had none.
 
 **Settlement engine = "who owes whom":** from each party's **entitlement** (their deal), what they **collected**
 (revenue lines) and what they **paid** (cost lines, incl. deductibles paid on another's behalf), compute each party's

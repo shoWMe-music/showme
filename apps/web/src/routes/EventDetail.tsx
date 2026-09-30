@@ -349,11 +349,19 @@ export function EventDetail() {
 
   const stageIndex = STATUS_STAGE_INDEX[event.status] ?? 0;
 
-  // The planner is operator-only — `budget.view` is a ceiling in the auth engine
-  // and `GET /events/:id/budgets` 403s for everyone else, so offering the tab to a
-  // performer offered a door onto an error. (design-handoff-budget-planner §Scope:
-  // "the whole screen is operator-only… there is no redacted variant to design".)
-  const canSeeBudget = capabilities.includes("budget.view");
+  /*
+   * The planner is operator-only — `budget.view` is a ceiling in the auth engine and
+   * `GET /events/:id/budgets` 403s for everyone else, so offering the tab to a performer offered a
+   * door onto an error. (design-handoff-budget-planner §Scope: "the whole screen is operator-only…
+   * there is no redacted variant to design".)
+   *
+   * `budget.private` OPENS IT TOO (decisions §25.9.11). A floor-only co-host holds that and not
+   * `budget.view`, and `PLAN.md:215` says the private book exists "only once there is a co-host to
+   * keep it from" — so the seat the book is FOR had no door to it. They reach the tab and find
+   * their own book; the route serves them no shared ledger, which is the pool ruling untouched.
+   */
+  const canSeeBudget =
+    capabilities.includes("budget.view") || capabilities.includes("budget.private");
   // Who may change the roster. `participants.manage` is the exact capability both
   // the PATCH and the DELETE on `/events/:id/participants/:pid` authorize.
   const canManageParticipants = capabilities.includes("participants.manage");

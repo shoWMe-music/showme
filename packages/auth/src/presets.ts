@@ -296,6 +296,20 @@ const OPERATOR_FLOOR: readonly Capability[] = [
    * floor already says.
    */
   "settlement.confirm",
+  /*
+   * THEIR OWN PRIVATE BOOK — decisions §25.9.11, Daniel 2026-09-29.
+   *
+   * IN THE FLOOR, which is the whole point of the ruling: the floor is what an operator may never
+   * be stripped of, and `PLAN.md:215` says the private budget exists *"only once there is a co-host
+   * to keep it from"* — so the seat it exists FOR is precisely the one that was getting nothing. A
+   * co-host added with no permission set could keep no private record of its own margin on an event
+   * it co-produces, because the chooser that opens the book sat behind `budget.view`.
+   *
+   * `budget.view` stays out of this floor and out of this seat. That withholding is the documented
+   * ruling and is correct — the event's shared pool is not a floor-only co-promoter's to read — and
+   * §25.9.11 is explicitly about separating the two disclosures rather than widening one of them.
+   */
+  "budget.private",
 ];
 
 /** A performer's inviolable floor — own slice + confirms; the operator cannot revoke it. */

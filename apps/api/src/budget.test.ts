@@ -2069,3 +2069,137 @@ describe("budgets — a cost is borne by a split OR a single payer, never both",
     expect(response.json().error.message).toContain("either by a split or by a single payer");
   });
 });
+
+/**
+ * A FLOOR-ONLY CO-HOST MAY KEEP A PRIVATE BOOK — decisions §25.9.11, Daniel 2026-09-29.
+ *
+ * `PLAN.md:215` defines the private budget as *"the extra an operator MAY ALSO keep, existing only
+ * once there is a co-host to keep it from"* — so the book exists FOR this seat. It was behind
+ * `budget.view`, which the `co_host` ROLE FLOOR deliberately withholds (the pool stays behind that
+ * capability, and that withholding is the documented ruling and is correct). The result: the one
+ * seat the private book was designed for could keep no private record of its own margin.
+ *
+ * `budget.private` separates the two disclosures — the event's shared pool, and the reader's own
+ * arithmetic about their own money. These are the LOCK for both halves.
+ */
+describe("the private book stands on its own capability (§25.9.11)", () => {
+  /*
+   * A UNIQUE PREFIX PER RUN. This file seeds users by a literal id and shares one database across
+   * its 62 tests, so a prefix that happens to collide with another case's fails on `users_pkey`
+   * before a single assertion runs — which is what these three did, and the message says nothing
+   * about the subject under test.
+   */
+  const unique = () => `priv-${Math.random().toString(36).slice(2, 8)}`;
+
+  /** A co-host added with NO permission set: the role floor and nothing else. */
+  async function seedFloorCoHost(prefix: string, eventId: string) {
+    const { db } = harness;
+    const coHost = await seedMemberWithSet(`${prefix}-floor`, "operator", []);
+    const [participant] = await db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId,
+        profileId: coHost.profileId,
+        role: "co_host",
+        // No permission set at all — this is the seat run 16 walked and found empty-handed.
+        permissionSetId: null,
+        status: "confirmed",
+      })
+      .returning();
+    return {
+      uid: `${prefix}-floor`,
+      profileId: coHost.profileId,
+      participantId: participant?.id as string,
+    };
+  }
+
+  it("opens its own book, and is served no shared ledger at all", async () => {
+    const prefix = unique();
+    const { eventId } = await seedEvent(prefix);
+    const floor = await seedFloorCoHost(prefix, eventId);
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/budgets`,
+      headers: auth(floor.uid),
+    });
+    expect(listed.statusCode).toBe(200);
+    const budgets = listed.json() as { scope: string; ownerProfileId: string | null }[];
+
+    // THE RULING: they have a book, and it is theirs.
+    expect(budgets.length).toBeGreaterThan(0);
+    expect(budgets.every((budget) => budget.scope === "private")).toBe(true);
+    expect(budgets.every((budget) => budget.ownerProfileId === floor.profileId)).toBe(true);
+
+    /*
+     * AND THE POOL IS STILL WITHHELD, which is the half that makes this a separation rather than a
+     * widening. The shared ledger is `budget.view`'s and the role floor does not carry it — a test
+     * that only asserted the first half would pass just as well if the fix had simply handed this
+     * seat the event's books.
+     */
+    expect(budgets.some((budget) => budget.scope === "shared")).toBe(false);
+  });
+
+  it("writes a line into its own book", async () => {
+    const prefix = unique();
+    const { eventId } = await seedEvent(prefix);
+    const floor = await seedFloorCoHost(prefix, eventId);
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/budgets`,
+      headers: auth(floor.uid),
+    });
+    const own = (listed.json() as { id: string }[])[0];
+    if (!own) throw new Error("the floor co-host was provisioned no private book");
+
+    // KEEPING a book means writing in it: a read-only one would satisfy the ruling's words and
+    // none of its purpose ("keep no private record of its own margin").
+    const written = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/budgets/${own.id}/lines`,
+      headers: auth(floor.uid),
+      // A cost THEY paid, in THEIR book — which is what "keep a private record of its own margin"
+      // means in data (`paidBy` is required on a cost line: A-14, every line says who held the cash).
+      payload: {
+        kind: "cost",
+        label: "My own margin note",
+        amount: "50000",
+        paidBy: floor.participantId,
+      },
+    });
+    expect(written.statusCode).toBe(201);
+  });
+
+  it("still refuses it the SHARED ledger's lines", async () => {
+    const prefix = unique();
+    const { eventId, operatorUid } = await seedEvent(prefix);
+    const floor = await seedFloorCoHost(prefix, eventId);
+
+    // The host's own view finds the shared book…
+    const asHost = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${eventId}/budgets`,
+      headers: auth(operatorUid),
+    });
+    const shared = (asHost.json() as { id: string; scope: string }[]).find(
+      (budget) => budget.scope === "shared",
+    );
+    if (!shared) throw new Error("no shared budget to test against");
+
+    // …and the floor-only co-host cannot even name it. NOT FOUND rather than forbidden, because
+    // the visibility filter runs first: a row they may not see does not exist to them.
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${eventId}/budgets/${shared.id}/lines`,
+      headers: auth(floor.uid),
+      payload: {
+        kind: "cost",
+        label: "Not mine to write",
+        amount: "50000",
+        paidBy: floor.participantId,
+      },
+    });
+    expect(refused.statusCode).toBe(404);
+  });
+});

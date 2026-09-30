@@ -22,6 +22,20 @@ export const CAPABILITIES = [
   "deal.edit",
   "budget.view",
   "budget.edit",
+  /*
+   * THE READER'S OWN PRIVATE BOOK — decisions §25.9.11, Daniel 2026-09-29.
+   *
+   * A different disclosure from `budget.view`, which is the event's SHARED pool. `PLAN.md:215`
+   * defines the private budget as *"the extra an operator MAY ALSO keep, existing only once there
+   * is a co-host to keep it from"* — so the book exists FOR a co-host, while the chooser that opens
+   * it sat behind the capability the `co_host` role floor withholds. A floor-only co-promoter could
+   * keep no private record of its own margin on an event it co-produces.
+   *
+   * Withholding the POOL from that seat is the documented ruling and stays exactly as it is
+   * (`POOL_CAPABILITIES`). This separates the two questions the one capability was answering: the
+   * night's shared ledger, and the reader's own arithmetic about their own money.
+   */
+  "budget.private",
   "revenue.edit",
 
   // Settlement
