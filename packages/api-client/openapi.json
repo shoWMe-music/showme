@@ -7865,19 +7865,24 @@
                             "type": "string"
                           },
                           "entitlement": {
-                            "type": "string"
+                            "type": "string",
+                            "nullable": true
                           },
                           "collected": {
-                            "type": "string"
+                            "type": "string",
+                            "nullable": true
                           },
                           "paid": {
-                            "type": "string"
+                            "type": "string",
+                            "nullable": true
                           },
                           "held": {
-                            "type": "string"
+                            "type": "string",
+                            "nullable": true
                           },
                           "net": {
-                            "type": "string"
+                            "type": "string",
+                            "nullable": true
                           },
                           "lines": {
                             "type": "array",
@@ -8670,19 +8675,24 @@
                                 "type": "string"
                               },
                               "entitlement": {
-                                "type": "string"
+                                "type": "string",
+                                "nullable": true
                               },
                               "collected": {
-                                "type": "string"
+                                "type": "string",
+                                "nullable": true
                               },
                               "paid": {
-                                "type": "string"
+                                "type": "string",
+                                "nullable": true
                               },
                               "held": {
-                                "type": "string"
+                                "type": "string",
+                                "nullable": true
                               },
                               "net": {
-                                "type": "string"
+                                "type": "string",
+                                "nullable": true
                               },
                               "lines": {
                                 "type": "array",
@@ -9171,19 +9181,24 @@
                           "type": "string"
                         },
                         "entitlement": {
-                          "type": "string"
+                          "type": "string",
+                          "nullable": true
                         },
                         "collected": {
-                          "type": "string"
+                          "type": "string",
+                          "nullable": true
                         },
                         "paid": {
-                          "type": "string"
+                          "type": "string",
+                          "nullable": true
                         },
                         "held": {
-                          "type": "string"
+                          "type": "string",
+                          "nullable": true
                         },
                         "net": {
-                          "type": "string"
+                          "type": "string",
+                          "nullable": true
                         },
                         "lines": {
                           "type": "array",

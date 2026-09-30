@@ -1008,8 +1008,14 @@ export function useEventSettlement(
       adjustedNetMinor: BigInt(adjustedNetMinor),
       withheldMinor: withheldTotalMinor,
       offTheTopMinor: BigInt(settlements.data?.ladder?.offTheTop ?? "0"),
+      /*
+       * A SCOPED ROW CONTRIBUTES NOTHING, and cannot mislead: a row served without totals
+       * (§25.9.5) is only ever served to a reader who may NOT read the pool, and every figure
+       * derived here is behind that same gate — so a reader who could be understated by this sum
+       * is never shown it.
+       */
       collectedMinor: visible.reduce(
-        (running, computed) => running + BigInt(computed.collected),
+        (running, computed) => running + BigInt(computed.collected ?? "0"),
         0n,
       ),
       deductiblesMinor: visible.reduce(
@@ -1075,7 +1081,8 @@ export function useEventSettlement(
   const ownHoldsCash = useMemo(
     () =>
       rows.some(
-        (row) => row.isYours && row.computed != null && BigInt(row.computed.collected) > 0n,
+        (row) =>
+          row.isYours && row.computed?.collected != null && BigInt(row.computed.collected) > 0n,
       ),
     [rows],
   );
@@ -1467,23 +1474,30 @@ function toParty(
     isYours: row.isYours,
     approvedByYou: row.approvedByYou,
     signableByYou: row.signableByYou,
-    entitlement: computed ? formatAmount(computed.entitlement) : null,
-    collected: computed ? formatAmount(computed.collected) : null,
-    paid: computed ? formatAmount(computed.paid) : null,
+    /*
+     * THE FIELD, NOT JUST THE ROW (decisions §25.9.5). These read `computed ? … : null`, because a
+     * row either had figures or had none. A row disclosed by DEAL MEMBERSHIP now has lines and NO
+     * totals — deliberately, since a total recomputed from the lines the reader can see would be a
+     * smaller, wrong number in this party's name. So the guard moves onto each figure, which is the
+     * shape `prepaid` below has always had.
+     */
+    entitlement: computed?.entitlement != null ? formatAmount(computed.entitlement) : null,
+    collected: computed?.collected != null ? formatAmount(computed.collected) : null,
+    paid: computed?.paid != null ? formatAmount(computed.paid) : null,
     // Absent on a settlement finalized before advances were accounted for, and
     // zero on a night where nothing moved early — both mean "no row to show".
     prepaid:
       computed?.prepaid != null && computed.prepaid !== "0" ? formatAmount(computed.prepaid) : null,
     // Still read by the who-owes-whom board, which renders the advance as its own row.
     prepaidLabel: prepaidLabelOf(computed, nameOf),
-    net: computed ? formatAmount(computed.net) : null,
-    netAbsolute: computed ? formatAmount(absoluteMinor(computed.net)) : null,
+    net: computed?.net != null ? formatAmount(computed.net) : null,
+    netAbsolute: computed?.net != null ? formatAmount(absoluteMinor(computed.net)) : null,
     // The raw minor units alongside the formatted figure, ONLY so totals can be
     // summed as integers. Nothing renders this — `docs/money.md`: never do money
     // arithmetic on formatted text, and never through a float.
     netMinor: computed?.net ?? null,
     entitlementMinor: computed?.entitlement ?? null,
-    netTone: computed ? netToneOf(computed.net) : "neutral",
+    netTone: computed?.net != null ? netToneOf(computed.net) : "neutral",
     // WHOSE card this is, so a caption on another party's card stops saying "you"
     // about them (QA6-9). `name` is already resolved above.
     rules: computed

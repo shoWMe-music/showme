@@ -12,11 +12,16 @@ import type { PatchApiV1EventsIdSettlementsSid200ComputedDeductibleLinesItem } f
  */
 export type PatchApiV1EventsIdSettlementsSid200Computed = {
   participantId: string;
-  entitlement: string;
-  collected: string;
-  paid: string;
-  held: string;
-  net: string;
+  /** @nullable */
+  entitlement: string | null;
+  /** @nullable */
+  collected: string | null;
+  /** @nullable */
+  paid: string | null;
+  /** @nullable */
+  held: string | null;
+  /** @nullable */
+  net: string | null;
   lines?: PatchApiV1EventsIdSettlementsSid200ComputedLinesItem[];
   commissionEarned?: string;
   deductibles?: string;

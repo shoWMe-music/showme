@@ -66,6 +66,7 @@ import {
   type SerializedSummary,
   type StoredBreakdown,
   ladderOf,
+  scopeToSharedDeals,
   serializeBreakdown,
   serializeCommission,
   serializeSettlement,
@@ -172,11 +173,22 @@ const LadderResponse = z.object({
 
 const BreakdownResponse = z.object({
   participantId: z.string(),
-  entitlement: z.string(),
-  collected: z.string(),
-  paid: z.string(),
-  held: z.string(),
-  net: z.string(),
+  /*
+   * NULLABLE, and only ever null for a row disclosed by DEAL MEMBERSHIP (decisions §25.9.5).
+   *
+   * These five are this party's totals across everything they are on. A caller who was shared one
+   * agreement is served that agreement's `lines` and no totals — a figure recomputed from a subset
+   * would be a smaller, wrong number presented as their entitlement, and the rule is *"name no
+   * figure rather than the wrong one"* (QA7-13).
+   *
+   * The caller's OWN rows, a party reached through a live representation, and a #24.2 full-access
+   * grant all carry the real figures, so nothing a reader is entitled to has become null.
+   */
+  entitlement: z.string().nullable(),
+  collected: z.string().nullable(),
+  paid: z.string().nullable(),
+  held: z.string().nullable(),
+  net: z.string().nullable(),
   /**
    * What the entitlement is MADE OF. Optional because a settlement snapshotted
    * before this existed carries none, and a finalized settlement is a legal
@@ -1527,12 +1539,12 @@ async function partiesVisibleTo(
   database: Database,
   eventId: string,
   myParticipantIds: Set<string>,
-): Promise<Set<string>> {
-  if (myParticipantIds.size === 0) return new Set();
+): Promise<Map<string, Set<string> | null>> {
+  if (myParticipantIds.size === 0) return new Map();
   const mine = alias(schema.dealParties, "my_party");
   const theirs = alias(schema.dealParties, "their_party");
   const rows = await database
-    .select({ participantId: theirs.participantId })
+    .select({ participantId: theirs.participantId, dealId: mine.dealId })
     .from(mine)
     .innerJoin(theirs, eq(theirs.dealId, mine.dealId))
     .innerJoin(schema.deals, eq(schema.deals.id, mine.dealId))
@@ -1557,7 +1569,22 @@ async function partiesVisibleTo(
         inArray(mine.roleInDeal, [...DEAL_ROLES_THAT_SEE_THE_DEAL]),
       ),
     );
-  const visible = new Set(rows.map((row) => row.participantId));
+  /*
+   * A MAP, NOT A SET — and the value is WHICH DEALS did the disclosing (decisions §25.9.5).
+   *
+   * This returned participant ids alone and the route then served those participants' whole
+   * settlement rows, so being shared ONE agreement opened every figure that party earned under
+   * every other one. `null` means unrestricted (the representation case below, where an agent must
+   * read the whole line it is being asked to sign); a set means "these deals' lines and no totals".
+   */
+  const visible = new Map<string, Set<string> | null>();
+  for (const row of rows) {
+    const seen = visible.get(row.participantId);
+    if (seen === null) continue;
+    const deals = seen ?? new Set<string>();
+    deals.add(row.dealId);
+    visible.set(row.participantId, deals);
+  }
 
   // NOT co-operators. A co-promoter shares the residual with the host and still
   // sees only its own line, because visibility here is emergent from being a
@@ -1606,7 +1633,9 @@ async function partiesVisibleTo(
   );
   for (const delegation of await liveEventDelegations(database, eventId)) {
     if (myProfileIds.has(delegation.agentProfileId)) {
-      visible.add(delegation.performerParticipantId);
+      // UNRESTRICTED: an agent is asked to SIGN this line (#14), and being asked to sign a number
+      // you may not read in full is not a rule, it is a bug. `null` overrides any deal scope.
+      visible.set(delegation.performerParticipantId, null);
     }
   }
   return visible;
@@ -2584,7 +2613,13 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
 
       const profileIds = principal.memberships.map((membership) => membership.profileId);
       const mine = await participantIdsOf(database, id, profileIds);
-      const visible = new Set<string>([...mine, ...(await partiesVisibleTo(database, id, mine))]);
+      /*
+       * WHO is visible, and — for anyone visible only through a DEAL — which deals opened them
+       * (decisions §25.9.5). `sharedDeals` is consulted at serialization below; `visible` stays the
+       * membership question every other reader on this route already asks.
+       */
+      const sharedDeals = await partiesVisibleTo(database, id, mine);
+      const visible = new Set<string>([...mine, ...sharedDeals.keys()]);
 
       const settlementRows = await settlementRowsOf(database, id);
       /**
@@ -2803,6 +2838,35 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
        * Addressing somebody is not reading their money. Gated on `settlement.edit`,
        * which is the capability that runs the reconciliation in the first place.
        */
+      /*
+       * WHO RUNS THE SETTLEMENT IS NOT BEING SHARED A DEAL — the exemption §25.9.5 needs, and the
+       * suite caught it within a minute of the narrowing going in.
+       *
+       * An operator reaches the other parties' rows through exactly the same door as the crew
+       * member in QA sweep run 13's MAJOR: `partiesVisibleTo`, as the `payer` on their deals. Narrow
+       * that and the settlement workspace loses every figure it exists to reconcile — compute,
+       * finalize and the transfer list all read them.
+       *
+       * `settlement.edit` is the line, and it is not a new one: `addressableSettlements` two lines
+       * down already says *"every party on the night, not only the ones whose figures they may
+       * read"* for the same capability, and the send-for-review chooser is built on it. Someone
+       * holding it owns the event's books rather than having been handed one agreement out of them.
+       *
+       * The measured defect is untouched by the exemption, which is the test of whether it is the
+       * right one: the crew member served a performer's SEK 30,800 held `settlement.view.own` and
+       * an `observer` role, and nothing resembling `settlement.edit`.
+       */
+      const runsTheSettlement = capabilities.has("settlement.edit");
+      const scopedSettlement = (row: (typeof settlementRows)[number]) => {
+        const serialized = serializeSettlement(row, { includePool: mayReadThePool });
+        const participantId = row.participantId as string;
+        if (runsTheSettlement || granted || mine.has(participantId)) return serialized;
+        const deals = sharedDeals.get(participantId);
+        // `undefined` = not disclosed by a deal at all (they are in `visible` for another reason);
+        // `null` = disclosed unrestricted. Only a real deal set narrows the row.
+        return deals ? scopeToSharedDeals(serialized, deals) : serialized;
+      };
+
       const addressableSettlements = capabilities.has("settlement.edit")
         ? settlementRows.filter((row) => row.participantId != null)
         : visibleSettlements;
@@ -2814,7 +2878,16 @@ export async function settlementRoutes(fastify: FastifyInstance): Promise<void> 
           // Same gate as `ladder` below, for the same figure: `basis.base` IS
           // `ladder.doorBase`, and `door / basisPoints` recovers it. Withholding
           // one while serving the other would be a ceiling that only looks closed.
-          ...serializeSettlement(row, { includePool: mayReadThePool }),
+          /*
+           * …AND A ROW OPENED BY A DEAL SHOWS THAT DEAL, NOT EVERYTHING (decisions §25.9.5).
+           *
+           * `scopeToSharedDeals` carries the argument. Three readers are deliberately exempt and
+           * each is a real act of sharing rather than an inference from one: the caller's own rows
+           * (`mine`), a party reached through a live representation (`null` from
+           * `partiesVisibleTo` — an agent signs that line), and #24.2's stored full-access grant,
+           * which is the operator saying "open the books" in as many words.
+           */
+          ...scopedSettlement(row),
           isYours: mine.has(row.participantId as string),
           // Still the CALLER's own signature, never the roster's. The roster now
           // covers every visible party, and reading it here would tell an operator

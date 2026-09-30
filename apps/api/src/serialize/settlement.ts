@@ -79,11 +79,32 @@ export interface SerializedCommission {
   version: number;
 }
 
+/**
+ * A party's figures AS SERVED, which is not quite the shape that is FROZEN.
+ *
+ * `SerializedBreakdown` is the snapshot type — what `settlement_snapshots` stores as a legal record
+ * — and its five scalars are non-null there because a finalized settlement always has them. On the
+ * wire they can be withheld: §25.9.5 serves a row disclosed by deal membership with its totals
+ * absent, because a total recomputed from a subset of lines would be a smaller, wrong number
+ * presented as this party's entitlement. Widening the SNAPSHOT type for that would loosen the
+ * record; widening the RESPONSE type is what is actually true of the response.
+ */
+export type ServedBreakdown = Omit<
+  SerializedBreakdown,
+  "entitlement" | "collected" | "paid" | "held" | "net"
+> & {
+  entitlement: string | null;
+  collected: string | null;
+  paid: string | null;
+  held: string | null;
+  net: string | null;
+};
+
 export interface SerializedSettlement {
   id: string;
   participantId: string | null;
   status: string;
-  computed: SerializedBreakdown | null;
+  computed: ServedBreakdown | null;
   version: number;
 }
 
@@ -164,6 +185,57 @@ function redactPool(breakdown: SerializedBreakdown): SerializedBreakdown {
  * `includePool` DEFAULTS TO FALSE on purpose: a new caller that forgets to think
  * about this leaks nothing, and the one route that may show the pool has to say so.
  */
+/**
+ * YOU SEE WHAT WAS SHARED WITH YOU, AND NOTHING ELSE — decisions §25.9.5, Daniel 2026-09-29.
+ *
+ * *"If I share my deal / settlement, the person I share with should see what I shared. They should
+ * not see what was not shared or what I cannot see."* The second half is already built —
+ * `narrowSharedCapabilities` will not put a capability on a share link the sharer does not hold.
+ * This is the first half, on the path that had none.
+ *
+ * `partiesVisibleTo` answers *who* is disclosed by deal membership and the route then served those
+ * participants' WHOLE settlement rows. So being an `observer` on one agreement opened every figure
+ * that party earned under every other one: measured (QA sweep run 13's MAJOR), a crew member named
+ * observer on a SEK 5,000 guarantee was served a performer's **SEK 30,800** entitlement, earned
+ * entirely under an agreement they are a party to in no role. The ROLE rule was right — #4 says an
+ * observer "can see it because they are now a party" — and the implementation read *seeing the
+ * deal* as *seeing that participant's entire settlement*.
+ *
+ * So a row disclosed by deal membership is scoped to the lines of the deals that disclosed it, and
+ * the scalars come back NULL rather than partly computed. Null is the point: a total recomputed
+ * from a subset of lines would be a different, smaller, wrong number presented as this party's
+ * entitlement, and QA7-13's rule is *"name no figure rather than the wrong one"*.
+ *
+ * NOT APPLIED to the caller's own rows, to a party reached through a live representation (an agent
+ * signs its performer's line and must read all of it, #14), or to #24.2's full-access grant — that
+ * is a deliberate act of sharing, which is exactly what this ruling protects.
+ */
+export function scopeToSharedDeals(
+  settlement: SerializedSettlement,
+  sharedDealIds: ReadonlySet<string>,
+): SerializedSettlement {
+  const computed = settlement.computed;
+  if (!computed) return settlement;
+  const lines = (computed.lines ?? []).filter((line) => sharedDealIds.has(line.dealId));
+  return {
+    ...settlement,
+    computed: {
+      ...computed,
+      lines,
+      // The figures this party earned across everything they are on. Not ours to total.
+      entitlement: null,
+      collected: null,
+      paid: null,
+      held: null,
+      net: null,
+      commissionEarned: undefined,
+      deductibles: undefined,
+      residual: undefined,
+      residualBasisPoints: undefined,
+    },
+  };
+}
+
 export function serializeSettlement(
   row: SettlementRow,
   { includePool = false }: { includePool?: boolean } = {},

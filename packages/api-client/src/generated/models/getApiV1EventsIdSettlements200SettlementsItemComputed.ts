@@ -12,11 +12,16 @@ import type { GetApiV1EventsIdSettlements200SettlementsItemComputedDeductibleLin
  */
 export type GetApiV1EventsIdSettlements200SettlementsItemComputed = {
   participantId: string;
-  entitlement: string;
-  collected: string;
-  paid: string;
-  held: string;
-  net: string;
+  /** @nullable */
+  entitlement: string | null;
+  /** @nullable */
+  collected: string | null;
+  /** @nullable */
+  paid: string | null;
+  /** @nullable */
+  held: string | null;
+  /** @nullable */
+  net: string | null;
   lines?: GetApiV1EventsIdSettlements200SettlementsItemComputedLinesItem[];
   commissionEarned?: string;
   deductibles?: string;

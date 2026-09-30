@@ -7343,3 +7343,122 @@ describe("settlement — an objection is line-scoped and a signature clears (§2
     expect(await signedRows()).toHaveLength(0);
   });
 });
+
+/**
+ * YOU SEE WHAT WAS SHARED WITH YOU, AND NOTHING ELSE — decisions §25.9.5, Daniel 2026-09-29.
+ *
+ * *"If I share my deal / settlement, the person I share with should see what I shared. They should
+ * not see what was not shared or what I cannot see."*
+ *
+ * The measured defect (QA sweep run 13's MAJOR): `partiesVisibleTo` answers WHO is disclosed by deal
+ * membership and the route served those participants' WHOLE settlement rows — so a crew member named
+ * `observer` on a SEK 5,000 guarantee was served a performer's SEK 30,800 entitlement, earned
+ * entirely under an agreement they are a party to in no role. The ROLE rule was right; reading
+ * *seeing the deal* as *seeing that participant's entire settlement* was not.
+ *
+ * This is the LOCK. It fails if the scoping is dropped, and — the half that matters just as much —
+ * if it ever widens to narrow somebody who is entitled to the whole row.
+ */
+describe("settlement — a row opened by a deal shows that deal (§25.9.5)", () => {
+  it("serves an observer the shared deal's lines and withholds the party's totals", async () => {
+    const seed = await seedWorkedExample("shared-scope");
+    // A crew member whose ONLY reach into this event is `observer` on the venue's rental — the
+    // exact shape run 13 measured, and nothing resembling `settlement.edit`.
+    const crew = await seedMemberWithSet(
+      "shared-scope-crew",
+      "team_and_crew",
+      PRESET_PERMISSION_SETS.crew_technical,
+    );
+    const [crewPart] = await harness.db
+      .insert(schema.eventParticipants)
+      .values({
+        eventId: seed.event.id,
+        profileId: crew.profileId,
+        role: "crew",
+        permissionSetId: crew.permissionSetId,
+        status: "accepted",
+      })
+      .returning();
+    const [bandDeal] = await harness.db
+      .select({ dealId: schema.dealParties.dealId })
+      .from(schema.dealParties)
+      .where(eq(schema.dealParties.participantId, seed.bPart));
+    if (!bandDeal || !crewPart) throw new Error("fixture incomplete");
+    await harness.db.insert(schema.dealParties).values({
+      dealId: bandDeal.dealId,
+      participantId: crewPart.id,
+      roleInDeal: "observer",
+    });
+
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(crew.userId),
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      settlements: {
+        participantId: string;
+        computed: { entitlement: string | null; net: string | null; lines?: { dealId: string }[] };
+      }[];
+    };
+
+    const band = body.settlements.find((row) => row.participantId === seed.bPart);
+    // They ARE served the row — #4 says an observer "can see it because they are now a party".
+    expect(band).toBeDefined();
+    // …the shared agreement's lines, and only those.
+    expect(band?.computed.lines?.map((line) => line.dealId)).toEqual([bandDeal.dealId]);
+    /*
+     * …and NO TOTALS. Null rather than a figure recomputed from the lines they can see: that would
+     * be a smaller, wrong number presented as this party's entitlement, and the rule is "name no
+     * figure rather than the wrong one" (QA7-13).
+     */
+    expect(band?.computed.entitlement).toBeNull();
+    expect(band?.computed.net).toBeNull();
+
+    // THE OTHER HALF: their own row is untouched. A rule that narrowed the caller's own figures
+    // would pass every assertion above and break the one screen this reader actually came for.
+    const own = body.settlements.find((row) => row.participantId === crewPart.id);
+    expect(own?.computed?.entitlement).not.toBeNull();
+  });
+
+  /*
+   * AND IT DOES NOT NARROW WHOEVER RUNS THE SETTLEMENT. The operator reaches every other party
+   * through the same door (`payer` on their deals), and narrowing that would take the figures out
+   * of the workspace that exists to reconcile them. `settlement.edit` is the line, which is the one
+   * `addressableSettlements` already draws.
+   */
+  it("leaves the operator's view of every party whole", async () => {
+    const seed = await seedWorkedExample("shared-operator");
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/events/${seed.event.id}/settlement/compute`,
+          headers: auth(seed.operator.userId),
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/events/${seed.event.id}/settlements`,
+      headers: auth(seed.operator.userId),
+    });
+    const body = response.json() as {
+      settlements: { participantId: string; computed: { entitlement: string | null } }[];
+    };
+    const band = body.settlements.find((row) => row.participantId === seed.bPart);
+    expect(band?.computed.entitlement).not.toBeNull();
+  });
+});

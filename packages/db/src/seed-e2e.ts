@@ -1,4 +1,5 @@
 import {
+  serializeBreakdown,
   serializeCommissionSnapshot,
   settleRepresentation,
   storeBreakdown,
@@ -1480,15 +1481,28 @@ async function main() {
         .values({
           eventId: EVENT_IDS.springWarmup,
           version: 1,
+          /*
+           * EVERY FIGURE AS A STRING, because this is `jsonb` and the engine deals in BigInt.
+           *
+           * The first version of this passed `breakdownFor(...)` and `transfer.amount` through
+           * raw and the seed died with *"Do not know how to serialize a BigInt"* — which no suite
+           * could see, because `seed-e2e.ts` is run by `pnpm dev` and `pnpm test:e2e` and by
+           * nothing else. `serializeBreakdown` is the same function the finalize route's snapshot
+           * goes through, so the seeded record has the shape a real one has rather than a
+           * hand-built lookalike, which is the whole reason the snapshot is seeded at all.
+           */
           data: {
-            settlements: [PART.springHost, PART.springPerformerA].map((participantId) => ({
-              ...breakdownFor(referenceResult, participantId),
-              participantId,
-            })),
+            settlements: referenceResult.breakdowns
+              .filter(
+                (breakdown) =>
+                  breakdown.participantId === PART.springHost ||
+                  breakdown.participantId === PART.springPerformerA,
+              )
+              .map(serializeBreakdown),
             transfers: referenceResult.transfers.map((transfer) => ({
               fromParticipantId: transfer.fromParticipantId,
               toParticipantId: transfer.toParticipantId,
-              amount: transfer.amount,
+              amount: transfer.amount.toString(),
               currency: SEK,
             })),
             lockedRates: {},
