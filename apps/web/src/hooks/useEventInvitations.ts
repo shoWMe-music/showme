@@ -118,6 +118,28 @@ export interface EventInvitationsView {
   decline: (invitation: EventInvitation, note?: string) => Promise<void>;
 }
 
+/*
+ * PENDING **AND CANCELLED** — decisions §25.9.9, and the verification sweep of 2026-09-30.
+ *
+ * This filtered to `pending` alone, and the API crosses the EVENT's status into `requestStatus`
+ * (QA5-2), so an invitation to a night that was called off simply vanished from this list. That
+ * was defensible while a cancelled invitation could still be accepted and the reader lost
+ * nothing by it being filed under "All".
+ *
+ * §25.9.9 changed what it costs. The ruling refuses the ACCEPT and deliberately keeps the
+ * DECLINE — *"closing the invitation is the answer a performer most wants on record"* — and on
+ * this surface the decline was unreachable: the row never rendered, so the card's own
+ * `requestStatus !== "cancelled"` guard was dead code and *"Accept is gone"* was true for the
+ * wrong reason. The Dashboard even routes the reader here ("this show is off") to a list the
+ * row is filtered out of.
+ *
+ * A cancelled row carries its own badge (the card says why it has to — it belongs to no chip),
+ * and with Accept withheld the only control on it is the Decline the ruling preserved.
+ */
+export function invitationStillNeedsAnAnswer(invitation: { requestStatus: string }): boolean {
+  return invitation.requestStatus === "pending" || invitation.requestStatus === "cancelled";
+}
+
 export function useEventInvitations(): EventInvitationsView {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -165,7 +187,7 @@ export function useEventInvitations(): EventInvitationsView {
   const all = (query.data ?? []) as EventInvitation[];
 
   return {
-    invitations: all.filter((one) => one.requestStatus === "pending"),
+    invitations: all.filter(invitationStillNeedsAnAnswer),
     all,
     // Only the ones with somewhere to go: a code-only invite has no in-app page, so offering a row
     // that cannot be opened would be the dead affordance this whole finding is about.

@@ -401,8 +401,9 @@ function AnswerCard({
           {offer?.targetEventStatus === "cancelled" && (
             <p role="alert" style={{ ...bodyStyle, color: "var(--brand-red)" }}>
               {offer?.targetName ?? "This event"} was cancelled after the invitation was sent, so
-              there is nothing to play. You can still answer — if the night is reinstated your
-              answer stands — but nothing is booked by it today.
+              there is nothing to play and nothing left to accept. Declining still closes it, which
+              is worth doing: it takes the question off your list and tells the operator where you
+              stand.
             </p>
           )}
           <p style={bodyStyle}>
