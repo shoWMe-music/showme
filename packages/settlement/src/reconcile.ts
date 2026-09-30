@@ -197,6 +197,21 @@ export function reconcile(input: SettlementInput): SettlementResult {
         dealTotal: total,
         amount: -total,
         basis,
+        /*
+         * THE SAME TERMS AS THE PAYEE'S LINE, because it is the same agreement seen from its
+         * other end — and without them the payer's card cannot explain its own figure. Found
+         * 2026-09-30 when §25.9.6 went broad and a `door_split` with an escalator became
+         * bearable: the payer was charged 8 900.00 where the base 60% says 7 200.00, and its
+         * line offered no reason for the difference. It could not surface before, because the
+         * only bearable structure was `guarantee`, which has neither.
+         *
+         * `commissionCharged` is deliberately NOT here. A disclosed commission is charged
+         * against one payee's own portion and redistributes money WITHIN the payee side; the
+         * payer owes the deal's whole total either way, so claiming a commission on its line
+         * would describe a deduction it never bore.
+         */
+        ...(settled.bonus > 0n ? { bonus: settled.bonus } : {}),
+        ...(settled.escalatorApplied ? { escalatorApplied: true } : {}),
       });
     }
     return total;
@@ -324,8 +339,15 @@ export function reconcile(input: SettlementInput): SettlementResult {
      * because the residual that operator receives absorbs exactly what their own line is charged.
      * The rule only bites where it was ruled to bite — a co-promotion, where somebody who never
      * signed the agreement was sharing it.
+     *
+     * EVERY STRUCTURE, since 2026-09-30. This asked `dealBorneBy` for a `guarantee` only, because a
+     * percentage deal's payee is entitled to a share of the pool and charging its payer was a
+     * question rather than an answer. Daniel took the broad reading: whoever signed it bears it,
+     * and the engine's job is to make the balance work — which `settleDeal` does by debiting the
+     * payer the deal's whole total. `deal-order.ts` carries what that moves on a co-promotion; it
+     * is not small, and the co-host is the party it moves.
      */
-    settleDeal(deal, bases, dealBorneBy(deal, { statedSumOnly: true }) ?? undefined);
+    settleDeal(deal, bases, dealBorneBy(deal) ?? undefined);
   }
 
   /**

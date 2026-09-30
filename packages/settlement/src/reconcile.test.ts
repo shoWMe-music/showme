@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { dealEntitlement, splitBasisPointsForSales } from "./entitlement";
 import { assertBalanced, reconcile } from "./reconcile";
 import type {
+  DealStructure,
   SettlementBudgetLine,
   SettlementDeal,
   SettlementInput,
@@ -1871,6 +1872,149 @@ describe("reconcile — a named payer bears a NON-rental deal too (§25.9.6)", (
       kind: "guarantee",
       guarantee: sek(4000),
       borneByPayer: true,
+    });
+  });
+});
+
+/**
+ * …AND FOR EVERY STRUCTURE, NOT ONLY A STATED SUM — §25.9.6's open half, answered.
+ *
+ * For one day `dealBorneBy` took a `statedSumOnly` option and answered `null` for anything but a
+ * `guarantee`: the three measurements behind the ruling were all a stated sum, and a percentage
+ * deal's payee is entitled to *a share of the pool*, so charging its payer was a question rather
+ * than an answer. Both settlements were computed side by side on the seeded Album Release and put to
+ * Daniel, who took the BROAD reading — *"if the payer bears it, then it needs to be deducted
+ * somehow somewhere, that's what the settlement engine should figure out, the balance."*
+ *
+ * THIS IS THE LOCK, and it is deliberately one assertion across every member of `DealStructure`:
+ * nothing pinned the narrow reading, which is exactly why widening it broke no test and why a
+ * future narrowing would break none either. With a payer named, the deal nets to zero out of
+ * `dealBaseSum` whatever its shape, so the residual is the UNTOUCHED pool and the co-host's share of
+ * it is the same figure for all four. A structure that stops asking `dealBorneBy` fails here.
+ *
+ * `structure: null` is not in the list on purpose: a paper-only deal computes no entitlement, so
+ * there is nothing to bear and nothing to assert.
+ */
+describe("reconcile — a named payer bears EVERY structure (§25.9.6, broad)", () => {
+  const sek = (major: string | number) => majorToMinor(major, "SEK");
+
+  /** Pool 30 000.00, residual 70/30, one deal to `crew` that `host` signed. */
+  const withStructure = (structure: DealStructure, payer: string | null): SettlementInput => ({
+    baseCurrency: "SEK",
+    participants: [
+      { participantId: "host", isOperator: true, operatorResidualShare: 7000 },
+      { participantId: "co", isOperator: true, operatorResidualShare: 3000 },
+      { participantId: "crew" },
+    ],
+    deals: [
+      {
+        dealId: "the-deal",
+        structure,
+        payeeParticipantIds: ["crew"],
+        guaranteeAmount: sek(4000),
+        splitBasisPoints: 5000,
+        ...(payer ? { payerParticipantId: payer } : {}),
+      },
+    ],
+    budgetLines: [
+      { kind: "revenue", revenueKind: "ticket", amount: sek(30000), collectedBy: "host" },
+    ],
+  });
+
+  const everyStructure: DealStructure[] = [
+    "guarantee",
+    "door_split",
+    "guarantee_vs_door",
+    "rental",
+  ];
+
+  for (const structure of everyStructure) {
+    it(`charges a ${structure} to the operator who signed it, leaving the co-host whole`, () => {
+      const signed = reconcile(withStructure(structure, "host"));
+      assertBalanced(signed);
+
+      const of = (id: string) =>
+        signed.breakdowns.find((party) => party.participantId === id)?.entitlement ?? 0n;
+      const lineFor = (id: string) =>
+        signed.breakdowns
+          .find((party) => party.participantId === id)
+          ?.lines.find((line) => line.dealId === "the-deal");
+
+      // The co-host's share of the UNTOUCHED pool — 30% of 30 000.00 — whatever the deal's shape.
+      expect(of("co")).toBe(sek(9000));
+      // And the payer carries the whole of it, on a line that says so at both ends.
+      expect(lineFor("host")?.amount).toBeLessThan(0n);
+      expect(lineFor("host")?.basis).toMatchObject({ borneByPayer: true });
+      expect(lineFor("crew")?.basis).toMatchObject({ borneByPayer: true });
+      // Both ends are the same agreement, so they cancel exactly.
+      expect(lineFor("host")?.amount).toBe(-(lineFor("crew")?.amount ?? 0n));
+    });
+  }
+
+  /*
+   * THE OTHER HALF, so the lock cannot pass by charging everybody always. With nobody named the pool
+   * funds the deal and the co-host DOES contribute — which is the behaviour §25.9.6 moved, and a
+   * percentage deal is the shape where the difference is largest.
+   */
+  it("still lets the pool fund a door split that names nobody", () => {
+    const unsigned = reconcile(withStructure("door_split", null));
+    assertBalanced(unsigned);
+    const co = unsigned.breakdowns.find((party) => party.participantId === "co")?.entitlement ?? 0n;
+    // 50% of 30 000.00 goes to crew, so the residual is 15 000.00 and the co-host's 30% is 4 500.00.
+    expect(co).toBe(sek(4500));
+    expect(co).toBeLessThan(sek(9000));
+  });
+
+  /*
+   * DANIEL'S OWN CASE, with the figures he decided against (decisions.md §25.9.6's table). The
+   * seeded Album Release: pool 50 000.00, a door split taking ALL of it divided 60/40, the host
+   * named as payer, equal residual shares. The performers do not move; the two operators do, and
+   * this pins the direction — the co-host is paid 25 000.00 by the host for co-promoting.
+   */
+  it("pays the co-host a quarter of the seeded Album Release's door", () => {
+    const albumRelease: SettlementInput = {
+      baseCurrency: "SEK",
+      participants: [
+        { participantId: "lantern", isOperator: true },
+        { participantId: "northlight", isOperator: true },
+        { participantId: "marlo" },
+        { participantId: "neon" },
+      ],
+      deals: [
+        {
+          dealId: "album-split",
+          structure: "door_split",
+          payeeParticipantIds: ["marlo", "neon"],
+          splitBasisPoints: 10_000,
+          partyShares: { marlo: 6_000, neon: 4_000 },
+          payerParticipantId: "lantern",
+        },
+      ],
+      budgetLines: [
+        { kind: "revenue", revenueKind: "ticket", amount: sek(65000), collectedBy: "lantern" },
+        { kind: "revenue", revenueKind: "ticket", amount: sek(18000), collectedBy: "lantern" },
+        { kind: "cost", amount: sek(12000), paidBy: "lantern" },
+        { kind: "cost", amount: sek(9000), paidBy: "lantern" },
+        { kind: "cost", amount: sek(8500), paidBy: "lantern" },
+        { kind: "cost", amount: sek(3500), paidBy: "lantern" },
+      ],
+    };
+    const result = reconcile(albumRelease);
+    assertBalanced(result);
+    const net = (id: string) =>
+      result.breakdowns.find((party) => party.participantId === id)?.net ?? 0n;
+
+    expect(result.pool).toBe(sek(50000));
+    // The performers are untouched by the ruling — this is entirely about the two operators.
+    expect(net("marlo")).toBe(sek(30000));
+    expect(net("neon")).toBe(sek(20000));
+    expect(net("lantern")).toBe(sek(-75000));
+    expect(net("northlight")).toBe(sek(25000));
+    // And the transfer that carries it exists, which is the part an operator will ask about.
+    expect(result.transfers).toContainEqual({
+      fromParticipantId: "lantern",
+      toParticipantId: "northlight",
+      amount: sek(25000),
     });
   });
 });

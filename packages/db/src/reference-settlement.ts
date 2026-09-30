@@ -467,6 +467,22 @@ export function referenceSettlementInput(spine: ReferenceEventSpine): Settlement
     payeeParticipantIds: [spine.performerParticipantId],
     guaranteeAmount: REFERENCE_GUARANTEE_VS_DOOR_TERMS.guaranteeAmount,
     splitBasisPoints: REFERENCE_GUARANTEE_VS_DOOR_TERMS.splitBasisPoints,
+    /*
+     * THE HOST SIGNED IT, WHICH THE DATABASE ROW HAS ALWAYS SAID AND THIS FIXTURE DID NOT.
+     *
+     * Both seeds write `payer_participant_id` on this deal (`deals.payerParticipantId =
+     * PART.springHost`), so a compute from DB rows has always had a payer here while this
+     * in-memory mirror of the same deal had none. The two agreed anyway — by accident:
+     * §25.9.6 was scoped to `guarantee` only, so a `guarantee_vs_door` was never borne by
+     * its payer and the missing field changed no figure.
+     *
+     * §25.9.6's broad reading (2026-09-30) removed the accident, and the fixture's whole job
+     * is to mirror the rows — A-01's drift class is exactly "the fixture and the mapping
+     * disagree". Note what it does NOT move: Spring Warm-up has ONE operator, so the
+     * residual the host receives grows by exactly what its own line is charged. Every figure
+     * below is unchanged; the host simply now carries the line that says what took the money.
+     */
+    payerParticipantId: spine.hostParticipantId,
   };
 
   const budgetLines: SettlementBudgetLine[] = referenceBudgetLines(spine).map((line) => ({

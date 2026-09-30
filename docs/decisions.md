@@ -1635,7 +1635,7 @@ returns null for a non-performer payee, so the planner shows no cost and disagre
 settlement by the fee) is now un-blocked and owed: the payer bears it, so the planner shows the cost
 against the payer.
 
-##### OPEN, and it came out of BUILDING this: does a PERCENTAGE deal's named payer bear it?
+##### ANSWERED 2026-09-30: yes — a PERCENTAGE deal's named payer bears it too
 
 **Built as ruled for a stated sum — `structure = 'guarantee'` — and deliberately NOT for a
 `door_split` or a `guarantee_vs_door`.** All three measurements behind §25.9.6 are a stated sum (a
@@ -1684,10 +1684,40 @@ That is the shape to decide against. **A** says a co-promoter shares in the tale
 co-promoting. **B** says only the operator who signed the act is exposed to it — and on this event
 the arithmetic makes the co-promoter a passive beneficiary of the split rather than a party to it.
 
-**Both answers are defensible and the difference is large on every co-promoted event**, so it is not
-mine to take as a side effect of §25.9.6 — the same reason §25.7.1 gave for leaving #24.1 alone.
-The predicate carries the argument beside it (`dealBorneBy`'s `statedSumOnly`). Until it is
-answered, a percentage deal settles exactly as it always has.
+**Daniel's ruling, 2026-09-30 — the BROAD reading.** Shown the table above, he answered with the
+principle rather than the row: *"For the settlement, it should work as intended. So if payer bears
+it, then it needs to be deducted somehow somewhere, that's what the settlement engine should figure
+out, the balance."*
+
+So the rule is one line for every structure — **did anybody say who owes this?** — and
+`statedSumOnly` is gone. `guarantee_vs_door` stops being the awkward case it was: under the narrow
+reading the same agreement would have changed who bears it according to ticket sales.
+
+**The engine already did the deducting, which is the part that was never open.** `settleDeal` debits
+the payer the deal's whole total (`credit(chargeTo, -total)`) and gives them their own negative line
+carrying the same `basis`, so the deal nets to zero out of `dealBaseSum` and `Σ net = 0` holds
+without the pool ever funding it. What the ruling changed is one argument at one call site.
+
+**What it moves, stated plainly because it is large.** A payer-borne deal stops claiming the pool, so
+the residual grows by its total while the payer's own line carries it. The operators' **combined**
+position is unchanged — a residual of `pool` less a debit of `total` is the same `pool − total` they
+shared before — but the **distribution** is not: on the Album Release the host goes to −75,000.00 and
+the co-host to +25,000.00, and on a 50% split under a 70/30 residual the co-host goes from 0.15 of
+the pool to 0.30. **A co-host that is not a party to the deal no longer contributes to the talent,
+and takes a larger share of the door instead.** That is the arrangement chosen: whoever signed the
+act pays the act, and the operator who did not sign shares only the revenue.
+
+**The lock** is `reconcile.test.ts` → *"a named payer bears EVERY structure"*: one assertion per
+member of `DealStructure` that the co-host's entitlement is its share of the **untouched** pool, plus
+the inverse (a door split naming nobody still costs the co-host) so it cannot pass by charging
+everybody always, plus the Album Release figures above. Nothing pinned the narrow reading — which is
+why widening it broke no test, and why a future narrowing would have broken none either. Verified by
+mutation: narrowing the call site back to `guarantee` fails three of them.
+
+**One asymmetry left, deliberately.** The Budget Planner asks this predicate for **rentals** only,
+because its `operatorRemainderMinor` is a single lump for all operators and the combined figure does
+not move. It does not forecast a per-operator residual, so there is nothing there to disagree with
+the engine yet. The day it does, it must ask per operator — that is QA10-1's shape again.
 
 #### 25.9.7 A SIGNATURE CLEARS when the figures it signed change
 
@@ -2017,10 +2047,6 @@ Daniel's instruction on this row was *"If there are obvious bugs then fix them."
   than answering: *"Profile switching doesn't make sense with the current architecture, right?"*
   Needs an architectural answer first — what a switcher would do that choosing a profile per context
   does not.
-- **Does a door split's named payer bear it alone? (see §25.9.6)** — the two settlements are computed
-  side by side there, on the seeded Album Release. The performers do not move; the host goes from
-  −50,000.00 to −75,000.00 and the co-host from 0.00 to +25,000.00. Until it is answered a percentage
-  deal settles as it always has.
 - ~~**Event start/end mechanism (#16.4)**~~ **RESOLVED 2026-08-02 (see #16.4):** explicit required
   `event_start_time`/`event_end_time` columns = the PUBLIC start/end (authoritative value), each **bound to a
   schedule item whose label is editable-but-revertible**; default schedule seeded from the old app. Chosen over

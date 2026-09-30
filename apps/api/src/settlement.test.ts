@@ -5194,9 +5194,16 @@ describe("settlement — the 2026-08-26 money rules", () => {
     const response = await compute(event.id, operator.userId);
     expect(response.statusCode).toBe(200);
     const body = response.json();
+    /*
+     * THE PAYEE'S LINE, NAMED — not "the first door_split line anywhere". Since §25.9.6 went
+     * broad (2026-09-30) the host carries a line for this deal too, negative and for the same
+     * `basis.kind`, and it sorts first because the operator's breakdown does. A `find` across
+     * every breakdown silently returned the PAYER's line and the assertions below then read a
+     * shape that is not the one they are about.
+     */
     const line = body.breakdowns
-      .flatMap((row: { lines?: { basis: { basisPoints?: number } }[] }) => row.lines ?? [])
-      .find((entry: { basis: { kind: string } }) => entry.basis.kind === "door_split");
+      .find((row: { participantId: string }) => row.participantId === performer.id)
+      ?.lines.find((entry: { basis: { kind: string } }) => entry.basis.kind === "door_split");
 
     // 400 sold clears the 300 tier, so the split is 70% and not the base 60%.
     expect(line.basis.basisPoints).toBe(7000);

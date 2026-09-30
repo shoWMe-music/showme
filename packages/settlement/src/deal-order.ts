@@ -82,41 +82,45 @@ export function isOffTheTop(deal: SettlementDeal): boolean {
  * the thirteenth instance of *a comment that states a rule is a test that never runs*, and the first
  * where the comment was about the very mistake being made.
  *
- * ── A PERCENTAGE DEAL'S "PAYER" IS NOT A DEBTOR, and that is `statedSumOnly` ──────────────────────
+ * ── AND IT APPLIES TO A PERCENTAGE DEAL TOO (§25.9.6 answered, Daniel 2026-09-30) ─────────────────
  *
- * §25.9.6 says *"a non-rental deal whose named payer is a party on the event"*, and the three
- * measurements behind it are all a STATED SUM: a SEK 4,000 crew fee, a SEK 1,000 guarantee, a
- * SEK 2,500 crew fee. For those the ruling is plainly right — the signer owes that money whatever
- * the event does, and the pool funding it is how a co-host came to bear SEK 1,200 of a contract it
- * never signed.
+ * For one day this function carried a `statedSumOnly` option that answered `null` for anything but a
+ * `guarantee`, because the three measurements behind §25.9.6 were all a stated sum and a door
+ * split's payee is entitled to *a share of the pool* — so "charge the payer and leave the pool
+ * alone" read as close to self-contradictory. The two settlements were computed side by side on the
+ * seeded Album Release and put to Daniel rather than guessed.
  *
- * A `door_split` is not that. Its payee's entitlement is DEFINED as a share of the pool, so
- * "charge the payer and leave the pool alone" is close to self-contradictory — and the arithmetic
- * says so. On a co-promotion splitting the residual 70/30, moving a 50% door split onto its named
- * payer takes the host from 0.35 of the pool to 0.20 and the co-host from 0.15 to 0.30: **the
- * co-host DOUBLES its take and contributes nothing to the talent it is co-promoting.** On a
- * percentage deal the `payer` role reads as *"the operator who booked them"*, not as somebody who
- * owes a sum.
+ * **He ruled the broad reading**, and named the principle: *"it should work as intended — so if the
+ * payer bears it, then it needs to be deducted somehow somewhere, that's what the settlement engine
+ * should figure out, the balance."* Which is exactly what `settleDeal` already does: the payer's
+ * entitlement is debited the deal's whole total (`credit(chargeTo, -total)`) and gets its own
+ * negative line, so the deal nets to zero out of `dealBaseSum` and `Σ net = 0` holds without the
+ * pool ever funding it. The bookkeeping was never the open part.
  *
- * So the ruling is applied where its evidence lies and the percentage case is NOT decided here.
- * It is a §25.6-shaped question and it has gone back to Daniel rather than being guessed:
- * **should a door split's named payer bear it alone?** Both answers are defensible and the
- * difference is large on every co-promoted event in the system. Until then a percentage deal
- * settles exactly as it did.
+ * **WHAT IT MOVES, recorded because it is large and it was weighed.** A payer-borne deal stops
+ * claiming the pool, so the residual grows by its total and the payer's own line carries it. The
+ * operators' COMBINED position is unchanged — residual `pool` less a debit of `total` is the same
+ * `pool − total` they shared before — but its DISTRIBUTION is not. On the seeded Album Release (pool
+ * 50,000.00, a door split taking all of it, equal residual shares) the host goes from −50,000.00 to
+ * −75,000.00 and the co-host from 0.00 to **+25,000.00**. On a 50% split under a 70/30 residual the
+ * co-host goes from 0.15 of the pool to 0.30. **A co-host that is not a party to the deal no longer
+ * contributes to the talent, and takes a larger share of the door instead.** That is the arrangement
+ * the ruling chose: whoever signed the act pays the act, and the operator who did not sign shares
+ * only the revenue.
  *
- * `guarantee_vs_door` is excluded for the same reason and is less obvious: it is a stated sum on
- * the nights the guarantee wins and a share of the pool on the nights the door does, so the same
- * agreement would change who bears it according to ticket sales — which is not a rule anybody
- * could explain to the party reading it.
+ * So the question this function asks is one line for every structure — *"did anybody say who owes
+ * this?"* — and `guarantee_vs_door` stops being the awkward case it was under the narrow reading,
+ * where the same agreement would have changed who bears it according to ticket sales.
  *
- * @param deal the deal's payer, if it names one, and its structure
- * @param options `statedSumOnly` restricts the answer to deals that name a sum the payer owes
+ * **The one asymmetry left, deliberately.** The Budget Planner's use of this predicate is scoped to
+ * RENTALS (`useBudgetSeed.ts`), because its `operatorRemainderMinor` is a single lump for all
+ * operators and the combined figure does not move — see above. It does not forecast a PER-OPERATOR
+ * residual, so there is nothing there for this ruling to disagree with. The day it does, it has to
+ * ask this function per operator, and that is the QA10-1 shape all over again.
+ *
+ * @param deal the deal's payer, if it names one
  * @returns the participant who bears it, or `null` when the pool bears it
  */
-export function dealBorneBy(
-  deal: { payerParticipantId?: string; structure?: string | null },
-  options: { statedSumOnly?: boolean } = {},
-): string | null {
-  if (options.statedSumOnly && deal.structure !== "guarantee") return null;
+export function dealBorneBy(deal: { payerParticipantId?: string }): string | null {
   return deal.payerParticipantId ?? null;
 }

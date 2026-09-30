@@ -305,12 +305,45 @@ describe("the seeded reference settlement (A-13)", () => {
       prepaid: "0",
       held: OPERATOR_HELD,
       net: `-${TRANSFER}`,
-      // The operator is on no deal of its own here — everything it keeps is the
-      // residual, and saying so is the difference between a figure and an answer.
-      lines: [],
+      /*
+       * THE OPERATOR IS NOT A PAYEE HERE, BUT IT DID SIGN THE DEAL — and since §25.9.6's
+       * broad reading (2026-09-30) that means it bears it. So it carries one line, negative,
+       * for the whole of the performer's fee, and `residual` below is the untouched pool.
+       *
+       * NO MONEY MOVED, and two figures still changed — say which, because "unchanged" would
+       * be the false half. Spring Warm-up has ONE operator, so the residual it receives grew
+       * by exactly what its own line is charged: `entitlement` is still 20 700.00 and `net`
+       * still −46 500.00, which is every figure anybody is paid. What DID change is the
+       * accounting behind them — `residual` is now the whole 69 000.00 pool rather than
+       * 20 700.00, and this `lines` array went from empty to one negative entry. The sheet
+       * used to show a smaller residual with the fee nowhere in it.
+       */
+      lines: [
+        {
+          dealId: settled.dealId,
+          dealTotal: "4830000",
+          amount: "-4830000",
+          basis: {
+            kind: "guarantee_vs_door",
+            won: "door",
+            guarantee: "1800000",
+            basisPoints: 7000,
+            base: "6900000",
+            door: "4830000",
+            borneByPayer: true,
+          },
+        },
+      ],
       commissionEarned: "0",
       deductibles: "0",
-      residual: OPERATOR_ENTITLEMENT,
+      /*
+       * THE WHOLE POOL, because a borne deal claims none of it. `residual` is "what the deals
+       * did not take", and this deal is settled between its two parties instead — so the
+       * operator's own figures now read as 69 000.00 residual less the 48 300.00 it signed
+       * for, arriving at the same 20 700.00 `entitlement` as before. It used to read as a
+       * 20 700.00 residual with the fee invisible, which is a number with no explanation in it.
+       */
+      residual: POOL,
     });
 
     // The waterfall. The operator holds `budget.view`, so it arrives; the
@@ -378,6 +411,11 @@ describe("the seeded reference settlement (A-13)", () => {
             won: "door",
             guarantee: "1800000",
             basisPoints: 7000,
+            // WHO OWES IT — the host signed this deal, so the host bears it and not the pool
+            // (§25.9.6). She reads it as a fact about her own agreement; it discloses nothing
+            // about the takings, which is why it survives the scoping that removed `base` and
+            // `door` above.
+            borneByPayer: true,
           },
         },
       ],
