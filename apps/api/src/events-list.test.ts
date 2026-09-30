@@ -522,14 +522,19 @@ describe("POST /events/:id/publish", () => {
   });
 
   /**
-   * THE ACT CAN ANNOUNCE ITS OWN SHOW, AND THE OTHER SIDE HEARS — ClickUp `123qy9rpe3q`.
+   * FLIPPED BY A RULING, NOT A DRIFT — decisions §25.9.2, Daniel 2026-09-29.
    *
-   * Ran: *"The performer should also have the option to publish or unpublish from their
-   * page"* and *"Publishing notifies the other side and publishes for both."* Both were
-   * missing: `event.publish` was in `operator_full` alone, and publishing wrote a history
-   * line and told nobody.
+   * This asserted the opposite, on Ran's ClickUp `123qy9rpe3q`: *"The performer should also have
+   * the option to publish or unpublish from their page."* Daniel has overruled it in as many
+   * words — **"Only the host can publish an event"** — and the competing interest the preset's own
+   * comment had already named is the one that won: a venue has a legitimate interest in a date not
+   * being announced before it is ready, and an early announcement cannot be taken back.
+   *
+   * The assertion is kept rather than deleted, because a performer standing on a confirmed event
+   * with the full `performer` preset is precisely the shape the old rule allowed — so it is the
+   * only test that can catch the ruling being quietly undone.
    */
-  it("lets a PERFORMER publish the show they are on, and tells the operator", async () => {
+  it("refuses a PERFORMER the publish their preset used to carry (§25.9.2)", async () => {
     const operator = await seedMemberWithSet(
       "pub-perf-op",
       "operator",
@@ -557,39 +562,38 @@ describe("POST /events/:id/publish", () => {
       url: `/api/v1/events/${event.id}/publish`,
       headers: auth("pub-perf-act"),
     });
-    expect(response.statusCode).toBe(200);
-    expect(response.json().published).toBe(true);
+    expect(response.statusCode).toBe(403);
 
-    // The operator whose room it is, is told — and the actor is not told their own act.
-    const operatorBell = await harness.db
+    // AND THE EVENT REALLY IS STILL DOWN. A 403 with a published row behind it would be the worst
+    // of both — the refusal is about the announcement, not about the response code.
+    const [after] = await harness.db
       .select()
-      .from(schema.notifications)
-      .where(eq(schema.notifications.userId, "pub-perf-op"));
-    expect(operatorBell).toHaveLength(1);
-    expect(operatorBell[0]?.type).toBe("event.published");
-    expect(operatorBell[0]?.title).toContain("Act's Own Night");
+      .from(schema.events)
+      .where(eq(schema.events.id, event.id));
+    expect(after?.published).toBe(false);
+
+    // Nobody is told about an announcement that did not happen.
     expect(
       await harness.db
         .select()
         .from(schema.notifications)
-        .where(eq(schema.notifications.userId, "pub-perf-act")),
+        .where(eq(schema.notifications.userId, "pub-perf-op")),
     ).toHaveLength(0);
   });
 
   /**
-   * A REPRESENTED ACT PUBLISHES THROUGH ITS AGENT — and this is the case that
-   * corrected the decision.
+   * FLIPPED BY THE SAME RULING — decisions §25.9.2.
    *
-   * `event.publish` went into the `performer` preset with a comment arguing the agent
-   * should NOT have it. Then the seeded album release, whose act is represented, could
-   * not be published by anybody but the operator: a delegated performer gets
-   * `DELEGATED_PERFORMER_FLOOR` and no band at all (`authorize.ts`: `if (delegated)
-   * continue`). Delegation moves the business action capabilities to the agent and
-   * leaves the act its view floor plus artistic authorship, so publishing is on the
-   * side that moves. Both halves are asserted here: the agent can, the delegated
-   * performer cannot.
+   * This asserted that a represented act publishes THROUGH ITS AGENT, and the reasoning was sound
+   * while publishing was the act's option to exercise: delegation moves the business-action
+   * capabilities to the agent, so publishing went with them, and otherwise the one seeded act with
+   * representation was the one act that could not be announced by its own side.
+   *
+   * "Only the host can publish an event" removes the asymmetry rather than resolving it — neither
+   * side holds it now, so there is nothing for delegation to move. Both halves still assert, and
+   * both are now refusals.
    */
-  it("lets the AGENT publish for a delegated act, and not the act itself", async () => {
+  it("refuses the AGENT and the delegated act alike (§25.9.2)", async () => {
     const { db } = harness;
     const operator = await seedMemberWithSet(
       "pub-del-op",
@@ -660,8 +664,13 @@ describe("POST /events/:id/publish", () => {
       url: `/api/v1/events/${event.id}/publish`,
       headers: auth("pub-del-agent"),
     });
-    expect(byAgent.statusCode).toBe(200);
-    expect(byAgent.json().published).toBe(true);
+    expect(byAgent.statusCode).toBe(403);
+
+    const [after] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, event.id));
+    expect(after?.published).toBe(false);
   });
 
   it("refuses a performer whose permission set does not carry event.publish", async () => {
@@ -706,14 +715,25 @@ describe("POST /events/:id/publish", () => {
 /**
  * UNPUBLISH — the same capability as its opposite (ClickUp `123qy9rpe3q`).
  *
- * Taking a page down was `PATCH { published: false }`, which needs `event.edit` — the
- * title, the date, the venue, the capacity. A performer will never hold that, so without
- * this route an act could put its own show on the public internet and not take it off.
+ * Taking a page down was `PATCH { published: false }`, which needs `event.edit` — the title, the
+ * date, the venue, the capacity — so it needed a route of its own.
+ *
+ * THE ACTOR HERE IS NOW A CO-HOST, not the performer, because §25.9.2 made announcing the event an
+ * operator act and the two directions share one capability. What these cases are ABOUT is unchanged
+ * — that taking a page down is audited and that the other operator hears — so the actor changed and
+ * the assertions did not. A co-host rather than the host, deliberately: it keeps "tells the
+ * operator" a real assertion (the host is the one told) and it exercises §25.7.4's handover, which
+ * is the only way anybody but the creator publishes now.
  */
 describe("POST /events/:id/unpublish", () => {
   async function publishedSharedEvent(prefix: string) {
     const operator = await seedMemberWithSet(
       `${prefix}-op`,
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
+    );
+    const coHost = await seedMemberWithSet(
+      `${prefix}-co`,
       "operator",
       PRESET_PERMISSION_SETS.operator_full,
     );
@@ -727,15 +747,44 @@ describe("POST /events/:id/unpublish", () => {
       eventDate: "2026-11-04",
       published: true,
     });
-    await harness.db.insert(schema.eventParticipants).values({
-      eventId: event.id,
-      profileId: performer.profileId,
-      role: "performer",
-      permissionSetId: performer.permissionSetId,
-      status: "confirmed",
-    });
-    return { operator, performer, event };
+    await harness.db.insert(schema.eventParticipants).values([
+      {
+        eventId: event.id,
+        profileId: performer.profileId,
+        role: "performer",
+        permissionSetId: performer.permissionSetId,
+        status: "confirmed",
+      },
+      {
+        eventId: event.id,
+        profileId: coHost.profileId,
+        role: "co_host",
+        permissionSetId: coHost.permissionSetId,
+        status: "confirmed",
+      },
+    ]);
+    return { operator, coHost, performer, event };
   }
+
+  /*
+   * AND THE PERFORMER CANNOT — the other half of §25.9.2, asserted on the direction people forget.
+   * A ruling about publishing that left UNPUBLISHING open would be half a ruling, and the two share
+   * one capability, so this is the test that says the sharing is deliberate rather than lucky.
+   */
+  it("refuses a performer the unpublish, not only the publish (§25.9.2)", async () => {
+    const { event } = await publishedSharedEvent("unpub-act-refused");
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/unpublish`,
+      headers: auth("unpub-act-refused-act"),
+    });
+    expect(response.statusCode).toBe(403);
+    const [after] = await harness.db
+      .select()
+      .from(schema.events)
+      .where(eq(schema.events.id, event.id));
+    expect(after?.published).toBe(true);
+  });
 
   it("takes the page down for a performer, audits it, and tells the operator", async () => {
     const { event } = await publishedSharedEvent("unpub");
@@ -743,7 +792,7 @@ describe("POST /events/:id/unpublish", () => {
     const response = await app.inject({
       method: "POST",
       url: `/api/v1/events/${event.id}/unpublish`,
-      headers: auth("unpub-act"),
+      headers: auth("unpub-co"),
     });
     expect(response.statusCode).toBe(200);
     expect(response.json().published).toBe(false);
@@ -770,10 +819,11 @@ describe("POST /events/:id/unpublish", () => {
       "operator",
       PRESET_PERMISSION_SETS.operator_full,
     );
-    const performer = await seedMemberWithSet(
-      "unpub-dark-act",
-      "performer",
-      PRESET_PERMISSION_SETS.performer,
+    // A co-host, for the reason the describe block gives: publishing is an operator act (§25.9.2).
+    const coHost = await seedMemberWithSet(
+      "unpub-dark-co",
+      "operator",
+      PRESET_PERMISSION_SETS.operator_full,
     );
     const event = await seedHostedEvent("Already dark", operator, "unpub-dark-op", {
       status: "confirmed",
@@ -781,16 +831,16 @@ describe("POST /events/:id/unpublish", () => {
     });
     await harness.db.insert(schema.eventParticipants).values({
       eventId: event.id,
-      profileId: performer.profileId,
-      role: "performer",
-      permissionSetId: performer.permissionSetId,
+      profileId: coHost.profileId,
+      role: "co_host",
+      permissionSetId: coHost.permissionSetId,
       status: "confirmed",
     });
 
     const response = await app.inject({
       method: "POST",
       url: `/api/v1/events/${event.id}/unpublish`,
-      headers: auth("unpub-dark-act"),
+      headers: auth("unpub-dark-co"),
     });
     expect(response.statusCode).toBe(200);
     expect(

@@ -1560,14 +1560,25 @@ unattended screen, not an account-wide policy. Server-side later is one storage 
 preset **and** the **agent** preset, on the grounds that either side may announce an event and that
 a delegated performer has no band to do it for them. **Overruled.** Publishing is the host's.
 
-**What this obliges.** `packages/auth/src/presets.ts` loses `event.publish` from the performer and
-agent presets. And publishing joins the family §25.7.4 already defined for **cancelling and
-renaming** — the acts that belong to the event's creator rather than to whoever holds a capability —
-so it is gated on the **host profile**, with the same handover §25.7.4 provides, rather than on
-`event.publish` alone. That answers the co-host too: a co-host holds the operator preset, so a
-capability check alone would let them announce an event that is not theirs, which is the hole
-§25.7.4 was ruled on to close. **Following the shipped precedent rather than inventing a second
-shape for the same class of act.**
+**What this obliges — and this note was WRONG when first written; corrected while building it.**
+
+It said publishing would be gated on the **host profile**, "with the same handover §25.7.4
+provides". §25.7.4 does not work that way, and reading the code is what said so: cancelling and
+renaming are gated on the **capability**, and *Full control in the Collaborators dialog IS the
+handover* (`lib/event-delete.ts` spells it out — a co-host holding Full control can cancel a show
+and retitle it). Only **delete** carries a host-profile line, and that file calls it "the one
+exception". So "host profile plus a handover" collapses into "the capability", and there was never
+a second mechanism to copy.
+
+So, following the precedent as it actually is: `event.publish` comes out of the `performer` and
+`agent` presets **and out of the grantable ceiling for every non-operator role** (`isGrantable`,
+beside `performance_report.file`, which is the same shape of rule). The preset change alone would
+have made it a default rather than a rule — an operator could still write a custom permission set
+containing it. The host and co-host keep it, because handing a collaborator Full control is
+precisely how §25.7.4 hands over this class of act.
+
+Both directions move together: publishing and **unpublishing** share one capability, so a ruling
+that left taking a page down with the performer would be half a ruling.
 
 #### 25.9.3 A change notice goes to everyone on the bill minus the actor — confirmed
 

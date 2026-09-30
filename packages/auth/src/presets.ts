@@ -80,26 +80,24 @@ export const PRESET_PERMISSION_SETS = {
   performer: [
     "event.view",
     /*
-     * ANNOUNCING THEIR OWN SHOW — ClickUp `123qy9rpe3q`. Ran: *"The performer should
-     * also have the option to publish or unpublish from their page."*
+     * `event.publish` IS NOT HERE ANY MORE — decisions §25.9.2, Daniel 2026-09-29.
      *
-     * One flag, either side may flip it, and both public pages follow it: a published
-     * event already appears on every billed act's profile as well as the venue's
-     * (`loadPublicShows`), so the act had a public page they could not put up.
-     * story.md's performer world is "my bookings, my availability, my riders, my
-     * money" — a date they are playing is the first of those, and a poster is how an
-     * act fills a room.
+     * It used to be, and the argument was Ran's (ClickUp `123qy9rpe3q`): *"The performer should
+     * also have the option to publish or unpublish from their page."* One flag, either side may
+     * flip it, and a published event already appears on every billed act's profile as well as the
+     * venue's — so the act had a public page they could not put up.
      *
-     * In the PRESET and not in `PERFORMER_FLOOR`: the floor is what an operator may
-     * never strip, which is their own money and their own artistic content. This is a
-     * shared act with a public consequence — a venue has a legitimate interest in a
-     * date not being announced before it is ready — so an operator handing over a
-     * tighter set may narrow it.
+     * **Overruled, in as many words: "Only the host can publish an event."** The competing interest
+     * the old comment itself named is the one that won — *"a venue has a legitimate interest in a
+     * date not being announced before it is ready"* — and a date announced early is a cost the
+     * operator bears and cannot take back.
      *
-     * The `agent` preset carries it too, for the act they represent. This line used to
-     * say the opposite; see the note beside it there for what driving it showed.
+     * The `agent` preset lost it in the same ruling. Publishing is an OPERATOR act now, and
+     * §25.7.4's family is how it is handed over: an operator who wants a collaborator to announce
+     * the event gives them Full control, the same mechanism that hands over cancelling and
+     * renaming. No separate publish grant, deliberately — one handover, not two vocabularies for
+     * the same kind of act.
      */
-    "event.publish",
     "deal.view.own",
     "settlement.view.own",
     "settlement.confirm",
@@ -138,28 +136,17 @@ export const PRESET_PERMISSION_SETS = {
     "schedule.view",
     "message.post",
     /*
-     * PUBLISH, for the act they represent — and this corrects the reasoning written
-     * beside `event.publish` in the `performer` preset an hour before it
-     * (ClickUp `123qy9rpe3q`).
+     * `event.publish` IS NOT HERE EITHER — decisions §25.9.2, Daniel 2026-09-29.
      *
-     * That comment argued the agent should NOT have it, because "announcing a show is
-     * promotion rather than business". Driving it showed what that costs: a performer
-     * whose participation is DELEGATED gets `DELEGATED_PERFORMER_FLOOR` and no band at
-     * all (`authorize.ts` — `if (delegated) continue`), so on the seeded album release
-     * neither Marlo Vance nor their agent could publish. The one act in the seed with
-     * representation was the one act that could not do the thing the ticket is about.
+     * It was added because a DELEGATED performer gets `DELEGATED_PERFORMER_FLOOR` and no band at
+     * all (`authorize.ts` — `if (delegated) continue`), so on the seeded album release neither the
+     * act nor their agent could publish: the one act in the seed with representation was the one
+     * act that could not do the thing the ticket was about. Sound reasoning, while publishing was
+     * the act's own option to exercise.
      *
-     * The existing taxonomy answers it, and answers it the other way: delegation moves
-     * the BUSINESS action capabilities to the agent and leaves the performer their view
-     * floor plus artistic authorship (`setlist.author`). Publishing is neither viewing
-     * nor authoring, so it is on the side that moves. That is also what representation
-     * MEANS — an agent exercises the options of the act they carry.
-     *
-     * So Ran's *"the performer should also have the option"* is true for an
-     * unrepresented act through the `performer` preset, and true for a represented one
-     * through the party who acts for them.
+     * It is not any more. Publishing is the operator's, so there is nothing here for delegation to
+     * move — the asymmetry that note was correcting cannot arise when neither side holds it.
      */
-    "event.publish",
     // Bring crew on behalf of the performers they represent — sponsored by the
     // agent, so scoped to the agent's own reach (those performers), decisions #12.
     "crew.submit",
@@ -595,7 +582,24 @@ const PERFORMER_AUTHORED_CAPABILITIES: ReadonlySet<Capability> = new Set(["setli
  * two halves structurally exclusive: no relationship can hold both, so the act
  * can never file and the operator can never author.
  */
-const OPERATOR_FILING_CAPABILITIES: ReadonlySet<Capability> = new Set(["performance_report.file"]);
+const OPERATOR_ONLY_CAPABILITIES: ReadonlySet<Capability> = new Set([
+  "performance_report.file",
+  /*
+   * ANNOUNCING THE EVENT IS THE OPERATOR'S — decisions §25.9.2, Daniel 2026-09-29: *"Only the host
+   * can publish an event."*
+   *
+   * AT THE CEILING AND NOT ONLY IN THE PRESETS, which is the difference between a rule and a
+   * default. Dropping `event.publish` from the `performer` and `agent` presets stops it being
+   * handed out by accident; without this line an operator could still write a custom permission set
+   * containing it, and the ruling would hold only for as long as nobody used the feature that
+   * exists to vary permission sets.
+   *
+   * It sits beside `performance_report.file` because it is the same shape of rule — an act that is
+   * the operator's to perform whatever else a relationship is granted — and one set is one place to
+   * read them.
+   */
+  "event.publish",
+]);
 
 /**
  * The event roles that ARE the act — the only ones who may author its content.
@@ -619,8 +623,9 @@ export function isGrantable(capability: Capability, role: EventRole): boolean {
     return PERFORMING_EVENT_ROLES.has(role);
   }
   // Also checked before the short-circuit, so it reads as one rule rather than
-  // as an accident of ordering: the operator's own filings are operator-only.
-  if (OPERATOR_FILING_CAPABILITIES.has(capability)) {
+  // as an accident of ordering: the operator's own filings — and, since §25.9.2,
+  // announcing the event — are the operator's whatever else is granted.
+  if (OPERATOR_ONLY_CAPABILITIES.has(capability)) {
     return OPERATOR_EVENT_ROLES.has(role);
   }
   if (OPERATOR_EVENT_ROLES.has(role)) {

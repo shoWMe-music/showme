@@ -129,6 +129,42 @@ describe("setlist authorship — the act's own content (A-23)", () => {
     expect(delegated).not.toContain("settlement.confirm"); // business DID move
   });
 
+  /*
+   * ANNOUNCING THE EVENT IS THE OPERATOR'S, AT THE CEILING — decisions §25.9.2, Daniel 2026-09-29:
+   * *"Only the host can publish an event."*
+   *
+   * THE LOCK, and it is deliberately here rather than only on the presets. Dropping
+   * `event.publish` from the `performer` and `agent` presets stops it being handed out by default;
+   * only the ceiling stops it being handed out at all. Without this, an operator could write a
+   * custom permission set containing it and the ruling would hold exactly as long as nobody used
+   * the feature that exists to vary permission sets — which is the difference between a rule and a
+   * default, and the shape this repo has now hit eleven times as "a ruling implemented on one of
+   * its two surfaces".
+   *
+   * The host and co-host keep it because §25.7.4 is how it is handed over: an operator who wants a
+   * collaborator to announce the event gives them Full control, the same mechanism that hands over
+   * cancelling and renaming. One handover, not two vocabularies for the same kind of act.
+   */
+  it("lets only an operator role be granted event.publish (ceiling, §25.9.2)", () => {
+    expect(isGrantable("event.publish", "host")).toBe(true);
+    expect(isGrantable("event.publish", "co_host")).toBe(true);
+    expect(isGrantable("event.publish", "performer")).toBe(false);
+    expect(isGrantable("event.publish", "support")).toBe(false);
+    expect(isGrantable("event.publish", "agent")).toBe(false);
+    expect(isGrantable("event.publish", "crew")).toBe(false);
+    expect(isGrantable("event.publish", "crew_lead")).toBe(false);
+  });
+
+  /*
+   * AND THE PRESETS AGREE WITH THE CEILING. Two surfaces, and a set that still listed it would be
+   * dead weight the next reader would take for the rule.
+   */
+  it("keeps event.publish out of the performer and agent presets (§25.9.2)", () => {
+    expect(PRESET_PERMISSION_SETS.performer).not.toContain("event.publish");
+    expect(PRESET_PERMISSION_SETS.agent).not.toContain("event.publish");
+    expect(PRESET_PERMISSION_SETS.operator_full).toContain("event.publish");
+  });
+
   it("is un-grantable to anyone but the act — the operator is not exempt (ceiling)", () => {
     expect(isGrantable("setlist.author", "performer")).toBe(true);
     expect(isGrantable("setlist.author", "support")).toBe(true);

@@ -67,9 +67,10 @@ export const OPERATOR_FULL_CAPABILITIES: string[] = [
 /** `PRESET_PERMISSION_SETS.performer`. */
 export const PERFORMER_CAPABILITIES: string[] = [
   "event.view",
-  // The act can put its own show's public page up, and take it down
-  // (ClickUp `123qy9rpe3q`).
-  "event.publish",
+  // NO `event.publish`: announcing the event is the operator's (decisions §25.9.2). It used to be
+  // here on ClickUp `123qy9rpe3q` — *"the act can put its own show's public page up"* — and Daniel
+  // overruled that on 2026-09-29. `isGrantable` refuses it to a performer role now, so a set
+  // listing it would be a set the ceiling ignores.
   "deal.view.own",
   "settlement.view.own",
   "settlement.confirm",
@@ -89,10 +90,9 @@ export const CREW_SCHEDULE_ONLY_CAPABILITIES: string[] = ["event.view", "schedul
  */
 export const AGENT_CAPABILITIES: string[] = [
   "event.view",
-  // Publish for the act they represent — a delegated performer has no band of their
-  // own, so this is the only way a represented act's show reaches its public page
-  // without the operator doing it (ClickUp `123qy9rpe3q`).
-  "event.publish",
+  // NO `event.publish` here either (decisions §25.9.2). It was added because a delegated performer
+  // has no band of its own, so the agent was the only way a represented act's page went up; with
+  // publishing the operator's, neither side holds it and there is nothing to move.
   "deal.view.own",
   "deal.edit",
   "settlement.view.own",
