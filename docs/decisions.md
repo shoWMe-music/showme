@@ -1653,6 +1653,37 @@ ambiguous: it is a stated sum on the nights the guarantee wins and a share of th
 the door does, so the same agreement would change who bears it according to ticket sales — not a
 rule anybody could explain to the party reading it.
 
+**THE TWO SETTLEMENTS, SIDE BY SIDE** (2026-09-30, asked for before deciding). Not an illustration:
+the figures below are the **seeded Album Release** run through `reconcile()` twice, changing one
+thing — whether `dealBorneBy` excludes a non-guarantee structure. The event is
+`reference-settlement.ts`'s: door **83,000.00** (260 @ 250 + 60 @ 300), external costs
+**33,000.00**, pool **50,000.00**; ONE `door_split` sized at 100% of the pool and divided 60/40
+between Marlo Vance and Neon Tide, **whose named payer is the host**; The Lantern Hall hosting and
+Northlight Presents co-hosting, sharing the residual equally because the seed sets no weights. Both
+balance (`assertBalanced` passes on each). The agent's 10% commission on the headliner's line is
+left out on purpose: it moves money *within* the payee side, is identical under both readings, and
+so cannot inform the choice.
+
+| party | A — AS BUILT (the pool bears it) | B — the host bears it |
+|---|---|---|
+| | *entitlement · net* | *entitlement · net* |
+| **The Lantern Hall** (host, collected the 50,000) | 0.00 · **−50,000.00** | **−25,000.00** · **−75,000.00** |
+| **Northlight Presents** (co-host, paid nothing in) | 0.00 · **0.00** | **+25,000.00** · **+25,000.00** |
+| Marlo Vance (60% of the split) | 30,000.00 · 30,000.00 | 30,000.00 · 30,000.00 |
+| Neon Tide (40% of the split) | 20,000.00 · 20,000.00 | 20,000.00 · 20,000.00 |
+
+**The performers are untouched — this is entirely a question about the two operators.** Under **A**
+the whole pool goes to the talent, the residual is zero, and both operators end level at nothing.
+Under **B** the host's obligation is charged to it alone, which means the residual is no longer zero
+but the *entire* 50,000 — so the co-host's equal share of it is **+25,000.00**, and the transfer
+list grows a third line: *The Lantern Hall pays Northlight Presents 25,000.00.* Northlight collected
+no door, fronted no cost and signed no deal; it co-promoted, and **B** pays it a quarter of the gross
+for that while the host carries 75,000.00.
+
+That is the shape to decide against. **A** says a co-promoter shares in the talent it is
+co-promoting. **B** says only the operator who signed the act is exposed to it — and on this event
+the arithmetic makes the co-promoter a passive beneficiary of the split rather than a party to it.
+
 **Both answers are defensible and the difference is large on every co-promoted event**, so it is not
 mine to take as a side effect of §25.9.6 — the same reason §25.7.1 gave for leaving #24.1 alone.
 The predicate carries the argument beside it (`dealBorneBy`'s `statedSumOnly`). Until it is
