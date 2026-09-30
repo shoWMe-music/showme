@@ -60,9 +60,20 @@ const routeTree = rootRoute.addChildren([
     // dropped you back into the shared one with no way to link to the other (QA
     // sweep run 3, r3:173). Only "mine" is spelled — the shared ledger is the
     // default, and a default does not belong in a URL.
-    validateSearch: (search: Record<string, unknown>): { tab?: string; budgetScope?: "mine" } => ({
+    // `?invite` OPENS THE COLLABORATOR INVITE on arrival (decisions §25.9.4). The calendar's day
+    // popover owes an Invite (`123qy9rnk21`) and an invitation is a THREE-FIELD FORM — email, role,
+    // access — which is not a thing a popover can hold. So the popover links to the flow that
+    // already exists rather than growing a second one, and this is the link.
+    //
+    // A value on a route that ALREADY carries search, not a new search-bearing route: a third of
+    // those collapses TanStack's `useSearch({ from })` narrowing, which is written up in
+    // `EventSettlement.tsx` and cost a reverted change in run 15.
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { tab?: string; budgetScope?: "mine"; invite?: true } => ({
       ...(typeof search.tab === "string" ? { tab: search.tab } : {}),
       ...(search.budgetScope === "mine" ? { budgetScope: "mine" as const } : {}),
+      ...(search.invite ? { invite: true as const } : {}),
     }),
   }),
   // The full settlement workspace. A route of its own rather than a tab: it has

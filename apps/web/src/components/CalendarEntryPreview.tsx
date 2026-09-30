@@ -1,4 +1,5 @@
 import { Button, Card, Icon, KeyValueRow, STATUS_COLOR, STATUS_LABEL } from "@showme/design-system";
+import { useNavigate } from "@tanstack/react-router";
 import type { RefObject } from "react";
 import { useEffect } from "react";
 import { formatDayWithWeekday } from "../lib/format";
@@ -19,11 +20,51 @@ import { usePublishToggle } from "./usePublishToggle";
  * with its own capability is. Archiving stays off it entirely — that is the Events
  * list's, by Ran's own separate bullet.
  *
+ * INVITE IS THE SECOND ACT `123qy9rnk21` ASKED FOR, and it arrives differently (decisions §25.9.4,
+ * Daniel 2026-09-29: *"Do whatever the later ticket said."*). Publish is one press and happens here;
+ * an invitation is a three-field form — email, role, access — which a 268px popover cannot hold and
+ * should not try to. So this LINKS to the invite the event workspace already has, carrying
+ * `?tab=collaborators&invite`, rather than growing a second invite flow next to it. Print details
+ * stays out: that ticket never asked for it.
+ *
  * Everything on it comes from the chip's own data. Deliberately no fetch: the
  * month grid draws dozens of chips, and a request per click would turn a glance
  * at the schedule into a request storm for information the grid already has — which
  * is also why the facts `123qy9rnk21` asks for are carried on `CalendarEvent` rather
  * than looked up when the panel opens. */
+
+/**
+ * WHICH OF THE POPOVER'S TWO ACTS THIS READER IS OFFERED — exported because a decision made inline
+ * in a component is a decision no test can reach, and this file has no render test.
+ *
+ * Both gates read the capabilities the API served for this event, never a role or a guess:
+ *
+ * - **Publish** needs `event.publish`, which §25.9.2 made operator-only (it left the performer and
+ *   agent presets and the grantable ceiling on 2026-09-29), AND an event that has a public page to
+ *   put up or take down — only a CONFIRMED event has one (A-22), which is why an already-published
+ *   one can still be taken down while a pending one is offered nothing.
+ * - **Invite** needs `participants.manage`, the capability `POST /events/:id/participants` actually
+ *   authorizes. Read off the route rather than copied from the control beside it.
+ *
+ * Both need a real event: a calendar item that is not one has nothing to publish and nobody to
+ * invite to it.
+ */
+export function calendarEntryActions(entry: {
+  eventId?: string | null;
+  status: string;
+  published?: boolean | null;
+  capabilities?: readonly string[];
+}): { mayPublish: boolean; mayInvite: boolean } {
+  const held = new Set(entry.capabilities ?? []);
+  const isEvent = entry.eventId != null;
+  return {
+    mayPublish:
+      isEvent &&
+      held.has("event.publish") &&
+      (entry.published === true || entry.status === "confirmed"),
+    mayInvite: isEvent && held.has("participants.manage"),
+  };
+}
 
 const PANEL_WIDTH = 268;
 
@@ -70,10 +111,10 @@ export function CalendarEntryPreview({
    * already-published concluded night can still be taken down but a pending one is
    * offered nothing.
    */
-  const mayPublish =
-    entry.eventId != null &&
-    (entry.capabilities?.includes("event.publish") ?? false) &&
-    (entry.published === true || entry.status === "confirmed");
+  const { mayPublish } = calendarEntryActions(entry);
+  const { mayInvite } = calendarEntryActions(entry);
+  const navigate = useNavigate();
+
   const color = STATUS_COLOR[entry.status];
   // "Confirmed" for an event, "Appointment" for a calendar item — the palette is
   // shared between the two, so the WORD is the only thing that tells them apart.
@@ -196,6 +237,22 @@ export function CalendarEntryPreview({
               : entry.published
                 ? "Unpublish"
                 : "Publish"}
+          </Button>
+        )}
+
+        {mayInvite && (
+          <Button
+            variant="ghost"
+            onClick={() =>
+              navigate({
+                to: "/events/$eventId",
+                params: { eventId: entry.eventId as string },
+                search: { tab: "collaborators", invite: true },
+              })
+            }
+            style={{ alignSelf: "stretch", justifyContent: "center" }}
+          >
+            Invite
           </Button>
         )}
 

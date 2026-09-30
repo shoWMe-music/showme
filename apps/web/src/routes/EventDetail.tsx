@@ -190,6 +190,33 @@ export function EventDetail() {
   };
 
   const { data: event, isPending, isError, error } = useGetApiV1EventsId(eventId);
+  /*
+   * `?invite` OPENS IT ON ARRIVAL — decisions §25.9.4, the calendar popover's Invite.
+   *
+   * An invitation is a three-field form (email, role, access) and a day popover cannot hold one, so
+   * the popover links HERE rather than growing a second invite flow. The param is consumed once and
+   * dropped from the URL, so a reload or a back-button does not re-open a dialog the operator has
+   * already closed — the same reason `?tab=` is read into state rather than driving the panel.
+   *
+   * Gated on `participants.manage`, which is the capability `POST /events/:id/participants`
+   * actually authorizes. The popover gates its control on the same one, so a reader who is offered
+   * the link is a reader the route will accept.
+   */
+  const inviteRequested = useSearch({ from: "/events/$eventId" }).invite;
+  useEffect(() => {
+    if (!inviteRequested) return;
+    if (!(event?.capabilities ?? []).includes("participants.manage")) return;
+    setInviteOpen(true);
+    navigate({
+      to: "/events/$eventId",
+      params: { eventId },
+      search: (prev: { tab?: string; budgetScope?: "mine"; invite?: true }) => ({
+        ...prev,
+        invite: undefined,
+      }),
+      replace: true,
+    });
+  }, [inviteRequested, event?.capabilities, eventId, navigate]);
   const participants = useGetApiV1EventsIdParticipants(eventId);
   // ABOVE the loading/error guards below, because it is a hook: called after an
   // early return it would run on some renders and not others, which is the
