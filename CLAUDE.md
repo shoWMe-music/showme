@@ -179,6 +179,14 @@ Two more ways a check lies, both measured here:
 - **A post-deploy check can be answered by the revision you just replaced.** A
   warm instance serves during the traffic shift. Wait for the rollout, or
   confirm which revision answered.
+- **AND "401 instead of 404" PROVES NOTHING ABOUT A NEW ROUTE.** The auth
+  `preHandler` runs before routing, so `/api/v1/definitely-not-a-route` answers
+  **401** exactly like a real route does. Measured 2026-09-30 verifying a deploy:
+  a new route was probed unauthenticated, came back 401, and that was read as
+  "the route exists" — a check incapable of returning 404 for a missing route.
+  The probe that CAN fail is the served spec: `GET /openapi.json` is public and
+  built from the routes actually registered, so a path missing from its `paths`
+  is missing from the running revision.
 
 **And some defects NO assertion in this repo is positioned to see.** Measured
 2026-09-30: a helper moved from `apps/api` into `packages/settlement` brought
