@@ -149,15 +149,6 @@ export function dealActionsFor(
   deal: Deal,
   authority: AgreementAuthority,
   roster: readonly Participant[] = [],
-  /**
-   * Does this NIGHT have a settlement — for anybody on it, not for the reader. Comes with the
-   * deals response (`GET /events/:id/deals` → `hasSettlement`) for that reason: the event list's
-   * `settlementStatus` is the reader's own and would answer a different question (§25.7.2).
-   *
-   * Defaulted to `true`, which is the CAUTIOUS default and deliberately the pessimistic one: a
-   * caller that forgot to pass it offers Cancel rather than a Delete the route would refuse.
-   */
-  hasSettlement = true,
 ): DealActions {
   const unsignedOwnLines = deal.parties.filter(
     (party) => party.isYours && party.roleInDeal !== "observer" && party.confirmedAt == null,
@@ -189,7 +180,12 @@ export function dealActionsFor(
   // The rule itself is in `@showme/shared` and the route asks the same function — the ruling says
   // the screen must not offer a delete the API will refuse, and one implementation is how that
   // stays true rather than being true today.
-  const deletability = dealDeletability(deal, { hasSettlement });
+  /*
+   * The night's settlement no longer speaks for this deal (decisions §25.9.10). `dealDeletability`
+   * dropped its event argument entirely, so the parameter that fed it went with it — a draft is
+   * deletable whatever the night has done, because a draft cannot have been reconciled.
+   */
+  const deletability = dealDeletability(deal);
   return {
     canSend: authority.canManage && deal.agreementStatus === "draft",
     // A draft is not signable: the terms have not been put to anybody yet, and

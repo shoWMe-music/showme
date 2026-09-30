@@ -972,31 +972,17 @@ export interface DealDeletability {
   reason: string | null;
 }
 
-export function dealDeletability(
-  deal: {
-    agreementStatus: string;
-    /**
-     * The deal's own status. Needed only so the refusal does not advise cancelling something
-     * ALREADY cancelled (QA sweep run 10, QA10-9): the card showed *"Cancel it instead"* on a
-     * withdrawn deal, which is advice for a thing already done — the sixth instance of a sentence
-     * that is not true of whoever is reading it, and this one was mine.
-     */
-    status?: string | null;
-    name?: string | null;
-  },
-  event: {
-    /**
-     * Does a settlement exist for the EVENT — for anybody on it, not for the caller.
-     *
-     * Deliberately not called `settlementStatus`, which is the name the events LIST uses for a
-     * different fact: the caller's OWN settlement on that event (`routes/events-list.ts` scopes it
-     * by `profile_members.user_id`). `null` there means "you have no settlement", never "this
-     * night has none" — so reusing that field to answer this question would let a co-host delete
-     * a deal out of a night the host had already settled, and read as correct the whole way.
-     */
-    hasSettlement: boolean;
-  },
-): DealDeletability {
+export function dealDeletability(deal: {
+  agreementStatus: string;
+  /**
+   * The deal's own status. Needed only so the refusal does not advise cancelling something
+   * ALREADY cancelled (QA sweep run 10, QA10-9): the card showed *"Cancel it instead"* on a
+   * withdrawn deal, which is advice for a thing already done — the sixth instance of a sentence
+   * that is not true of whoever is reading it, and this one was mine.
+   */
+  status?: string | null;
+  name?: string | null;
+}): DealDeletability {
   const named = deal.name ? `"${deal.name}"` : "This agreement";
   /*
    * ALREADY CANCELLED — so there is nothing to advise. It stays undeletable for whichever of the two
@@ -1010,30 +996,33 @@ export function dealDeletability(
     };
   }
   /*
-   * THE NIGHT IS SETTLED, AND THE SENTENCE NO LONGER CLAIMS THIS DEAL WAS IN IT (QA sweep runs 14
-   * and 15, both).
+   * HAS IT LEFT DRAFT — and this is now the FIRST question, which is the whole of §25.9.10.
    *
-   * It read *"…is part of what has already been computed and read"* — an EVENT-level fact
-   * (`hasSettlement` is "any settlement row on this event") dressed as a claim about this deal. Of a
-   * draft created AFTER the compute it is simply false: the engine has never seen it, and
-   * `POST …/settlement/compute` is at that moment refusing to run because of it. Run 14 reported the
-   * untrue reason; run 15 found it unchanged and said so.
+   * §25.7.2 said "delete only while `agreement_status = 'draft'` AND no settlement has been
+   * computed", and the second clause was implemented as `hasSettlement` — ANY settlement row on the
+   * event. So a draft created AFTER a compute could not be deleted, while
+   * `POST …/settlement/compute` was at that very moment refusing to run BECAUSE OF IT: a deadlock
+   * with no way out on screen. Reported by QA sweep run 14 and again by run 15.
    *
-   * So the sentence now states the rule (§25.7.2: a settled night keeps its agreements) instead of
-   * inventing a history for the deal. WHETHER the rule should narrow to deals the engine has actually
-   * reconciled is a product question and a delete is irreversible, so it goes to Daniel rather than
-   * being taken here — with the invariant that makes it safe already established: a `draft` deal
-   * cannot have been reconciled, because compute refuses to run while a deal with a signatory is
-   * unsigned and a deal with only observers entitles nobody.
+   * Daniel's ruling (§25.9.10, 2026-09-29) scopes it by the INVARIANT rather than by a new column:
+   * **a draft deal cannot have been reconciled.** Verified in code rather than assumed, and it holds
+   * by two separate mechanisms:
+   *   - a draft with a SIGNATORY blocks the compute outright — `assertEveryAgreementSigned` keeps
+   *     every unsigned deal that has signatories, drafts named explicitly among them;
+   *   - a draft with only OBSERVERS reaches the engine and entitles nobody, because an observer is
+   *     no deal's payee and `settleDeal` returns early on an empty payee list.
+   * Either way it owns no `settlement_lines` row and no entitlement — which is precisely what
+   * §25.7.2's rationale protects.
+   *
+   * So the order flips and the EVENT argument goes entirely: everything reaching the bottom of this
+   * function is a draft, and a draft is deletable. It took a `hasSettlement` boolean — "is there any
+   * settlement row on this night" — which is exactly the event-level fact §25.9.10 says must stop
+   * standing in for a claim about one deal. A parameter nothing reads is not a safeguard.
+   *
+   * What replaces it is narrower and lives where the irreversible step is: the DELETE route proves
+   * THIS deal owns no `settlement_lines` row before destroying it, so a violated invariant becomes a
+   * refusal instead of a silently broken settlement.
    */
-  if (event.hasSettlement) {
-    return {
-      deletable: false,
-      reason: `This night has a settlement on it, so its agreements are kept rather than erased — ${
-        deal.name ? named : "this one"
-      } included. Cancel it instead: that stops it paying and leaves the record that it was offered.`,
-    };
-  }
   if (deal.agreementStatus !== "draft") {
     return {
       deletable: false,

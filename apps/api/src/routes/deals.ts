@@ -14,7 +14,7 @@ import {
   sealedTermsReason,
   termsAreSealed,
 } from "@showme/shared";
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, ne, or } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -1512,18 +1512,39 @@ export async function dealRoutes(fastify: FastifyInstance): Promise<void> {
        * The rule is `dealDeletability` in `@showme/shared` and not written out here, because the
        * front end has to ask the same question to decide whether to OFFER the control — the
        * ruling says so in as many words ("the UI must not offer a delete the API will refuse").
-       * The existence of a settlement is read for the EVENT, not for the caller: the caller's own
-       * settlement is a different fact, and a co-host who has none of their own must not be able
-       * to delete a deal out of a night the host has already settled.
        */
-      const [settlement] = await database
-        .select({ id: schema.settlements.id })
-        .from(schema.settlements)
-        .where(eq(schema.settlements.eventId, before.eventId))
-        .limit(1);
-      const deletability = dealDeletability(before, { hasSettlement: Boolean(settlement) });
+      const deletability = dealDeletability(before);
       if (!deletability.deletable) {
         throw conflict(deletability.reason ?? "This agreement cannot be deleted.");
+      }
+      /*
+       * AND THE INVARIANT IS PROVED, not assumed — decisions §25.9.10.
+       *
+       * The rule above lets a DRAFT go even on a settled night, because a draft cannot have been
+       * reconciled: one with a signatory blocks the compute (`assertEveryAgreementSigned`), and one
+       * with only observers entitles nobody (`settleDeal` returns early on an empty payee list). It
+       * replaced a blunt "any settlement row on this event" gate, which deadlocked a draft created
+       * after a compute against the very compute that draft was blocking (QA sweep runs 14, 15).
+       *
+       * That reasoning is sound and this is still an IRREVERSIBLE step, so the narrow version of the
+       * same worry is checked where it matters: if this deal somehow owns a settlement line, the
+       * invariant is wrong and the answer is a refusal rather than a settlement left describing
+       * money owed under a document that no longer exists. Costs one indexed read on a rare route.
+       */
+      const [reconciled] = await database
+        .select({ id: schema.settlementLines.id })
+        .from(schema.settlementLines)
+        .where(
+          or(
+            eq(schema.settlementLines.dealId, before.id),
+            eq(schema.settlementLines.attributedDealId, before.id),
+          ),
+        )
+        .limit(1);
+      if (reconciled) {
+        throw conflict(
+          "This agreement has already been settled, so it is kept rather than erased. Cancel it instead: that stops it paying and leaves the record that it was offered.",
+        );
       }
 
       const expectedVersion = request.body?.expectedVersion;

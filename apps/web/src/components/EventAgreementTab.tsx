@@ -249,15 +249,7 @@ export function EventAgreementTab({
             dealStructure={dealStructureFields(deal, baseCurrency)}
             schedule={scheduleEntries}
             parties={partyLines(deal, agreements.roster)}
-            actions={dealActionsFor(
-              deal,
-              agreements.authority,
-              agreements.roster,
-              // The night's settlement state, which decides Delete against Cancel — read off the
-              // same response the deals came in (§25.7.2), never off the reader-scoped field the
-              // events list calls `settlementStatus`.
-              agreements.hasSettlement,
-            )}
+            actions={dealActionsFor(deal, agreements.authority, agreements.roster)}
             busy={agreements.busyDealId === deal.id}
             termsText={deal.agreementBodyText}
             onEditTerms={() =>

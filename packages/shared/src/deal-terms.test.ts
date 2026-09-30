@@ -648,16 +648,13 @@ describe("dealKindOf", () => {
 describe("dealDeletability", () => {
   const draft = { agreementStatus: "draft", name: "Wrong guarantee" };
 
-  it("allows a draft on a night with no settlement", () => {
-    expect(dealDeletability(draft, { hasSettlement: false })).toEqual({
-      deletable: true,
-      reason: null,
-    });
+  it("allows a draft", () => {
+    expect(dealDeletability(draft)).toEqual({ deletable: true, reason: null });
   });
 
-  it("refuses anything past draft, whatever the night's state", () => {
+  it("refuses anything past draft", () => {
     for (const agreementStatus of ["sent", "confirmed", "signed"]) {
-      const verdict = dealDeletability({ ...draft, agreementStatus }, { hasSettlement: false });
+      const verdict = dealDeletability({ ...draft, agreementStatus });
       expect(verdict.deletable).toBe(false);
       // The sentence names the deal and the alternative, because it is read by a person who has
       // just pressed a button and needs to know what to do instead.
@@ -666,26 +663,30 @@ describe("dealDeletability", () => {
     }
   });
 
-  it("refuses a draft once the night has a settlement — money outranks status", () => {
-    const verdict = dealDeletability(draft, { hasSettlement: true });
-    expect(verdict.deletable).toBe(false);
-    expect(verdict.reason).toContain("settlement");
-    expect(verdict.reason).toContain("Cancel it instead");
+  /*
+   * FLIPPED BY A RULING, NOT A DRIFT — decisions §25.9.10, Daniel 2026-09-29.
+   *
+   * These two used to assert that a settled night refuses a DRAFT, and that the settlement reason
+   * leads when both lines are crossed. §25.7.2's second clause was implemented as "any settlement
+   * row on this event", which produced a deadlock QA sweep runs 14 and 15 both filed: a draft
+   * created AFTER a compute could not be deleted, while the compute was at that moment refusing to
+   * run BECAUSE of it.
+   *
+   * The ruling scopes it by the invariant — a draft deal cannot have been reconciled — so the
+   * night's settlement no longer speaks for a deal the engine has never seen, and the event
+   * argument is gone from the function entirely.
+   */
+  it("allows a draft even on a night that already has a settlement (§25.9.10)", () => {
+    expect(dealDeletability(draft)).toEqual({ deletable: true, reason: null });
   });
 
-  it("leads with the settlement when BOTH lines are crossed", () => {
-    /*
-     * Not a preference about wording: it is the ordering `assertEventIsDeletable` had to be fixed
-     * to get right (QA4-1). A refusal that names the status first invites "so cancel it and try
-     * again", and the second attempt is refused by the money anyway — advice that costs an
-     * irreversible act and buys nothing. The absolute clause goes first.
-     */
-    const verdict = dealDeletability(
-      { agreementStatus: "signed", name: "Headline fee" },
-      { hasSettlement: true },
-    );
-    expect(verdict.reason).toContain("settlement");
-    expect(verdict.reason).not.toContain("left draft");
+  it("still refuses a SIGNED deal on a settled night, and says why", () => {
+    const verdict = dealDeletability({ agreementStatus: "signed", name: "Headline fee" });
+    expect(verdict.deletable).toBe(false);
+    // The reason is now about THIS deal rather than about the night — which is the point: an
+    // event-level fact dressed as a claim about one agreement is what runs 14 and 15 reported.
+    expect(verdict.reason).toContain("left draft");
+    expect(verdict.reason).toContain("Cancel it instead");
   });
 
   it("does not advise cancelling something already cancelled", () => {
@@ -693,10 +694,11 @@ describe("dealDeletability", () => {
      * QA10-9, and it was my own sentence: the card printed *"Cancel it instead"* on a withdrawn deal.
      * Advice for a thing already done is the sixth instance of a sentence untrue of its reader.
      */
-    const verdict = dealDeletability(
-      { agreementStatus: "sent", status: "cancelled", name: "Withdrawn offer" },
-      { hasSettlement: false },
-    );
+    const verdict = dealDeletability({
+      agreementStatus: "sent",
+      status: "cancelled",
+      name: "Withdrawn offer",
+    });
     expect(verdict.deletable).toBe(false);
     expect(verdict.reason).toContain("is cancelled");
     expect(verdict.reason).not.toContain("Cancel it instead");
@@ -707,15 +709,13 @@ describe("dealDeletability", () => {
   it("still lets a cancelled DRAFT be tidied away", () => {
     // Both columns say different things: never sent, so nobody else's record — §25.7.2's own case.
     expect(
-      dealDeletability(
-        { agreementStatus: "draft", status: "cancelled", name: "Never sent" },
-        { hasSettlement: false },
-      ).deletable,
+      dealDeletability({ agreementStatus: "draft", status: "cancelled", name: "Never sent" })
+        .deletable,
     ).toBe(true);
   });
 
   it("speaks in general terms about an unnamed agreement", () => {
-    const verdict = dealDeletability({ agreementStatus: "sent" }, { hasSettlement: false });
+    const verdict = dealDeletability({ agreementStatus: "sent" });
     expect(verdict.reason).toContain("This agreement");
   });
 });

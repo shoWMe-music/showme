@@ -76,7 +76,6 @@ describe("dealActionsFor — signing your own line (QA10-3)", () => {
       deal(withOwnLine("part-co")),
       noEventConfirm,
       roster("part-co", "co_host"),
-      false,
     );
     expect(actions.canConfirm).toBe(true);
   });
@@ -87,7 +86,6 @@ describe("dealActionsFor — signing your own line (QA10-3)", () => {
         deal(withOwnLine("part-crew")),
         noEventConfirm,
         roster("part-crew", role),
-        false,
       );
       expect(actions.canConfirm).toBe(true);
     }
@@ -100,7 +98,6 @@ describe("dealActionsFor — signing your own line (QA10-3)", () => {
       deal(withOwnLine("part-co", "observer")),
       noEventConfirm,
       roster("part-co", "co_host"),
-      false,
     );
     expect(actions.canConfirm).toBe(false);
   });
@@ -110,7 +107,6 @@ describe("dealActionsFor — signing your own line (QA10-3)", () => {
       deal({ ...withOwnLine("part-co"), agreementStatus: "draft" }),
       noEventConfirm,
       roster("part-co", "co_host"),
-      false,
     );
     expect(actions.canConfirm).toBe(false);
   });
@@ -126,7 +122,6 @@ describe("dealActionsFor — signing your own line (QA10-3)", () => {
       deal({ ...withOwnLine("part-co"), status: "cancelled" }),
       noEventConfirm,
       roster("part-co", "co_host"),
-      false,
     );
     expect(actions.canConfirm).toBe(false);
     // And the other endings behave: nothing to cancel twice, and a cancelled draft can still be
@@ -151,50 +146,58 @@ describe("dealActionsFor — signing your own line (QA10-3)", () => {
       }),
       noEventConfirm,
       roster("part-co", "co_host"),
-      false,
     );
     expect(actions.canConfirm).toBe(false);
   });
 });
 
 describe("dealActionsFor — ending an agreement (decisions §25.7.2)", () => {
-  it("offers Delete on a draft when the night has no settlement", () => {
-    const actions = dealActionsFor(deal(), manager, [], false);
+  it("offers Delete on a draft", () => {
+    const actions = dealActionsFor(deal(), manager, []);
     expect(actions.canDelete).toBe(true);
     expect(actions.deleteBlockedReason).toBeNull();
     // Cancel is offered alongside it: deleting is not the only ending for a draft.
     expect(actions.canCancel).toBe(true);
   });
 
-  it("withholds Delete once the night has a settlement, and says why", () => {
-    const actions = dealActionsFor(deal(), manager, [], true);
-    expect(actions.canDelete).toBe(false);
-    expect(actions.deleteBlockedReason).toContain("settlement");
+  /*
+   * FLIPPED BY A RULING, NOT A DRIFT — decisions §25.9.10, Daniel 2026-09-29.
+   *
+   * This asserted that a settled night withholds Delete from a DRAFT too. That produced the
+   * deadlock QA sweep runs 14 and 15 both filed: a draft created after a compute could not be
+   * deleted, while the compute was at that moment refusing to run because of it. The ruling scopes
+   * the rule by the invariant — a draft cannot have been reconciled — so the night's settlement
+   * stopped being asked, and `dealActionsFor` lost the argument that carried it.
+   */
+  it("offers Delete on a draft even when the night is settled (§25.9.10)", () => {
+    const actions = dealActionsFor(deal(), manager, []);
+    expect(actions.canDelete).toBe(true);
     expect(actions.canCancel).toBe(true);
   });
 
   it("withholds Delete once the agreement has left draft", () => {
     for (const agreementStatus of ["sent", "confirmed", "signed"]) {
-      const actions = dealActionsFor(deal({ agreementStatus }), manager, [], false);
+      const actions = dealActionsFor(deal({ agreementStatus }), manager, []);
       expect(actions.canDelete).toBe(false);
       expect(actions.deleteBlockedReason).toContain("Cancel it instead");
     }
   });
 
-  /**
-   * THE DEFAULT IS PESSIMISTIC, on purpose.
+  /*
+   * THE PESSIMISTIC DEFAULT IS GONE WITH ITS PARAMETER (§25.9.10).
    *
-   * `hasSettlement` defaults to `true`, and the hook passes `true` while the read is still in
-   * flight. A caller who forgets the argument — or a card that renders before the deals response
-   * lands — therefore offers Cancel, never a Delete that 409s. Getting this backwards would put a
-   * destructive control on screen for exactly as long as the request takes.
+   * `hasSettlement` used to default to `true` so a card rendering before the deals response landed
+   * offered Cancel rather than a Delete that would 409. There is nothing left to be pessimistic
+   * about: the answer no longer depends on a value that arrives late, only on the deal's own
+   * `agreement_status`, which is on the row being rendered. Asserted so the disappearance is a
+   * decision rather than a gap.
    */
-  it("assumes the night IS settled when nobody says otherwise", () => {
-    expect(dealActionsFor(deal(), manager).canDelete).toBe(false);
+  it("needs nothing but the deal to answer", () => {
+    expect(dealActionsFor(deal(), manager).canDelete).toBe(true);
   });
 
   it("offers neither ending to somebody who cannot manage agreements", () => {
-    const actions = dealActionsFor(deal(), bystander, [], false);
+    const actions = dealActionsFor(deal(), bystander, []);
     expect(actions.canDelete).toBe(false);
     expect(actions.canCancel).toBe(false);
     // And no explanation either: the sentence is only useful to somebody who might have deleted it.
@@ -202,7 +205,7 @@ describe("dealActionsFor — ending an agreement (decisions §25.7.2)", () => {
   });
 
   it("stops offering Cancel on an agreement already cancelled, and still allows deleting a draft", () => {
-    const actions = dealActionsFor(deal({ status: "cancelled" }), manager, [], false);
+    const actions = dealActionsFor(deal({ status: "cancelled" }), manager, []);
     expect(actions.canCancel).toBe(false);
     /*
      * Deletable, and that is deliberate rather than an oversight: the two columns answer different

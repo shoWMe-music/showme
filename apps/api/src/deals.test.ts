@@ -3851,21 +3851,64 @@ describe("deleting a deal — draft, and nothing settled (decisions §25.7.2)", 
     ).toHaveLength(1);
   });
 
-  it("refuses a DRAFT deal once the night has a settlement — money outranks status", async () => {
+  /*
+   * FLIPPED BY A RULING, NOT A DRIFT — decisions §25.9.10, Daniel 2026-09-29.
+   *
+   * This asserted "money outranks status": a DRAFT could not be deleted once the night had any
+   * settlement row. That is the deadlock QA sweep runs 14 and 15 both filed — a draft created AFTER
+   * a compute could not be deleted, while `POST …/settlement/compute` was at that moment refusing
+   * to run BECAUSE of it, with no way out on screen.
+   *
+   * The ruling scopes the rule by the invariant instead: a draft cannot have been reconciled,
+   * because one with a signatory blocks the compute and one with only observers entitles nobody. So
+   * the draft goes, and the assertion flips.
+   */
+  it("DELETES a draft even once the night has a settlement (§25.9.10)", async () => {
     const { event, hostParticipant, actParticipant, uid } = await fixture("del-settled");
     const dealId = await createDeal(event.id, uid, hostParticipant.id, actParticipant.id);
-    /*
-     * The settlement belongs to the HOST's participant row. The guard reads settlements by EVENT
-     * and not by caller, which is the half a naive implementation gets wrong: the events LIST
-     * exposes a `settlementStatus` scoped to the caller's own profile, and reusing that fact here
-     * would let a co-host with no settlement of their own delete a deal out of a settled night.
-     */
     await harness.db.insert(schema.settlements).values({
       eventId: event.id,
       participantId: hostParticipant.id,
-      // `open` on purpose, not `finalized`: the rule is "a settlement, finalized or not", the
-      // same standard `assertEventIsDeletable` applies one step earlier than the locked figures.
       status: "open",
+    });
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/deals/${dealId}`,
+      headers: auth(uid),
+      payload: {},
+    });
+    expect(deleted.statusCode).toBe(204);
+    expect(
+      await harness.db.select().from(schema.deals).where(eq(schema.deals.id, dealId)),
+    ).toHaveLength(0);
+  });
+
+  /*
+   * AND THE INVARIANT IS PROVED AT THE IRREVERSIBLE STEP, not merely relied on.
+   *
+   * The rule above trusts that a draft owns no settlement line. The route checks it anyway, because
+   * a delete cannot be undone and a wrong invariant would leave `settlement_lines` describing money
+   * owed under a document that no longer exists. This builds that state by hand — the only way it
+   * exists — and asserts the refusal.
+   *
+   * It is also what stops the previous test being the whole story: without this, "a draft is
+   * deletable" would be indistinguishable from "nothing is checked any more".
+   */
+  it("still refuses a draft that somehow owns a settlement line", async () => {
+    const { event, hostParticipant, actParticipant, uid } = await fixture("del-reconciled");
+    const dealId = await createDeal(event.id, uid, hostParticipant.id, actParticipant.id);
+    await harness.db.insert(schema.settlements).values({
+      eventId: event.id,
+      participantId: hostParticipant.id,
+      status: "open",
+    });
+    await harness.db.insert(schema.settlementLines).values({
+      eventId: event.id,
+      kind: "revenue",
+      label: "Door",
+      amount: 100000n,
+      dealId,
     });
 
     const refused = await app.inject({
@@ -3875,20 +3918,10 @@ describe("deleting a deal — draft, and nothing settled (decisions §25.7.2)", 
       payload: {},
     });
     expect(refused.statusCode).toBe(409);
-    expect(refused.json().error.message).toContain("settlement");
+    expect(refused.json().error.message).toContain("already been settled");
     expect(refused.json().error.message).toContain("Cancel it instead");
     expect(
       await harness.db.select().from(schema.deals).where(eq(schema.deals.id, dealId)),
     ).toHaveLength(1);
-
-    // The alternative the refusal names is real: cancelling this deal works.
-    const cancelled = await app.inject({
-      method: "PATCH",
-      url: `/api/v1/deals/${dealId}`,
-      headers: auth(uid),
-      payload: { status: "cancelled" },
-    });
-    expect(cancelled.statusCode).toBe(200);
-    expect(cancelled.json().status).toBe("cancelled");
   });
 });
