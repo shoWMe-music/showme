@@ -59,8 +59,12 @@ missing mechanism. None of that is visible from the board.
 rendered, never read: it is a `<x-dc>` runtime app, `file://` is blocked, and DesignSync cannot
 fetch it. Building from a written description of it has gone wrong twice.
 **Later product decisions override PLAN.md and live in [docs/decisions.md](./docs/decisions.md)** — read it before
-building a subsystem. **Most recent: #24 (2026-09-15), which REVERSES part of #23 and amends
-story.md:44** — the two rules a settlement session is most likely to trip over.
+building a subsystem. **Most recent: §26 (2026-09-29)** — Daniel's
+answers to the "where the build stands" doc, which lock **the terminology** (performer, event,
+co-host, operator, Hold + number, commission, send for review) and settle fifteen product calls
+nothing has built yet. Then **§25.9** (2026-09-29/30, built) and **#24 (2026-09-15), which REVERSES
+part of #23 and amends story.md:44** — the two rules a settlement session is most likely to trip
+over.
 
 **The *why* layer — [docs/story.md](./docs/story.md):** the purpose, role, and **boundary** of every actor (what each
 account kind is *for* and, crucially, what it is *not*). PLAN.md says *how*; story.md says *what it's for*. When a

@@ -1788,8 +1788,239 @@ The settlement vocabulary (`86cbcn1ue`'s last item, `123qy9rng6d` W5). Daniel is
 IT` included — because renaming this pair twice without Ran is what produced the same
 complaint twice. When the list lands, each label gets a test pinning it.
 
+## 26. Daniel's rulings in the "where the build stands" doc, 2026-09-29
+
+**Where these come from.** `shoWMe — where the build stands, 26 September`
+([the doc](https://claude.ai/artifact/Jph8wDuqazWvDC3oQENMec)) put the state of the build in front of
+Daniel with the open questions marked. He answered them **in the doc itself**, as 31 comment threads
+and edits — which meant the rulings existed only there, in a place no build reads, for a day and a
+half. Every one of them is transcribed below, grouped by SUBJECT rather than by where in that doc it
+appeared: the doc's own grouping ("nine things", "five things", a terminology table) is an artifact
+of how the questions were presented, not of what they are about.
+
+**Nothing here is built yet.** §26 is a recording, made so the next loop has a list it can work.
+Where a ruling settles something §25 already built, it is cross-referenced rather than restated.
+
+### 26.1 The terminology is locked — eight words, and the label rule behind them
+
+Every caption in the app answers to this table. It replaces the "waiting on an input" note at the
+end of §25.9, for everything except the settlement's `PAYS IT` / `CARRIES IT` pair, which is still
+Ran's to send.
+
+| The thing | The word, always | What it replaces |
+|---|---|---|
+| The person or group performing | **performer** | act, artist |
+| One booked date | **event** | night, show |
+| The second party sharing an event | **co-host** | co-promoter |
+| The class of profile types that run events | **operator** | promoter, host, venue *as a class name* |
+| A tentative booking | **Hold** + its number — Hold 1, Hold 2, … | "1st" / "2nd" |
+| An agent's share | **commission** | "payable to the agent" |
+| Showing a performer the full numbers | part of **send for review** | "open your books", "grant", "access" |
+| What the performer is owed | **the deal's own term** — see below | a single global label |
+
+Two of those rows carry more than a word:
+
+- **`operator` is a CLASS, not a role.** It names the group of profile types that run events — venue,
+  promoter, organizer, festival. A *particular* operator on a *particular* event is the **host** or a
+  **co-host**; that is the event role, and it is a different question from what kind of profile they
+  are. So a co-host's profile type (venue, promoter, …) is **shown separately** rather than being
+  collapsed into the word "co-host". This is what `OPERATOR_EVENT_ROLES` already encodes and what
+  several captions currently blur.
+- **What a performer is owed has NO global label.** The label follows **the deal type and uses that
+  deal's own terms** — a guarantee is called a guarantee, a fee a fee — **on every screen**. This is
+  the ruling that kills the deal/planner/settlement disagreement recorded as one of the 22 smaller
+  faults: the fix is not to pick one of "fee", "payout", "Total payable" and "guarantee", it is to
+  stop having a screen-level label at all and read the word off the deal.
+
+**What this obliges.** A sweep of every caption against this table, and — for the last row — one
+function that names a deal's money from its structure, with the label test per screen. Renaming by
+hand, screen by screen, is how the same complaint arrived twice.
+
+### 26.2 A closed beta — for operators only
+
+**Ruling:** yes, there is a closed beta, and it is asymmetric. **Operators need an invitation code to
+sign up. Performers sign up freely, without one.** Invitation codes need building **before launch**.
+
+The old app had codes and this rebuild has nothing like them — no table, no ticket. The asymmetry is
+the part that could not have been guessed: the point is to control which *venues and promoters* come
+in, because they are the side that brings the events, while a performer arriving on their own is
+someone you want.
+
+### 26.3 Nobody can reset a forgotten password — three things owed before launch
+
+**Ruling:** add all three.
+
+1. **"Forgot password"** by email link.
+2. **Changing your password** from inside the app.
+3. **Changing your email** from inside the app.
+
+Today none of the three exists, which means a customer who forgets their password **cannot get back
+in at all**. It reads as a small gap and is a total one.
+
+### 26.4 An admin screen, gated on a verified @showme.music address
+
+**Ruling:** add an admin screen for managing plans and accounts, **open only to signed-in users with
+a verified `@showme.music` email address**.
+
+The machinery underneath already works — plans and accounts *can* be managed — but only by editing
+the live database by hand, which is how we would have to honour the first paid plan. Note the gate
+is a **verified email domain**, not a capability or a plan: it is the one boundary that cannot be
+granted to a customer by mistake.
+
+### 26.5 An invitation to someone not on shoWMe goes out from shoWMe
+
+**Ruling:** the invitation email comes **from shoWMe**, as the ticket says — not from the venue's own
+mail.
+
+Recorded with its cost, because the decision was being made silently. The old app deliberately sent
+it from the venue's own address, on the reasoning that *an invitation from a person gets opened and
+one from a platform gets filtered*. That is a real difference in deliverability and Daniel chose the
+platform anyway. If open rates disappoint, this is the line to come back to.
+
+### 26.6 A share can only carry what the sharer can see
+
+**Ruling:** the share dialog lists **every section of the event the sharer can see, one checkbox
+each**, plus a **"Share everything I can see"** checkbox that ticks them all at once. **Sections the
+sharer cannot see never appear in the dialog.**
+
+This is the same principle as §25.9.1's disclosure rule — *you can share what you shared and no
+more* — applied to the off-platform link. Today a shared link can show six things where the old app
+could show twenty-one, including the crew list, the to-do list, the guest list and the amenities, and
+those are exactly what a visiting performer or a production manager asks for. The ruling deliberately
+does NOT answer *which* sections are shareable with a fixed list: the answer is **all of them, minus
+what this sharer cannot see**, which is a rule rather than a list and so cannot go stale as sections
+are added.
+
+### 26.7 An operator cannot write their own formulas into a deal
+
+**Ruling:** no. Firmly, and recorded out loud so it stops coming back.
+
+The old app allowed it. The reason it is refused here is the same one that removed free-typed deal
+types: **a formula nobody else can read is a number nobody can check**, and the settlement has to be
+able to explain every figure it produces. A deal's structure is one of the `deal_structure` values
+and the engine computes from those.
+
+### 26.8 A co-host sees a deal only when the host ticks it — a read-only party
+
+**Ruling:** the middle of three options. The host gets a **"Let co-host see this deal" checkbox**.
+Ticking it **adds the co-host as a read-only party** to that deal: they see the fee and the costs,
+and they **cannot edit or accept**. **Off by default**, and the host can untick it later.
+
+This keeps the rule that visibility comes from **being a party to a deal**, not from being an
+operator — it just gives the host a one-click way to make a co-host a party. The case for it: if two
+venues are splitting a night's risk, the one carrying half the costs arguably needs to know what the
+costs are. The case against making it automatic: a co-host is not entitled to another operator's
+terms by default.
+
+**Three surfaces follow from the checkbox, and each needs BOTH states built:**
+
+| Surface | Unticked | Ticked |
+|---|---|---|
+| Deals tab | "This event has a deal you are not a party to" — **not** the current "No deal yet" | the deal, read-only |
+| Settlement total | labelled **"Total payable (partial)"**, with the same note the Budget Planner already uses | the full figure |
+| Send for review | **left out** — see §26.9 | added to the review list |
+
+The "No deal yet" line is the one to notice: a co-host who cannot see a deal is currently told there
+**is** none, which is not a permission boundary, it is a false statement about the event.
+
+### 26.9 An unticked co-host is not a party to the settlement at all
+
+**Ruling:** **"If a party is not in a settlement, they are not part of any process in the
+settlement."** An unticked co-host is left out of send-for-review **and every other settlement
+step** — not given a reduced version of it.
+
+This closes the second half of §26.8's send-for-review row, and it closes it with a principle rather
+than a per-screen choice. The alternative on the table was *let them review only their own lines*,
+which would have made "party to the settlement" mean one thing for signatures and another for
+review. One meaning, everywhere.
+
+### 26.10 Merging two clashing events: the user chooses, twice
+
+**Ruling:** two choices, both the user's, and **no fixed rule** for either.
+
+1. **Which event survives** — the user is asked. Not "the earlier-created one wins", which was the
+   proposal.
+2. **What carries over from the other one** — the user **ticks which parts**: messages, schedule,
+   guest list, riders, budget lines.
+
+Worth noting what was rejected: *everything carries over* was the simpler option and was not taken.
+A merge is destructive and the parts are not interchangeable, so both halves are a prompt.
+
+### 26.11 The venue handoff is built and has no door
+
+**Ruling:** build the door — three controls.
+
+1. A **button that starts** the handoff.
+2. **Cancel and resend** on a pending one.
+3. A **warning before the 90-day expiry**.
+
+The whole mechanism works underneath, expiry included. Nothing anywhere starts it, stops it, or says
+it is about to lapse, which makes a working feature unreachable.
+
+### 26.12 A requester without an account hears the answer
+
+**Ruling:** add it. **Accept and decline each send the requester an email**, the same way a
+counter-offer already does.
+
+This is one missing half rather than a missing feature: the counter-offer path already emails. Accept
+and decline are silent, so somebody who sent a booking request without an account is simply never
+told.
+
+### 26.13 Lists are sortable
+
+**Ruling:** build sorting, as promised. Filtering alone is not what was said.
+
+### 26.14 Four smaller additions, all four wanted
+
+**Ruling:** add all four.
+
+1. **Email a team member** from Team.
+2. **Suggested next actions** on the dashboard.
+3. **Duplicate an event.**
+4. An **embedded map** on the venue page.
+
+### 26.15 The QA agent proves the disclosure flow across seats
+
+**Ruling:** the QA agent tests **send-for-review and showing a performer the full numbers, end to
+end, signed in as several profiles** — host, co-host, performer, agent.
+
+Recorded as a decision rather than a chore because it names the method: *"You use the QA agent e2e
+with multiple profiles."* The disclosure rules of §25.9 and §26.8 are all about what a **particular
+seat** can see, and a suite that drives one seat cannot fail on them. §25.9's own build found two
+such defects at step 5 that every green suite missed.
+
+### One bug, not a decision — the ticket-type form on Event Details
+
+Daniel's instruction on this row was *"If there are obvious bugs then fix them."* This is one:
+
+> Naming a ticket row first makes its price and quantity fields vanish and nothing saves; entering
+> the price first drops the maximum.
+
+**Owed:** the form takes its fields in any order and every field saves.
+
+### Still open after this pass — two rows
+
+- **Profile switching before launch.** Daniel did not decide it; he questioned the premise: *"Profile
+  switching doesn't make sense with the current architecture, right? We have profiles and choose
+  which profiles for what. We can filter the different views."* That is a question back, and it
+  deserves an answer about the architecture before it is a product call — **what, concretely, would a
+  switcher do that choosing a profile per context does not?** Until that is answered there is nothing
+  to build or decline.
+- **The terminology session.** It was booked as an open item ("every caption waits on it"), and then
+  §26.1 answered the whole table in the doc instead. It is probably moot; confirm rather than assume,
+  because the `PAYS IT` / `CARRIES IT` pair is still Ran's and is exactly the kind of thing such a
+  session is for.
+
 ## Still-open product calls (not yet decided)
 
+- **Is profile switching needed before launch? (see §26)** — Daniel questioned the premise rather
+  than answering: *"Profile switching doesn't make sense with the current architecture, right?"*
+  Needs an architectural answer first — what a switcher would do that choosing a profile per context
+  does not.
+- **Does a door split's named payer bear it alone? (see §25.9.6)** — the two settlements are computed
+  side by side there, on the seeded Album Release. The performers do not move; the host goes from
+  −50,000.00 to −75,000.00 and the co-host from 0.00 to +25,000.00. Until it is answered a percentage
+  deal settles as it always has.
 - ~~**Event start/end mechanism (#16.4)**~~ **RESOLVED 2026-08-02 (see #16.4):** explicit required
   `event_start_time`/`event_end_time` columns = the PUBLIC start/end (authoritative value), each **bound to a
   schedule item whose label is editable-but-revertible**; default schedule seeded from the old app. Chosen over
