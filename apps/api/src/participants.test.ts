@@ -1841,6 +1841,101 @@ describe("participants — an invitation must be answered", () => {
     expect(after.json()).toMatchObject([{ requestStatus: "cancelled" }]);
   });
 
+  /*
+   * AN INVITATION TO A CANCELLED EVENT CANNOT BE ACCEPTED — decisions §25.9.9, Daniel 2026-09-29,
+   * AGAINST §25.6's own recommendation (which argued a cancelled event can be reinstated, so an
+   * acceptance standing against one is what the operator wants when it is).
+   *
+   * THE LOCK, and its second half is the point. The ruling names the ACCEPTANCE and only the
+   * acceptance, so declining stays open: §25.6's argument against refusing was that a blanket
+   * refusal also costs the performer the answer they are most likely to want on record, and reading
+   * the ruling narrowly honours it and avoids that cost. A test that only asserted the refusal
+   * would pass just as well if declining had been shut too, which is the version of this that gets
+   * shipped by accident.
+   */
+  it("refuses to ACCEPT an invitation to a cancelled event, and still takes the decline", async () => {
+    const { performer, event } = await seedEventWithHost("cancel-answer");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("cancel-answer-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    expect(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: `/api/v1/events/${event.id}`,
+          headers: auth("cancel-answer-op"),
+          payload: { status: "cancelled", cancellationReason: "The room flooded" },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("cancel-answer-perf"),
+      payload: {},
+    });
+    expect(accepted.statusCode).toBe(409);
+    expect(accepted.json().error.message).toContain("nothing to accept");
+
+    // AND NO ROW WAS WRITTEN BEHIND THE REFUSAL. A 409 over a participation that had already been
+    // set to `accepted` would be the worst of both, and the guard runs before the write for that
+    // reason.
+    const [row] = await harness.db
+      .select({ status: schema.eventParticipants.status })
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, event.id),
+          eq(schema.eventParticipants.profileId, performer.profileId),
+        ),
+      );
+    expect(row?.status).toBe("invited");
+
+    // THE HALF THE RULING DELIBERATELY LEAVES OPEN.
+    const declined = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/decline`,
+      headers: auth("cancel-answer-perf"),
+      payload: {},
+    });
+    expect(declined.statusCode).toBe(200);
+    const [afterDecline] = await harness.db
+      .select({ status: schema.eventParticipants.status })
+      .from(schema.eventParticipants)
+      .where(
+        and(
+          eq(schema.eventParticipants.eventId, event.id),
+          eq(schema.eventParticipants.profileId, performer.profileId),
+        ),
+      );
+    expect(afterDecline?.status).toBe("declined");
+  });
+
+  /*
+   * AND IT IS NOT NEW-FOUND STRICTNESS: a LIVE event still accepts. The shape that has caught this
+   * repo repeatedly is a guard that refuses too much and passes a naive test.
+   */
+  it("still accepts an invitation to an event that is not cancelled", async () => {
+    const { performer, event } = await seedEventWithHost("cancel-live");
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participants`,
+      headers: auth("cancel-live-op"),
+      payload: { profileId: performer.profileId, role: "performer" },
+    });
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/v1/events/${event.id}/participation/accept`,
+      headers: auth("cancel-live-perf"),
+      payload: {},
+    });
+    expect(accepted.statusCode).toBe(200);
+  });
+
   it("keeps an answered invitation, tagged for the tab it belongs in", async () => {
     const { performer, event } = await seedEventWithHost("tabs");
 

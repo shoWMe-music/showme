@@ -381,10 +381,14 @@ function AnswerCard({
        * a cancelled show because "in this list it sat directly above a live show in identical
        * styling". This is the same fact one step earlier.
        *
-       * The answer stays OFFERED rather than refused: a cancelled night can be reinstated, and
-       * whether an acceptance should be accepted against one is a product call that is not this
-       * page's to take (recorded for Daniel). What changes is that the reader is told before they
-       * answer.
+       * AND THE ANSWER IS NOW HALF-REFUSED — decisions §25.9.9, Daniel 2026-09-29. When this was
+       * written the answer stayed offered and the product call was recorded for him; he took it,
+       * against the recommendation: an invitation to a cancelled event may not be ACCEPTED.
+       *
+       * DECLINING STAYS, and that is the ruling read narrowly on purpose — he named the acceptance
+       * and only the acceptance, and a blanket refusal would cost the performer the answer they are
+       * most likely to want on record. So Accept goes and Decline remains, which is also the only
+       * shape that keeps this page from offering what `POST /invitations/:token/accept` will refuse.
        */
       return (
         <Panel
@@ -402,16 +406,19 @@ function AnswerCard({
             </p>
           )}
           <p style={bodyStyle}>
-            Accepting adds you to it straight away. Declining is a real answer too, and closes the
-            invitation.
+            {offer?.targetEventStatus === "cancelled"
+              ? "There is nothing left to accept, but declining is still a real answer and closes the invitation."
+              : "Accepting adds you to it straight away. Declining is a real answer too, and closes the invitation."}
           </p>
           {answerFailed && <p style={errorStyle}>{errorMessage(answerFailed)}</p>}
           <div style={actionsStyle}>
-            <Button onClick={() => invitation.accept.mutate()} disabled={busy}>
-              {busy ? "One moment…" : "Accept"}
-            </Button>
+            {offer?.targetEventStatus !== "cancelled" && (
+              <Button onClick={() => invitation.accept.mutate()} disabled={busy}>
+                {busy ? "One moment…" : "Accept"}
+              </Button>
+            )}
             <Button variant="secondary" onClick={() => invitation.decline.mutate()} disabled={busy}>
-              Decline
+              {busy && offer?.targetEventStatus === "cancelled" ? "One moment…" : "Decline"}
             </Button>
           </div>
         </Panel>

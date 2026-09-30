@@ -32,6 +32,7 @@ import {
   spendCollaborationCredit,
 } from "../lib/entitlements";
 import { advanceEventStatus } from "../lib/event-status-ladder";
+import { assertAnswerable } from "../lib/invitation-answer";
 import {
   MAX_VERIFY_ATTEMPTS,
   OTP_TTL_MS,
@@ -1149,6 +1150,22 @@ export async function invitationRoutes(fastify: FastifyInstance): Promise<void> 
       const grantsEventParticipant =
         invitation.targetEventId != null &&
         (invitation.type === "event_participant" || invitation.type === "code");
+
+      /*
+       * NOTHING TO ACCEPT ON A CANCELLED EVENT — decisions §25.9.9, and this is the door an
+       * off-platform party comes through. The same rule the inbox's accept asks
+       * (`lib/invitation-answer.ts`); declining is a separate route and is deliberately untouched.
+       *
+       * Only when the invitation actually grants a PARTICIPATION: a `profile_member` invite is about
+       * joining a profile's team, which a cancelled event says nothing about.
+       */
+      if (grantsEventParticipant && invitation.targetEventId) {
+        const [target] = await database
+          .select({ status: schema.events.status })
+          .from(schema.events)
+          .where(eq(schema.events.id, invitation.targetEventId));
+        assertAnswerable(target?.status, "accepted");
+      }
 
       // Entitlement BACKSTOP (decisions #4/§C, PLAN.md:614): create already refused an
       // admin-grade event invitation, but a host's plan can LAPSE between the invite

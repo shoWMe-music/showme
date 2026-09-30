@@ -214,9 +214,22 @@ export function EventInvitationsCard({
                   >
                     Decline
                   </Button>
-                  <Button disabled={busy} onClick={() => onAccept(invitation)}>
-                    {busy ? "Sending…" : "Accept"}
-                  </Button>
+                  {/*
+                    NO ACCEPT ON A CANCELLED EVENT (decisions §25.9.9). The badge beside this row
+                    already says the event is off — run 15's fix — and the API now refuses the
+                    acceptance, so offering the button would be offering a 409. Decline stays: the
+                    ruling names the acceptance and only the acceptance, and closing the invitation
+                    is the answer a performer most wants on record.
+
+                    `requestStatus` and not an event field: the API already crosses the EVENT's
+                    status into it (QA5-2), so the fact is on the row and asking for it twice would
+                    be a second opinion about the same thing.
+                  */}
+                  {invitation.requestStatus !== "cancelled" && (
+                    <Button disabled={busy} onClick={() => onAccept(invitation)}>
+                      {busy ? "Sending…" : "Accept"}
+                    </Button>
+                  )}
                 </div>
               )}
             </li>

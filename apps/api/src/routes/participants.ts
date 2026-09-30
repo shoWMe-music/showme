@@ -22,6 +22,7 @@ import { renderOffPlatformPerformerEmail } from "../lib/email-templates";
 import { assertGrantAdminAllows } from "../lib/entitlements";
 import { advanceEventStatus } from "../lib/event-status-ladder";
 import { loadEventSummary } from "../lib/event-summary";
+import { assertAnswerable } from "../lib/invitation-answer";
 import { createPerformerStub } from "../lib/off-platform";
 import { participantAddedLink } from "../lib/participant-added-link";
 import { signProfileImageUrls } from "../lib/profile-media";
@@ -1002,9 +1003,22 @@ export async function participantRoutes(fastify: FastifyInstance): Promise<void>
     // Read directly rather than through `loadEventSummary`, which carries the
     // display fields and not `host_profile_id` — the one column this needs.
     const [event] = await database
-      .select({ title: schema.events.title, hostProfileId: schema.events.hostProfileId })
+      .select({
+        title: schema.events.title,
+        hostProfileId: schema.events.hostProfileId,
+        status: schema.events.status,
+      })
       .from(schema.events)
       .where(eq(schema.events.id, eventId));
+
+    /*
+     * NOTHING TO ACCEPT ON A CANCELLED EVENT — decisions §25.9.9. Declining stays open, which is the
+     * whole precision of the rule; `assertAnswerable` carries the argument.
+     *
+     * Before the write and before the notification, so a refused acceptance leaves no participant
+     * row and tells nobody — a 403 with the row written behind it would be the worst of both.
+     */
+    assertAnswerable(event?.status, answer);
 
     const updated = await database.transaction(async (tx) => {
       const [after] = await tx
